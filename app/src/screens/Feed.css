@@ -8,6 +8,12 @@
 .feed-stat--open dd { color: var(--ember-text); }
 .feed-stat--resolved dd { color: var(--success); }
 
+/* neighborhood chips: "College Hill 4 · Fox Point 2" — open reports by hood in the current view */
+.feed-hoods { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.hood-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 6px 4px 10px; border-radius: 999px; border: 2px solid var(--ink); background: var(--surface); font-family: var(--font-display); font-weight: 800; font-size: 0.78rem; letter-spacing: -0.01em; color: var(--ink); }
+.hood-n { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--ember); color: var(--ember-ink); display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.feed-hood { color: var(--ember-text); font-weight: 600; }
+
 .feed-map {
   height: 45vh;
   min-height: 260px;
@@ -45,7 +51,7 @@ a.feed-row:hover { border-color: var(--ink); }
 .feed-icon { grid-area: icon; color: var(--ink); display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
 .feed-icon svg { width: 36px; height: 36px; }
 .feed-cat { grid-area: cat; font-family: var(--font-display); font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
-.feed-addr { grid-area: addr; color: var(--muted); font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-addr { grid-area: addr; color: var(--muted); font-size: 0.88rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
 .feed-age { grid-area: age; font-size: 0.78rem; white-space: nowrap; justify-self: end; }
 
 .feed-pill {

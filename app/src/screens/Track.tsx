@@ -5,6 +5,7 @@ import { ApiError, type ReportView } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
+import { neighborhoodAt } from '../lib/neighborhoods';
 import OwnerActions from '../components/OwnerActions';
 import './Track.css';
 
@@ -87,6 +88,13 @@ export default function Track() {
 
   const [view, setView] = useState<ReportView | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [hood, setHood] = useState<string | null>(null);
+  useEffect(() => {
+    if (view?.lat == null || view?.lng == null) { setHood(null); return; }
+    let cancelled = false;
+    neighborhoodAt(view.lat, view.lng).then((h) => { if (!cancelled) setHood(h); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [view?.lat, view?.lng]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!id) { setLoadState('notfound'); return; }
@@ -216,6 +224,7 @@ export default function Track() {
           <div className="track-map" data-map data-lat={view.lat ?? undefined} data-lng={view.lng ?? undefined}>
             <span className="label">{t('track.map.label')}</span>
             <p className="track-map-addr">{view.address}</p>
+            {hood && <span className="track-hood">{hood}</span>}
             {view.lat != null && view.lng != null && (
               <p className="muted track-map-coords">{view.lat.toFixed(5)}, {view.lng.toFixed(5)}</p>
             )}

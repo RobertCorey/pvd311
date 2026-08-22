@@ -83,6 +83,7 @@
 .track-cat-label { font-family: var(--font-display); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; }
 .track-map { padding: 12px; border: 2px dashed var(--line); border-radius: var(--radius); background: var(--bg); }
 .track-map-addr { margin: 4px 0 0; font-weight: 600; line-height: 1.4; }
+.track-hood { display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; border: 2px solid var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); }
 .track-map-coords { margin: 4px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* --- what to expect --- */

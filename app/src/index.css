@@ -56,7 +56,9 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 .notice-warn { background: var(--warn-soft); border-color: var(--warn); color: var(--ink); }
 .notice-ok { background: var(--success-soft); border-color: var(--success); color: var(--ink); }
 
-.app-footer { margin-top: auto; padding: 24px 0 20px; text-align: center; border-top: 2px solid var(--line); font-size: 0.75rem; color: var(--muted); }
+.app-footer { margin-top: auto; padding: 10px 0 20px; text-align: center; font-size: 0.75rem; color: var(--muted); }
+.footer-skyline { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto 10px; opacity: 0.85; }
+.made-in { margin: 4px 0 8px; font-family: var(--font-display); font-weight: 800; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
 .app-footer nav { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
 .app-footer nav a { text-decoration: none; font-weight: 600; color: var(--ink); min-height: var(--tap); display: inline-flex; align-items: center; }
 .app-footer .disclaimer { max-width: 440px; margin: 0 auto 8px; line-height: 1.45; text-wrap: pretty; }

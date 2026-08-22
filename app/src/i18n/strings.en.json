@@ -32,6 +32,8 @@
   "gate.error.email": "That email address doesn't look right.",
   "gate.error.rate": "Too many attempts — wait a few minutes and try again.",
   "gate.error.generic": "Something went wrong. Please try again.",
+  "map.hoods.label": "Open reports by neighborhood",
+  "footer.madeIn": "Made in Providence · the Creative Capital",
   "header.myReports": "My reports",
   "nav.report": "Report",
   "nav.map": "Map",

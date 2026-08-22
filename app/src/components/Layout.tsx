@@ -4,6 +4,7 @@ import { BRAND } from '../brand';
 import { useI18n } from '../i18n';
 import BrandMark from './BrandMark';
 import TabBar from './TabBar';
+import Skyline from './Skyline';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 import AccountLink from './AccountLink';
 
@@ -23,6 +24,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       </header>
       <main>{children}</main>
       <footer className="app-footer">
+        <Skyline className="footer-skyline" />
         <nav aria-label="Site">
           <Link to="/">{t('nav.report')}</Link>
           <Link to="/map">{t('nav.map')}</Link>
@@ -36,6 +38,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <button type="button" className={`lang-btn${lang === 'es' ? ' active' : ''}`} onClick={() => setLang('es')} lang="es" aria-pressed={lang === 'es'}>Español</button>
         </div>
         <p className="disclaimer">{BRAND.disclaimer}</p>
+        <p className="made-in">{t('footer.madeIn')}</p>
         <div>{t('footer.contact')}: <a href={`mailto:${BRAND.contactEmail}`}>{BRAND.contactEmail}</a></div>
       </footer>
       <TabBar />

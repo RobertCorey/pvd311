@@ -6,6 +6,7 @@ import { PVD_BOUNDS } from '../lib/geo';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
+import { neighborhoodsFor, shortNeighborhood } from '../lib/neighborhoods';
 import type { MapMarker } from '../components/MapView';
 import './Feed.css';
 
@@ -98,6 +99,26 @@ export default function Feed() {
         .map((it) => ({ id: it.id, lat: it.lat, lng: it.lng, label: it.categoryLabel, color: markerColor(it), open: isOpen(it), href: isCity(it) ? undefined : `/r/${it.id}` })),
     [items],
   );
+  // Neighborhoods are first-class: resolve each row's hood (lazy data module) and rank the busiest.
+  const [hoods, setHoods] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const list = (items ?? []).filter((it) => Number.isFinite(it.lat) && Number.isFinite(it.lng));
+    if (!list.length) { setHoods({}); return; }
+    let cancelled = false;
+    neighborhoodsFor(list).then((names) => {
+      if (cancelled) return;
+      const m: Record<string, string> = {};
+      names.forEach((n, i) => { if (n) m[list[i].id] = n; });
+      setHoods(m);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [items]);
+  const topHoods = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of items ?? []) { const h = hoods[it.id]; if (h && isOpen(it)) counts.set(h, (counts.get(h) ?? 0) + 1); }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  }, [items, hoods]);
+
   const stats = useMemo(() => {
     const list = items ?? [];
     const since = Date.now() - WEEK_MS;
@@ -118,6 +139,11 @@ export default function Feed() {
           <div className="feed-stat feed-stat--resolved"><dt>{t('map.stats.resolved')}</dt><dd>{stats.resolved}</dd></div>
           <div className="feed-stat"><dt>{t('map.stats.week')}</dt><dd>{stats.week}</dd></div>
         </dl>
+      )}
+      {topHoods.length > 0 && (
+        <ul className="feed-hoods rise" aria-label={t('map.hoods.label')}>
+          {topHoods.map(([name, n]) => <li key={name} className="hood-chip"><span className="hood-name">{shortNeighborhood(name)}</span><span className="hood-n">{n}</span></li>)}
+        </ul>
       )}
 
       <div className="feed-map">
@@ -149,7 +175,7 @@ export default function Feed() {
                       <span className="feed-icon" aria-hidden="true"><CategoryIcon k={it.category} /></span>
                       <span className="feed-cat">{it.categoryLabel}</span>
                       <span className={`feed-pill feed-pill--${pill.cls}`}>{pill.label}</span>
-                      <span className="feed-addr">{it.address.replace(/,\s*Providence.*$/i, '')}{isCity(it) && <span className="feed-source muted"> · {t('map.source.city')}</span>}</span>
+                      <span className="feed-addr">{it.address.replace(/,\s*Providence.*$/i, '')}{hoods[it.id] && <span className="feed-hood"> · {shortNeighborhood(hoods[it.id])}</span>}{isCity(it) && <span className="feed-source muted"> · {t('map.source.city')}</span>}</span>
                       <span className="feed-age muted">{ageLabel(it.createdAt, t)}</span>
                     </>);
                     const cls = `card feed-row rise${isOpen(it) ? ' feed-row--open' : ''}`;

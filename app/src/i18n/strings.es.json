@@ -32,6 +32,8 @@
   "gate.error.email": "Ese correo no parece válido.",
   "gate.error.rate": "Demasiados intentos — espera unos minutos e inténtalo de nuevo.",
   "gate.error.generic": "Algo salió mal. Inténtalo de nuevo.",
+  "map.hoods.label": "Reportes abiertos por vecindario",
+  "footer.madeIn": "Hecho en Providence · la Capital Creativa",
   "header.myReports": "Mis reportes",
   "nav.report": "Reportar",
   "nav.map": "Mapa",
