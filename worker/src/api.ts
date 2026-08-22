@@ -10,7 +10,7 @@ import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 
-const DEFAULT_ORIGINS = ['https://snappvd.org', 'https://www.snappvd.org', 'https://snappvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
+const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
 const PACE_MS = 3 * 60_000;       // one report per device per 3 min
 const DAILY_CAP = 5;              // per device per day
@@ -250,7 +250,7 @@ async function attachEmail(id: string, request: Request, { store }: ApiDeps): Pr
   return new Response(null, { status: 204 });
 }
 
-/** POST /api/reports/:id/follow {email} — get updates on someone else's (SnapPVD) report instead of filing a duplicate. */
+/** POST /api/reports/:id/follow {email} — get updates on someone else's (FixMyPVD) report instead of filing a duplicate. */
 async function followReport(id: string, request: Request, { store }: ApiDeps): Promise<Response> {
   const body = (await request.json().catch(() => null)) as { email?: string } | null;
   const email = (body?.email ?? '').trim().toLowerCase();

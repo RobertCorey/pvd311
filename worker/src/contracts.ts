@@ -29,6 +29,22 @@ export interface Env {
 }
 
 export type ReportDoc = Report & { id: string };
+
+/** users/{uid} — account profile + preferences. Created lazily on first authenticated call. */
+export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
+export interface UserDoc {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+  displayName: string | null;
+  provider: string;
+  createdAt: string;
+  lastSeenAt: string;
+  prefs: { emailUpdates: boolean };       // city-status emails for own + followed reports
+  addresses: SavedAddress[];               // ≤ 10
+  following: string[];                     // report ids (≤ 200)
+  trusted?: boolean;                       // admin override for the per-account trust ramp
+}
 export type PortalDraft = NonNullable<Report['portalDraft']>;
 
 /** firestore.ts — Firestore REST + Firebase Storage JSON API via service-account JWT. */
@@ -56,6 +72,13 @@ export interface Store {
   getPhoto(id: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
   deletePhoto(id: string): Promise<void>;
   findResolvedBefore(date: Date, limit: number): Promise<ReportDoc[]>; // portalStatus Resolved|Cancelled, portalStatusUpdatedAt <= date, photo still present
+  // Accounts (users/{uid}) — see me.ts
+  getUser(uid: string): Promise<UserDoc | null>;
+  patchUser(uid: string, fields: Partial<UserDoc> & Record<string, unknown>): Promise<void>;
+  findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
+  findReportsByEmail(email: string, limit: number): Promise<ReportDoc[]>;      // reporterEmail == email (any status)
+  fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped
+  countOwnerByStatus(uid: string, status: ReportStatus): Promise<number>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

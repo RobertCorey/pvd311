@@ -8,7 +8,7 @@
  * objects, with timestamps decoded to the {seconds, nanoseconds, toDate()} shape shared/types.ts expects.
  */
 import type { Report, ReportStatus } from '../../shared/types.js';
-import type { Store, AuthStore, Env, ReportDoc, PortalDraft } from './contracts.js';
+import type { Store, AuthStore, Env, ReportDoc, PortalDraft, UserDoc } from './contracts.js';
 
 // ── Service-account JWT → OAuth access token ───────────────────────────────
 interface ServiceAccount {
@@ -497,6 +497,61 @@ export function createStore(env: Env): Store {
         limit,
       });
       return docs.map(docToReport).filter((r) => /resolved|cancel/i.test(r.portalStatus ?? '') && !!r.photo);
+    },
+
+    // ── Accounts ──
+    async getUser(uid): Promise<UserDoc | null> {
+      const doc = await getDoc(env, `users/${uid}`);
+      return doc ? ({ ...(decodeFields(doc.fields ?? {}) as unknown as UserDoc), uid }) : null;
+    },
+
+    async patchUser(uid, fields): Promise<void> {
+      await patchDoc(env, `users/${uid}`, fields);
+    },
+
+    async findReportsByOwner(uid, limit): Promise<ReportDoc[]> {
+      // Single equality filter → no composite index; sorted here.
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: fieldFilter('ownerUid', 'EQUAL', { stringValue: uid }),
+        limit,
+      });
+      return docs.map(docToReport).sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+    },
+
+    async findReportsByEmail(email, limit): Promise<ReportDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: fieldFilter('reporterEmail', 'EQUAL', { stringValue: email }),
+        limit,
+      });
+      return docs.map(docToReport).sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+    },
+
+    async fetchReports(ids): Promise<ReportDoc[]> {
+      if (!ids.length) return [];
+      const out: ReportDoc[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const resp = await authedFetch(env, `${docBase(env)}:batchGet`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ documents: ids.slice(i, i + 100).map((id) => `${docBase(env)}/reports/${id}`) }),
+        });
+        if (!resp.ok) throw new Error(`firestore batchGet: ${resp.status} ${await resp.text()}`);
+        const rows = (await resp.json()) as { found?: FsDocument }[];
+        for (const r of rows) if (r.found) out.push(docToReport(r.found));
+      }
+      return out;
+    },
+
+    async countOwnerByStatus(uid, status): Promise<number> {
+      return runCount(env, {
+        from: [{ collectionId: 'reports' }],
+        where: andFilter(
+          fieldFilter('ownerUid', 'EQUAL', { stringValue: uid }),
+          fieldFilter('status', 'EQUAL', { stringValue: status }),
+        ),
+      });
     },
 
     async uploadFile(path, bytes, contentType, opts): Promise<string> {

@@ -24,9 +24,9 @@ export async function adminPage(env: Env, store: Store, token: string): Promise<
     store.findByStatus('awaiting_review', 50), store.findByStatus('failed', 50), store.findByStatus('pending', 50), store.findRecentSubmissions(24 * 7),
   ]);
   const section = (title: string, rows: ReportDoc[]) => `<h2>${title} <small>(${rows.length})</small></h2>${rows.length ? `<table><tr><th>id</th><th>category</th><th>address</th><th>description</th><th></th><th>status</th><th>city</th><th>created</th><th></th></tr>${rows.map((r) => row(r, token)).join('')}</table>` : '<p>none</p>'}`;
-  const html = `<!doctype html><meta name="viewport" content="width=device-width"><title>SnapPVD ops</title>
+  const html = `<!doctype html><meta name="viewport" content="width=device-width"><title>FixMyPVD ops</title>
 <style>body{font:14px system-ui;margin:20px;max-width:1200px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left;vertical-align:top;font-size:13px}button{font:inherit;padding:4px 8px}code{font-size:12px}h2{margin-top:28px}</style>
-<h1>SnapPVD ops</h1><p>Engine: paused=<b>${esc(engine?.['paused'] ?? false)}</b> · consecutiveFailures=${esc(engine?.['consecutiveFailures'] ?? 0)} · HITL_MODE=${esc(env.HITL_MODE)}
+<h1>FixMyPVD ops</h1><p>Engine: paused=<b>${esc(engine?.['paused'] ?? false)}</b> · consecutiveFailures=${esc(engine?.['consecutiveFailures'] ?? 0)} · HITL_MODE=${esc(env.HITL_MODE)}
 ${engine?.['paused'] ? `<form method="post" action="/admin/action" style="display:inline"><input type="hidden" name="token" value="${esc(token)}"><input type="hidden" name="action" value="resume"><button>▶ Resume engine</button></form>` : ''}</p>
 ${section('Awaiting review', awaiting)}${section('Failed', failed)}${section('Pending', pending)}${section('Submitted (7d)', recent)}`;
   return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
