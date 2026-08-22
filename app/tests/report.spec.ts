@@ -35,6 +35,7 @@ test('photo-optional category: address + turnstile → submit → tracking page'
   expect(body).toContain('missed_trash');
   expect(body).toContain('name="turnstileToken"');
   expect(body).toContain('name="deviceId"');
+  expect(body).toMatch(/name="clientId"\r?\n\r?\n[0-9a-f-]{36}/);
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
 

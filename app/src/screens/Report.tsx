@@ -78,6 +78,9 @@ export default function Report() {
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
 
+  // Idempotency key for this draft: a retried submit (timeout, flaky network) can't file twice.
+  const draftId = useRef<string>(crypto.randomUUID());
+
   // --- online state + offline outbox ---
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pending, setPending] = useState(0);
@@ -113,7 +116,7 @@ export default function Report() {
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
-  const pick = (key: string) => { setCategory(key); setExtra({}); window.scrollTo({ top: 0 }); };
+  const pick = (key: string) => { setCategory(key); setExtra({}); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
   const onPhoto = useCallback(async (file: File | null) => {
     setPhoto(file);
@@ -227,8 +230,9 @@ export default function Report() {
         descriptionOriginal: wordingApplied !== null && wordingApplied.trim() !== description.trim() ? wordingApplied.trim() : undefined,
         intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined,
         photo: blob,
-      });
+      }, draftId.current);
       rememberReport({ id: created.id, category: cat.key, address: address.trim(), createdAt: created.createdAt });
+      draftId.current = crypto.randomUUID();
       navigate(`/r/${created.id}`, { state: { justSubmitted: true } });
     } catch (err) {
       setSubmitting(false);
