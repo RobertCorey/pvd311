@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit -p .",
-    "canary": "node scripts/run-canary.mjs"
+    "canary": "node scripts/run-canary.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -15,6 +16,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260822.1",
     "typescript": "^5.7.0",
+    "vitest": "^4.1.11",
     "wrangler": "^4.125.0"
   }
 }

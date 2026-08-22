@@ -10,8 +10,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 24 }
-      - name: worker typecheck
-        run: cd worker && npm ci && npm run typecheck
+      - name: worker typecheck + unit tests
+        run: cd worker && npm ci && npm run typecheck && npm test
   app:
     runs-on: ubuntu-latest
     steps:
