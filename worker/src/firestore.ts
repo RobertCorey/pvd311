@@ -535,7 +535,7 @@ export function createStore(env: Env): Store {
         const resp = await authedFetch(env, `${docBase(env)}:batchGet`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ documents: ids.slice(i, i + 100).map((id) => `${docBase(env)}/reports/${id}`) }),
+          body: JSON.stringify({ documents: ids.slice(i, i + 100).map((id) => `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/reports/${id}`) }),
         });
         if (!resp.ok) throw new Error(`firestore batchGet: ${resp.status} ${await resp.text()}`);
         const rows = (await resp.json()) as { found?: FsDocument }[];
