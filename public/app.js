@@ -36,10 +36,11 @@ const VISIBLE_CATEGORIES = ALL_CATEGORIES.filter(inSeason);
 // Per-category follow-up questions rendered on the Review step (`extra` on the report).
 // Keys match the `from: 'extra.<key>'` sources in shared/categories.ts.
 const EXTRA_QUESTIONS = {
-  size: { label: 'How big is the pothole?', type: 'choice', options: ['Small', 'Medium', 'Large', 'Unknown'] },
+  // Option labels mirror the portal's cop_size choices (see scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md).
+  size: { label: 'How big is the pothole?', type: 'choice', options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
   cartIssue: { label: 'What is the issue with your carts?', type: 'choice',
     options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
-  animalType: { label: 'What kind of animal?', type: 'choice', options: ['Dog', 'Cat', 'Wildlife', 'Other'] },
+  animalType: { label: 'What kind of animal?', type: 'choice', options: ['Wildlife', 'Domestic'] },
   vehicleDetails: { label: 'Vehicle details (make, color, plate if visible)', type: 'text', placeholder: 'e.g. silver Honda Civic, RI plate ABC-123' },
 };
 
