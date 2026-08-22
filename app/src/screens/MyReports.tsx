@@ -4,6 +4,7 @@ import { byKey } from '../lib/categories';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
+import AccountReports from '../components/AccountReports';
 
 export default function MyReports() {
   const t = useT();
@@ -11,6 +12,7 @@ export default function MyReports() {
   return (
     <section className="section">
       <h2>{t('header.myReports')}</h2>
+      <AccountReports />
       {items.length === 0 ? (
         <div className="empty rise">
           <Illustration kind="empty" className="illo" />
