@@ -40,23 +40,23 @@ docs/              product-spec.md (SnapPVD), provisioning-task.md
 public/            legacy PWA (frozen)
 automation/        legacy laptop engine (reference)
 scripts/           portal research, case-type census
-firebase.json      hosting for public/ (legacy) · firebase.app.json hosting for app/dist
+firebase.json      hosting → app/dist (legacy public/ is no longer deployed)
 ```
 
 ## Development
 
 ```bash
 # Client
-npm run app:dev                  # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
-npm run app:test                 # Playwright, mobile emulation, API mocked
+npm run dev                      # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
+npm run test                     # Playwright, mobile emulation, API mocked
 npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
-npm run deploy:app               # build + deploy app/dist to Firebase Hosting (cutover)
+npm run deploy                   # build + deploy app/dist to Firebase Hosting (LIVE site)
 
 # Worker
 cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
 
 # Legacy
-npm run dev                      # serves public/ on :3999
+npm run legacy:dev               # serves the frozen public/ on :3999
 npm run test:rules               # Firestore/Storage rules (emulator, needs Java)
 ```
 

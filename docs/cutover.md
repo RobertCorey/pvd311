@@ -14,12 +14,12 @@ Goal: `app/` served at **https://snappvd.org** (and the Firebase hosting domains
 
 ## 2. Client (bob)
 - [ ] `app/src/brand.ts`: `siteUrl`, `domain`, `contactEmail` final.
-- [ ] `firebase.app.json`: confirm headers; `npm run preview:app` → smoke on a phone.
+- [ ] `firebase.json`: confirm headers; `npm run preview:app` → smoke on a phone.
 - [ ] Firebase console → Hosting → add custom domain `snappvd.org` (+ `www`), complete verification, wait for cert.
-- [ ] `npm run deploy:app` (deploys `app/dist` to the live site — this REPLACES `public/`).
+- [ ] `npm run deploy` (deploys `app/dist` to the live site).
 - [ ] Real-browser E2E from `https://snappvd.org`: submit (photo-optional category, test-marked), confirm Turnstile passes, tracking page renders, `/map` loads. Tell alice to reject the test report.
-- [ ] Retire legacy: `firebase.json` hosting → point at `app/dist` too (or delete the `public/` target), remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
-- [ ] pvdsnow.org → 301 to snappvd.org (Firebase Hosting `redirects` in `firebase.app.json`, keyed on host, or at Cloudflare once the old zone moves).
+- [ ] Retire legacy: DONE: `firebase.json` hosting → `app/dist`. Remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
+- [ ] pvdsnow.org → 301 to snappvd.org (Firebase Hosting `redirects` in `firebase.json`, keyed on host, or at Cloudflare once the old zone moves).
 
 ## 3. After
 - [ ] `robots.txt` Sitemap line → real sitemap or drop it.
