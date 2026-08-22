@@ -67,7 +67,7 @@ export async function requestReview(
 
   let emailed = false;
   try {
-    await mailer.send(`[PVD311] Review: ${cat?.label ?? report.category} @ ${report.address}`, html);
+    await mailer.send(`[FixMyPVD] Review: ${cat?.label ?? report.category} @ ${report.address}`, html);
     emailed = true;
   } catch (e) {
     console.error('[hitl] email send failed (report stays in review queue):', e);

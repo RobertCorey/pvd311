@@ -40,9 +40,9 @@ export function createMailer(env: Env): Mailer {
     } catch (e) { console.error('[email] reporter mail error', e); }
   }
 
-  /** Fire-and-forget alert; never throws. Subject is prefixed [PVD311]. */
+  /** Fire-and-forget alert; never throws. Subject is prefixed [FixMyPVD]. */
   async function alert(subject: string, html: string): Promise<void> {
-    try { await send(`[PVD311] ${subject}`, html); }
+    try { await send(`[FixMyPVD] ${subject}`, html); }
     catch (e) { console.error('[email] alert failed:', e); }
   }
 
