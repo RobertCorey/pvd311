@@ -9,7 +9,7 @@ import { CATEGORIES } from '../shared/categories.ts';
 const ICONS = {
   pothole: '🕳️', missed_trash: '🗑️', bins_carts: '♻️', street_light: '💡',
   illegal_dumping: '🚯', abandoned_vehicle: '🚗', parking: '🅿️', animal_control: '🐾',
-  unshoveled_sidewalk: '🚶', missed_plowing: '🌨️', unsure: '❓',
+  unshoveled_sidewalk: '🚶', missed_plowing: '🌨️', noise: '🔊', unsure: '❓',
 };
 
 // Picker-friendly short labels (portal-facing labels stay in shared/categories.ts).

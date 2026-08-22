@@ -73,6 +73,14 @@ window.PVD_CATEGORIES = [
     ]
   },
   {
+    "key": "noise",
+    "label": "Noise complaint",
+    "icon": "🔊",
+    "photoRequired": false,
+    "seasonal": null,
+    "extra": []
+  },
+  {
     "key": "unshoveled_sidewalk",
     "label": "Unshoveled sidewalk",
     "icon": "🚶",

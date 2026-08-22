@@ -210,9 +210,22 @@
       <button type="button" class="another-btn" id="submitAnother">Submit Another Report</button>
     </div>
 
+    <!-- MY REPORTS (status view; rendered by status.js) -->
+    <section class="my-reports" id="myReports" hidden aria-labelledby="myReportsHeading">
+      <h2 class="step-heading" id="myReportsHeading">My reports</h2>
+      <p class="step-desc" id="myReportsStatus">Loading…</p>
+      <ul class="my-reports-list" id="myReportsList"></ul>
+      <button type="button" class="nav-btn nav-back my-reports-close" id="myReportsClose">Back</button>
+    </section>
+
     <!-- FOOTER -->
     <footer class="app-footer">
       <p class="footer-about">PVD 311 is a volunteer project. We forward your reports to the city's official 311 system on your behalf.</p>
+      <p class="footer-links">
+        <a href="#my-reports" id="myReportsLink">My reports</a> &middot;
+        <a href="/about.html">About</a> &middot;
+        <a href="/privacy.html">Privacy</a>
+      </p>
       <p class="footer-links">
         <a href="https://311.providenceri.gov" target="_blank" rel="noopener">Use the official 311 portal directly</a>
       </p>
@@ -238,6 +251,7 @@
   <script src="/categories.js?v=1"></script>
   <script src="/outbox.js?v=1"></script>
   <script src="/app.js?v=16"></script>
+  <script src="/status.js?v=1"></script>
 
   <!-- Service Worker -->
   <script>

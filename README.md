@@ -10,7 +10,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 
 1. **Resident** opens the PWA, picks a category, optionally snaps a photo, confirms the location, adds a description, optionally leaves an email.
 2. **PWA** signs the device in anonymously (Firebase Auth), uploads the photo to Cloud Storage under that uid, and writes the report to Firestore with `status: pending` in the same batch as a per-device pacing marker (`users/{uid}.lastReportAt`; rules enforce one report per device every 3 minutes). Offline? The report is saved in an IndexedDB outbox and sent when the page next opens online.
-3. **Review** — HITL mode (launch mode): the operator approves/rejects from Telegram or the dashboard. Full-auto with an agent in the loop is the goal.
+3. **Review** — HITL mode (launch mode): the operator is notified by email (Resend) and approves/rejects from the dashboard. Full-auto with an agent in the loop is the goal.
 4. **Automation** (`automation/`) logs into the city's 311 portal with Playwright, selects the case type by census GUID, fills the conditional Step-3 fields (unmapped fields → an LLM "scout" reads the live controls), submits, and stores the case ID + proof screenshot.
 5. **Status watcher** polls the portal and records the city's status; the resident sees it under **My reports** in the PWA (reporters can read their own docs).
 
@@ -20,7 +20,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 |---|---|
 | PWA | Vanilla JS (no build), Firebase Hosting, Auth (anonymous), Firestore, Storage, App Check (reCAPTCHA Enterprise), service worker + IndexedDB outbox |
 | Shared | `shared/categories.ts` (category registry → portal GUIDs/fields), `shared/types.ts` |
-| Automation | Node + TypeScript, Playwright, Firebase Admin SDK, Telegram HITL, Docker |
+| Automation | Node + TypeScript, Playwright, Firebase Admin SDK; runtime: Cloudflare Workers + Browser Rendering (in progress), Docker image for a VPS fallback |
 | Target | Providence 311 portal (Power Pages / Dynamics 365) |
 
 Firebase project `pvd-snow-report` is on the **Spark** plan (no billing): no Cloud Functions; rules + App Check + pacing do the protecting.
@@ -37,7 +37,7 @@ public/            PWA
   sw.js            app-shell cache (versioned)
   tests/           Playwright specs
 shared/            category registry + types (single source of truth)
-automation/        portal submitter, HITL, watcher, canary, dashboard; Dockerfile + DEPLOY.md
+automation/        portal submitter, HITL review, watcher, canary, dashboard; Dockerfile + DEPLOY.md
 scripts/           portal research, case-type census, gen-categories.mjs
 tests/rules/       Firestore/Storage rules tests (emulator)
 firestore.rules    create-only, schema-validated, per-device pacing; owner read
@@ -64,7 +64,7 @@ cd automation && npm run build && npm run auth   # one-time interactive portal l
 npm start                                         # dashboard on :3311
 ```
 
-Deploy: `npm run deploy` (hosting), `npm run deploy:rules` (Firestore + Storage rules). Automation deploy: see [`automation/DEPLOY.md`](automation/DEPLOY.md) — cloud/VPS only, never homelab.
+Deploy: `npm run deploy` (hosting), `npm run deploy:rules` (Firestore + Storage rules). Automation deploy: Cloudflare (see `automation/`), or the Docker image per [`automation/DEPLOY.md`](automation/DEPLOY.md) — cloud only, never homelab.
 
 ## Principles
 
