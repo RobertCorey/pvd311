@@ -5,6 +5,7 @@ import { needsHumanApproval, requestReview, processCallbacks } from './hitl.js';
 import { alert } from './telegram.js';
 import { runCanary } from './canary.js';
 import { sendDailyDigest } from './digest.js';
+import { runWatcher } from './watcher.js';
 import { CATEGORIES, isCategory, type Report } from '../../shared/types.js';
 
 // Providence bounding box
@@ -114,6 +115,20 @@ export class AutoSubmitter {
   }
 
   private lastDailyRun: string | null = null;
+  private lastWatcherRun = 0;
+
+  /** Every ~30 min: poll the portal for status changes on submitted cases (read-only). */
+  private async watcherTick(): Promise<void> {
+    if (Date.now() - this.lastWatcherRun < config.watcherIntervalMs) return;
+    this.lastWatcherRun = Date.now();
+    try {
+      const changes = await runWatcher();
+      for (const c of changes) {
+        console.log(`[watcher] ${c.caseId}: ${c.from ?? '—'} → ${c.to}`);
+        if (/resolved|cancel/i.test(c.to)) await alert(`🏁 <b>${c.caseId}</b> is now <b>${c.to}</b> (report ${c.reportId})`);
+      }
+    } catch (e) { console.error('[auto] watcher failed:', e); }
+  }
 
   /** Once per day (first poll after 06:00 local): selector canary + digest. Never creates drafts. */
   private async dailyTasks(): Promise<void> {
@@ -145,6 +160,7 @@ export class AutoSubmitter {
     this.busy = true;
     try {
       await this.dailyTasks();
+      await this.watcherTick();
 
       // Drain phone approvals/rejections first
       await processCallbacks();

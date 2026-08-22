@@ -38,6 +38,7 @@ export const config = {
   autoSubmissionDelayMs: 45_000,       // Minimum gap between submissions
   autoMaxPerHour: 15,                  // Max submissions per rolling hour
   autoCircuitBreakerThreshold: 3,      // Pause after N consecutive failures
+  watcherIntervalMs: parseInt(process.env['WATCHER_INTERVAL_MS'] || String(30 * 60_000), 10),
   autoStuckProcessingMinutes: 20,      // Reap reports stuck in 'processing' after N minutes
   autoMaxRetries: 2,                   // Automatic retries per report (non-human errors only)
   autoRetryBackoffMs: 10 * 60_000,     // Wait before a retry

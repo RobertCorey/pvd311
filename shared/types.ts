@@ -52,7 +52,8 @@ export interface Report {
 
   /** Last status seen on the city portal for this case (set by the status watcher) */
   portalStatus?: string | null;
-  portalStatusUpdatedAt?: string | null;
+  portalStatusUpdatedAt?: FirebaseFirestore.Timestamp | null;
+  portalLastActivity?: { subject: string; createdOn: string | null; fetchedAt: string } | null;
 
   /** Set when a human (or the trust ramp) approved this report for submission */
   approvedAt?: string | null;
