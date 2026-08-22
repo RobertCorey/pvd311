@@ -24,6 +24,12 @@ export const config = {
   // Agent scout (fills unmapped Step-3 fields). Needs ANTHROPIC_API_KEY (read by the SDK).
   scoutModel: process.env['SCOUT_MODEL'] || 'claude-opus-5',
   scoutMinConfidence: parseFloat(process.env['SCOUT_MIN_CONFIDENCE'] || '0.7'),
+
+  // Human-in-the-loop: 'review' (launch mode) | 'ramp' | 'auto'
+  hitlMode: (process.env['HITL_MODE'] || 'review') as 'review' | 'ramp' | 'auto',
+  trustRampN: parseInt(process.env['TRUST_RAMP_N'] || '3', 10),
+  telegramBotToken: process.env['TELEGRAM_BOT_TOKEN'] || '',
+  telegramChatId: process.env['TELEGRAM_CHAT_ID'] || '7744052689',
   port: parseInt(process.env['PORT'] || '3311', 10),
 
   // Auto-submission mode

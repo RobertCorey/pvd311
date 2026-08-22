@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { fetchPendingReports, findRecentSubmissions, updateReportStatus, saveReportDraft } from './firestore.js';
 import { PortalSubmitter } from './portal.js';
+import { needsHumanApproval, requestReview, processCallbacks } from './hitl.js';
+import { alert } from './telegram.js';
 import { CATEGORIES, isCategory, type Report } from '../../shared/types.js';
 
 // Providence bounding box
@@ -107,6 +109,9 @@ export class AutoSubmitter {
 
     this.busy = true;
     try {
+      // Drain phone approvals/rejections first
+      await processCallbacks();
+
       const pending = await fetchPendingReports();
       if (pending.length === 0) return;
 
@@ -117,6 +122,12 @@ export class AutoSubmitter {
         await updateReportStatus(report.id, 'auto-rejected' as any, rejection);
         this.addLog(report.id, 'auto-rejected', rejection);
         console.log(`[auto] Rejected ${report.id}: ${rejection}`);
+        return;
+      }
+
+      // Human-in-the-loop gate
+      if (await needsHumanApproval(report)) {
+        await requestReview(report);
         return;
       }
 
@@ -199,9 +210,13 @@ export class AutoSubmitter {
       this.consecutiveFailures++;
       this.addLog(report.id, 'failed', message);
 
+      if (/^NEEDS_(REVIEW|MAPPING)/.test(message)) {
+        await alert(`⚠️ <b>Needs a human</b> — report ${report.id}\n${message}`);
+      }
       if (this.consecutiveFailures >= config.autoCircuitBreakerThreshold) {
         this.paused = true;
         console.error(`[auto] Circuit breaker tripped after ${this.consecutiveFailures} consecutive failures`);
+        await alert(`🛑 <b>Circuit breaker tripped</b> after ${this.consecutiveFailures} failures. Last: ${message}\nResume from the dashboard.`);
       }
     } finally {
       await portal.close();

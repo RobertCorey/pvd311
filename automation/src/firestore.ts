@@ -28,6 +28,8 @@ export function initFirestore(): Firestore {
 }
 
 /** Fetch recent reports, newest first (capped at 200, cached 60s). */
+export function getDb() { return db; }
+
 export async function fetchAllReports(): Promise<(Report & { id: string })[]> {
   if (allReportsCache && Date.now() - allReportsCache.ts < CACHE_TTL_MS) {
     return allReportsCache.data;

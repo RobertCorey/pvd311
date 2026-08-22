@@ -8,6 +8,7 @@ import type { Category } from './categories.js';
 
 export type ReportStatus =
   | 'pending'        // Created by PWA, waiting for automation
+  | 'awaiting_review' // Parked for human approval (HITL mode)
   | 'processing'     // Automation has picked it up
   | 'submitted'      // Successfully submitted to 311 portal
   | 'failed'         // Automation failed (see statusDetail)
@@ -44,6 +45,12 @@ export interface Report {
 
   /** Portal draft bookkeeping so retries resume the same draft instead of orphaning a new one */
   portalDraft?: { url: string; entityId: string | null; step: 2 | 3; savedAt: string } | null;
+
+  /** Set when a human (or the trust ramp) approved this report for submission */
+  approvedAt?: string | null;
+
+  /** HITL bookkeeping */
+  review?: { requestedAt: string; telegramMessageId: number | null; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string } | null;
 
   /** Optional reporter name */
   reporterName: string | null;
