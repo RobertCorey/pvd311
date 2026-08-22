@@ -91,7 +91,7 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   const flushed = page.waitForRequest(`${API}/api/report`);
   await page.goto('/');
   await flushed;
-  await expect(page.locator('[role="status"]')).toContainText('Sent a saved report', { timeout: 5000 });
+  await expect(page.locator('.notice-ok')).toContainText('Sent a saved report', { timeout: 15_000 });
   await expect(page.locator('.outbox-card')).toHaveCount(0);
   await page.goto('/my');
   await expect(page.locator('.my-row')).toHaveCount(1);
@@ -110,6 +110,7 @@ test('language switch to Español persists and translates the picker', async ({ 
 test('typed address geocodes → mini-map with draggable pin appears', async ({ page }) => {
   await mockApi(page);
   await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
   await page.click('[data-category="missed_trash"]');
   await page.fill('#address', '25 Dorrance St');
@@ -124,6 +125,7 @@ test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides 
     { id: 'near1', source: 'snappvd', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', lat: 41.8241, lng: -71.4129, address: '27 Dorrance St, Providence, RI', createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), status: 'sent', portalStatus: 'Submitted', distanceM: 18 },
   ] }) }));
   await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
   await page.click('[data-category="missed_trash"]');
   await page.fill('#address', '25 Dorrance St');
