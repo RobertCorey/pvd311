@@ -39,7 +39,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Dashboard bound to localhost (HOST env to expose)
 
 ## M5 — Deploy
-- [ ] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts
+- [x] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts — build unverified (no Docker on the Mac); verify on NAS
 - [ ] NAS first (known-good residential IP); VPS spike with WAF test from its IP
 - [ ] Sentry restore (front + back)
 
