@@ -62,8 +62,10 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
     return () => { cancelled = true; };
   }, [fail, onSignedIn]);
 
-  async function onSend(e: React.FormEvent) {
-    e.preventDefault();
+  // Not a <form>: the gate mounts INSIDE the Report form, and nested forms make the browser submit the outer one
+  // natively (observed live: GET /? and the draft reloads). Enter in the field and the button both call onSend.
+  async function onSend(e?: { preventDefault?: () => void }) {
+    e?.preventDefault?.();
     if (!email.trim() || phase === 'busy') return;
     setPhase('busy'); setError(null);
     try { await sendSignInLink(email, returnTo); setPhase('sent'); } catch (err) { fail(err); }
@@ -94,16 +96,17 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
             <h2 id="gate-title">{t('gate.title')}</h2>
             <p className="gate-sub">{t('gate.why')}</p>
 
-            <form className="gate-form" onSubmit={onSend} noValidate>
+            <div className="gate-form" role="group" aria-labelledby="gate-title">
               <label className="label" htmlFor="gate-email">{t('gate.email.label')}</label>
               <input ref={inputRef} id="gate-email" className="input" type="email" inputMode="email" autoComplete="email" enterKeyHint="send"
-                placeholder={t('gate.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} required />
-              <button type="submit" className="btn btn-primary" disabled={!email.trim() || phase === 'busy'}>
+                placeholder={t('gate.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} required
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void onSend(); } }} />
+              <button type="button" className="btn btn-primary" disabled={!email.trim() || phase === 'busy'} onClick={() => { void onSend(); }}>
                 {phase === 'busy' ? t('gate.email.sending') : t('gate.email.submit')}
               </button>
               <p className="hint gate-next">{t('gate.email.next')}</p>
               {error && <div className="notice notice-error" role="alert">{t(`gate.error.${error}`)}</div>}
-            </form>
+            </div>
 
             {GOOGLE_CLIENT_ID && (
               <div className="gate-or">
