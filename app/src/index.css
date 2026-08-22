@@ -19,7 +19,7 @@ img { max-width: 100%; display: block; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 
 .app { max-width: 520px; margin: 0 auto; padding: 0 16px env(safe-area-inset-bottom); min-height: 100dvh; display: flex; flex-direction: column; }
-.app.has-tabs { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.app.has-tabs { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 8px; }
 .wordmark { font-family: var(--font-display); font-weight: 800; font-size: 1.45rem; letter-spacing: -0.03em; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 8px; line-height: 1; }
 .wordmark em { font-style: normal; color: var(--ember-text); }
@@ -81,7 +81,7 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 .my-addr { grid-area: addr; color: var(--muted); font-size: 0.9rem; }
 .my-date { grid-area: date; font-size: 0.8rem; justify-self: end; }
 .lang-switch { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 10px; }
-.lang-btn { background: none; border: none; color: var(--ink); font-weight: 500; min-height: var(--tap); padding: 0 6px; cursor: pointer; }
+.lang-btn { background: none; border: none; color: var(--ink); font-weight: 600; min-height: var(--tap); padding: 0 6px; cursor: pointer; }
 .lang-btn.active { font-weight: 700; text-decoration: underline; text-decoration-color: var(--ember); text-decoration-thickness: 2px; text-underline-offset: 4px; }
 
 /* Empty states (illustration + copy) */

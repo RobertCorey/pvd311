@@ -13,23 +13,25 @@ const ICONS: Record<string, ReactNode> = {
   pothole: (
     <>
       <g fill="var(--ember)" stroke="none" transform={PLATE}>
-        <path d="M10 21 L13 20 L16 21.5 L20 20 L23 21.5 L20 23.5 L15 23.5 L11 22.5 Z" />
+        <path d="M9 14 L11 19.5 L14 22.5 L18 22.5 L21 19.5 L23 14 Z" />
       </g>
-      <path d="M6 20.5 L9 18.5 L12 20.5 L15 18 L19 19.5 L23 17.5 L26 20.5 L23 23.5 L18 22.5 L14 24.5 L10 23 Z" />
-      <path d="M6 20.5 L3 19 M26 20.5 L29 21.5" />
+      <path d="M2 14 H9 L11 19.5 L14 22.5 H18 L21 19.5 L23 14 H30" />
+      <path d="M4 27 H11 M21 27 H28" />
+      <path d="M9 14 L7 9.5 M23 14 L25.5 9.5 M16 22.5 V26" />
     </>
   ),
 
-  // Cobra-head lamp on a pole, ember glow cone spilling down.
+  // Cobra-head lamp on a pole; ember plate is the lamp head, short ticks = a flickering/dead bulb.
   street_light: (
     <>
       <g fill="var(--ember)" stroke="none" transform={PLATE}>
-        <path d="M22 8 L29 22 L15 22 Z" />
+        <path d="M18 4 H27 A2 2 0 0 1 29 6 V8 A2 2 0 0 1 27 10 H18 Z" />
       </g>
-      <path d="M9 29 V7" />
-      <path d="M5 29 H13" />
-      <path d="M9 7 Q9 5 12 5 H21" />
-      <path d="M19 4 H25 A1.5 1.5 0 0 1 26.5 5.5 V6 A1.5 1.5 0 0 1 25 7.5 H19 Z" />
+      <path d="M9 29 V9" />
+      <path d="M4 29 H14" />
+      <path d="M9 9 Q9 5 13 5 H18" />
+      <path d="M18 4 H27 A2 2 0 0 1 29 6 V8 A2 2 0 0 1 27 10 H18 Z" />
+      <path d="M23.5 13 V16 M19 12.5 L17.5 15 M28 12.5 L29.5 15" />
     </>
   ),
 

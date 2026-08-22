@@ -10,7 +10,7 @@
 .account-optional { text-align: center; }
 .account-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin: .75rem 0 .4rem; }
 .account-prefs { display: grid; gap: .6rem; }
-.account-toggle { display: flex; align-items: center; gap: .6rem; font-weight: 500; cursor: pointer; }
+.account-toggle { display: flex; align-items: center; gap: .6rem; font-weight: 600; cursor: pointer; }
 .account-toggle input { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
 .account-inline { display: grid; gap: .4rem; }
 .account-row { display: flex; gap: .5rem; }
