@@ -8,6 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: null, // explicit registration in main.tsx (reload on update + hourly checks)
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-mono.svg'],
       manifest: {
         name: 'FixMyPVD',
