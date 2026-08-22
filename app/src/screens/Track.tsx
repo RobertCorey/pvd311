@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { getReport } from '../api/client';
+import { attachEmail, getReport } from '../api/client';
 import { ApiError, type ReportView } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
@@ -9,11 +9,6 @@ import './Track.css';
 
 type Tone = 'progress' | 'ok' | 'warn';
 interface StatusInfo { headline: string; tone: Tone; explainer?: string; portalLink?: boolean; }
-
-/** Placeholder — the attach-email endpoint doesn't exist yet (see spec §3.2). */
-function attachEmail(_id: string, _email: string): Promise<boolean> {
-  return Promise.resolve(false);
-}
 
 function isTerminal(v: ReportView): boolean {
   if (v.status === 'rejected') return true;
@@ -195,7 +190,7 @@ export default function Track() {
         </ul>
       </div>
 
-      <EmailAttach id={id!} />
+      <EmailAttach id={id!} hasEmail={view.hasEmail === true} />
     </section>
   );
 }
@@ -252,32 +247,42 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
   );
 }
 
-function EmailAttach({ id }: { id: string }) {
+function EmailAttach({ id, hasEmail }: { id: string; hasEmail: boolean }) {
   const t = useT();
   const [email, setEmail] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
-    setBusy(true);
-    const ok = await attachEmail(id, email.trim());
-    setBusy(false);
-    setMsg(ok ? t('track.email.done') : t('track.email.comingSoon'));
+    setBusy(true); setError(false);
+    try {
+      await attachEmail(id, email.trim());
+      setDone(true);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="section">
       <h2>{t('track.email.title')}</h2>
-      <form className="track-email" onSubmit={onSubmit} noValidate>
-        <label className="label" htmlFor="track-email">{t('track.email.label')}</label>
-        <input id="track-email" className="input" type="email" inputMode="email" autoComplete="email"
-          placeholder={t('track.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} />
-        <p className="hint">{t('track.email.consent')}</p>
-        <button type="submit" className="btn btn-secondary" disabled={!email.trim() || busy}>{t('track.email.submit')}</button>
-        {msg && <p className="track-email-msg" role="status">{msg}</p>}
-      </form>
+      {hasEmail || done ? (
+        <div className="notice notice-ok" role="status">{t(hasEmail ? 'track.email.hasEmail' : 'track.email.done')}</div>
+      ) : (
+        <form className="track-email" onSubmit={onSubmit} noValidate>
+          <label className="label" htmlFor="track-email">{t('track.email.label')}</label>
+          <input id="track-email" className="input" type="email" inputMode="email" autoComplete="email"
+            placeholder={t('track.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <p className="hint">{t('track.email.consent')}</p>
+          <button type="submit" className="btn btn-secondary" disabled={!email.trim() || busy}>{busy ? t('track.email.sending') : t('track.email.submit')}</button>
+          {error && <div className="notice notice-error" role="alert">{t('track.email.error')}</div>}
+        </form>
+      )}
     </div>
   );
 }

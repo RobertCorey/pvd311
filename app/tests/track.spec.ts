@@ -74,3 +74,25 @@ test('cancelled report explains and links to the official portal', async ({ page
   await expect(page.getByRole('heading', { name: /the city closed this one/i })).toBeVisible();
   await expect(page.locator('.track-status').getByRole('link', { name: /official 311 portal/i })).toBeVisible();
 });
+
+test('attaching an email posts to the endpoint and swaps to a success notice', async ({ page }) => {
+  await mockReport(page, view());
+  await page.route('**/api/reports/*/email', (r) =>
+    r.fulfill({ status: 204, contentType: 'application/json', body: '' }));
+  await page.goto('/r/abc');
+  await page.fill('#track-email', 'me@example.com');
+  const [req] = await Promise.all([
+    page.waitForRequest((r) => /\/api\/reports\/[^/]+\/email$/.test(r.url()) && r.method() === 'POST'),
+    page.getByRole('button', { name: /email me updates/i }).click(),
+  ]);
+  expect(req.postData() ?? '').toContain('me@example.com');
+  await expect(page.getByText(/the city will email you about this report/i)).toBeVisible();
+  await expect(page.locator('#track-email')).toHaveCount(0);
+});
+
+test('when the report already has an email, the form is replaced by a confirmation', async ({ page }) => {
+  await mockReport(page, { ...view(), hasEmail: true });
+  await page.goto('/r/abc');
+  await expect(page.getByText(/pass the city's updates to your email/i)).toBeVisible();
+  await expect(page.locator('#track-email')).toHaveCount(0);
+});

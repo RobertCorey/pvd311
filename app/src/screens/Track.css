@@ -66,4 +66,4 @@
 /* --- email attach --- */
 .track-email { display: flex; flex-direction: column; }
 .track-email .btn { align-self: flex-start; width: auto; margin-top: 4px; }
-.track-email-msg { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); font-size: 0.9rem; font-weight: 500; }
+.track-email .notice { margin-top: 12px; }
