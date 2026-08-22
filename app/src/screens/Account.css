@@ -21,3 +21,10 @@
 .account-list li:last-child { border-bottom: 0; }
 .account-signout { margin-top: 1.5rem; text-align: center; }
 @media (max-width: 380px) { .account-row { flex-wrap: wrap; } .account-row .account-label { flex-basis: 100%; } }
+
+/* Integration bits (Track / Report / My reports) */
+.owner-actions .owner-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: .5rem; }
+.owner-actions .owner-confirm { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.owner-actions form.card { display: grid; gap: .5rem; }
+.saved-addresses { display: flex; gap: .4rem; flex-wrap: wrap; margin: .25rem 0 .5rem; }
+.account-reports { display: grid; gap: .6rem; margin-bottom: .75rem; }
