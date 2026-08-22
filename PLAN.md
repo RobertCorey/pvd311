@@ -1,5 +1,7 @@
 # PLAN — PVD311 relaunch (generic, mobile-first Providence 311)
 
+> **Reorientation 2026-08-22 (Rob):** the only sacred cow is *official portal = source of truth, driven headlessly*. Everything inherited from PVD Snow is up for removal. Rob is the client; product/design/brand decisions are delegated to sub-agents, never asked of him. M2/M3 below are superseded by **M7–M9**.
+
 No launch date. Launch when it feels right, under a proper domain (name TBD — shortlist: FixMyPVD, FixPVD, HeyPVD, ReportPVD, SnapPVD).
 Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claude/STATE.md`, and the dossier artifact.
 
@@ -54,3 +56,16 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 
 ## Later
 - Full-auto agent loop default; VPS primary; languages; native apps; public-feed dedupe UX
+
+## M7 — Worker is the product backbone (supersedes the laptop engine + client Firestore writes)
+- [ ] Engine/HITL/watcher/canary running on cron in the Worker (port landing)
+- [ ] App API: POST /api/report (multipart photo → Storage, server-side validation, Turnstile verify, IP/device rate limit), POST /api/intake (AI classify/polish/moderate), GET /api/reports/:token (tracking), GET /api/public-feed
+- [ ] Archive automation/ (reference only); delete Firestore client rules/App Check enforcement once the client no longer writes
+
+## M8 — Product identity + UX (decided by a product-design IC, not Rob)
+- [ ] Name (available .org/.com, clearly unofficial), brand tokens, logo
+- [ ] UX spec: one-screen photo-first report → AI suggests → confirm; tracking page; public map; copy
+
+## M9 — New client `app/` (bob)
+- [ ] Vite + React + TS, mobile-first PWA, component library, Playwright tests; talks only to the Worker API
+- [ ] Replace public/ on Firebase Hosting; later Cloudflare
