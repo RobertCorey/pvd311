@@ -45,7 +45,11 @@ export async function sendSignInLink(request: Request, env: Env, store: Store): 
     return Response.json({ error: 'rate_limited', retryAfterSec: 900 }, { status: 429, headers: { 'retry-after': '900' } });
   }
 
-  const appBase = (env.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '');
+  // Send the reporter back to the origin they were on (pvdsnow.org today, fixmypvd.org once connected) — any
+  // https origin on our domains or Firebase Hosting; otherwise APP_BASE_URL.
+  const origin = request.headers.get('origin') ?? '';
+  const ours = /^https:\/\/(www\.)?(fixmypvd\.org|fixmypvd\.com|pvdsnow\.org|snappvd\.org)$|^https:\/\/pvd-snow-report\.(web\.app|firebaseapp\.com)$|^http:\/\/localhost(:\d+)?$/.test(origin);
+  const appBase = (ours ? origin : (env.APP_BASE_URL ?? 'https://fixmypvd.org')).replace(/\/+$/, '');
   const continueUrl = `${appBase}/account?returnTo=${encodeURIComponent(safeReturnTo(body?.returnTo))}`;
   const token = await getAccessToken(env);
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode', {
