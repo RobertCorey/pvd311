@@ -95,3 +95,13 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   await page.goto('/my');
   await expect(page.locator('.my-row')).toHaveCount(1);
 });
+
+test('language switch to Español persists and translates the picker', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Español' }).click();
+  await expect(page.getByRole('heading', { name: '¿Cuál es el problema?' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '¿Cuál es el problema?' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.lang)).toBe('es');
+});

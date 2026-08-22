@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import en from './strings.en.json';
 
 type Dict = Record<string, string>;
@@ -34,6 +34,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
     return s;
   }, [dict]);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
   const value = useMemo(() => ({ lang, t, setLang }), [lang, t, setLang]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

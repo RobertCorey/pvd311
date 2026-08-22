@@ -50,3 +50,6 @@ h2 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 700; col
 .my-cat { font-weight: 600; }
 .my-addr { grid-column: 1 / -1; color: var(--muted); font-size: 0.9rem; }
 .my-date { font-size: 0.8rem; }
+.lang-switch { display: flex; justify-content: center; align-items: center; gap: 8px; margin-bottom: 10px; }
+.lang-btn { background: none; border: none; color: var(--accent); font-weight: 500; min-height: var(--tap); padding: 0 6px; cursor: pointer; }
+.lang-btn.active { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
