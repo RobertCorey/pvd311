@@ -3,9 +3,9 @@
 Quiet launch. Go when every **Gate** is green. Rob-only items are marked **[Rob]**; everything else alice/bob/ICs do.
 
 ## Gates
-- [ ] **Workers Paid** on the Cloudflare account **[Rob]** — Free plan = 10 min/day browser time; production needs Paid ($5/mo). Then: restore `*/30` watcher cron and `[limits] cpu_ms` in `worker/wrangler.toml`.
-- [ ] **Domain** bought at launch **[Rob]** (name: FixMyPVD → `fixmypvd.org`, verify availability the day of). Until then everything runs under pvdsnow.org.
-- [ ] **pvdsnow.org (or the new domain) on Cloudflare** **[Rob: 2 nameservers at Namecheap]** → then alice: Worker custom domain `api.<domain>`, Email Routing enable, Resend domain verification → flip `REPORTER_EMAIL_ENABLED=true`, set `HITL_BASE_URL`/`APP_BASE_URL`/`NOTIFY_FROM`.
+- [x] **Workers Paid** — done 2026-08-22; 30-min watcher + cpu limit restored.
+- [x] **Domain** — fixmypvd.org bought 2026-08-22 (Cloudflare Registrar). Firebase Hosting custom domain requested; api.fixmypvd.org attached.
+- [x] **Email** — Email Routing on fixmypvd.org (rob@ → Gmail, labeled), Resend domain verified, reporter emails ENABLED, Worker vars point at fixmypvd.org. (pvdsnow.org stays at Namecheap; it will just 301.)
 - [ ] **Token rotation** **[Rob]** (Anthropic, Resend, Cloudflare, DO) — values leaked into alice's transcript on 2026-08-22.
 - [x] **app/ at parity** (bob): Report, Track, Map, About/Privacy, Spanish strings, PWA install, Playwright green (24) → hosting flipped 2026-08-22; `public/` removed. Live Lighthouse 99/100/100/100.
 - [ ] **One real report end to end**: a genuine issue, filed via the app by Rob, approved in HITL, lands as a PVD case, status update arrives. (Only real issues — never test junk to the city.)
