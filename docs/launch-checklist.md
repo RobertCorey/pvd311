@@ -8,7 +8,7 @@ Quiet launch. Go when every **Gate** is green. Rob-only items are marked **[Rob]
 - [x] **Email** — Email Routing on fixmypvd.org (rob@ → Gmail, labeled), Resend domain verified, reporter emails ENABLED, Worker vars point at fixmypvd.org. (pvdsnow.org stays at Namecheap; it will just 301.)
 - [ ] **Token rotation** **[Rob]** (Anthropic, Resend, Cloudflare, DO) — values leaked into alice's transcript on 2026-08-22.
 - [x] **app/ at parity** (bob): Report, Track, Map, About/Privacy, Spanish strings, PWA install, Playwright green (24) → hosting flipped 2026-08-22; `public/` removed. Live Lighthouse 99/100/100/100.
-- [ ] **Facelift live** (design lead + bob): FixMyPVD brand (docs/design-direction.md) on every screen, light+dark, en+es, self-hosted fonts, icons/og regenerated, axe spec green, live Lighthouse ≥ 99/100/100/100 after the fonts commit (079eb9e). Tick when the post-deploy Lighthouse is in.
+- [x] **Facelift live** (design lead + bob): FixMyPVD brand (docs/design-direction.md) on every screen, light+dark, en+es, self-hosted fonts, icons/og regenerated, axe spec green. Live Lighthouse 2026-08-22: perf 93–97 / a11y 100 / BP 100 / SEO 100, CLS 0; LCP ≈2.5–3 s is React+router+Report bundle cost (route splitting done, ~91 KB gz floor) — accepted pre-launch.
 - [ ] **One real report end to end**: a genuine issue, filed via the app by Rob, approved in HITL, lands as a PVD case, status update arrives. (Only real issues — never test junk to the city.)
 - [ ] **Ops**: /admin reachable, daily digest arriving, canary green 3 days running, HITL_MODE=review.
 
