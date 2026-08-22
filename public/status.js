@@ -83,7 +83,13 @@
       case 'submitted': {
         var parts = [];
         if (r.portalCaseId) parts.push('Case ' + r.portalCaseId);
-        if (r.portalStatus) parts.push('City status: ' + r.portalStatus);
+        if (r.portalStatus) {
+          // portalStatusUpdatedAt may be a Firestore Timestamp, ISO string, or null.
+          var cs = 'City status: ' + r.portalStatus;
+          var upd = relativeDate(r.portalStatusUpdatedAt);
+          if (upd) cs += ' · updated ' + upd;
+          parts.push(cs);
+        }
         return { label: 'Sent to 311', cls: 'sent', detail: parts.join(' · ') };
       }
       case 'failed':
