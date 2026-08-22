@@ -119,7 +119,7 @@ export default function Report() {
   const refreshPending = useCallback(() => outbox.pending().then((p) => setPending(p.length)).catch(() => {}), []);
   useEffect(() => { refreshPending(); }, [refreshPending]);
   useEffect(() => {
-    if (!pending || !turnstileToken || !online || flushPaused || isOutboxPaused()) return;
+    if (!pending || !turnstileToken || !online || flushPaused || isOutboxPaused() || !session) return; // signed out: stay queued
     let cancelled = false;
     // One queued item per Turnstile token (tokens are single-use); on success the
     // widget re-mounts for the next one.
@@ -134,7 +134,7 @@ export default function Report() {
       if (sent && remaining) { setTurnstileToken(null); setTurnstileNonce((n) => n + 1); }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [pending, turnstileToken, online, flushPaused, t]);
+  }, [pending, turnstileToken, online, flushPaused, session, t]);
   useEffect(() => {
     const onOnline = () => { setOnline(true); resumeOutbox(); setFlushPaused(false); refreshPending(); };
     const onOffline = () => setOnline(false);
@@ -306,7 +306,8 @@ export default function Report() {
         {pending > 0 && (
           <div className="card outbox-card" role="status">
             <p className="hint">{t(pending === 1 ? 'report.outbox.pending' : 'report.outbox.pendingPlural', { count: pending })}</p>
-            <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
+            {session ? <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
+              : <Link className="btn btn-ghost" to="/account?returnTo=%2F">{t('report.outbox.signIn')}</Link>}
           </div>
         )}
         <div className="home-hero">

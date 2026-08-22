@@ -362,5 +362,6 @@
   "report.gate.loading": "Loading sign-in…",
   "report.gate.fallback": "One more step: sign in so the city can reach you about this report and so one person can't flood 311. Your report is saved — you'll come right back to it.",
   "report.gate.signIn": "Sign in to send",
-  "report.gate.resumed": "You're signed in — your report is ready. Tap Send."
+  "report.gate.resumed": "You're signed in — your report is ready. Tap Send.",
+  "report.outbox.signIn": "Sign in to send your saved reports"
 }
