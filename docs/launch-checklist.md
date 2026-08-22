@@ -23,7 +23,7 @@ Quiet launch. Go when every **Gate** is green. Rob-only items are marked **[Rob]
 1. ~~Flip hosting to app/~~ done 2026-08-22 (tracking links + Turnstile confirmed on pvdsnow.org). On domain day: repeat from fixmypvd.org (docs/cutover.md).
 2. Post in r/providence + Nextdoor with 3 screenshots (marketing/ refreshed for FixMyPVD — see marketing/README.md); no press.
 3. Watch /admin for the first 48h; HITL stays on review mode until 20 clean submissions, then `ramp`.
-4. Rotate the pvdsnow.org sunset page into a redirect.
+4. pvdsnow.org → 301 to fixmypvd.org at cert-active (automatic, bob). Deprecation: keep the redirect ≥ 6 months (old tracking links/QRs), remove pvdsnow.org from Turnstile/CORS/Auth authorized domains after that, then let it lapse at Namecheap (Rob; never cancel at the registrar on his behalf).
 
 ## Runbooks (short)
 - Engine paused (breaker): /admin → Resume. Check the failed rows first.
