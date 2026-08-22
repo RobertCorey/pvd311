@@ -3,7 +3,5 @@
   <g transform="translate(76,83.5) scale(15)">
     <path d="M12 2a7 7 0 0 0-7 7c0 5 7 12 7 12s7-7 7-12a7 7 0 0 0-7-7z" fill="#FFFFFF"/>
     <circle cx="12" cy="9" r="3.2" fill="#0F766E"/>
-    <circle cx="12" cy="9" r="1.4" fill="#FFFFFF"/>
-    <path d="M9.2 6.6h1.4M13.4 6.6h1.4M9.2 11.4h1.4M13.4 11.4h1.4" stroke="#0F766E" stroke-width="0.9" stroke-linecap="round"/>
   </g>
 </svg>
