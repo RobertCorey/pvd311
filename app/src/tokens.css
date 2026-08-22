@@ -1,25 +1,44 @@
-/* Placeholder tokens lifted from the live site; the product spec will replace them. */
+/* SnapPVD tokens — docs/product-spec.md §2. Light on :root; dark overrides guarded both ways. */
 :root {
-  --navy-900: #0a1628;
-  --navy-800: #111d33;
-  --navy-700: #182a45;
-  --navy-600: #1e3a5f;
-  --ice-400: #7ec8e3;
-  --ice-300: #a8ddf0;
-  --ice-200: #d0eef8;
-  --white-pure: #ffffff;
-  --alert-amber: #f5a623;
-  --success-green: #34d399;
-  --danger-red: #ef4444;
-  --text-primary: #e8edf3;
-  --text-secondary: #8a9bb5;
-  --text-muted: #5a6e87;
-  --border: rgba(126, 200, 227, 0.12);
-  --border-focus: rgba(126, 200, 227, 0.35);
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
-  --font-display: 'Outfit', system-ui, sans-serif;
-  --font-body: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  --bg: #F6F7F9;
+  --surface: #FFFFFF;
+  --ink: #131A24;
+  --accent: #0F766E;
+  --accent-ink: #FFFFFF;     /* text on --accent */
+  --accent-2: #EA6A34;
+  --muted: #5B6675;
+  --line: #E4E7EC;
+  --success: #16794C;
+  --warn: #B45309;
+  --danger: #B42318;
+  --accent-soft: rgba(15, 118, 110, 0.08);
+  --accent-2-soft: rgba(234, 106, 52, 0.12);
+  --danger-soft: rgba(180, 35, 24, 0.08);
+  --warn-soft: rgba(180, 83, 9, 0.1);
+  --success-soft: rgba(22, 121, 76, 0.1);
+  --shadow: 0 1px 2px rgba(19, 26, 36, 0.06), 0 4px 16px rgba(19, 26, 36, 0.06);
+  --radius: 12px;
+  --radius-lg: 16px;
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --tap: 44px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1117; --surface: #161C26; --ink: #EAF0F6; --accent: #2DD4BF; --accent-ink: #0D1117; --accent-2: #F98B54;
+    --muted: #9AA7B6; --line: #26303C; --success: #3DD68C; --warn: #F5B65B; --danger: #F97066;
+    --accent-soft: rgba(45, 212, 191, 0.12); --accent-2-soft: rgba(249, 139, 84, 0.16); --danger-soft: rgba(249, 112, 102, 0.12);
+    --warn-soft: rgba(245, 182, 91, 0.12); --success-soft: rgba(61, 214, 140, 0.12);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1117; --surface: #161C26; --ink: #EAF0F6; --accent: #2DD4BF; --accent-ink: #0D1117; --accent-2: #F98B54;
+  --muted: #9AA7B6; --line: #26303C; --success: #3DD68C; --warn: #F5B65B; --danger: #F97066;
+  --accent-soft: rgba(45, 212, 191, 0.12); --accent-2-soft: rgba(249, 139, 84, 0.16); --danger-soft: rgba(249, 112, 102, 0.12);
+  --warn-soft: rgba(245, 182, 91, 0.12); --success-soft: rgba(61, 214, 140, 0.12);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
 }

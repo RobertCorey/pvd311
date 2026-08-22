@@ -10,13 +10,13 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'PVD 311',
-        short_name: 'PVD 311',
-        description: 'Report potholes, street lights, missed trash and more to Providence 311 — takes 30 seconds',
+        name: 'SnapPVD',
+        short_name: 'SnapPVD',
+        description: "Report a Providence street problem in one photo — we file it with the city's 311 for you.",
         start_url: '/',
         display: 'standalone',
-        background_color: '#0a1628',
-        theme_color: '#1e3a5f',
+        background_color: '#F6F7F9',
+        theme_color: '#0F766E',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },

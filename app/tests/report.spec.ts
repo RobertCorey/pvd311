@@ -13,10 +13,10 @@ async function mockApi(page: Page, opts: { intake?: object; reportStatus?: numbe
 test('picker shows 8 featured + Other; Other expands the rest incl. Not sure', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await expect(page.locator('.cat-btn[data-category]')).toHaveCount(8);
-  await page.getByRole('button', { name: 'Other…' }).click();
+  await expect(page.locator('.cat-tile[data-category]')).toHaveCount(8);
+  await page.getByRole('button', { name: /Other/ }).click();
   await expect(page.locator('[data-category="unsure"]')).toBeVisible();
-  expect(await page.locator('.cat-btn[data-category]').count()).toBeGreaterThan(8);
+  expect(await page.locator('.cat-tile[data-category]').count()).toBeGreaterThan(8);
 });
 
 test('photo-optional category: address + turnstile → submit → tracking page', async ({ page }) => {
@@ -24,7 +24,7 @@ test('photo-optional category: address + turnstile → submit → tracking page'
   await page.goto('/');
   await page.click('[data-category="missed_trash"]');
   await expect(page.getByRole('heading', { name: /Add a photo \(optional\)/ })).toBeVisible();
-  const submit = page.getByRole('button', { name: 'Submit report' });
+  const submit = page.getByRole('button', { name: 'Send to Providence 311' });
   await expect(submit).toBeDisabled();
   await page.fill('#address', '25 Dorrance St');
   await page.locator('#address').blur();
@@ -38,12 +38,21 @@ test('photo-optional category: address + turnstile → submit → tracking page'
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
 
+test('chip → Change returns to the grid and clears extras', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="pothole"]');
+  await expect(page.locator('#extra_size')).toBeVisible();
+  await page.getByRole('button', { name: /Change/ }).click();
+  await expect(page.locator('.cat-tile[data-category="pothole"]')).toBeVisible();
+});
+
 test('photo-required category keeps submit disabled without a photo', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await page.click('[data-category="pothole"]');
   await page.fill('#address', '25 Dorrance St');
-  await expect(page.getByRole('button', { name: 'Submit report' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeDisabled();
   await expect(page.locator('#extra_size')).toBeVisible();
 });
 
@@ -64,7 +73,7 @@ test('rate limited → friendly message, stays on page', async ({ page }) => {
   await page.goto('/');
   await page.click('[data-category="missed_trash"]');
   await page.fill('#address', '25 Dorrance St');
-  await page.getByRole('button', { name: 'Submit report' }).click();
-  await expect(page.locator('[role="alert"]')).toContainText('one report every few minutes');
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('[role="alert"]')).toContainText('One report at a time');
   await expect(page).toHaveURL(/\/$/);
 });

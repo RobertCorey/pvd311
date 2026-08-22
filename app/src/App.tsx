@@ -6,6 +6,7 @@ import Feed from './screens/Feed';
 import About from './screens/About';
 import Privacy from './screens/Privacy';
 import NotFound from './screens/NotFound';
+import MyReports from './screens/MyReports';
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/" element={<Report />} />
         <Route path="/r/:id" element={<Track />} />
         <Route path="/map" element={<Feed />} />
+        <Route path="/my" element={<MyReports />} />
         <Route path="/about" element={<About />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="*" element={<NotFound />} />
