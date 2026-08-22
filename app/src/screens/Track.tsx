@@ -6,6 +6,8 @@ import { ApiError, type ReportView } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
+import OwnerActions from '../components/OwnerActions';
+import { useSession } from '../lib/auth';
 import './Track.css';
 
 type Tone = 'progress' | 'ok' | 'warn';
@@ -81,6 +83,7 @@ export default function Track() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const t = useT();
+  const session = useSession();
 
   const justSubmitted = (location.state as { justSubmitted?: boolean } | null)?.justSubmitted === true
     || searchParams.get('submitted') === '1';
@@ -143,6 +146,7 @@ export default function Track() {
     );
   }
 
+  const mine = view.mine === true || listMyReports().some((r) => r.id === id);
   const info = statusInfo(view, t);
   const rail = railState(view);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
@@ -232,7 +236,8 @@ export default function Track() {
         </ul>
       </div>
 
-      <EmailAttach id={id!} hasEmail={view.hasEmail === true} mine={listMyReports().some((r) => r.id === id)} />
+      <OwnerActions id={id!} view={view} onChange={() => load({ silent: true })} />
+      {!(session && !mine) && <EmailAttach id={id!} hasEmail={view.hasEmail === true} mine={mine} />}
     </section>
   );
 }
