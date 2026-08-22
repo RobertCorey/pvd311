@@ -5,11 +5,10 @@ import { authHeaders } from '../lib/auth';
 
 // Primary API host with a fallback: if the custom domain is unreachable (DNS/cert
 // propagation, outage) we switch to the workers.dev origin for the session.
-// TODO(cutover): flip PRIMARY default to https://api.fixmypvd.org once Firebase shows
-// the domain CONNECTED, and add `page.route('https://api.fixmypvd.org/**', r => r.abort())`
-// to the test mocks so specs keep hitting the mocked workers.dev host.
+// Tests abort the primary host (`page.route('https://api.fixmypvd.org/**', r => r.abort())`)
+// so specs keep hitting the mocked workers.dev origin.
 const FALLBACK_BASE = 'https://pvd311-worker.pvd311-worker.workers.dev';
-const PRIMARY_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? FALLBACK_BASE;
+const PRIMARY_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'https://api.fixmypvd.org';
 let activeBase = PRIMARY_BASE;
 /** @deprecated use apiFetch(); kept for modules that build URLs themselves. */
 export const API_BASE: string = PRIMARY_BASE;

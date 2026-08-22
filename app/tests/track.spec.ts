@@ -31,6 +31,7 @@ function view(o: ViewOverrides = {}) {
 }
 
 async function mockReport(page: Page, body: object, status = 200) {
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/*`, (r) =>
     r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }));
 }
