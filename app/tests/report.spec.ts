@@ -190,7 +190,7 @@ test('signed out: Send parks the draft and shows the sign-in gate; after sign-in
   await page.fill('#address', '25 Dorrance St');
   await page.fill('#description', 'bins not collected');
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
-  await expect(page.locator('.gate')).toBeVisible();
+  await expect(page.locator('.gate-slot')).toBeVisible();
   await expect(page.locator('.submit-bar')).toBeHidden();
   // "Sign in" (seed a session) and come back — the draft survives the round trip.
   await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);

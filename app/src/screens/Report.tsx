@@ -430,7 +430,7 @@ export default function Report() {
         {error && <div className="notice notice-error" role="alert">{error}</div>}
       </section>
       {gated && !session ? (
-        <section className="section gate" aria-live="polite">
+        <section className="section gate-slot" aria-live="polite">
           <Suspense fallback={<p className="hint">{t('report.gate.loading')}</p>}>
             <SignInGate category={cat.key} returnTo="/?resume=1" onBack={() => setGated(false)} onSignedIn={() => setGated(false)} />
           </Suspense>
