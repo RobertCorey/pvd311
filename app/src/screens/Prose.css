@@ -35,7 +35,7 @@
   text-wrap: pretty;
 }
 .prose a {
-  color: var(--accent);
+  color: var(--link);
   overflow-wrap: anywhere;
 }
 .prose ol,
