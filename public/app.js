@@ -1,5 +1,5 @@
 // ============================================================
-// PVD Snow — Client Logic (Step Wizard v3)
+// PVD 311 — Client Logic (Step Wizard v4, generic categories)
 // ============================================================
 
 const firebaseConfig = {
@@ -20,9 +20,27 @@ function logEvent(name, params) {
   try { analytics.logEvent(name, params); } catch(e) {}
 }
 
-const CATEGORY_LABELS = {
-  unshoveled_sidewalk: 'Unshoveled Sidewalk',
-  missed_plowing: 'Missed Street Plowing'
+// --- Categories (from /categories.js, generated from shared/categories.ts) ---
+const ALL_CATEGORIES = window.PVD_CATEGORIES || [];
+const CATEGORY_BY_KEY = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c]));
+const CATEGORY_LABELS = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c.label]));
+
+// Seasonal categories only show in season (winter = Nov–Mar).
+function inSeason(c) {
+  if (!c.seasonal) return true;
+  const m = new Date().getMonth(); // 0-based
+  return c.seasonal === 'winter' ? (m >= 10 || m <= 2) : true;
+}
+const VISIBLE_CATEGORIES = ALL_CATEGORIES.filter(inSeason);
+
+// Per-category follow-up questions rendered on the Review step (`extra` on the report).
+// Keys match the `from: 'extra.<key>'` sources in shared/categories.ts.
+const EXTRA_QUESTIONS = {
+  size: { label: 'How big is the pothole?', type: 'choice', options: ['Small', 'Medium', 'Large', 'Unknown'] },
+  cartIssue: { label: 'What is the issue with your carts?', type: 'choice',
+    options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
+  animalType: { label: 'What kind of animal?', type: 'choice', options: ['Dog', 'Cat', 'Wildlife', 'Other'] },
+  vehicleDetails: { label: 'Vehicle details (make, color, plate if visible)', type: 'text', placeholder: 'e.g. silver Honda Civic, RI plate ABC-123' },
 };
 
 // --- DOM refs ---
@@ -45,8 +63,8 @@ const latLngEl = document.getElementById('latLng');
 const locationSection = document.getElementById('locationSection');
 const locationHeading = document.getElementById('locationHeading');
 const descriptionInput = document.getElementById('descriptionInput');
-const contactToggle = document.getElementById('contactToggle');
-const contactFields = document.getElementById('contactFields');
+const extraQuestions = document.getElementById('extraQuestions');
+const photoDesc = document.getElementById('photoDesc');
 const nameInput = document.getElementById('nameInput');
 const emailInput = document.getElementById('emailInput');
 const reviewCategory = document.getElementById('reviewCategory');
@@ -70,7 +88,7 @@ function checkProvidenceBounds() {
     const inside = currentLat >= PVD_BOUNDS.minLat && currentLat <= PVD_BOUNDS.maxLat &&
                    currentLng >= PVD_BOUNDS.minLng && currentLng <= PVD_BOUNDS.maxLng;
     if (!inside) {
-      pvdWarning.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> <span>This location appears to be outside Providence. PVD Snow only submits reports within city limits.</span>';
+      pvdWarning.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> <span>This location appears to be outside Providence. We only submit reports within city limits.</span>';
       pvdWarning.classList.add('visible');
       return;
     }
@@ -102,6 +120,48 @@ function setLocationState(state) {
 }
 
 // --- Step navigation ---
+function photoRequired() {
+  const c = CATEGORY_BY_KEY[selectedCategory];
+  return !c || c.photoRequired !== false;
+}
+
+function renderCategoryPicker() {
+  const check = '<span class="cat-check"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#0a1628" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5,6 5,8.5 9.5,3.5"/></svg></span>';
+  categoryBtns.innerHTML = VISIBLE_CATEGORIES.map(c =>
+    `<button type="button" class="category-btn${c.key === 'unsure' ? ' category-btn-unsure' : ''}" data-category="${c.key}">` +
+    `<span class="cat-icon">${c.icon}</span><span class="cat-text">${c.label}</span>${check}</button>`
+  ).join('');
+}
+
+function renderExtraQuestions() {
+  const c = CATEGORY_BY_KEY[selectedCategory];
+  const keys = (c && c.extra || []).filter(k => EXTRA_QUESTIONS[k]);
+  extraQuestions.innerHTML = '';
+  extraQuestions.hidden = keys.length === 0;
+  keys.forEach(k => {
+    const q = EXTRA_QUESTIONS[k];
+    const id = `extra_${k}`;
+    const label = `<label class="field-label" for="${id}">${q.label}</label>`;
+    if (q.type === 'choice') {
+      extraQuestions.insertAdjacentHTML('beforeend', label +
+        `<select class="text-input" id="${id}" data-extra="${k}">` +
+        q.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>');
+    } else {
+      extraQuestions.insertAdjacentHTML('beforeend', label +
+        `<input type="text" class="text-input" id="${id}" data-extra="${k}" placeholder="${q.placeholder || ''}">`);
+    }
+  });
+}
+
+function collectExtra() {
+  const out = {};
+  extraQuestions.querySelectorAll('[data-extra]').forEach(el => {
+    const v = el.value.trim();
+    if (v) out[el.dataset.extra] = v;
+  });
+  return Object.keys(out).length ? out : null;
+}
+
 function goToStep(n) {
   logEvent('wizard_step', { step: n });
   currentStep = n;
@@ -118,8 +178,15 @@ function goToStep(n) {
   if (n === TOTAL_STEPS - 1) {
     nextBtn.textContent = 'Submit Report';
     populateReview();
+  } else if (n === 1 && !photoDataUrl && !photoRequired()) {
+    nextBtn.textContent = 'Skip photo';
   } else {
     nextBtn.textContent = 'Next';
+  }
+  if (n === 1) {
+    photoDesc.textContent = photoRequired()
+      ? "Your photo's location data will auto-detect the address."
+      : "Optional for this issue — a photo helps, and its location data auto-detects the address.";
   }
 
   validateStep();
@@ -144,7 +211,7 @@ function validateStep() {
   let valid = false;
   switch (currentStep) {
     case 0: valid = !!selectedCategory; break;
-    case 1: valid = !!photoDataUrl; break;
+    case 1: valid = !!photoDataUrl || !photoRequired(); break;
     case 2: valid = addressInput.value.trim().length > 0; break;
     case 3: valid = true; break;
   }
@@ -154,7 +221,9 @@ function validateStep() {
 function populateReview() {
   reviewCategory.textContent = CATEGORY_LABELS[selectedCategory] || selectedCategory;
   reviewAddress.textContent = addressInput.value.trim();
-  reviewPhoto.src = photoDataUrl;
+  reviewPhoto.src = photoDataUrl || '';
+  reviewPhoto.parentElement.hidden = !photoDataUrl;
+  renderExtraQuestions();
 }
 
 nextBtn.addEventListener('click', async () => {
@@ -178,6 +247,7 @@ categoryBtns.addEventListener('click', (e) => {
   btn.classList.add('selected');
   selectedCategory = btn.dataset.category;
   logEvent('select_category', { category: selectedCategory });
+  renderExtraQuestions();
   validateStep();
 
   // Auto-advance after brief delay
@@ -222,6 +292,7 @@ photoInput.addEventListener('change', async (e) => {
     setLocationState('needs-input');
   }
 
+  if (currentStep === 1) nextBtn.textContent = 'Next';
   validateStep();
 });
 
@@ -434,11 +505,6 @@ detectBtn.addEventListener('click', () => {
 addressInput.addEventListener('input', validateStep);
 
 // --- Step 3: Contact toggle ---
-contactToggle.addEventListener('click', () => {
-  contactToggle.classList.toggle('open');
-  contactFields.classList.toggle('visible');
-});
-
 // --- #7: Error banner ---
 errorDismiss.addEventListener('click', () => {
   errorBanner.classList.remove('visible');
@@ -487,6 +553,7 @@ async function submitReport() {
       lat: currentLat,
       lng: currentLng,
       description: descriptionInput.value.trim() || null,
+      extra: collectExtra(),
       photo: photoUrl,
       reporterName: nameInput.value.trim() || null,
       reporterEmail: emailInput.value.trim() || null,
@@ -566,8 +633,8 @@ submitAnother.addEventListener('click', () => {
   descriptionInput.value = '';
   nameInput.value = '';
   emailInput.value = '';
-  contactToggle.classList.remove('open');
-  contactFields.classList.remove('visible');
+  extraQuestions.innerHTML = '';
+  extraQuestions.hidden = true;
   errorBanner.classList.remove('visible');
   pvdWarning.classList.remove('visible');
 
@@ -581,4 +648,5 @@ submitAnother.addEventListener('click', () => {
 });
 
 // --- Init ---
+renderCategoryPicker();
 goToStep(0);

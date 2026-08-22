@@ -1,7 +1,7 @@
 {
-  "name": "PVD Snow",
-  "short_name": "PVD Snow",
-  "description": "Report unplowed streets and unshoveled sidewalks in Providence — takes 30 seconds",
+  "name": "PVD 311",
+  "short_name": "PVD 311",
+  "description": "Report potholes, street lights, missed trash and more to Providence 311 — takes 30 seconds",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a1628",

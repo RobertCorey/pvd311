@@ -5,233 +5,239 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#1e3a5f">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <title>PVD Snow</title>
+  <title>PVD 311</title>
+  <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icons/icon-192.svg">
-  <meta name="description" content="PVD Snow — a community project for reporting unplowed streets in Providence, RI. Now sunset.">
-  <meta property="og:title" content="PVD Snow">
-  <meta property="og:description" content="PVD Snow — a community project for reporting unplowed streets in Providence, RI. Now sunset.">
+  <meta name="description" content="Report potholes, street lights, missed trash & more to Providence 311 — takes 30 seconds">
+  <meta property="og:title" content="PVD 311">
+  <meta property="og:description" content="Report potholes, street lights, missed trash & more to Providence 311 — takes 30 seconds">
   <meta property="og:url" content="https://pvdsnow.org">
+  <meta property="og:image" content="https://pvdsnow.org/og-image.png">
   <meta property="og:type" content="website">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --navy-900: #0a1628;
-      --navy-800: #111d33;
-      --navy-700: #182a45;
-      --ice-400: #7ec8e3;
-      --ice-300: #a8ddf0;
-      --ice-200: #d0eef8;
-      --text-primary: #e8edf3;
-      --text-secondary: #8a9bb5;
-      --text-muted: #5a6e87;
-      --border: rgba(126, 200, 227, 0.12);
-      --radius-lg: 14px;
-    }
-
-    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
-
-    body {
-      font-family: 'Source Sans 3', -apple-system, sans-serif;
-      background: var(--navy-900);
-      color: var(--text-primary);
-      min-height: 100dvh;
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* snow grain */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      opacity: 0.03;
-      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .container {
-      position: relative;
-      z-index: 1;
-      max-width: 520px;
-      width: 100%;
-      padding: 48px 24px;
-      text-align: center;
-    }
-
-    .snowflake {
-      color: var(--ice-400);
-      margin-bottom: 24px;
-      opacity: 0.7;
-    }
-
-    h1 {
-      font-family: 'Outfit', sans-serif;
-      font-weight: 800;
-      font-size: 2.5rem;
-      letter-spacing: -0.02em;
-      margin-bottom: 8px;
-    }
-
-    .subtitle {
-      color: var(--text-secondary);
-      font-size: 1.05rem;
-      margin-bottom: 40px;
-    }
-
-    .divider {
-      width: 48px;
-      height: 2px;
-      background: var(--ice-400);
-      opacity: 0.3;
-      margin: 0 auto 40px;
-      border-radius: 1px;
-    }
-
-    .message {
-      font-size: 1.1rem;
-      line-height: 1.7;
-      color: var(--text-primary);
-      margin-bottom: 20px;
-    }
-
-    .message + .message {
-      color: var(--text-secondary);
-      font-size: 1rem;
-    }
-
-    .stats {
-      display: flex;
-      justify-content: center;
-      gap: 40px;
-      margin: 40px 0;
-    }
-
-    .stat {
-      text-align: center;
-    }
-
-    .stat-number {
-      font-family: 'Outfit', sans-serif;
-      font-weight: 800;
-      font-size: 2rem;
-      color: var(--ice-400);
-      display: block;
-    }
-
-    .stat-label {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .github-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 40px;
-      padding: 14px 28px;
-      background: var(--navy-800);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      color: var(--text-primary);
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 1rem;
-      transition: border-color 0.2s, background 0.2s;
-    }
-
-    .github-link:hover {
-      background: var(--navy-700);
-      border-color: var(--ice-400);
-    }
-
-    .github-link svg {
-      flex-shrink: 0;
-    }
-
-    .official-link {
-      display: block;
-      margin-top: 24px;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }
-
-    .official-link a {
-      color: var(--ice-400);
-      text-decoration: none;
-    }
-
-    .official-link a:hover {
-      text-decoration: underline;
-    }
-
-    footer {
-      margin-top: 56px;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }
-
-    footer a {
-      color: var(--text-muted);
-      text-decoration: none;
-    }
-
-    footer a:hover {
-      color: var(--text-secondary);
-    }
-
-    @media (max-width: 480px) {
-      .container { padding: 40px 20px; }
-      h1 { font-size: 2rem; }
-      .stats { gap: 28px; }
-      .stat-number { font-size: 1.6rem; }
-    }
-  </style>
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PVD 311">
+  <meta name="twitter:description" content="Report potholes, street lights, missed trash & more to Providence 311 — takes 30 seconds">
+  <meta name="twitter:image" content="https://pvdsnow.org/og-image.png">
+  <link rel="stylesheet" href="/style.css?v=12">
 </head>
 <body>
-  <div class="container">
-    <div class="snowflake">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-        <line x1="12" y1="2" x2="12" y2="22"/>
-        <line x1="4.93" y1="7" x2="19.07" y2="17"/>
-        <line x1="4.93" y1="17" x2="19.07" y2="7"/>
-        <line x1="12" y1="2" x2="9.5" y2="4.5"/>
-        <line x1="12" y1="2" x2="14.5" y2="4.5"/>
-        <line x1="12" y1="22" x2="9.5" y2="19.5"/>
-        <line x1="12" y1="22" x2="14.5" y2="19.5"/>
-      </svg>
+  <div class="app-container">
+
+    <!-- HEADER -->
+    <header class="app-header">
+      <h1 class="app-title">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+        PVD 311
+      </h1>
+      <p class="app-subtitle">Report potholes, street lights, missed trash &amp; more to Providence 311</p>
+      <p class="community-badge">Community project &mdash; not affiliated with the City of Providence <span class="version">v12</span></p>
+      <div class="header-line"></div>
+    </header>
+
+    <!-- PROGRESS BAR (#1: tappable steps) -->
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-steps">
+        <button type="button" class="progress-step active" data-step="0">Issue</button>
+        <button type="button" class="progress-step" data-step="1">Photo</button>
+        <button type="button" class="progress-step" data-step="2">Location</button>
+        <button type="button" class="progress-step" data-step="3">Review</button>
+      </div>
     </div>
 
-    <h1>PVD Snow</h1>
-    <div class="divider"></div>
+    <!-- WIZARD STEPS -->
+    <div class="wizard" id="wizard">
 
-    <p class="message">Thank you to everyone who used PVD Snow to report unplowed streets and unshoveled sidewalks in Providence. This community project has been sunset.</p>
+      <!-- STEP 0: Category (#3: auto-advance on select) -->
+      <div class="step active" data-step="0">
+        <h2 class="step-heading">What's the issue?</h2>
+        <div class="category-grid" id="categoryBtns">
+          <!-- rendered by app.js from /categories.js (generated from shared/categories.ts) -->
+        </div>
+      </div>
 
-    <p class="message">To report snow issues going forward, please use the city's official 311 portal.</p>
+      <!-- STEP 1: Photo (#4: EXIF status shown here) -->
+      <div class="step" data-step="1">
+        <h2 class="step-heading">Take a photo</h2>
+        <p class="step-desc" id="photoDesc">Your photo's location data will auto-detect the address.</p>
+        <input type="file" id="photoInput" accept="image/*" capture="environment">
+        <label for="photoInput" class="photo-capture-btn" id="photoCaptureBtn">
+          <div class="photo-placeholder">
+            <div class="cam-ring">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+            </div>
+            Tap to open camera
+          </div>
+          <div class="photo-preview" id="photoPreview">
+            <img id="previewImg" alt="Photo preview">
+            <div class="photo-actions">
+              <span class="photo-ok" id="photoExifStatus">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,7 6,10 11,4"/></svg>
+                Photo attached
+              </span>
+              <button type="button" class="photo-retake" id="photoRetake">Retake</button>
+            </div>
+          </div>
+        </label>
+      </div>
 
-    <div class="official-link">
-      <a href="https://311.providenceri.gov" target="_blank" rel="noopener">311.providenceri.gov &rarr;</a>
+      <!-- STEP 2: Location (state-driven layout) -->
+      <div class="step" data-step="2">
+        <h2 class="step-heading" id="locationHeading">Set location</h2>
+        <p class="step-desc" id="locationStatus">Checking photo for location data...</p>
+        <div class="location-section" id="locationSection">
+          <button type="button" class="detect-btn-hero" id="detectLocationBtn">
+            <svg class="detect-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+            </svg>
+            <span class="detect-label">Detect my location</span>
+            <span class="detect-subtitle">Use your device's GPS</span>
+          </button>
+          <div class="location-divider"><span>or enter address manually</span></div>
+          <input type="text" class="text-input" id="addressInput" placeholder="Street address or intersection" autocomplete="street-address">
+          <div class="lat-lng" id="latLng"></div>
+          <div class="pvd-warning" id="pvdWarning"></div>
+          <p class="location-hint">Enter the nearest address or intersection, e.g. "Benefit St &amp; Waterman St"</p>
+        </div>
+      </div>
+
+      <!-- STEP 3: Review & Submit (#5: tappable review rows) -->
+      <div class="step" data-step="3">
+        <h2 class="step-heading">Review &amp; submit</h2>
+
+        <div class="review-card">
+          <button type="button" class="review-row review-row-btn" data-goto="0">
+            <span class="review-label">Issue</span>
+            <span class="review-value-group">
+              <span class="review-value" id="reviewCategory"></span>
+              <svg class="review-edit" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="review-row review-row-btn" data-goto="2">
+            <span class="review-label">Location</span>
+            <span class="review-value-group">
+              <span class="review-value" id="reviewAddress"></span>
+              <svg class="review-edit" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </span>
+          </button>
+          <div class="review-photo">
+            <img id="reviewPhoto" alt="Report photo">
+          </div>
+        </div>
+
+        <div class="form-section" id="extraQuestions" hidden></div>
+
+        <div class="form-section">
+          <label class="field-label" for="descriptionInput">Description (optional)</label>
+          <textarea class="text-input" id="descriptionInput" placeholder="Any additional details..." rows="2"></textarea>
+        </div>
+
+        <p class="public-record-notice">Your report (photo, location, description) will be submitted as a public record to the City of Providence 311 system.</p>
+
+        <div class="form-section">
+          <label class="field-label" for="emailInput">Your email (recommended)</label>
+          <input type="email" class="text-input" id="emailInput" placeholder="you@example.com" autocomplete="email" inputmode="email">
+          <p class="field-hint">We pass it to the city so you get their updates on this report. Nothing else; no newsletters.</p>
+          <input type="text" class="text-input" id="nameInput" placeholder="Name (optional)" autocomplete="name">
+        </div>
+      </div>
     </div>
 
-    <a class="github-link" href="https://github.com/RobertCorey/pvd-snow" target="_blank" rel="noopener">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-      </svg>
-      View source on GitHub
-    </a>
+    <!-- NAV BUTTONS (#8: bigger Back button) -->
+    <div class="wizard-nav" id="wizardNav">
+      <button type="button" class="nav-btn nav-back" id="backBtn">Back</button>
+      <button type="button" class="nav-btn nav-next" id="nextBtn" disabled>Next</button>
+    </div>
 
-    <footer>
-      <p>PVD Snow &middot; Providence, RI &middot; <a href="mailto:pvdsnow@proton.me">pvdsnow@proton.me</a></p>
+    <!-- ERROR BANNER (#7: styled inline error) -->
+    <div class="error-banner" id="errorBanner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span id="errorText">Submission failed. Check your connection and try again.</span>
+      <button type="button" class="error-dismiss" id="errorDismiss">&times;</button>
+    </div>
+
+    <!-- SUBMITTING OVERLAY -->
+    <div class="overlay" id="submittingOverlay">
+      <div class="spinner"></div>
+      <div class="overlay-text">Submitting report&hellip;</div>
+    </div>
+
+    <!-- CONFIRMATION (#9: summary included, content pushed up) -->
+    <div class="confirmation" id="confirmationScreen">
+      <div class="check-circle">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="10,18 16,24 26,12"/>
+        </svg>
+      </div>
+      <h2>Report Submitted!</h2>
+      <p>Thanks for looking out for Providence. We'll forward it to the city's 311 system.</p>
+      <div class="confirm-summary" id="confirmSummary">
+        <div class="confirm-summary-row"><span class="confirm-label">Issue</span> <span id="confirmCategory"></span></div>
+        <div class="confirm-summary-row"><span class="confirm-label">Location</span> <span id="confirmAddress"></span></div>
+      </div>
+      <div class="share-section">
+        <p class="share-label">Know a neighbor who'd use this?</p>
+        <div class="share-buttons">
+          <button type="button" class="share-btn share-btn-primary" id="shareNative">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/>
+              <polyline points="16,6 12,2 8,6"/>
+              <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            Share with neighbors
+          </button>
+          <button type="button" class="share-btn" id="shareCopy">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+            </svg>
+            Copy link
+          </button>
+        </div>
+      </div>
+      <button type="button" class="another-btn" id="submitAnother">Submit Another Report</button>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="app-footer">
+      <p class="footer-about">PVD 311 is a volunteer project. We forward your reports to the city's official 311 system on your behalf.</p>
+      <p class="footer-links">
+        <a href="https://311.providenceri.gov" target="_blank" rel="noopener">Use the official 311 portal directly</a>
+      </p>
+      <p class="footer-copy">PVD 311 &middot; Providence, RI &middot; <a href="mailto:pvdsnow@proton.me">pvdsnow@proton.me</a></p>
     </footer>
   </div>
+
+  <!-- Sentry Error Monitoring -->
+  <script
+    src="https://js.sentry-cdn.com/04195069c1daa8e3d2057b6405e37a21.min.js"
+    crossorigin="anonymous"
+  ></script>
+
+  <!-- Firebase SDK (v9 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
+
+  <!-- App -->
+  <script src="/categories.js?v=1"></script>
+  <script src="/app.js?v=13"></script>
+
+  <!-- Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  </script>
 </body>
 </html>

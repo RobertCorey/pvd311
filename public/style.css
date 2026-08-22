@@ -236,25 +236,31 @@ body::before {
 
 /* === CATEGORY BUTTONS === */
 .category-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 20px;
+}
+
+.category-btn-unsure {
+  grid-column: 1 / -1;
 }
 
 .category-btn {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
-  padding: 20px;
+  padding: 14px 12px;
+  min-height: 72px;
   background: var(--navy-800);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
   font-family: 'Source Sans 3', sans-serif;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: left;
@@ -266,8 +272,8 @@ body::before {
 }
 
 .category-btn .cat-icon {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -283,8 +289,8 @@ body::before {
 }
 
 .category-btn .cat-check {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid var(--text-muted);
   flex-shrink: 0;
@@ -718,41 +724,33 @@ textarea.text-input {
   line-height: 1.5;
 }
 
-/* === CONTACT TOGGLE (#6: stacked fields) === */
-.contact-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-family: 'Source Sans 3', sans-serif;
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: 4px 0;
-  -webkit-tap-highlight-color: transparent;
+/* === EMAIL / NAME (email promoted) === */
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 6px 0 10px;
 }
 
-.contact-toggle .chevron {
-  transition: transform 0.2s ease;
-  font-size: 0.7rem;
+select.text-input {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bf' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+  margin-bottom: 12px;
 }
 
-.contact-toggle.open .chevron {
-  transform: rotate(90deg);
+#extraQuestions .text-input:not(select) {
+  margin-bottom: 12px;
 }
 
-.contact-fields {
-  display: none;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  animation: slideDown 0.2s ease;
-}
+#extraQuestions[hidden] { display: none; }
 
-.contact-fields.visible {
-  display: flex;
-}
+.form-section > .text-input { display: block; width: 100%; }
+#nameInput { margin-top: 8px; }
 
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-4px); }
