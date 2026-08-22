@@ -59,7 +59,7 @@ Identity provider: **Firebase Auth** (project `pvd-snow-report`), driven from th
 
 **Transport:** `Authorization: Bearer <Firebase ID token>`. The Worker verifies RS256 against Google's securetoken JWKS, `aud`/`iss` = the project, `exp`/`iat` ±60 s. `/api/me/*`, `PATCH /api/reports/:id` and `POST /api/reports/:id/cancel` require it → 401 `unauthenticated` otherwise. Any other endpoint accepts it optionally. `ownerUid` is set **only** from a verified token, never from a client field.
 
-Client-side REST flow (Web API key `AIzaSyCPT2YK0Pkao-oj6rvDDdpcZLNhqf_Ga2Q`, referrer-restricted):
+Client-side REST flow (`K` = the Firebase Web API key from `firebase apps:sdkconfig web` — a public, referrer-restricted identifier that ships in the client bundle; kept out of docs only to quiet GitHub secret scanning):
 1. `POST https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=K` `{ requestType: "EMAIL_SIGNIN", email, continueUrl: "<origin>/account", canHandleCodeInApp: true }` — remember `email` locally.
 2. The link lands on `<origin>/account?mode=signIn&oobCode=…` → `POST …/accounts:signInWithEmailLink?key=K` `{ oobCode, email }` → `{ idToken, refreshToken, expiresIn, localId, email }`.
 3. Refresh: `POST https://securetoken.googleapis.com/v1/token?key=K` `grant_type=refresh_token&refresh_token=…` → `{ id_token, refresh_token, expires_in }`. ID tokens live 1 h.
