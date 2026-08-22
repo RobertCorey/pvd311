@@ -1,5 +1,5 @@
 // Account endpoints (/api/me/*) — see docs/api.md "Accounts". All calls need a session (authHeaders()).
-import { API_BASE } from './client';
+import { apiFetch } from './client';
 import type { ReportView } from './types';
 import { ApiError } from './types';
 import { authHeaders } from '../lib/auth';
@@ -17,7 +17,7 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 15_000)
   const timer = setTimeout(() => c.abort(), timeoutMs);
   try {
     const headers: Record<string, string> = { ...(await authHeaders()), ...(init.body ? { 'Content-Type': 'application/json' } : {}) };
-    const resp = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: c.signal });
+    const resp = await apiFetch(path, { ...init, headers, signal: c.signal });
     if (!resp.ok) {
       let body: { error?: string; field?: string; retryAfterSec?: number } = {};
       try { body = await resp.json(); } catch { /* non-JSON */ }
