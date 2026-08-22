@@ -5,7 +5,7 @@ import { byKey } from '../lib/categories';
 import { listMyReports } from '../lib/myReports';
 import {
   AuthError, GOOGLE_CLIENT_ID, completeSignInLink, isSignInLink, loadGsi, pendingEmail, sendSignInLink,
-  signInWithGoogleCredential, signOut, useSession,
+  signInWithGoogleCredential, signOut, takeReturnTo, useSession,
 } from '../lib/auth';
 import { claimReports, deleteAddress, followingReports, getMe, recoverReports, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
 import './Account.css';
@@ -14,6 +14,10 @@ type Phase = 'idle' | 'busy' | 'sent' | 'error';
 
 export default function Account() {
   const session = useSession();
+  const navigate = useNavigate();
+  // Already signed in and asked to come back somewhere (e.g. a parked report) → go there.
+  const returnTo = new URLSearchParams(location.search).get('returnTo');
+  useEffect(() => { if (session && returnTo && !isSignInLink()) navigate(takeReturnTo('/my'), { replace: true }); }, [session, returnTo, navigate]);
   return <section className="section account">{session ? <SignedIn /> : <SignedOut />}</section>;
 }
 
@@ -34,7 +38,7 @@ function SignedOut() {
     let n = 0;
     try { if (ids.length) n += (await claimReports(ids)).claimed.length; } catch { /* best effort */ }
     try { n += (await recoverReports()).claimed.length; } catch { /* unverified email or offline */ }
-    navigate('/my', { replace: true, state: { claimed: n } });
+    navigate(takeReturnTo('/my'), { replace: true, state: { claimed: n } });
   }, [navigate]);
 
   // Complete an email link when we land on /account?mode=signIn&oobCode=…
@@ -71,7 +75,7 @@ function SignedOut() {
     setPhase('busy'); setError(null);
     try {
       if (finishing && needEmail) { await completeSignInLink(email); await afterSignIn(); return; }
-      await sendSignInLink(email); setPhase('sent');
+      await sendSignInLink(email, takeReturnTo('/my')); setPhase('sent');
     } catch (err) { setPhase('error'); setError(errKey(err)); }
   }
 
@@ -116,7 +120,7 @@ function SignedOut() {
           <div ref={gBtn} className="account-google" aria-label={t('account.google')} />
         </div>
       )}
-      <p className="hint account-optional">{t('account.optional')} <Link to="/">{t('account.reportAnon')}</Link></p>
+      <p className="hint account-optional">{t('account.optional')} <Link to="/map">{t('account.reportAnon')}</Link></p>
     </>
   );
 }
@@ -256,6 +260,7 @@ function SignedIn() {
 function errKey(e: unknown): string {
   const code = e instanceof AuthError ? e.code : '';
   if (/INVALID_EMAIL|MISSING_EMAIL/.test(code)) return 'email';
+  if (/SEND_FAILED/.test(code)) return 'generic';
   if (/INVALID_OOB_CODE|EXPIRED_OOB_CODE|INVALID_LOGIN_CREDENTIALS/.test(code)) return 'link';
   if (/TOO_MANY_ATTEMPTS|QUOTA/.test(code)) return 'rate';
   return 'generic';

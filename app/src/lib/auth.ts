@@ -1,5 +1,5 @@
-// Accounts are optional. Identity = Firebase Auth driven over its REST API (no SDK); the Worker verifies the ID token.
-// Providers: email link (Firebase sends the mail) and Google (GIS credential → signInWithIdp, when VITE_GOOGLE_CLIENT_ID is set).
+// Accounts are REQUIRED to report (optional to browse). Identity = Firebase Auth driven over its REST API (no SDK); the Worker verifies the ID token.
+// Providers: email link (Worker-minted, sent via Resend) and Google (GIS credential → signInWithIdp, when VITE_GOOGLE_CLIENT_ID is set).
 // Session = { idToken, refreshToken, expiresAt, uid, email } in localStorage; refreshed ~5 min before expiry.
 import { useEffect, useState } from 'react';
 
@@ -8,6 +8,7 @@ export const GOOGLE_CLIENT_ID: string = (import.meta.env.VITE_GOOGLE_CLIENT_ID a
 const IDP = 'https://identitytoolkit.googleapis.com/v1';
 const SESSION_KEY = 'fixmypvd.session';
 const PENDING_EMAIL_KEY = 'fixmypvd.pendingEmail';
+const RETURN_TO_KEY = 'fixmypvd.returnTo';
 
 export interface Session { uid: string; email: string | null; idToken: string; refreshToken: string; expiresAt: number; provider: 'email' | 'google' }
 
@@ -32,6 +33,11 @@ export function useSession(): Session | null {
   useEffect(() => onAuthChange(setS), []);
   return s;
 }
+/** Reactive identity for gates: `user` is null when signed out. `loading` is false after the first render. */
+export function useAuth(): { user: { uid: string; email: string | null } | null; loading: boolean } {
+  const s = useSession();
+  return { user: s ? { uid: s.uid, email: s.email } : null, loading: false };
+}
 
 async function idp<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const resp = await fetch(`${IDP}/accounts:${method}?key=${API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -45,13 +51,27 @@ function fromTokens(d: { localId?: string; email?: string; idToken: string; refr
 }
 
 // ── Email link ──
-/** Step 1: Firebase emails a sign-in link that lands back on /account. */
-export async function sendSignInLink(email: string): Promise<void> {
+/** Step 1: the Worker mints the link and emails it (Resend) — it lands on /account?returnTo=…&oobCode=…
+ *  (Firebase's own sender is dropped by Gmail for this project, so we never call sendOobCode from the client.) */
+export async function sendSignInLink(email: string, returnTo = '/'): Promise<void> {
   const e = email.trim().toLowerCase();
-  await idp('sendOobCode', { requestType: 'EMAIL_SIGNIN', email: e, continueUrl: `${location.origin}/account`, canHandleCodeInApp: true });
-  try { localStorage.setItem(PENDING_EMAIL_KEY, e); } catch { /* ignore */ }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new AuthError('INVALID_EMAIL');
+  const { apiFetch } = await import('../api/client');
+  const resp = await apiFetch('/api/auth/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: e, returnTo, lang: document.documentElement.lang || 'en' }) });
+  if (!resp.ok) {
+    const d = (await resp.json().catch(() => ({}))) as { error?: string };
+    throw new AuthError(resp.status === 429 ? 'TOO_MANY_ATTEMPTS' : d.error === 'invalid_email' ? 'INVALID_EMAIL' : 'SEND_FAILED');
+  }
+  try { localStorage.setItem(PENDING_EMAIL_KEY, e); localStorage.setItem(RETURN_TO_KEY, returnTo); } catch { /* ignore */ }
 }
 export function pendingEmail(): string | null { try { return localStorage.getItem(PENDING_EMAIL_KEY); } catch { return null; } }
+/** Where to go after sign-in: the URL's returnTo (survives a link opened in another tab) → the remembered one → fallback. Same-origin paths only. */
+export function takeReturnTo(fallback = '/my'): string {
+  let v: string | null = null;
+  try { v = new URL(location.href).searchParams.get('returnTo'); } catch { /* ignore */ }
+  if (!v) { try { v = localStorage.getItem(RETURN_TO_KEY); localStorage.removeItem(RETURN_TO_KEY); } catch { /* ignore */ } }
+  return v && /^\/(?!\/)[A-Za-z0-9_\-./?=&%]*$/.test(v) ? v : fallback;
+}
 /** True when the current URL carries an email-link oobCode. */
 export function isSignInLink(url = location.href): boolean {
   const q = new URL(url).searchParams; return q.get('mode') === 'signIn' && !!q.get('oobCode');
