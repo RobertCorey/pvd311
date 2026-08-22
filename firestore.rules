@@ -1,7 +1,56 @@
 rules_version = '2';
 
+// PVD311 relaunch rules (M3). Writes come only from the PWA via anonymous Firebase Auth
+// (+ App Check enforced at the service level). Automation uses the Admin SDK, which bypasses rules.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function d() { return request.resource.data; }
+    function isCategory(c) {
+      return c in ['pothole', 'missed_trash', 'bins_carts', 'street_light', 'illegal_dumping',
+                   'abandoned_vehicle', 'parking', 'animal_control', 'unshoveled_sidewalk',
+                   'missed_plowing', 'unsure'];
+    }
+    function validReport() {
+      return d().status == 'pending'
+        && d().reporterUid == request.auth.uid
+        && d().timestamp == request.time
+        && isCategory(d().category)
+        && d().address is string && d().address.size() > 0 && d().address.size() < 500
+        && (d().lat == null || d().lat is number) && (d().lng == null || d().lng is number)
+        && (d().description == null || (d().description is string && d().description.size() < 2000))
+        && (d().photo == null || (d().photo is string && d().photo.size() < 1024))
+        && (!('extra' in d()) || d().extra == null || (d().extra is map && d().extra.size() <= 8))
+        && (d().reporterName == null || (d().reporterName is string && d().reporterName.size() < 120))
+        && (d().reporterEmail == null || (d().reporterEmail is string && d().reporterEmail.size() < 200))
+        && d().portalCaseId == null
+        && d().keys().size() <= 18;
+    }
+    // Per-device pacing: the PWA batches the report create with users/{uid}.lastReportAt = now.
+    function pacedOk() {
+      let u = getAfter(/databases/$(database)/documents/users/$(request.auth.uid));
+      let prev = exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.lastReportAt
+        : null;
+      return u.data.lastReportAt == request.time
+        && (prev == null || request.time.toMillis() - prev.toMillis() >= 3 * 60 * 1000);
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn() && validReport() && pacedOk();
+      // Reporters may read their own report (status page); nobody else reads from the client.
+      allow read: if signedIn() && resource.data.reporterUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow create, update: if signedIn() && uid == request.auth.uid
+        && d().keys().hasOnly(['lastReportAt']) && d().lastReportAt == request.time;
+      allow read: if signedIn() && uid == request.auth.uid;
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
