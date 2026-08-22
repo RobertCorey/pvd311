@@ -29,15 +29,16 @@ Rules for the helper agent:
 - [ ] Add to `automation/.env`: `ANTHROPIC_API_KEY=<key>`
 - Verify (agent): `cd automation && node -e "import('@anthropic-ai/sdk').then(async m=>{const c=new m.default();const r=await c.messages.create({model:'claude-opus-5',max_tokens:20,messages:[{role:'user',content:'ping'}]});console.log(r.content[0].text)})"` → prints a reply.
 
-## 4. Cloudflare (domain + DNS + inbound email + Turnstile)  **[Rob for account/card]**
+## 4. Cloudflare (domain + DNS + inbound email + Turnstile + **Browser Run compute**)  **[Rob for account/card]**
+> Decision 2026-08-22: Cloudflare Workers + Browser Run will likely replace the VPS (spike code is in `worker/`). So also: **Workers Paid plan ($5/mo)** under Workers & Pages → Plans, and run `cd worker && npx wrangler login` (opens a browser OAuth — Rob clicks Allow) so alice can deploy. Then alice runs the spike; if the city portal's WAF blocks Cloudflare egress, fall back to step 5.
 - [ ] Create/log into https://dash.cloudflare.com, add a payment method (Billing → Payment info).
 - [ ] **Pick the name** (shortlist, all available .org/.com on 2026-08-22: FixMyPVD, FixPVD, HeyPVD, ReportPVD, SnapPVD) — or leave it and alice will re-check availability and buy later.
 - [ ] Optional now: Domain Registration → register `<name>.org` (and `.com` if you want both).
-- [ ] Create an API token: My Profile → API Tokens → **Create Token** → "Create Custom Token" with permissions: *Zone:DNS:Edit, Zone:Zone:Edit, Zone:Email Routing Rules:Edit, Account:Email Routing Addresses:Edit, Account:Workers Scripts:Edit, Account:Turnstile:Edit, Account:Account Settings:Read* — scoped to this account (and all zones). Name it `pvd311-alice`.
+- [ ] Create an API token: My Profile → API Tokens → **Create Token** → "Create Custom Token" with permissions: *Zone:DNS:Edit, Zone:Zone:Edit, Zone:Email Routing Rules:Edit, Account:Email Routing Addresses:Edit, Account:Workers Scripts:Edit, Account:Workers KV Storage:Edit, Account:Workers R2 Storage:Edit, Account:Browser Rendering:Edit, Account:Turnstile:Edit, Account:Account Settings:Read* — scoped to this account (and all zones). Name it `pvd311-alice`.
 - [ ] Add to `~/.config/pvd311/ops.env`: `CLOUDFLARE_API_TOKEN=<token>` and `CLOUDFLARE_ACCOUNT_ID=<id>` (Overview page, right sidebar).
 - Verify: `curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` → `"status":"active"`.
 
-## 5. VPS provider (DigitalOcean recommended; Hetzner alternative)  **[Rob for account/card]**
+## 5. VPS provider — ONLY if the Cloudflare spike fails (DigitalOcean recommended)  **[Rob for account/card]**
 - [ ] DigitalOcean: create account, add card (https://cloud.digitalocean.com/account/billing). API → **Generate New Token**, name `pvd311-alice`, scopes: full access is simplest; custom scopes if preferred: droplet (create/read/delete), ssh_key (read/create), firewall (create/read/update), project (read).
 - [ ] Add to `~/.config/pvd311/ops.env`: `DIGITALOCEAN_TOKEN=<token>`
 - Verify: `curl -s -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" https://api.digitalocean.com/v2/account | head -c 200` → shows the account with `"status":"active"`.

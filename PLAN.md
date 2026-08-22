@@ -41,7 +41,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 
 ## M5 — Deploy
 - [x] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts — build unverified (no Docker on the Mac); verify on NAS
-- [ ] VPS (DigitalOcean/Hetzner) is the ONLY runtime — cloud-only per Rob; WAF test from its IP first. (Dockerfile verified by a throwaway build on the NAS, 2026-08-22.)
+- [ ] Runtime = Cloudflare Workers + Browser Run (spike in `worker/`: canary via Browser Run proves WAF + Playwright compat). If green: port submitter/watcher to the Worker (Firestore via REST, auth state in KV, proofs in R2, cron triggers, dashboard behind Cloudflare Access). If red: VPS (DigitalOcean) with the verified Dockerfile.
 - [ ] Sentry restore (front + back)
 
 ## M6 — Domain, relay, launch

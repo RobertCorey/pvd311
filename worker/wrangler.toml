@@ -1,0 +1,15 @@
+name = "pvd311-worker"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Browser Run (headless Chromium) — requires Workers Paid for meaningful quota
+browser = { binding = "BROWSER" }
+
+# Secrets (set with `wrangler secret put NAME`): PORTAL_EMAIL, PORTAL_PASSWORD, CANARY_TOKEN
+[vars]
+PORTAL_BASE_URL = "https://311.providenceri.gov"
+
+# Spike phase: no cron yet. Later: every minute for the submitter, daily canary.
+# [triggers]
+# crons = ["* * * * *"]
