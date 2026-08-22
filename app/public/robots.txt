@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /r/
 Disallow: /my
-Sitemap: https://pvdsnow.org/sitemap.xml
+Sitemap: https://fixmypvd.org/sitemap.xml
