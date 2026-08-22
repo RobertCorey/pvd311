@@ -1,27 +1,33 @@
+import { Suspense, lazy } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import Report from './screens/Report';
-import Track from './screens/Track';
-import Feed from './screens/Feed';
-import About from './screens/About';
-import Privacy from './screens/Privacy';
-import NotFound from './screens/NotFound';
-import MyReports from './screens/MyReports';
-import Account from './screens/Account';
+
+// Report is the landing screen and stays eager; every other screen is its own
+// chunk so the first paint doesn't wait on code the visitor may never use.
+const Track = lazy(() => import('./screens/Track'));
+const Feed = lazy(() => import('./screens/Feed'));
+const About = lazy(() => import('./screens/About'));
+const Privacy = lazy(() => import('./screens/Privacy'));
+const NotFound = lazy(() => import('./screens/NotFound'));
+const MyReports = lazy(() => import('./screens/MyReports'));
+const Account = lazy(() => import('./screens/Account'));
 
 export default function App() {
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<Report />} />
-        <Route path="/r/:id" element={<Track />} />
-        <Route path="/map" element={<Feed />} />
-        <Route path="/my" element={<MyReports />} />
-        <Route path="/account" element={<Account />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/privacy" element={<Privacy />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/" element={<Report />} />
+          <Route path="/r/:id" element={<Track />} />
+          <Route path="/map" element={<Feed />} />
+          <Route path="/my" element={<MyReports />} />
+          <Route path="/account" element={<Account />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </Layout>
   );
 }
