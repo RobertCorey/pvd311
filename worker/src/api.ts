@@ -77,16 +77,23 @@ async function verifyTurnstile(env: Env, token: string | null, ip: string): Prom
   return !!d.success;
 }
 
-/** Pacing per device and per IP, persisted in Firestore meta (low volume → fine). */
-async function checkPace(store: Store, key: string): Promise<{ ok: boolean; retryAfterSec: number }> {
-  const id = `pace_${key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120)}`;
+/** Pacing per device and per IP, persisted in Firestore meta (low volume → fine).
+ *  Two phases so a rejection by one key never consumes the other's budget: peek all, then commit all. */
+type PaceRec = { last: number; day: string; count: number };
+const paceId = (key: string) => `pace_${key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120)}`;
+async function checkPace(store: Store, keys: string[]): Promise<{ ok: boolean; retryAfterSec: number }> {
   const now = Date.now();
-  const rec = (await store.getMeta<{ last: number; day: string; count: number }>(id)) ?? { last: 0, day: '', count: 0 };
   const today = new Date().toISOString().slice(0, 10);
-  const count = rec.day === today ? rec.count : 0;
-  if (now - rec.last < PACE_MS) return { ok: false, retryAfterSec: Math.ceil((PACE_MS - (now - rec.last)) / 1000) };
-  if (count >= DAILY_CAP) return { ok: false, retryAfterSec: 3600 };
-  await store.setMeta(id, { last: now, day: today, count: count + 1 });
+  const recs: { id: string; rec: PaceRec; count: number }[] = [];
+  for (const key of keys) {
+    const id = paceId(key);
+    const rec = (await store.getMeta<PaceRec>(id)) ?? { last: 0, day: '', count: 0 };
+    const count = rec.day === today ? rec.count : 0;
+    if (now - rec.last < PACE_MS) return { ok: false, retryAfterSec: Math.ceil((PACE_MS - (now - rec.last)) / 1000) };
+    if (count >= DAILY_CAP) return { ok: false, retryAfterSec: 3600 };
+    recs.push({ id, rec, count });
+  }
+  for (const { id, count } of recs) await store.setMeta(id, { last: now, day: today, count: count + 1 });
   return { ok: true, retryAfterSec: 0 };
 }
 
@@ -146,8 +153,8 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
   if (hasPhoto && (photo.size > 5 * 1024 * 1024 || !/^image\//.test(photo.type))) return json({ error: 'invalid_photo', field: 'photo' }, 400);
 
   // Pace per device and per IP
-  for (const key of [`d_${deviceId}`, `ip_${ip}`]) {
-    const p = await checkPace(store, key);
+  {
+    const p = await checkPace(store, [`d_${deviceId}`, `ip_${ip}`]);
     if (!p.ok) return json({ error: 'rate_limited', retryAfterSec: p.retryAfterSec }, 429, { 'retry-after': String(p.retryAfterSec) });
   }
 
@@ -195,7 +202,7 @@ async function intake(request: Request, env: Env): Promise<Response> {
   if (!env.ANTHROPIC_API_KEY || description.trim().length < 3) return json({ polishedDescription: null, flags: [], note: null, model: null });
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const r = await client.messages.create({
-    model: 'claude-opus-5', max_tokens: 1024, system: INTAKE_SYSTEM, tools: [INTAKE_TOOL], tool_choice: { type: 'tool', name: 'review_report' },
+    model: 'claude-opus-5', max_tokens: 4096, output_config: { effort: 'low' }, system: INTAKE_SYSTEM, tools: [INTAKE_TOOL], tool_choice: { type: 'tool', name: 'review_report' },
     messages: [{ role: 'user', content: JSON.stringify({ category: body.category ?? null, categoryLabel: body.category ? CATEGORIES[body.category]?.label : null, description, address: (body.address ?? '').slice(0, 300), extra: body.extra ?? {}, hasPhoto: !!body.hasPhoto }) }],
   });
   const block = r.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
@@ -295,7 +302,7 @@ function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
 }
 
 async function publicFeed(url: URL, { store }: ApiDeps): Promise<Response> {
-  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 100)));
+  const limit = Math.min(200, Math.max(1, Number.isFinite(Number(url.searchParams.get('limit'))) && url.searchParams.get('limit') ? Number(url.searchParams.get('limit')) : 100));
   const bbox = (url.searchParams.get('bbox') ?? '').split(',').map(Number);
   const inBbox = (lat: number, lng: number) =>
     bbox.length !== 4 || bbox.some(Number.isNaN) || (lng >= bbox[0] && lat >= bbox[1] && lng <= bbox[2] && lat <= bbox[3]);
@@ -309,7 +316,8 @@ async function publicFeed(url: URL, { store }: ApiDeps): Promise<Response> {
     .filter((it) => it.lat != null && it.lng != null && inBbox(it.lat!, it.lng!))
     .filter((it) => !/^draft$/i.test(it.status || '')).map(cityFeedItem);
 
-  const items = [...ours, ...city].slice(0, limit);
+  // Interleave by recency so a busy week of ours never starves the city rows (and vice versa).
+  const items = [...ours, ...city].sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? '')).slice(0, limit);
   return json({ items }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
@@ -328,7 +336,8 @@ async function nearby(url: URL, { store }: ApiDeps): Promise<Response> {
   const lat = Number(url.searchParams.get('lat'));
   const lng = Number(url.searchParams.get('lng'));
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return json({ error: 'invalid_coords', field: 'lat' }, 400);
-  const radiusM = Math.min(2000, Math.max(1, Number(url.searchParams.get('radiusM') ?? 75)));
+  const rawRadius = Number(url.searchParams.get('radiusM'));
+  const radiusM = Math.min(2000, Math.max(1, Number.isFinite(rawRadius) && rawRadius > 0 ? rawRadius : 75));
   const category = url.searchParams.get('category') || null;
   const sinceMs = Date.now() - 14 * 24 * 3_600_000;
 

@@ -100,7 +100,8 @@ export async function scoutFields(input: ScoutInput): Promise<ScoutResult> {
 
   const response = await client.messages.create({
     model: input.model ?? 'claude-opus-5',
-    max_tokens: 2048,
+    max_tokens: 8192,
+    output_config: { effort: 'medium' },
     system: SYSTEM,
     tools: [TOOL],
     tool_choice: { type: 'tool', name: 'propose_field_values' },

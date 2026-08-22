@@ -29,7 +29,7 @@ const RETRY_BACKOFF_MS = 10 * 60_000;
 const DUP_WINDOW_HOURS = 24;
 const DUP_DISTANCE_M = 50;
 const BREAKER_THRESHOLD = 3;
-const LOCK_MS = 3 * 60_000;
+const LOCK_MS = 12 * 60_000; // must exceed the longest submission (login + wizard + scout + photo); ticks skip while locked
 
 export interface EngineState {
   paused?: boolean;
@@ -131,6 +131,7 @@ async function verifyGates(store: Store, env: Env, report: ReportDoc): Promise<s
     const recent = await store.findRecentSubmissions(DUP_WINDOW_HOURS);
     for (const existing of recent) {
       if (existing.lat == null || existing.lng == null) continue;
+      if (existing.category !== report.category) continue; // a pothole and a streetlight at one corner are two issues
       const dist = haversineMeters(report.lat, report.lng, existing.lat, existing.lng);
       if (dist < DUP_DISTANCE_M) return `Duplicate: within ${Math.round(dist)}m of submitted report ${existing.id}`;
     }
@@ -288,19 +289,21 @@ export async function runDaily(env: Env): Promise<void> {
     }
   } catch (e) { console.error('[retention] failed:', e); }
 
-  const [submitted, pending, awaiting, failed, processing] = await Promise.all([
-    store.countByStatus('submitted'),
-    store.countByStatus('pending'),
-    store.countByStatus('awaiting_review'),
-    store.countByStatus('failed'),
-    store.countByStatus('processing'),
-  ]);
-  await mailer.alert(
-    'Daily digest',
-    `<p><b>Queue snapshot</b></p><ul>`
-    + `<li>submitted ${submitted}</li><li>pending ${pending}</li>`
-    + `<li>awaiting review ${awaiting}</li><li>failed ${failed}</li><li>processing ${processing}</li></ul>`,
-  );
+  try {
+    const [submitted, pending, awaiting, failed, processing] = await Promise.all([
+      store.countByStatus('submitted'),
+      store.countByStatus('pending'),
+      store.countByStatus('awaiting_review'),
+      store.countByStatus('failed'),
+      store.countByStatus('processing'),
+    ]);
+    await mailer.alert(
+      'Daily digest',
+      `<p><b>Queue snapshot</b></p><ul>`
+      + `<li>submitted ${submitted}</li><li>pending ${pending}</li>`
+      + `<li>awaiting review ${awaiting}</li><li>failed ${failed}</li><li>processing ${processing}</li></ul>`,
+    );
+  } catch (e) { console.error('[digest] failed:', e); } // never skip the canary because the digest failed
 
   // Selector canary (zero-draft): alert only on drift.
   const auth = createAuthStore(store);

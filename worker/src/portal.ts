@@ -357,7 +357,7 @@ class WorkerPortal implements Portal {
             g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, options: [] };
             out.push(g);
           }
-          g.options.push(label.replace(new RegExp('^' + g.label + '\\s*'), '').trim() || label);
+          g.options.push(label.startsWith(g.label) ? label.slice(g.label.length).trim() || label : label);
           return;
         }
         const c: any = {
@@ -387,17 +387,18 @@ class WorkerPortal implements Portal {
     } else if (c.type === 'radio') {
       const radios = page.locator(`input[type="radio"][name="${c.name}"]`);
       const n = await radios.count();
+      const want = value.trim().toLowerCase();
       for (let i = 0; i < n; i++) {
         const r = radios.nth(i);
-        const lab = (await r.getAttribute('aria-label')) || '';
-        if (lab.toLowerCase().includes(value.toLowerCase())) {
+        const lab = ((await r.getAttribute('aria-label')) || '').trim().toLowerCase();
+        // exact option text, or "<group label> <option text>" as the portal composes aria-labels
+        if (lab === want || lab.endsWith(' ' + want) || (c.label && lab === `${c.label.toLowerCase()} ${want}`)) {
           await r.check();
           await r.dispatchEvent('change').catch(() => {});
           return;
         }
       }
-      await radios.last().check(); // last option is conventionally "Other"
-      return;
+      throw new Error(`NEEDS_REVIEW: no radio option matches "${value}" for ${c.id} (options: ${(c.options ?? []).join(' | ')})`);
     } else if (c.type === 'checkbox') {
       if (/^(yes|true|1|on)$/i.test(value)) await page.check(sel);
       else await page.uncheck(sel);
@@ -468,7 +469,8 @@ class WorkerPortal implements Portal {
     }
 
     // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
-    const navPromise = page.waitForURL(/my-requests|New-Request/, { timeout: 60_000 });
+    const before = page.url();
+    const navPromise = page.waitForFunction((u) => location.href !== u, before, { timeout: 60_000 }).then(() => undefined);
     await page.click('#NextButton', { timeout: 10_000 });
     await Promise.race([
       navPromise.then(() => 'navigated' as const),
