@@ -4,11 +4,14 @@
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
  *   GET  /api/public-feed → recent reports for the map (no PII)
+ *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
+import { userFromRequest, type AuthUser } from './auth.js';
+import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './me.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -23,8 +26,8 @@ function corsHeaders(env: Env, origin: string | null): Record<string, string> {
   const ok = !!origin && (allowed.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
   return {
     'access-control-allow-origin': ok ? origin! : allowed[0],
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type,x-turnstile-token',
+    'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+    'access-control-allow-headers': 'content-type,x-turnstile-token,authorization',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -39,9 +42,16 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {
     let resp: Response;
-    if (request.method === 'POST' && url.pathname === '/api/report') resp = await createReport(request, env, deps);
+    const reportId = /^\/api\/reports\/([A-Za-z0-9_-]{10,64})(\/cancel)?$/.exec(url.pathname);
+    const needsAuth = url.pathname.startsWith('/api/me') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
+    const auth = needsAuth || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
+    if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
+    else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport }, auth!);
+    else if (request.method === 'PATCH' && reportId && !reportId[2]) resp = await editReport(reportId[1], request, deps.store, auth!);
+    else if (request.method === 'POST' && reportId?.[2]) resp = await cancelReport(reportId[1], deps.store, auth!);
+    else if (request.method === 'POST' && url.pathname === '/api/report') resp = await createReport(request, env, deps, auth);
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
-    else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps);
+    else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps, auth);
     else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/email$/.test(url.pathname)) resp = await attachEmail(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/follow$/.test(url.pathname)) resp = await followReport(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
@@ -107,7 +117,7 @@ function intakeAllowed(ip: string): boolean {
 
 // ── POST /api/report ────────────────────────────────────────
 
-async function createReport(request: Request, env: Env, { store }: ApiDeps): Promise<Response> {
+async function createReport(request: Request, env: Env, { store }: ApiDeps, auth: AuthUser | null): Promise<Response> {
   const ct = request.headers.get('content-type') ?? '';
   if (!ct.includes('multipart/form-data')) return json({ error: 'multipart_required' }, 400);
   const form = await request.formData();
@@ -143,8 +153,11 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
   }
   let intakeFlags: string[] | null = null;
   if (f('intakeFlags')) { try { const a = JSON.parse(f('intakeFlags')); if (Array.isArray(a)) intakeFlags = a.map(String).slice(0, 5); } catch { /* ignore */ } }
-  const email = f('email') || null;
+  let email = f('email') || null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email', field: 'email' }, 400);
+  // Signed in (Worker-verified token): own the report; fall back to the account email for status mail when opted in.
+  const account = auth ? await ensureUser(store, auth) : null;
+  if (account && !email && account.email && account.emailVerified && account.prefs?.emailUpdates !== false) email = account.email;
   const deviceId = f('deviceId').slice(0, 64) || ip;
 
   const photo = form.get('photo');
@@ -171,6 +184,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
     extra, intakeFlags, photo: photoUrl, reporterName: f('name').slice(0, 120) || null, reporterEmail: email,
     status: 'pending', statusDetail: null, portalCaseId: null, statusUpdatedAt: now,
     deviceId, ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
+    ownerUid: account?.uid ?? null,
   });
   return json({ id, trackingUrl: `/r/${id}`, category, createdAt: now.toISOString() }, 201);
 }
@@ -223,9 +237,11 @@ function toIso(t: unknown): string | null {
   return null;
 }
 
-function projectReport(r: ReportDoc) {
+/** Tracking projection (no PII). With a viewer (signed-in caller) adds mine/following/editable + the description for owners. */
+function projectReport(r: ReportDoc, viewer?: Viewer) {
   const cat = CATEGORIES[r.category];
   const status = PUBLIC_STATUS[r.status] ?? 'received';
+  const mine = !!viewer && !!r.ownerUid && r.ownerUid === viewer.uid;
   const timeline: { at: string | null; label: string }[] = [{ at: toIso(r.timestamp), label: 'Received' }];
   if (r.portalCaseId) timeline.push({ at: toIso(r.statusUpdatedAt), label: `Filed with the city as ${r.portalCaseId}` });
   if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
@@ -235,6 +251,8 @@ function projectReport(r: ReportDoc) {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
     portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline, hasEmail: !!r.reporterEmail,
+    owned: !!r.ownerUid,
+    ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
 }
@@ -262,10 +280,12 @@ async function followReport(id: string, request: Request, { store }: ApiDeps): P
   return new Response(null, { status: 204 });
 }
 
-async function getReport(id: string, { store }: ApiDeps): Promise<Response> {
+async function getReport(id: string, { store }: ApiDeps, auth: AuthUser | null): Promise<Response> {
   const r = await store.fetchReport(id);
   if (!r) return json({ error: 'not_found' }, 404);
-  return json(projectReport(r), 200, { 'cache-control': 'no-store' });
+  let viewer: Viewer | undefined;
+  if (auth) { const u = await store.getUser(auth.uid); viewer = { uid: auth.uid, following: new Set(u?.following ?? []) }; }
+  return json(projectReport(r, viewer), 200, { 'cache-control': 'no-store' });
 }
 
 // ── GET /api/photos/:id ─────────────────────────────────────

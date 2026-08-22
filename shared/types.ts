@@ -68,6 +68,17 @@ export interface Report {
   /** Anonymous Firebase Auth uid of the reporting device (rules require it; used for per-device pacing) */
   reporterUid?: string | null;
 
+  /** Account (Firebase Auth uid, Worker-verified) that filed or later claimed this report. null = anonymous. */
+  ownerUid?: string | null;
+  claimedAt?: string | null;
+
+  /** Followers: emails (anonymous follow) and account uids (signed-in follow). Both get city-status mail. */
+  followers?: string[] | null;
+  followerUids?: string[] | null;
+
+  /** Set when the reporter cancelled a still-pending report from the app (status becomes 'rejected'). */
+  cancelledByReporter?: boolean | null;
+
   /** Optional reporter name */
   reporterName: string | null;
 

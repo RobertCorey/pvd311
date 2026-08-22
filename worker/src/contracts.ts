@@ -74,7 +74,7 @@ export interface Store {
   findResolvedBefore(date: Date, limit: number): Promise<ReportDoc[]>; // portalStatus Resolved|Cancelled, portalStatusUpdatedAt <= date, photo still present
   // Accounts (users/{uid}) — see me.ts
   getUser(uid: string): Promise<UserDoc | null>;
-  patchUser(uid: string, fields: Partial<UserDoc> & Record<string, unknown>): Promise<void>;
+  patchUser(uid: string, fields: Record<string, unknown>): Promise<void>;
   findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
   findReportsByEmail(email: string, limit: number): Promise<ReportDoc[]>;      // reporterEmail == email (any status)
   fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped

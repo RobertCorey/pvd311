@@ -11,6 +11,7 @@
 import type { Env, Mailer, ReportDoc, Store } from './contracts.js';
 import { CATEGORIES } from '../../shared/categories.js';
 import { actionUrl } from './email.js';
+import { accountTrusted } from './me.js';
 
 /** Trust-ramp threshold (env override optional; matches Node config default). */
 function trustRampN(env: Env): number {
@@ -25,10 +26,19 @@ export async function needsHumanApproval(store: Store, env: Env, report: ReportD
   const mode = env.HITL_MODE;
   if (mode === 'auto') return false;
   if (mode === 'review') return true;
-  // ramp: count this category's already-submitted history
+  // ramp: a trusted account (clean history ≥ ACCOUNT_TRUST_N filed, 0 rejected — or admin `trusted`) skips the tap…
+  if (report.ownerUid && (await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false))) return false;
+  // …otherwise count this category's already-submitted history
   const n = trustRampN(env);
   const submitted = await store.countSubmittedByCategory(report.category, n);
   return submitted < n;
+}
+
+/** Per-account trust threshold for HITL_MODE="ramp" (env ACCOUNT_TRUST_N, default 3). */
+function accountTrustN(env: Env): number {
+  const raw = (env as unknown as { ACCOUNT_TRUST_N?: string }).ACCOUNT_TRUST_N;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 3;
 }
 
 /** Park a report for review and email Rob signed approve/reject links. */
