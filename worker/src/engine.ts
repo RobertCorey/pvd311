@@ -168,6 +168,11 @@ async function submitOne(
       paused: false,
     });
     console.log(`[tick] submitted ${report.id}${result.caseId ? ` as ${result.caseId}` : ''}`);
+    if (report.reporterEmail) {
+      const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
+      await mailer.sendTo(report.reporterEmail, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
+        `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">SnapPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[tick] failed ${report.id}:`, message);
@@ -224,6 +229,12 @@ export async function runWatcher(env: Env): Promise<void> {
 
       await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
       console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
+      if (report.reporterEmail) {
+        const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
+        const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', Resolved: 'is marked resolved by the city', Cancelled: 'was cancelled by the city' };
+        await mailer.sendTo(report.reporterEmail, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
+          `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">SnapPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
+      }
       if (/resolved|cancel/i.test(to)) {
         await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
       }

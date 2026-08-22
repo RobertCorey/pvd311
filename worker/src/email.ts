@@ -26,13 +26,27 @@ export function createMailer(env: Env): Mailer {
     return data.id ?? null;
   }
 
+  /** Reporter-facing mail. Gated by REPORTER_EMAIL_ENABLED until the sending domain is verified on Resend
+   *  (onboarding@resend.dev can only deliver to the account owner). Never throws. */
+  async function sendTo(to: string, subject: string, html: string): Promise<void> {
+    if (!enabled || env.REPORTER_EMAIL_ENABLED !== 'true') { console.log(`[email] (reporter mail gated) to=${to} ${subject}`); return; }
+    try {
+      const resp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: html.replace(/<[^>]+>/g, '') }),
+      });
+      if (!resp.ok) console.error(`[email] reporter mail failed ${resp.status}`);
+    } catch (e) { console.error('[email] reporter mail error', e); }
+  }
+
   /** Fire-and-forget alert; never throws. Subject is prefixed [PVD311]. */
   async function alert(subject: string, html: string): Promise<void> {
     try { await send(`[PVD311] ${subject}`, html); }
     catch (e) { console.error('[email] alert failed:', e); }
   }
 
-  return { send, alert };
+  return { send, alert, sendTo };
 }
 
 // ── HITL link signing (HMAC-SHA256 hex via WebCrypto) ───────────────────────────────

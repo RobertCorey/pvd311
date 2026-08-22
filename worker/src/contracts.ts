@@ -24,6 +24,8 @@ export interface Env {
   HITL_SECRET: string;
   TURNSTILE_SECRET: string;
   APP_ORIGINS?: string;               // var: comma-separated allowed CORS origins (optional)
+  REPORTER_EMAIL_ENABLED?: string;    // var: 'true' once the Resend sending domain is verified
+  APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://pvdsnow.org)
 }
 
 export type ReportDoc = Report & { id: string };
@@ -88,4 +90,5 @@ export interface Portal {
 export interface Mailer {
   send(subject: string, html: string): Promise<string | null>;
   alert(subject: string, html: string): Promise<void>;   // never throws
+  sendTo(to: string, subject: string, html: string): Promise<void>; // reporter-facing; gated; never throws
 }
