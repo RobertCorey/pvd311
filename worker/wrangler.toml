@@ -1,6 +1,6 @@
 name = "pvd311-worker"
 main = "src/index.ts"
-routes = [{ pattern = "api.fixmypvd.org", custom_domain = true }]
+# Custom domain api.fixmypvd.org is attached account-side (created 2026-08-22); not declared here because the deploy token lacks the Workers Routes scope.
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
