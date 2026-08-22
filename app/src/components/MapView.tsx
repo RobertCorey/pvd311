@@ -26,8 +26,6 @@ export interface MapViewProps {
   onMoveEnd?: (bbox: [number, number, number, number]) => void;
   /** Fixed height in px. Omit to fill the parent (which must have a height). */
   height?: number;
-  /** Draw the downtown rivers as an ember accent (the WaterFire line). Default true. */
-  rivers?: boolean;
   ariaLabel: string;
 }
 
@@ -83,7 +81,6 @@ export default function MapView({
   onPinMove,
   onMoveEnd,
   height,
-  rivers = true,
   ariaLabel,
 }: MapViewProps) {
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -126,17 +123,6 @@ export default function MapView({
 
     markerLayerRef.current = L.layerGroup().addTo(map);
 
-    // The WaterFire line: Providence / Woonasquatucket / Moshassuck rivers in ember — a glow pass under a thin line.
-    if (rivers) {
-      import('../lib/rivers.data').then(({ RIVERS }) => {
-        if (!mapRef.current) return;
-        const glow = L.layerGroup().addTo(map);
-        for (const r of RIVERS) {
-          L.polyline(r.pts, { color: 'var(--ember)', weight: 9, opacity: 0.18, lineCap: 'round', lineJoin: 'round', interactive: false, className: 'map-river-glow' }).addTo(glow);
-          L.polyline(r.pts, { color: 'var(--ember)', weight: 2.5, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false, className: 'map-river' }).addTo(glow);
-        }
-      }).catch(() => {});
-    }
     map.on('moveend', () => {
       if (programmaticRef.current) { programmaticRef.current = false; return; } // ignore our own setView
       const b = map.getBounds();
