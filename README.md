@@ -8,17 +8,17 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 
 ## How it works
 
-1. **Resident** opens the app, taps a category (8 big tiles; "Other" expands the full list), snaps a photo (EXIF fills the location) or types the address, adds a description, and sends. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
+1. **Resident** opens the app, taps a category (8 big tiles; "Other" opens the full sheet), snaps a photo (EXIF fills the location) or types the address, adds a description, and taps Send. **An account is required to send** (email link or Google — no password); the draft is kept across the sign-in round trip. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
 2. **Worker** (`worker/`, Cloudflare) validates, rate-limits per device, stores the report + photo, and returns an unguessable tracking id (`/r/:id`).
 3. **Review** — HITL at launch: the operator gets an email and approves/rejects from `/admin`; full-auto with an agent in the loop is the goal.
 4. **Portal submit** — the Worker drives the city's 311 portal with a headless browser (Browser Rendering): case type by census GUID, conditional fields (unmapped → an LLM "scout" reads the live controls), submit, case id.
-5. **Status** — the Worker polls the portal; the resident sees the timeline on the tracking page and under **My reports**; everything also shows on the public map.
+5. **Status** — the Worker polls the portal; the resident sees the timeline on the tracking page (shareable link) and under **Mine** (account reports, follow/edit/cancel while pending). A public map was built and then cut (2026-08-22) to keep the product focused; the feed/nearby API stays for the "already reported nearby" prompt.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Leaflet map, Cloudflare Turnstile, Playwright tests. Talks only to the Worker API. |
+| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Firebase Auth over REST (email link via Worker+Resend, Google), Leaflet (compose/tracking mini-pin only), Cloudflare Turnstile, Playwright + axe tests. Talks only to the Worker API (api.fixmypvd.org). |
 | Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
 | Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
 | Legacy | `automation/` (laptop engine, reference only). The old `public/` PWA was removed after cutover (git history before a0f7776) |
@@ -28,9 +28,9 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 
 ```
 app/               FixMyPVD client (React)
-  src/screens/     Report (tiles → details), Track (/r/:id), Feed (/map), MyReports, About, Privacy
+  src/screens/     Report (tiles → details → sign-in gate at Send), Track (/r/:id), MyReports, Account, About, Privacy
   src/api/         Worker API client + types (wire contract)
-  src/lib/         categories (from shared/), geo (EXIF, geocode, compress), outbox, myReports
+  src/lib/         categories (from shared/), geo (EXIF, geocode, compress), auth (Firebase REST), draft, outbox, idb, myReports
   src/i18n/        strings.en.json / strings.es.json + useT
   src/brand.ts     every brand string
   tests/           Playwright (mobile emulation, API mocked)

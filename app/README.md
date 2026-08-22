@@ -1,6 +1,6 @@
 # FixMyPVD client (`app/`)
 
-Vite + React 19 + TypeScript, installable PWA. Talks **only** to the Cloudflare Worker API (`worker/`); no Firebase SDK, no accounts. Product spec: `../docs/product-spec.md`. Wire contract: `../docs/api.md` (types mirrored in `src/api/types.ts`).
+Vite + React 19 + TypeScript, installable PWA. Talks **only** to the Cloudflare Worker API (`worker/`); no Firebase SDK (auth is Firebase REST in `src/lib/auth.ts`). Accounts are required to send a report (gate at Send; draft survives the round trip). Product spec: `../docs/product-spec.md`. Wire contract: `../docs/api.md` (types mirrored in `src/api/types.ts`).
 
 ## Scripts
 ```bash
@@ -20,7 +20,7 @@ src/api/               client.ts (fetch wrappers, timeouts, ApiError) · types.t
 src/lib/               categories (from ../shared/categories.ts via @shared), geo (EXIF, geocode, ≤300KB compress),
                        outbox (IndexedDB offline queue), myReports (device-local tokens), useInstallPrompt
 src/components/        Layout, Turnstile, MapView (Leaflet, lazy), CategoryIcon, BrandMark
-src/screens/           Report (tiles → details), Track (/r/:id), Feed (/map), MyReports, About, Privacy, NotFound
+src/screens/           Report (tiles → details → gate at Send), Track (/r/:id), MyReports, Account, About, Privacy, NotFound
 tests/                 report / track / map specs
 ```
 
