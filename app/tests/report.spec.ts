@@ -77,3 +77,21 @@ test('rate limited → friendly message, stays on page', async ({ page }) => {
   await expect(page.locator('[role="alert"]')).toContainText('One report at a time');
   await expect(page).toHaveURL(/\/$/);
 });
+
+test('offline: submit queues to outbox, shows saved screen; back online it flushes and lands in My reports', async ({ page, context }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await context.setOffline(true);
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.queued')).toContainText('Saved on your phone');
+  await context.setOffline(false);
+  await page.goto('/');
+  await expect(page.locator('.outbox-card')).toContainText('1 saved report');
+  await page.waitForRequest(`${API}/api/report`);
+  await expect(page.locator('[role="status"]')).toContainText('Sent a saved report', { timeout: 5000 });
+  await expect(page.locator('.outbox-card')).toHaveCount(0);
+  await page.goto('/my');
+  await expect(page.locator('.my-row')).toHaveCount(1);
+});

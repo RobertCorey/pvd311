@@ -27,3 +27,6 @@
 .hint.center { text-align: center; }
 .submit-bar { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 max(12px, env(safe-area-inset-bottom)); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
 .submit-bar .hint { margin: 6px 0 0; }
+.outbox-card { margin-bottom: 14px; }
+.outbox-card .hint { margin: 0 0 8px; }
+.queued p { margin: 12px 0 18px; }

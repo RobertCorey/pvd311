@@ -5,6 +5,8 @@ import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocod
 import { intake, submitReport } from '../api/client';
 import { ApiError, type IntakeResult } from '../api/types';
 import { rememberReport } from '../lib/myReports';
+import { flushOutbox, outbox } from '../lib/outbox';
+import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
@@ -57,6 +59,34 @@ export default function Report() {
   const [turnstileNonce, setTurnstileNonce] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [queued, setQueued] = useState(false);
+
+  // --- offline outbox ---
+  const [pending, setPending] = useState(0);
+  const [outboxNotice, setOutboxNotice] = useState<string | null>(null);
+  useEffect(() => { outbox.count().then(setPending).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!pending || !turnstileToken || !navigator.onLine) return;
+    let cancelled = false;
+    // One queued item per Turnstile token (tokens are single-use); the widget
+    // re-mounts for the next one.
+    flushOutbox(async (r) => {
+      const created = await submitReport({ ...r, turnstileToken });
+      rememberReport({ id: created.id, category: r.category, address: r.address, createdAt: created.createdAt });
+    }, 1).then(async () => {
+      if (cancelled) return;
+      const left = await outbox.count();
+      if (left < pending) setOutboxNotice(t('report.outbox.sent'));
+      setPending(left);
+      setTurnstileToken(null); setTurnstileNonce((n) => n + 1);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [pending, turnstileToken, t]);
+  useEffect(() => {
+    const onOnline = () => outbox.count().then(setPending).catch(() => {});
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
@@ -140,6 +170,17 @@ export default function Report() {
     setSubmitting(true); setError(null);
     try {
       const blob = photo ? await compressImage(photo).catch(() => photo) : null;
+      if (!navigator.onLine) {
+        await outbox.add({
+          category: cat.key, description: description.trim(), address: address.trim(),
+          lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra: Object.keys(extra).length ? extra : null,
+          descriptionOriginal: wordingApplied !== null && wordingApplied.trim() !== description.trim() ? wordingApplied.trim() : undefined,
+          intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined, photo: blob,
+        });
+        setPending((n) => n + 1);
+        setSubmitting(false); setQueued(true); window.scrollTo({ top: 0 });
+        return;
+      }
       const created = await submitReport({
         category: cat.key,
         description: description.trim(),
@@ -166,10 +207,28 @@ export default function Report() {
     }
   }
 
+  // ---------- Queued (offline) ----------
+  if (queued) {
+    return (
+      <section className="section queued" aria-live="polite">
+        <div className="notice notice-ok"><strong>{t('report.queued.title')}</strong></div>
+        <p>{t('report.queued.body', { name: BRAND.name })}</p>
+        <button type="button" className="btn btn-primary" onClick={() => window.location.assign('/')}>{t('report.queued.another')}</button>
+      </section>
+    );
+  }
+
   // ---------- Phase A ----------
   if (!cat) {
     return (
       <section className="section">
+        {outboxNotice && <div className="notice notice-ok" role="status">{outboxNotice}</div>}
+        {pending > 0 && (
+          <div className="card outbox-card" role="status">
+            <p className="hint">{t(pending === 1 ? 'report.outbox.pending' : 'report.outbox.pendingPlural', { count: pending })}</p>
+            <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
+          </div>
+        )}
         <h2>{t('report.whatsWrong')}</h2>
         <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
           {featured.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}

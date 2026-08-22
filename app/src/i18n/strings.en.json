@@ -59,5 +59,11 @@
   "extra.vehicleDetails": "Vehicle details (make, color, plate if visible)",
   "extra.vehicleDetails.placeholder": "e.g. silver Honda Civic, RI plate ABC-123",
   "footer.contact": "Contact",
-  "my.empty": "No reports from this device yet. Reports you send are saved here so you can check their status — no account needed."
+  "my.empty": "No reports from this device yet. Reports you send are saved here so you can check their status — no account needed.",
+  "report.queued.title": "Saved on your phone.",
+  "report.queued.body": "No connection right now — we'll send it to Providence 311 the next time you open {name} online.",
+  "report.queued.another": "Report another",
+  "report.outbox.pending": "{count} saved report waiting to send…",
+  "report.outbox.pendingPlural": "{count} saved reports waiting to send…",
+  "report.outbox.sent": "Sent a saved report — it's in My reports."
 }
