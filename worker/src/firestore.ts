@@ -472,6 +472,24 @@ export function createStore(env: Env): Store {
       return { bytes: out, contentType: d.fields?.contentType?.stringValue ?? 'image/jpeg' };
     },
 
+    async deletePhoto(id): Promise<void> {
+      const token = await getAccessToken(env);
+      const resp = await fetch(`${docBase(env)}/photos/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+      if (!resp.ok && resp.status !== 404) throw new Error(`deletePhoto ${id}: ${resp.status}`);
+    },
+
+    async findResolvedBefore(date, limit): Promise<ReportDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: andFilter(
+          fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }),
+          fieldFilter('portalStatusUpdatedAt', 'LESS_THAN_OR_EQUAL', { timestampValue: date.toISOString() }),
+        ),
+        limit,
+      });
+      return docs.map(docToReport).filter((r) => /resolved|cancel/i.test(r.portalStatus ?? '') && !!r.photo);
+    },
+
     async uploadFile(path, bytes, contentType, opts): Promise<string> {
       const token = await getAccessToken(env);
       const url =

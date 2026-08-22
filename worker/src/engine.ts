@@ -250,6 +250,17 @@ export async function runDaily(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
 
+  // Retention: photos are deleted 30 days after the city resolves/cancels the case (privacy promise).
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 3_600_000);
+    for (const r of await store.findResolvedBefore(cutoff, 50)) {
+      const id = r.photo?.match(/\/api\/photos\/([A-Za-z0-9_-]+)/)?.[1] ?? r.id;
+      await store.deletePhoto(id).catch(() => {});
+      await store.patchReport(r.id, { photo: null, photoDeletedAt: new Date().toISOString() });
+      console.log(`[retention] deleted photo for ${r.id}`);
+    }
+  } catch (e) { console.error('[retention] failed:', e); }
+
   const [submitted, pending, awaiting, failed, processing] = await Promise.all([
     store.countByStatus('submitted'),
     store.countByStatus('pending'),

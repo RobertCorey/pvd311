@@ -53,6 +53,8 @@ export interface Store {
   /** Photos live in Firestore (photos/{id}) while the project is on Spark — no server-side bucket writes without billing. */
   putPhoto(id: string, bytes: Uint8Array, contentType: string): Promise<void>;
   getPhoto(id: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  deletePhoto(id: string): Promise<void>;
+  findResolvedBefore(date: Date, limit: number): Promise<ReportDoc[]>; // portalStatus Resolved|Cancelled, portalStatusUpdatedAt <= date, photo still present
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */
