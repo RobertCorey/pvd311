@@ -49,3 +49,6 @@ Two sources merged (bbox + limit apply to the combined set; limit ≤ 200):
 
 ## Later
 `POST /api/reports/:id/follow`.
+
+## POST /api/reports/:id/follow — follow someone else's report
+JSON `{ email }` → 204. Followers receive the same city-status emails as the reporter (gated until the sending domain is verified). Use from the "already reported nearby" prompt for `source:'snappvd'` items (city items can't be followed).
