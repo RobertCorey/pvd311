@@ -18,6 +18,7 @@ import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { handleApi } from './api.js';
+import { adminPage, adminAction } from './admin.js';
 import { signAction, timingSafeEqualHex } from './email.js';
 import { approve, reject } from './hitl.js';
 
@@ -45,6 +46,14 @@ export default {
     // Public app API (the client's only backend)
     const apiResp = await handleApi(request, env, { store: createStore(env) });
     if (apiResp) return apiResp;
+
+    // Ops page (pre-launch stopgap; token in URL)
+    if (url.pathname === '/admin' && request.method === 'GET') {
+      const token = url.searchParams.get('token') ?? '';
+      if (token !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      return adminPage(env, createStore(env), token);
+    }
+    if (url.pathname === '/admin/action' && request.method === 'POST') return adminAction(env, createStore(env), request);
 
     // Admin: walk a pending report through the wizard in INSPECT mode (stops before Submit; costs one portal draft).
     if (url.pathname === '/admin/inspect') {

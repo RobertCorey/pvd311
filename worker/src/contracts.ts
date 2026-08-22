@@ -42,6 +42,7 @@ export interface Store {
   countSubmittedByCategory(category: string, limit: number): Promise<number>;
   listSubmittedWithCaseId(): Promise<ReportDoc[]>;              // for the watcher
   countByStatus(status: ReportStatus): Promise<number>;
+  findByStatus(status: ReportStatus, limit: number): Promise<ReportDoc[]>;
   getMeta<T>(docId: string): Promise<T | null>;                  // collection 'meta'
   setMeta(docId: string, data: Record<string, unknown>): Promise<void>; // merge
   /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */

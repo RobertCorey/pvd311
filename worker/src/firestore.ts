@@ -392,6 +392,15 @@ export function createStore(env: Env): Store {
       return docs.map(docToReport);
     },
 
+    async findByStatus(status, limit): Promise<ReportDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: fieldFilter('status', 'EQUAL', { stringValue: status }),
+        limit,
+      });
+      return docs.map(docToReport).sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
+    },
+
     async findReportsSince(hoursAgo, limit): Promise<ReportDoc[]> {
       const cutoff = new Date(Date.now() - hoursAgo * 3_600_000);
       const docs = await runQuery(env, {
