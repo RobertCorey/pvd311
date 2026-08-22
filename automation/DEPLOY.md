@@ -1,3 +1,5 @@
+> **Status (2026-08-22):** production runtime is **Cloudflare Workers + Browser Run** (see `worker/`). This Docker image is the VPS *fallback* only — Rob's directive is cloud-only, no homelab. Ignore the NAS sections unless the Cloudflare path is abandoned.
+
 # Deploying the PVD311 automation server (Docker)
 
 Containerized deployment of the dashboard + Playwright submission engine
