@@ -7,6 +7,7 @@ import About from './screens/About';
 import Privacy from './screens/Privacy';
 import NotFound from './screens/NotFound';
 import MyReports from './screens/MyReports';
+import Account from './screens/Account';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/r/:id" element={<Track />} />
         <Route path="/map" element={<Feed />} />
         <Route path="/my" element={<MyReports />} />
+        <Route path="/account" element={<Account />} />
         <Route path="/about" element={<About />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="*" element={<NotFound />} />
