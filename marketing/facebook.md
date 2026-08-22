@@ -1,6 +1,6 @@
 # Facebook Groups
 
-> **FIXMYPVD_URL** = https://pvdsnow.org — placeholder used throughout this file. Swap to https://fixmypvd.org once that domain is bought (one find-and-replace of `FIXMYPVD_URL`).
+> **FIXMYPVD_URL** = https://fixmypvd.org — placeholder used throughout this file. Swap to https://fixmypvd.org once that domain is bought (one find-and-replace of `FIXMYPVD_URL`).
 
 Two variants below: one for neighborhood groups (East Side, West End, Federal Hill, Elmwood, etc.), one for ward / neighborhood-association groups. Read each group's rules first; many require mod approval for links. Pair with a photo of a real problem (a pothole, an overflowing bin) if the group allows it. Lead with the everyday pothole/trash pain.
 

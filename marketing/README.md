@@ -10,7 +10,7 @@ Copy for the FixMyPVD launch. Each channel has its own file; post in the order b
 
 Every file uses the token **`FIXMYPVD_URL`** in place of the live URL, with the current value in a header line at the top of the file:
 
-- **Now:** `https://pvdsnow.org`
+- **Now:** `https://fixmypvd.org`
 - **Later:** `https://fixmypvd.org`, once the domain is bought.
 
 To publish, find-and-replace `FIXMYPVD_URL` with the current URL. When the domain changes, that's the only edit.

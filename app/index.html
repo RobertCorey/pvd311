@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Canonical host: the old pvdsnow.org domain forwards to fixmypvd.org (Firebase Hosting has no host-based redirects).
+      if (/(^|\.)pvdsnow\.org$/.test(location.hostname)) location.replace('https://fixmypvd.org' + location.pathname + location.search + location.hash);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#F7F1E6" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0C1222" media="(prefers-color-scheme: dark)" />
@@ -18,8 +22,9 @@
     <meta property="og:title" content="FixMyPVD" />
     <meta property="og:description" content="Report a Providence street problem in one photo — we file it with the city's 311 for you." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://pvdsnow.org/og-image.png" />
+    <meta property="og:image" content="https://fixmypvd.org/og-image.png" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://fixmypvd.org/" />
     <title>FixMyPVD</title>
   </head>
   <body>
