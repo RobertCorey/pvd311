@@ -49,6 +49,19 @@ All pairings above verified ≥ 4.5:1 (lowest: ember-text on paper 4.81, ink on 
 - **Illustrations / empty states:** one SVG street scene in the two-ink style (triple-decker, street light, pothole, crow on a wire) reused with masks: My reports empty, 404, map empty, offline-queued. Flat paths, no gradients, < 4 KB each.
 - **Logo / mark:** harbor-ink map pin carrying an **×** — X marks the spot to fix — over an ember circle printed off-register. No camera pun anywhere (the name is FixMyPVD, decided 2026-08-22). Wordmark "FixMyPVD" in Bricolage 800, "FixMy" in ink, "PVD" in ember. App tile: cream ground, mark centered (maskable-safe), favicon = mark on ember.
 
+## Providence identity (second pass, 2026-08-22 — "more PVD vibe")
+
+Chosen because they're *ownable* (no seal, no trademarks), cheap to render, and they add information, not just decoration:
+
+- **Neighborhoods are first-class.** The city's 25 official neighborhoods (City GIS rings, simplified to 8 KB, lazy-loaded, point-in-polygon in `lib/neighborhoods.ts`). `/map` shows "Smith Hill 3 · Fox Point 2" chips (open reports by hood in view) and every row carries its hood; the tracking page's location card gets a hood tag. This is how residents actually talk about where things are.
+- **The WaterFire line.** The downtown rivers (Providence, Woonasquatucket, Moshassuck — OSM centerlines, 5 KB) drawn on the map in ember with a slow-breathing glow. It's the one place the ember ink means *fire on the water*; it also orients the map instantly.
+- **Skyline signature** in the footer on every page: triple-decker · Industrial Trust "Superman" tower · the pedestrian bridge with braziers · State House dome (no figure, no seal) · a steeple. Line art in ink, flames in ember. Plus the line "Made in Providence · the Creative Capital".
+- Kept out on purpose: the Big Blue Bug (trademark), Del's yellow (breaks the two-ink system), dialect microcopy ("wicked") — reads as costume.
+
+## Sign-in gate (accounts required, 2026-08-22)
+
+Lives at the **Send** step, not at the tile tap: the composed report stays above, the card replaces the submit bar and reads as *one more step* — "One more step · Pothole" strip, "Sign in to send it", one why-line (the city can reach you; one person can't flood 311), email + ember CTA, what-happens-next hint, OR + Google, fine print with the not-the-city line, ghost "Not yet — back to my report". Returning users never see it (session persists) so the ≤45 s path holds. `components/SignInGate.tsx` + `.css`, strings `gate.*`.
+
 ## Three before → after notes
 
 1. **Home.** Before: "What's the problem?" over eight identical white cards with a small teal glyph in a box — reads like a settings page. After: the grid is the hero; big two-ink icons, display-type labels, ember press state, tab bar with the Report button under your thumb — it reads like a poster of Providence street problems you tap.
