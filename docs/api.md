@@ -1,4 +1,4 @@
-# SnapPVD Worker API — v1 (wire truth)
+# FixMyPVD Worker API — v1 (wire truth)
 
 Base: `https://pvd311-worker.pvd311-worker.workers.dev` (custom domain at launch). CORS: pvdsnow.org, www, the two Firebase Hosting domains, `http://localhost:*`.
 Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 400/403/404/429/500. The client never blocks on intake errors.

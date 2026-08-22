@@ -2,7 +2,7 @@
 
 > **Reorientation 2026-08-22 (Rob):** the only sacred cow is *official portal = source of truth, driven headlessly*. Everything inherited from PVD Snow is up for removal. Rob is the client; product/design/brand decisions are delegated to sub-agents, never asked of him. M2/M3 below are superseded by **M7–M9**.
 
-No launch date. Launch when it feels right, under a proper domain (name TBD — shortlist: FixMyPVD, FixPVD, HeyPVD, ReportPVD, SnapPVD).
+No launch date. Launch when it feels right, under a proper domain (name TBD — shortlist: FixMyPVD, FixPVD, HeyPVD, ReportPVD, FixMyPVD).
 Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claude/STATE.md`, and the dossier artifact.
 
 ## Principles
@@ -67,19 +67,19 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] automation/ archived to legacy/; Firestore + Storage rules deny-all; App Check unenforced (client no longer touches Firebase)
 
 ## M8 — Product identity + UX (decided by a product-design IC, not Rob)
-- [x] Name: SnapPVD (snappvd.org/.com available 2026-08-22 — Rob buys), brand tokens, logo concept
+- [x] Name: FixMyPVD (fixmypvd.org/.com available 2026-08-22 — Rob buys), brand tokens, logo concept
 - [x] UX spec (docs/product-spec.md): category-first one-screen report, AI = moderation/polish only (Rob), tracking page, public map, copy
 
-## M9 — New client `app/` (bob) — SnapPVD per docs/product-spec.md
+## M9 — New client `app/` (bob) — FixMyPVD per docs/product-spec.md
 - [x] Scaffold: Vite + React + TS, installable PWA, Playwright; Worker API client; Turnstile; brand + tokens + i18n strings file
 - [x] Report screen: 8 tiles + Other (picker first, per Rob), photo (camera/library, EXIF → location), geolocation + forward/reverse geocode + Providence guard, per-category extra questions, description + AI intake (moderation/polish, reporter approves), sticky submit
 - [x] Offline outbox (IndexedDB) with flush on reconnect
 - [x] My reports (device-local tokens)
 - [x] Tracking page `/r/:id` + confirmation (copy/share, email attach)
 - [x] Public map + feed `/map` (Leaflet, lazy)
-- [x] About + Privacy, SnapPVD icon set
+- [x] About + Privacy, FixMyPVD icon set
 - [ ] Spanish strings (`strings.es.json`) + language switch
 - [x] Location mini-map with draggable pin (spec §3.1)
 - [x] Dedupe prompt (GET /api/nearby, 75 m, same category)
-- [x] Flipped Firebase Hosting to `app/dist` 2026-08-22 (`npm run deploy:app`, firebase.app.json) — SnapPVD live at pvdsnow.org
-- [ ] Retire `public/` + legacy firebase.json target; pvdsnow.org → snappvd.org redirect once the domain exists; later Cloudflare
+- [x] Flipped Firebase Hosting to `app/dist` 2026-08-22 (`npm run deploy:app`, firebase.app.json) — FixMyPVD live at pvdsnow.org
+- [ ] Retire `public/` + legacy firebase.json target; pvdsnow.org → fixmypvd.org redirect once the domain exists; later Cloudflare
