@@ -58,12 +58,25 @@ export async function readExifGps(file: Blob): Promise<{ lat: number; lng: numbe
   return null;
 }
 
-/** Downscale to ≤ maxWidth JPEG for upload. */
-export async function compressImage(file: Blob, maxWidth = 1280, quality = 0.8): Promise<Blob> {
+/**
+ * Downscale + re-encode to a JPEG under `maxBytes` (the Worker stores photos in
+ * Firestore on the Spark plan: 1 MB doc limit incl. base64 overhead → keep ≤300 KB).
+ */
+export async function compressImage(file: Blob, maxBytes = 300 * 1024, maxWidth = 1280): Promise<Blob> {
   const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, maxWidth / bmp.width);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
-  canvas.getContext('2d')!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return new Promise((res) => canvas.toBlob((b) => res(b ?? file), 'image/jpeg', quality));
+  const ctx = canvas.getContext('2d')!;
+  let width = maxWidth;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const scale = Math.min(1, width / bmp.width);
+    canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    for (const q of [0.82, 0.72, 0.62, 0.5]) {
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', q));
+      if (blob && blob.size <= maxBytes) return blob;
+    }
+    width = Math.round(width * 0.75);
+  }
+  const last = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.4));
+  return last ?? file;
 }
