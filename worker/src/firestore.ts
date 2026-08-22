@@ -222,19 +222,43 @@ async function getDoc(env: Env, path: string): Promise<FsDocument | null> {
   return (await resp.json()) as FsDocument;
 }
 
-/** PATCH with updateMask = the given keys. Firestore PATCH upserts, so this creates the doc if missing. */
+/** Set a (possibly nested) leaf in a Firestore document `fields` body, creating intermediate maps. */
+function setNestedField(root: Record<string, FsValue>, segments: string[], value: FsValue): void {
+  const [head, ...rest] = segments;
+  if (rest.length === 0) {
+    root[head] = value;
+    return;
+  }
+  let node = root[head];
+  if (!node || !('mapValue' in node)) {
+    node = { mapValue: { fields: {} } };
+    root[head] = node;
+  }
+  const mv = node as { mapValue: { fields?: Record<string, FsValue> } };
+  if (!mv.mapValue.fields) mv.mapValue.fields = {};
+  setNestedField(mv.mapValue.fields, rest, value);
+}
+
+/**
+ * PATCH with updateMask = the given keys. Firestore PATCH upserts, so this creates the doc if missing.
+ * A key containing '.' is treated as a nested field path (e.g. 'review.decision'): only that leaf is
+ * merged, sibling leaves of the parent map are preserved. A key with no '.' replaces that whole
+ * top-level field. All our field names are simple identifiers, so no backtick escaping is needed.
+ */
 async function patchDoc(env: Env, path: string, fields: Record<string, unknown>): Promise<void> {
   const keys = Object.keys(fields).filter((k) => fields[k] !== undefined);
   if (keys.length === 0) return;
   const params = new URLSearchParams();
-  for (const k of keys) params.append('updateMask.fieldPaths', k);
-  const encoded: Record<string, FsValue> = {};
-  for (const k of keys) encoded[k] = encodeValue(fields[k]);
+  const body: Record<string, FsValue> = {};
+  for (const k of keys) {
+    params.append('updateMask.fieldPaths', k);
+    setNestedField(body, k.split('.'), encodeValue(fields[k]));
+  }
 
   const resp = await authedFetch(env, `${docBase(env)}/${path}?${params.toString()}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fields: encoded }),
+    body: JSON.stringify({ fields: body }),
   });
   if (!resp.ok) throw new Error(`firestore PATCH ${path}: ${resp.status} ${await resp.text()}`);
 }
