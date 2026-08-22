@@ -65,7 +65,7 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 
 /* Bottom tab bar (phones): Report / Map / Mine — thumb zone. */
 .tabbar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex; justify-content: center; pointer-events: none; }
-.tabbar-inner { pointer-events: auto; width: 100%; max-width: 520px; margin: 0 12px; margin-bottom: max(10px, env(safe-area-inset-bottom)); background: var(--surface); border: 2px solid var(--ink); border-radius: 22px; box-shadow: 0 4px 0 rgba(22, 33, 58, 0.22), var(--shadow); display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 6px; }
+.tabbar-inner { pointer-events: auto; width: 100%; max-width: 520px; margin: 0 12px; margin-bottom: max(10px, env(safe-area-inset-bottom)); background: var(--surface); border: 2px solid var(--ink); border-radius: 22px; box-shadow: 0 4px 0 rgba(22, 33, 58, 0.22), var(--shadow); display: grid; grid-template-columns: 1fr 1fr; padding: 6px; }
 .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; border-radius: 16px; text-decoration: none; color: var(--muted); font-family: var(--font-display); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; -webkit-tap-highlight-color: transparent; transition: background-color 0.15s, color 0.15s; }
 .tab svg { width: 24px; height: 24px; }
 .tab[aria-current="page"] { color: var(--ink); background: var(--ink-soft); }
