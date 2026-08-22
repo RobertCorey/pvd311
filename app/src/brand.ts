@@ -5,8 +5,9 @@ export const BRAND = {
   tagline: "Report a Providence street problem in one photo — we file it with the city's 311 for you.",
   heroSub: "Snap a city problem. We'll file it with 311 for you.",
   domain: 'snappvd.org',
-  siteUrl: 'https://snappvd.org',
-  contactEmail: 'hello@snappvd.org',  // TODO: until the domain + inbox exist, pvdsnow@proton.me still works
+  /** Canonical site URL once the domain exists; until then links use the current origin. */
+  siteUrl: typeof location !== 'undefined' && /snappvd\.org$/.test(location.hostname) ? 'https://snappvd.org' : (typeof location !== 'undefined' ? location.origin : 'https://snappvd.org'),
+  contactEmail: 'pvdsnow@proton.me',  // TODO → hello@snappvd.org once the domain + inbox exist
   disclaimer: 'SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.',
   notTheCity: 'Not the city',
   portalUrl: 'https://311.providenceri.gov',
