@@ -57,6 +57,7 @@ export interface ReportView {
   portalStatus: PortalStatus | null;
   timeline: TimelineEntry[];
   nextUpdateHint: string | null;
+  hasEmail?: boolean;
 }
 
 export interface FeedItem {

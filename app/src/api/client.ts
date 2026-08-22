@@ -82,6 +82,17 @@ export async function getReport(id: string): Promise<ReportView> {
   } finally { t.done(); }
 }
 
+/** Attach a reporter email after submit (confirmation screen). 204 on success. */
+export async function attachEmail(id: string, email: string, turnstileToken?: string | null): Promise<void> {
+  const t = withTimeout(15_000);
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
+    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}/email`, { method: 'POST', headers, signal: t.signal, body: JSON.stringify({ email }) });
+    if (!resp.ok) throw await parseError(resp);
+  } finally { t.done(); }
+}
+
 export async function getFeed(bbox: [number, number, number, number], limit = 100): Promise<FeedResponse> {
   const t = withTimeout(15_000);
   try {
