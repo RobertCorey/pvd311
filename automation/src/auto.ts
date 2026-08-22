@@ -3,6 +3,8 @@ import { fetchPendingReports, findRecentSubmissions, findStuckProcessing, update
 import { PortalSubmitter } from './portal.js';
 import { needsHumanApproval, requestReview, processCallbacks } from './hitl.js';
 import { alert } from './telegram.js';
+import { runCanary } from './canary.js';
+import { sendDailyDigest } from './digest.js';
 import { CATEGORIES, isCategory, type Report } from '../../shared/types.js';
 
 // Providence bounding box
@@ -111,6 +113,18 @@ export class AutoSubmitter {
     if (this.log.length > 50) this.log.shift();
   }
 
+  private lastDailyRun: string | null = null;
+
+  /** Once per day (first poll after 06:00 local): selector canary + digest. Never creates drafts. */
+  private async dailyTasks(): Promise<void> {
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    if (now.getHours() < 6 || this.lastDailyRun === day) return;
+    this.lastDailyRun = day;
+    try { await sendDailyDigest(); } catch (e) { console.error('[auto] digest failed:', e); }
+    try { await runCanary(); } catch (e) { console.error('[auto] canary failed:', e); await alert(`🚨 Canary could not run: ${e instanceof Error ? e.message : e}`); }
+  }
+
   private async poll(): Promise<void> {
     if (!this.enabled || this.paused || this.busy) return;
     if (this.isSubmissionActive()) return;
@@ -130,6 +144,8 @@ export class AutoSubmitter {
 
     this.busy = true;
     try {
+      await this.dailyTasks();
+
       // Drain phone approvals/rejections first
       await processCallbacks();
 
