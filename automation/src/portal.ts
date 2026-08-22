@@ -76,6 +76,11 @@ export class PortalSubmitter {
     return this.page;
   }
 
+  /** Read-only page access for the canary/watcher. Callers must never click Next/Submit. */
+  pageForReadOnlyChecks(): Page {
+    return this.getPage();
+  }
+
   // ── Login ──────────────────────────────────────────────────
 
   async ensureLoggedIn(force = false): Promise<void> {
