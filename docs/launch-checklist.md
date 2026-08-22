@@ -9,6 +9,7 @@ Quiet launch. Go when every **Gate** is green. Rob-only items are marked **[Rob]
 - [ ] **Token rotation** **[Rob]** (Anthropic, Resend, Cloudflare, DO) — values leaked into alice's transcript on 2026-08-22.
 - [x] **app/ at parity** (bob): Report, Track, Map, About/Privacy, Spanish strings, PWA install, Playwright green (24) → hosting flipped 2026-08-22; `public/` removed. Live Lighthouse 99/100/100/100.
 - [x] **Facelift live** (design lead + bob): FixMyPVD brand (docs/design-direction.md) on every screen, light+dark, en+es, self-hosted fonts, icons/og regenerated, axe spec green. Live Lighthouse 2026-08-22: perf 93–97 / a11y 100 / BP 100 / SEO 100, CLS 0; LCP ≈2.5–3 s is React+router+Report bundle cost (route splitting done, ~91 KB gz floor) — accepted pre-launch.
+- [ ] **Accounts required** (accounts lead + bob): client gate at Send live (draft preserved across sign-in); Worker `401 auth_required` + uid pacing + per-account ramp (N=3) landing; sign-in links minted by the Worker via Resend (Firebase's own sender never delivered). Launch HITL_MODE=ramp.
 - [ ] **One real report end to end**: a genuine issue, filed via the app by Rob, approved in HITL, lands as a PVD case, status update arrives. (Only real issues — never test junk to the city.)
 - [ ] **Ops**: /admin reachable, daily digest arriving, canary green 3 days running, HITL_MODE=review.
 
