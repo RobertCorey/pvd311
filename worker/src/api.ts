@@ -42,6 +42,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
+    else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
     for (const [k, v] of Object.entries(cors)) resp.headers.set(k, v);
     return resp;
@@ -142,8 +143,9 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
   const id = newId();
   let photoUrl: string | null = null;
   if (hasPhoto) {
-    const ext = photo.type === 'image/png' ? 'png' : photo.type === 'image/webp' ? 'webp' : 'jpg';
-    photoUrl = await store.uploadFile(`reports/${id}/photo.${ext}`, new Uint8Array(await photo.arrayBuffer()), photo.type, { downloadToken: newId() + newId() });
+    // Spark plan: no server-side bucket writes. Photo bytes live in Firestore (photos/{id}) and are served by /api/photos/:id.
+    await store.putPhoto(id, new Uint8Array(await photo.arrayBuffer()), photo.type);
+    photoUrl = `${new URL(request.url).origin}/api/photos/${id}`;
   }
   const now = new Date();
   await store.patchReport(id, {
@@ -222,6 +224,14 @@ async function getReport(id: string, { store }: ApiDeps): Promise<Response> {
   const r = await store.fetchReport(id);
   if (!r) return json({ error: 'not_found' }, 404);
   return json(projectReport(r), 200, { 'cache-control': 'no-store' });
+}
+
+// ── GET /api/photos/:id ─────────────────────────────────────
+
+async function getPhoto(id: string, { store }: ApiDeps): Promise<Response> {
+  const p = await store.getPhoto(id);
+  if (!p) return json({ error: 'not_found' }, 404);
+  return new Response(p.bytes, { headers: { 'content-type': p.contentType, 'cache-control': 'public, max-age=31536000, immutable' } });
 }
 
 // ── GET /api/public-feed ────────────────────────────────────

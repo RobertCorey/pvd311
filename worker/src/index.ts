@@ -17,6 +17,7 @@ import type { Env } from './contracts.js';
 import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
+import { handleApi } from './api.js';
 import { signAction, timingSafeEqualHex } from './email.js';
 import { approve, reject } from './hitl.js';
 
@@ -40,6 +41,34 @@ export default {
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Public app API (the client's only backend)
+    const apiResp = await handleApi(request, env, { store: createStore(env) });
+    if (apiResp) return apiResp;
+
+    // Admin: walk a pending report through the wizard in INSPECT mode (stops before Submit; costs one portal draft).
+    if (url.pathname === '/admin/inspect') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      const id = url.searchParams.get('id');
+      if (!id) return Response.json({ error: 'id required' }, { status: 400 });
+      const store = createStore(env);
+      const report = await store.fetchReport(id);
+      if (!report) return Response.json({ error: 'not_found' }, { status: 404 });
+      const portal = createPortal(env, { auth: createAuthStore(store) });
+      try {
+        await portal.launch();
+        const result = await portal.submitReport(report, {
+          mode: 'inspect',
+          onDraft: (d) => store.saveReportDraft(id, d),
+          saveProof: (name, png) => store.uploadFile(`proofs/${id}/${name}.png`, png, 'image/png'),
+        });
+        return Response.json({ ok: true, ...result });
+      } catch (e) {
+        return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      } finally {
+        await portal.close().catch(() => {});
+      }
+    }
 
     if (url.pathname === '/healthz') {
       const store = createStore(env);

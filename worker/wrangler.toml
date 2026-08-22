@@ -30,8 +30,8 @@ HITL_BASE_URL = "https://pvd311-worker.pvd311-worker.workers.dev"
 # TRUST_RAMP_N = "3"
 
 # Cron ticks can spend a while in Browser Run. cpu_ms is honored on Workers Paid; harmless comment otherwise.
-[limits]
-cpu_ms = 300000
+# [limits]
+# cpu_ms = 300000   # re-enable once the account is on Workers Paid
 
 # ── Secrets (set with `wrangler secret put <NAME>` or via CI) ──────────────────────────
 #   PORTAL_EMAIL              portal login

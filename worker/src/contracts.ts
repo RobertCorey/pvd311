@@ -47,6 +47,9 @@ export interface Store {
   /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */
   uploadFile(path: string, bytes: Uint8Array, contentType: string, opts?: { downloadToken?: string }): Promise<string>;
   findReportsSince(hoursAgo: number, limit: number): Promise<ReportDoc[]>;      // public feed: any status except rejected
+  /** Photos live in Firestore (photos/{id}) while the project is on Spark — no server-side bucket writes without billing. */
+  putPhoto(id: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  getPhoto(id: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

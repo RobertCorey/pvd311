@@ -441,6 +441,28 @@ export function createStore(env: Env): Store {
       await patchDoc(env, `meta/${docId}`, data);
     },
 
+    async putPhoto(id, bytes, contentType): Promise<void> {
+      let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const token = await getAccessToken(env);
+      const resp = await fetch(`${docBase(env)}/photos/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ fields: { data: { bytesValue: btoa(bin) }, contentType: { stringValue: contentType }, createdAt: { timestampValue: new Date().toISOString() } } }),
+      });
+      if (!resp.ok) throw new Error(`putPhoto ${id}: ${resp.status} ${(await resp.text()).slice(0, 200)}`);
+    },
+
+    async getPhoto(id): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+      const token = await getAccessToken(env);
+      const resp = await fetch(`${docBase(env)}/photos/${id}`, { headers: { authorization: `Bearer ${token}` } });
+      if (resp.status === 404) return null;
+      if (!resp.ok) throw new Error(`getPhoto ${id}: ${resp.status}`);
+      const d = (await resp.json()) as { fields?: { data?: { bytesValue?: string }; contentType?: { stringValue?: string } } };
+      const b64 = d.fields?.data?.bytesValue; if (!b64) return null;
+      const bin = atob(b64); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return { bytes: out, contentType: d.fields?.contentType?.stringValue ?? 'image/jpeg' };
+    },
+
     async uploadFile(path, bytes, contentType, opts): Promise<string> {
       const token = await getAccessToken(env);
       const url =
