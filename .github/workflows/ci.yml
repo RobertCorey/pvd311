@@ -12,3 +12,20 @@ jobs:
         with: { node-version: 24 }
       - name: worker typecheck
         run: cd worker && npm ci && npm run typecheck
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: app/package-lock.json }
+      - name: install
+        run: cd app && npm ci
+      - name: typecheck + build
+        run: cd app && npm run build
+      - name: playwright browsers
+        run: cd app && npx playwright install --with-deps chromium
+      - name: e2e (API mocked)
+        run: cd app && npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: app/test-results, retention-days: 7 }
