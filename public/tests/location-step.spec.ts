@@ -39,7 +39,7 @@ async function setupPage(page: Page) {
 // Uses a tiny valid 1x1 PNG so the photo step is satisfied (no EXIF GPS).
 async function advanceToLocationStep(page: Page) {
   // Step 0: pick a category
-  await page.click('[data-category="unshoveled_sidewalk"]');
+  await page.click('[data-category="pothole"]');
   // Auto-advances to step 1 after 300ms
   await page.waitForSelector('[data-step="1"].active');
 
