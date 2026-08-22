@@ -63,7 +63,8 @@ export async function readExifGps(file: Blob): Promise<{ lat: number; lng: numbe
  * Firestore on the Spark plan: 1 MB doc limit incl. base64 overhead → keep ≤300 KB).
  */
 export async function compressImage(file: Blob, maxBytes = 300 * 1024, maxWidth = 1280): Promise<Blob> {
-  const bmp = await createImageBitmap(file);
+  // Bake EXIF rotation into the pixels so the upload is upright everywhere.
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   let width = maxWidth;
