@@ -22,9 +22,9 @@ APP_NAME = "PVD311 app"
 HITL_MODE = "review"
 FIREBASE_PROJECT_ID = "pvd-snow-report"
 STORAGE_BUCKET = "pvd-snow-report.firebasestorage.app"
-NOTIFY_EMAIL = "robertbcorey@gmail.com"   # → rob@fixmypvd.org once the Resend domain is verified
-NOTIFY_FROM = "FixMyPVD <onboarding@resend.dev>"   # → "FixMyPVD <updates@fixmypvd.org>" once Resend verifies the domain
-REPORTER_EMAIL_ENABLED = "false"   # flip to "true" after the Resend sending domain is verified
+NOTIFY_EMAIL = "rob@fixmypvd.org"
+NOTIFY_FROM = "FixMyPVD <updates@fixmypvd.org>"
+REPORTER_EMAIL_ENABLED = "true"
 APP_BASE_URL = "https://fixmypvd.org"
 BLOCKED_ADDRESSES = "congdon st,congdon street"
 # Where signed HITL approve/reject email links point. Update to the custom domain at launch.
