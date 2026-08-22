@@ -22,11 +22,12 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Restore wizard index.html from git (51e3331^), strip snow copy/theme/icons (working title "PVD 311" until M6)
 - [x] Category picker driven by a curated launch set (~8) mapped to census GUIDs; "I'm unsure" fallback (`scripts/gen-categories.mjs` → `public/categories.js`; seasonal hiding; per-category extra questions; photo-optional gate)
 - [x] Reporter email promoted ("get the city's updates"); consent copy
-- [ ] Service worker: real offline queue instead of kill switch; manifest/icon fixes for iOS
+- [x] Service worker: real offline queue instead of kill switch; manifest/icon fixes for iOS (app-shell cache + IndexedDB outbox, 47551b7)
 
 ## M3 — Safety before reopening writes
 - [x] Firestore rules rewrite (create-only, schema-validated, deployed) + App Check registered (enforcement flips when PWA ships it)
-- [ ] Anonymous auth + per-UID quota; abuse config list replaces the Congdon St hack
+- [x] Anonymous auth (enabled in console 2026-08-22) + per-UID pacing (users/{uid}.lastReportAt, 3 min) — PWA write path verified against prod
+- [ ] Abuse config list replaces the Congdon St hack
 - [ ] Billing kill switch (budget → Pub/Sub → disable billing) + alerts — BLOCKED: project needs Blaze billing (Rob)
 - [x] Storage rules: authenticated per-uid uploads (deployed)
 

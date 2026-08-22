@@ -3,7 +3,7 @@
 // hook to nudge the page to flush its IndexedDB outbox when connectivity
 // returns (via Background Sync where available).
 
-const CACHE = 'pvd311-v1';
+const CACHE = 'pvd311-v2';
 const GSTATIC = 'https://www.gstatic.com/firebasejs/10.14.1/';
 
 // App shell. gstatic scripts are fetched with mode:'cors' during install so we
@@ -23,6 +23,8 @@ const PRECACHE = [
   GSTATIC + 'firebase-firestore-compat.js',
   GSTATIC + 'firebase-analytics-compat.js',
   GSTATIC + 'firebase-storage-compat.js',
+  GSTATIC + 'firebase-auth-compat.js',
+  GSTATIC + 'firebase-app-check-compat.js',
 ];
 
 self.addEventListener('install', (event) => {

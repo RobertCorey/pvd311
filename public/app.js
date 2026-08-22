@@ -3,7 +3,7 @@
 // ============================================================
 
 const firebaseConfig = {
-  apiKey: "AIzaSyClljpzQrR9-LGvD_xtWtOfcTebTAO0P80",
+  apiKey: "AIzaSyCvWhzPCpnBu3xvFlK77VT-S7w69Wsv9Ik",
   authDomain: "pvd-snow-report.firebaseapp.com",
   projectId: "pvd-snow-report",
   storageBucket: "pvd-snow-report.firebasestorage.app",
@@ -12,10 +12,35 @@ const firebaseConfig = {
   measurementId: "G-KKLML5QH3L"
 };
 
+const APP_VERSION = 'v12';
+const APP_CHECK_SITE_KEY = '6LfgOJMtAAAAAI-W7gY4bSJ32_y00tZgfZHf9SnG'; // reCAPTCHA Enterprise
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(location.hostname);
+
 firebase.initializeApp(firebaseConfig);
+
+// App Check (reCAPTCHA Enterprise). Local dev uses a fixed debug token that is
+// registered in the Firebase console (App Check → Manage debug tokens).
+if (IS_LOCAL_DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = '01ef1afb-cdec-4160-907f-cc145cb726cd';
+try {
+  firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider(APP_CHECK_SITE_KEY), true);
+} catch (e) { console.warn('App Check init failed', e); }
+
 const db = firebase.firestore();
 const storage = firebase.storage();
+const auth = firebase.auth();
 const analytics = firebase.analytics();
+
+// Anonymous auth: Firestore/Storage rules require a signed-in (anonymous) user.
+// The session persists in IndexedDB, so a device keeps one uid across visits.
+let authPromise = null;
+function ensureAuth() {
+  if (auth.currentUser) return Promise.resolve(auth.currentUser);
+  if (!authPromise) {
+    authPromise = auth.signInAnonymously().then(c => c.user).catch(err => { authPromise = null; throw err; });
+  }
+  return authPromise;
+}
+ensureAuth().catch(e => console.warn('Anonymous sign-in failed (will retry at submit):', e));
 function logEvent(name, params) {
   try { analytics.logEvent(name, params); } catch(e) {}
 }
@@ -517,10 +542,10 @@ function showError(msg) {
 }
 
 // --- Photo upload to Cloud Storage ---
-async function uploadPhoto(dataUrl) {
+async function uploadPhoto(dataUrl, uid) {
   const timestamp = Date.now();
   const randomId = Math.random().toString(36).substring(2, 8);
-  const path = `reports/${timestamp}_${randomId}.jpg`;
+  const path = `reports/${uid}/${timestamp}_${randomId}.jpg`;
   const ref = storage.ref(path);
   await ref.putString(dataUrl, 'data_url', { contentType: 'image/jpeg' });
   return ref.getDownloadURL();
@@ -559,15 +584,31 @@ async function sendReport(payload, photoDataUrl) {
     setTimeout(() => reject(new Error('timeout')), 30000)
   );
 
+  const user = await Promise.race([ensureAuth(), timeout]);
+  const uid = user.uid;
+
   let photoUrl = null;
   if (photoDataUrl) {
-    photoUrl = await Promise.race([uploadPhoto(photoDataUrl), timeout]);
+    photoUrl = await Promise.race([uploadPhoto(photoDataUrl, uid), timeout]);
   }
 
-  await Promise.race([db.collection('reports').add(Object.assign({
-    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    photo: photoUrl
-  }, payload)), timeout]);
+  // Rules: create the report and bump users/{uid}.lastReportAt in ONE batch
+  // (per-device pacing — one report every few minutes).
+  const now = firebase.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(db.collection('reports').doc(), Object.assign({
+    timestamp: now,
+    photo: photoUrl,
+    reporterUid: uid,
+    appVersion: APP_VERSION
+  }, payload));
+  batch.set(db.collection('users').doc(uid), { lastReportAt: now }, { merge: true });
+  await Promise.race([batch.commit(), timeout]);
+}
+
+function isPermissionDenied(err) {
+  const c = (err && err.code || '').toString().toLowerCase();
+  return c.includes('permission-denied') || c.includes('unauthorized');
 }
 
 function showConfirmation(queued) {
@@ -631,7 +672,9 @@ async function submitReport() {
     logEvent('submit_error', { error: err.message || String(err) });
     showError(err.message === 'timeout'
       ? 'Submission timed out. Please check your connection and try again.'
-      : 'Submission failed. Please check your connection and try again.');
+      : isPermissionDenied(err)
+        ? 'Easy there — we accept one report every few minutes per device. Please wait a bit and try again.'
+        : 'Submission failed. Please check your connection and try again.');
   }
 }
 
@@ -644,10 +687,8 @@ if (!navigator.share) {
 }
 
 shareNativeBtn.addEventListener('click', () => {
-  const issueLabel = selectedCategory === 'unshoveled_sidewalk'
-    ? 'an unshoveled sidewalk'
-    : 'an unplowed street';
-  const shareText = `I just reported ${issueLabel} in Providence using pvdsnow.org \u2014 takes 30 seconds from your phone.`;
+  const issueLabel = (CATEGORY_LABELS[selectedCategory] || 'an issue').toLowerCase();
+  const shareText = `I just reported ${issueLabel} to Providence 311 using pvdsnow.org \u2014 takes 30 seconds from your phone.`;
   logEvent('share_click', { method: 'native' });
   navigator.share({ text: shareText, url: 'https://pvdsnow.org' }).catch(() => {});
 });
