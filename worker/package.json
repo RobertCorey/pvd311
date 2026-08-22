@@ -9,6 +9,7 @@
     "canary": "node scripts/run-canary.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@cloudflare/playwright": "^1.3.6"
   },
   "devDependencies": {
