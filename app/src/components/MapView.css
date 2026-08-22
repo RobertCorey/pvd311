@@ -48,5 +48,3 @@
 
 .mapview.leaflet-container:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }
 
-@keyframes river-breathe { 0%, 100% { opacity: 0.18; } 50% { opacity: 0.36; } }
-@media (prefers-reduced-motion: reduce) { .mapview .map-river-glow { animation: none; } }
