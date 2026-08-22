@@ -1,70 +1,66 @@
-# PVD 311 (working title)
+# SnapPVD
 
-Community app for reporting everyday issues — potholes, street lights, missed trash, illegal dumping, abandoned vehicles, parking, animal control — to Providence, RI's 311 system from a phone in ~30 seconds. **Not affiliated with the City of Providence.**
+Report a Providence street problem in one photo — we file it with the city's 311 for you. **SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
 
-Live (pre-launch, quiet): [pvdsnow.org](https://pvdsnow.org). The name/domain is still TBD; the site runs under the old PVD Snow domain until then.
+Pre-launch. The legacy PWA (`public/`, frozen) is live at [pvdsnow.org](https://pvdsnow.org); the new client (`app/`) deploys to preview channels until snappvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
 
 Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git history before `c81a893`). Plan and status: [`PLAN.md`](PLAN.md), [`.claude/STATE.md`](.claude/STATE.md). Portal research: [`scripts/`](scripts/).
 
 ## How it works
 
-1. **Resident** opens the PWA, picks a category, optionally snaps a photo, confirms the location, adds a description, optionally leaves an email.
-2. **PWA** signs the device in anonymously (Firebase Auth), uploads the photo to Cloud Storage under that uid, and writes the report to Firestore with `status: pending` in the same batch as a per-device pacing marker (`users/{uid}.lastReportAt`; rules enforce one report per device every 3 minutes). Offline? The report is saved in an IndexedDB outbox and sent when the page next opens online.
-3. **Review** — HITL mode (launch mode): the operator is notified by email (Resend) and approves/rejects from the dashboard. Full-auto with an agent in the loop is the goal.
-4. **Automation** (`automation/`) logs into the city's 311 portal with Playwright, selects the case type by census GUID, fills the conditional Step-3 fields (unmapped fields → an LLM "scout" reads the live controls), submits, and stores the case ID + proof screenshot.
-5. **Status watcher** polls the portal and records the city's status; the resident sees it under **My reports** in the PWA (reporters can read their own docs).
+1. **Resident** opens the app, taps a category (8 big tiles; "Other" expands the full list), snaps a photo (EXIF fills the location) or types the address, adds a description, and sends. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
+2. **Worker** (`worker/`, Cloudflare) validates, rate-limits per device, stores the report + photo, and returns an unguessable tracking id (`/r/:id`).
+3. **Review** — HITL at launch: the operator gets an email and approves/rejects from `/admin`; full-auto with an agent in the loop is the goal.
+4. **Portal submit** — the Worker drives the city's 311 portal with a headless browser (Browser Rendering): case type by census GUID, conditional fields (unmapped → an LLM "scout" reads the live controls), submit, case id.
+5. **Status** — the Worker polls the portal; the resident sees the timeline on the tracking page and under **My reports**; everything also shows on the public map.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| PWA | Vanilla JS (no build), Firebase Hosting, Auth (anonymous), Firestore, Storage, App Check (reCAPTCHA Enterprise), service worker + IndexedDB outbox |
-| Shared | `shared/categories.ts` (category registry → portal GUIDs/fields), `shared/types.ts` |
-| Automation | Node + TypeScript, Playwright, Firebase Admin SDK; runtime: Cloudflare Workers + Browser Rendering (in progress), Docker image for a VPS fallback |
+| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Leaflet map, Cloudflare Turnstile, Playwright tests. Talks only to the Worker API. |
+| Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
+| Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
+| Legacy | `public/` (frozen PWA, live until cutover), `automation/` (laptop engine, reference only) |
 | Target | Providence 311 portal (Power Pages / Dynamics 365) |
-
-Firebase project `pvd-snow-report` is on the **Spark** plan (no billing): no Cloud Functions; rules + App Check + pacing do the protecting.
 
 ## Project structure
 
 ```
-public/            PWA
-  index.html       4-step wizard + My reports + footer (about/privacy)
-  app.js           wizard logic, auth, App Check, submit (batched write)
-  categories.js    GENERATED from shared/categories.ts — do not edit
-  status.js        My reports (own-docs live query)
-  outbox.js        IndexedDB offline queue
-  sw.js            app-shell cache (versioned)
-  tests/           Playwright specs
-shared/            category registry + types (single source of truth)
-automation/        portal submitter, HITL review, watcher, canary, dashboard; Dockerfile + DEPLOY.md
-scripts/           portal research, case-type census, gen-categories.mjs
-tests/rules/       Firestore/Storage rules tests (emulator)
-firestore.rules    create-only, schema-validated, per-device pacing; owner read
-storage.rules      per-uid image uploads, owner read
-marketing/         launch kit drafts
-docs/              provisioning task brief for Rob
+app/               SnapPVD client (React)
+  src/screens/     Report (tiles → details), Track (/r/:id), Feed (/map), MyReports, About, Privacy
+  src/api/         Worker API client + types (wire contract)
+  src/lib/         categories (from shared/), geo (EXIF, geocode, compress), outbox, myReports
+  src/i18n/        strings.en.json / strings.es.json + useT
+  src/brand.ts     every brand string
+  tests/           Playwright (mobile emulation, API mocked)
+worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
+shared/            category registry (single source of truth)
+docs/              product-spec.md (SnapPVD), provisioning-task.md
+public/            legacy PWA (frozen)
+automation/        legacy laptop engine (reference)
+scripts/           portal research, case-type census
+firebase.json      hosting for public/ (legacy) · firebase.app.json hosting for app/dist
 ```
 
 ## Development
 
 ```bash
-# PWA (static, talks to the real Firebase project; localhost is allow-listed)
+# Client
+npm run app:dev                  # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
+npm run app:test                 # Playwright, mobile emulation, API mocked
+npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
+npm run deploy:app               # build + deploy app/dist to Firebase Hosting (cutover)
+
+# Worker
+cd worker && npx wrangler dev    # see worker/README
+
+# Legacy
 npm run dev                      # serves public/ on :3999
-cd public && npx playwright test # wizard + location-step specs
-
-# Categories: edit shared/categories.ts, then regenerate the PWA copy
-node scripts/gen-categories.mjs
-
-# Security rules (needs Java for the emulator)
-npm run test:rules
-
-# Automation
-cd automation && npm run build && npm run auth   # one-time interactive portal login
-npm start                                         # dashboard on :3311
+npm run test:rules               # Firestore/Storage rules (emulator, needs Java)
 ```
 
-Deploy: `npm run deploy` (hosting), `npm run deploy:rules` (Firestore + Storage rules). Automation deploy: Cloudflare (see `automation/`), or the Docker image per [`automation/DEPLOY.md`](automation/DEPLOY.md) — cloud only, never homelab.
+Headless browsers cannot pass Turnstile (by design) — real end-to-end submits are done from a real browser.
 
 ## Principles
 
