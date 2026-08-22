@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import { shortLabel } from '../lib/categories';
-import { AuthError, GOOGLE_CLIENT_ID, loadGsi, pendingEmail, sendSignInLink, signInWithGoogleCredential } from '../lib/auth';
+import { GOOGLE_CLIENT_ID, authErrorKey, pendingEmail, sendSignInLink } from '../lib/auth';
+import GoogleSignInButton from './GoogleSignInButton';
 import CategoryIcon from './CategoryIcon';
 import './SignInGate.css';
 
@@ -33,34 +34,11 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const gBtn = useRef<HTMLDivElement>(null);
 
   // Bring the card into view (it appears where the Send bar was) and focus the email field.
   useEffect(() => { inputRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); inputRef.current?.focus({ preventScroll: true }); }, []);
 
-  const fail = useCallback((err: unknown) => {
-    const code = err instanceof AuthError ? err.code : '';
-    setPhase('error');
-    setError(/EMAIL/.test(code) ? 'email' : /TOO_MANY|RATE/.test(code) ? 'rate' : 'generic');
-  }, []);
-
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return;
-    let cancelled = false;
-    loadGsi().then((g) => {
-      if (cancelled || !gBtn.current) return;
-      g.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID, ux_mode: 'popup', itp_support: true,
-        callback: (r: { credential?: string }) => {
-          if (!r.credential) return;
-          setPhase('busy');
-          signInWithGoogleCredential(r.credential).then(() => onSignedIn?.()).catch(fail);
-        },
-      });
-      g.accounts.id.renderButton(gBtn.current, { type: 'standard', theme: 'outline', size: 'large', shape: 'pill', width: 300, text: 'continue_with', logo_alignment: 'left' });
-    }).catch(() => { /* no Google button; email link still works */ });
-    return () => { cancelled = true; };
-  }, [fail, onSignedIn]);
+  const fail = useCallback((err: unknown) => { setPhase('error'); setError(authErrorKey(err)); }, []);
 
   // Not a <form>: the gate mounts INSIDE the Report form, and nested forms make the browser submit the outer one
   // natively (observed live: GET /? and the draft reloads). Enter in the field and the button both call onSend.
@@ -111,7 +89,7 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
             {GOOGLE_CLIENT_ID && (
               <div className="gate-or">
                 <span className="gate-or-line" aria-hidden="true" /><span className="muted">{t('gate.or')}</span><span className="gate-or-line" aria-hidden="true" />
-                <div ref={gBtn} className="gate-google" aria-label={t('gate.google')} />
+                <GoogleSignInButton className="gate-google" label={t('gate.google')} onBusy={() => setPhase('busy')} onSignedIn={() => onSignedIn?.()} onError={fail} />
               </div>
             )}
           </>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '../lib/auth';
-import { claimReports, myReports, type MyReportView } from '../api/me';
+import { claimAndRecover, myReports, type MyReportView } from '../api/me';
 import { listMyReports } from '../lib/myReports';
 import { shortLabel } from '../lib/categories';
 import { useT } from '../i18n';
@@ -36,7 +36,7 @@ export default function AccountReports() {
 
   async function claim() {
     setBusy(true);
-    try { setClaimed((await claimReports(unclaimed.map((r) => r.id))).claimed.length); } catch { setClaimed(0); } finally { setBusy(false); }
+    try { setClaimed(await claimAndRecover(unclaimed.map((r) => r.id))); } finally { setBusy(false); }
   }
 
   return (

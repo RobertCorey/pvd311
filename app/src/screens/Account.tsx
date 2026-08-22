@@ -3,11 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useT } from '../i18n';
 import { shortLabel } from '../lib/categories';
 import { listMyReports } from '../lib/myReports';
-import {
-  AuthError, GOOGLE_CLIENT_ID, completeSignInLink, isSignInLink, loadGsi, pendingEmail, sendSignInLink,
-  signInWithGoogleCredential, signOut, takeReturnTo, useSession,
-} from '../lib/auth';
-import { claimReports, deleteAddress, followingReports, getMe, recoverReports, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
+import { GOOGLE_CLIENT_ID, authErrorKey, completeSignInLink, isSignInLink, pendingEmail, sendSignInLink, signOut, takeReturnTo, useSession } from '../lib/auth';
+import { claimAndRecover, deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 import './Account.css';
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
@@ -29,54 +27,34 @@ function SignedOut() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const finishing = isSignInLink();
-  const [needEmail, setNeedEmail] = useState(false);
-  const gBtn = useRef<HTMLDivElement>(null);
+  const [needEmail] = useState(() => finishing && !pendingEmail()); // link opened where it wasn't requested
+  const completing = useRef(false); // oobCodes are single-use: never call signInWithEmailLink twice (StrictMode/remount)
 
   const afterSignIn = useCallback(async () => {
-    // Attach this device's anonymous reports + anything filed with this email, then land on My reports.
-    const ids = listMyReports().map((r) => r.id);
-    let n = 0;
-    try { if (ids.length) n += (await claimReports(ids)).claimed.length; } catch { /* best effort */ }
-    try { n += (await recoverReports()).claimed.length; } catch { /* unverified email or offline */ }
-    navigate(takeReturnTo('/my'), { replace: true, state: { claimed: n } });
+    // Attach this device's reports + anything filed with this email, then go back where the reporter came from.
+    await claimAndRecover(listMyReports().map((r) => r.id));
+    navigate(takeReturnTo('/my'), { replace: true });
   }, [navigate]);
+  const fail = useCallback((err: unknown) => { setPhase('error'); setError(authErrorKey(err)); }, []);
 
   // Complete an email link when we land on /account?mode=signIn&oobCode=…
   useEffect(() => {
-    if (!finishing) return;
+    if (!finishing || completing.current) return;
     const e = pendingEmail();
-    if (!e) { setNeedEmail(true); return; }
+    if (!e) return; // needEmail is already true → the form asks for it
+    completing.current = true;
     setPhase('busy');
-    completeSignInLink(e).then(afterSignIn).catch((err: unknown) => { setPhase('error'); setError(errKey(err)); });
-  }, [finishing, afterSignIn]);
-
-  // Google button (GIS) — renders only when a client id is configured and the script loads.
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || finishing) return;
-    let cancelled = false;
-    loadGsi().then((g) => {
-      if (cancelled || !gBtn.current) return;
-      g.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID, ux_mode: 'popup', itp_support: true,
-        callback: (r: { credential?: string }) => {
-          if (!r.credential) return;
-          setPhase('busy');
-          signInWithGoogleCredential(r.credential).then(afterSignIn).catch((err: unknown) => { setPhase('error'); setError(errKey(err)); });
-        },
-      });
-      g.accounts.id.renderButton(gBtn.current, { type: 'standard', theme: 'outline', size: 'large', shape: 'pill', width: 280, text: 'continue_with', logo_alignment: 'left' });
-    }).catch(() => { /* no Google button; email link still works */ });
-    return () => { cancelled = true; };
-  }, [finishing, afterSignIn]);
+    completeSignInLink(e).then(afterSignIn).catch(fail);
+  }, [finishing, afterSignIn, fail]);
 
   async function onSend(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
     setPhase('busy'); setError(null);
     try {
-      if (finishing && needEmail) { await completeSignInLink(email); await afterSignIn(); return; }
+      if (finishing && needEmail) { if (completing.current) return; completing.current = true; await completeSignInLink(email); await afterSignIn(); return; }
       await sendSignInLink(email, takeReturnTo('/my')); setPhase('sent');
-    } catch (err) { setPhase('error'); setError(errKey(err)); }
+    } catch (err) { completing.current = false; fail(err); }
   }
 
   if (finishing && !needEmail && phase !== 'error') {
@@ -117,7 +95,7 @@ function SignedOut() {
       {GOOGLE_CLIENT_ID && !finishing && (
         <div className="account-or">
           <span className="muted">{t('account.or')}</span>
-          <div ref={gBtn} className="account-google" aria-label={t('account.google')} />
+          <GoogleSignInButton className="account-google" label={t('account.google')} width={280} onBusy={() => setPhase('busy')} onSignedIn={() => { void afterSignIn(); }} onError={fail} />
         </div>
       )}
       <p className="hint account-optional">{t('account.optional')} <Link to="/map">{t('account.reportAnon')}</Link></p>
@@ -154,8 +132,9 @@ function SignedIn() {
   }
   async function togglePref(v: boolean) {
     if (!me) return;
-    setMe({ ...me, prefs: { emailUpdates: v } });
-    try { setMe(await updateMe({ prefs: { emailUpdates: v } })); } catch { setErr(true); }
+    const before = me;
+    setMe({ ...me, prefs: { emailUpdates: v } }); // optimistic; reverted below on failure
+    try { setMe(await updateMe({ prefs: { emailUpdates: v } })); } catch { setMe(before); setErr(true); }
   }
   async function addAddress(e: React.FormEvent) {
     e.preventDefault();
@@ -169,13 +148,7 @@ function SignedIn() {
   }
   async function recover() {
     setSaving(true);
-    try {
-      const ids = listMyReports().map((r) => r.id);
-      let n = 0;
-      if (ids.length) n += (await claimReports(ids)).claimed.length;
-      n += (await recoverReports()).claimed.length;
-      setRecovered(n);
-    } catch { setRecovered(0); } finally { setSaving(false); }
+    try { setRecovered(await claimAndRecover(listMyReports().map((r) => r.id))); } finally { setSaving(false); }
   }
 
   if (!me) {
@@ -257,11 +230,3 @@ function SignedIn() {
   );
 }
 
-function errKey(e: unknown): string {
-  const code = e instanceof AuthError ? e.code : '';
-  if (/INVALID_EMAIL|MISSING_EMAIL/.test(code)) return 'email';
-  if (/SEND_FAILED/.test(code)) return 'generic';
-  if (/INVALID_OOB_CODE|EXPIRED_OOB_CODE|INVALID_LOGIN_CREDENTIALS/.test(code)) return 'link';
-  if (/TOO_MANY_ATTEMPTS|QUOTA/.test(code)) return 'rate';
-  return 'generic';
-}

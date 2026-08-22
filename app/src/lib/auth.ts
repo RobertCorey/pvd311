@@ -13,6 +13,14 @@ const RETURN_TO_KEY = 'fixmypvd.returnTo';
 export interface Session { uid: string; email: string | null; idToken: string; refreshToken: string; expiresAt: number; provider: 'email' | 'google' }
 
 export class AuthError extends Error { code: string; constructor(code: string) { super(code); this.code = code; } }
+/** Map an auth failure to the i18n suffix both sign-in surfaces use (`account.error.*` / `gate.error.*`). */
+export function authErrorKey(e: unknown): 'email' | 'link' | 'rate' | 'generic' {
+  const code = e instanceof AuthError ? e.code : '';
+  if (/INVALID_EMAIL|MISSING_EMAIL/.test(code)) return 'email';
+  if (/INVALID_OOB_CODE|EXPIRED_OOB_CODE|INVALID_LOGIN_CREDENTIALS/.test(code)) return 'link';
+  if (/TOO_MANY_ATTEMPTS|QUOTA|RATE/.test(code)) return 'rate';
+  return 'generic';
+}
 
 let session: Session | null = load();
 const listeners = new Set<(s: Session | null) => void>();
