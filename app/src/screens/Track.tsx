@@ -164,7 +164,7 @@ export default function Track() {
 
   return (
     <section className="track section">
-      {justSubmitted && <ConfirmHeader trackUrl={trackUrl} />}
+      {justSubmitted && view.status !== 'rejected' && <ConfirmHeader trackUrl={trackUrl} />}
 
       <div className={`track-status ticket track-status--${info.tone}`} aria-live="polite">
         <div className="ticket-head">
