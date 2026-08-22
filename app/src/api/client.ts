@@ -35,13 +35,13 @@ export function deviceId(): string {
   } catch { return 'ephemeral-' + Math.random().toString(36).slice(2); }
 }
 
-async function parseError(resp: Response): Promise<ApiError> {
+export async function parseError(resp: Response): Promise<ApiError> {
   let body: { error?: string; field?: string; retryAfterSec?: number } = {};
   try { body = await resp.json(); } catch { /* non-JSON error */ }
   return new ApiError(resp.status, body.error ?? `http_${resp.status}`, body.field, body.retryAfterSec);
 }
 
-function withTimeout(ms: number): { signal: AbortSignal; done: () => void } {
+export function withTimeout(ms: number): { signal: AbortSignal; done: () => void } {
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
   return { signal: c.signal, done: () => clearTimeout(t) };
