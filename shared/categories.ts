@@ -94,6 +94,46 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     photoRequired: false,
     // conditional fields (e.g. "Where is the noise from") are handled by the agent scout until mapped
   },
+  graffiti: {
+    label: 'Graffiti',
+    portalCaseTypeName: 'Graffiti on City-Owned Property',
+    portalCaseTypeGuid: '92e8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Graffiti on City*',
+  },
+  sidewalk_repair: {
+    label: 'Broken sidewalk',
+    portalCaseTypeName: 'Sidewalk Panel Repair',
+    portalCaseTypeGuid: '54e8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Sidewalk Panel Repair*',
+  },
+  tree: {
+    label: 'Tree problem',
+    portalCaseTypeName: 'Tree Related Issue(s)',
+    portalCaseTypeGuid: '070b1e94-b7f3-ef11-be20-001dd804ed86',
+    portalSearchTerm: '*Tree Related*',
+    // conditional field (Tree Work: Prune/Remove/...) handled by the scout until mapped
+  },
+  street_flooding: {
+    label: 'Street flooding',
+    portalCaseTypeName: 'Report Street Flooding',
+    portalCaseTypeGuid: '64e8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Street Flooding*',
+  },
+  traffic_signal: {
+    label: 'Traffic signal broken',
+    portalCaseTypeName: 'Traffic Signal Malfunction',
+    portalCaseTypeGuid: 'b1c3d9d8-cd3f-ef11-8409-001dd800f706',
+    portalSearchTerm: '*Traffic Signal*',
+    photoRequired: false,
+    // conditional select (cop_trafficlightissue) handled by the scout until mapped
+  },
+  dead_animal: {
+    label: 'Dead animal',
+    portalCaseTypeName: 'Dead Animal on Roadway or Sidewalk',
+    portalCaseTypeGuid: '4ce8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Dead Animal*',
+    photoRequired: false,
+  },
   unshoveled_sidewalk: {
     label: 'Unshoveled sidewalk',
     portalCaseTypeName: 'Report Un-shoveled Sidewalks',
