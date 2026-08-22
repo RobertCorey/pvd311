@@ -46,3 +46,13 @@ export const EXTRA_QUESTIONS: Record<string, { label: string; type: 'choice' | '
   animalType: { label: 'What kind of animal?', type: 'choice', options: ['Wildlife', 'Domestic'] },
   vehicleDetails: { label: 'Vehicle details (make, color, plate if visible)', type: 'text', placeholder: 'e.g. silver Honda Civic, RI plate ABC-123' },
 };
+
+/** The "Other / something else" sheet: every category grouped the way residents think about the city.
+ *  Keys must exist in shared/categories.ts; `inSeason` still filters the snow tiles. */
+export const GROUPS: { key: 'streets' | 'trash' | 'lights' | 'animals' | 'other'; keys: string[] }[] = [
+  { key: 'streets', keys: ['pothole', 'parking', 'abandoned_vehicle', 'unshoveled_sidewalk', 'missed_plowing'] },
+  { key: 'trash', keys: ['missed_trash', 'bins_carts', 'illegal_dumping'] },
+  { key: 'lights', keys: ['street_light'] },
+  { key: 'animals', keys: ['animal_control'] },
+  { key: 'other', keys: ['noise'] },
+];

@@ -12,6 +12,7 @@ import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
+import CategorySheet from '../components/CategorySheet';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
 
@@ -36,7 +37,6 @@ export default function Report() {
     const seasonal = visible.filter((c) => c.seasonal && !FEATURED.includes(c.key));
     return [...f, ...seasonal];
   }, [visible]);
-  const others = useMemo(() => visible.filter((c) => !featured.includes(c)), [visible, featured]);
   const cat = byKey(category);
 
   // --- photo ---
@@ -312,12 +312,11 @@ export default function Report() {
         </div>
         <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
           {featured.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}
-          {!showAll ? (
-            <button type="button" className="cat-tile cat-tile-other" onClick={() => setShowAll(true)} aria-expanded={false}>
-              <span className="cat-icon"><CategoryIcon k="other" /></span><span className="cat-text">{t('report.other')}</span>
-            </button>
-          ) : others.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}
+          <button type="button" className="cat-tile cat-tile-other" onClick={() => setShowAll(true)} aria-expanded={showAll} aria-haspopup="dialog">
+            <span className="cat-icon"><CategoryIcon k="other" /></span><span className="cat-text">{t('report.other')}</span>
+          </button>
         </div>
+        <CategorySheet open={showAll} onClose={() => setShowAll(false)} onPick={(k) => { setShowAll(false); pick(k); }} />
       </section>
     );
   }

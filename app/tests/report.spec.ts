@@ -20,7 +20,7 @@ test('picker shows 8 featured + Other; Other expands the rest incl. Not sure', a
   await expect(page.locator('.cat-tile[data-category]')).toHaveCount(8);
   await page.getByRole('button', { name: /Other/ }).click();
   await expect(page.locator('[data-category="unsure"]')).toBeVisible();
-  expect(await page.locator('.cat-tile[data-category]').count()).toBeGreaterThan(8);
+  expect(await page.locator('[data-category]').count()).toBeGreaterThan(8); // sheet lists every category
 });
 
 test('photo-optional category: address + turnstile → submit → tracking page', async ({ page }) => {
