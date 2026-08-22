@@ -86,6 +86,14 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     fields: { cop_typeofanimal: { from: 'extra.animalType', default: 'Wildlife' } },
     photoRequired: false,
   },
+  noise: {
+    label: 'Noise complaint',
+    portalCaseTypeName: 'Noise or Sound Disturbances',
+    portalCaseTypeGuid: '18e8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Noise*',
+    photoRequired: false,
+    // conditional fields (e.g. "Where is the noise from") are handled by the agent scout until mapped
+  },
   unshoveled_sidewalk: {
     label: 'Unshoveled sidewalk',
     portalCaseTypeName: 'Report Un-shoveled Sidewalks',

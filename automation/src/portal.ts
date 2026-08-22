@@ -383,7 +383,8 @@ export class PortalSubmitter {
     if (Object.keys(filled).length) console.log(`[portal]   Filled mapped fields: ${JSON.stringify(filled)}`);
 
     let scouted: Record<string, string> | undefined;
-    if (unmapped.length && mode === 'live') {
+    // Scout runs in live mode, and in inspect mode when a key is configured (so new categories can be previewed without submitting).
+    if (unmapped.length && (mode === 'live' || process.env['ANTHROPIC_API_KEY'])) {
       console.log(`[portal]   ${unmapped.length} unmapped control(s): ${unmapped.map((c) => c.id).join(', ')} — calling scout`);
       const result = await scoutFields({ category: report.category, caseTypeName: cat.portalCaseTypeName, report, controls: unmapped });
       scouted = result.values;
@@ -392,7 +393,7 @@ export class PortalSubmitter {
         if (v !== undefined) await this.setControl(c, v);
       }
       console.log(`[portal]   Scout filled: ${JSON.stringify(scouted)} (confidence ${result.confidence})`);
-      if (result.confidence < config.scoutMinConfidence) {
+      if (result.confidence < config.scoutMinConfidence && mode === 'live') {
         throw new Error(`NEEDS_REVIEW: scout confidence ${result.confidence} below ${config.scoutMinConfidence} for ${unmapped.map((c) => c.id).join(', ')} — ${result.notes}`);
       }
     }
