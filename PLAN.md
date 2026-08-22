@@ -9,14 +9,14 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - Every change committed small; `.claude/STATE.md` updated at end of each session.
 
 ## M1 — Generic submitter (automation/)
-- [ ] Select case type by GUID (`tr[data-id]`) from `scripts/case-type-census-2026-08-21.json`, not text match
-- [ ] Category config: per-type Step-3 field map (pothole→cop_size, animal→cop_typeofanimal, vehicle→cop_vehicledetails, …)
-- [ ] Generic Step-3 filler: dump visible controls, fill from config; unmapped → agent scout (Claude reads controls + report, proposes values, persists mapping; low confidence → HITL)
-- [ ] Draft-resume: persist wizard stepid/entity id after Step 1; retries resume the same draft
-- [ ] Headless re-auth inside the submit path (login redirect → re-login → retry once)
-- [ ] Proof capture: screenshot + case ID per submission (private Storage, 90-day lifecycle)
-- [ ] Selector hardening (loose aria-label match for case-type button), honeypot never filled
-- [ ] Relax photo-required gate per category
+- [x] Select case type by GUID (`tr[data-id]`) from `scripts/case-type-census-2026-08-21.json`, not text match
+- [x] Category config: per-type Step-3 field map (pothole→cop_size, animal→cop_typeofanimal, vehicle→cop_vehicledetails, …)
+- [x] Generic Step-3 filler: dump visible controls, fill from config; unmapped → agent scout (Claude reads controls + report, proposes values, persists mapping; low confidence → HITL)
+- [x] Draft-resume: persist wizard stepid/entity id after Step 1; retries resume the same draft
+- [x] Headless re-auth inside the submit path (login redirect → re-login → retry once)
+- [x] Proof capture: screenshot + case ID per submission (private Storage, 90-day lifecycle)
+- [x] Selector hardening (loose aria-label match for case-type button), honeypot never filled
+- [x] Relax photo-required gate per category
 
 ## M2 — PWA de-snowed (public/)
 - [ ] Restore wizard index.html from git (51e3331^), strip snow copy/theme/icons

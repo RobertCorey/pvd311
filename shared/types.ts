@@ -1,22 +1,10 @@
 /**
- * Shared types for PVD Snow
+ * Shared types for the PVD311 relaunch
  * Used by both the PWA (public/app.js) and the automation layer (automation/)
  */
 
-export const CATEGORIES = {
-  unshoveled_sidewalk: {
-    label: 'Unshoveled Sidewalk',
-    portalCaseTypeGuid: 'b8e7b671-7a2e-ef11-840a-001dd8039400',
-    portalSearchTerm: '*shoveled*',
-  },
-  missed_plowing: {
-    label: 'Missed Street Plowing',
-    portalCaseTypeGuid: '5ae8b671-7a2e-ef11-840a-001dd8039400',
-    portalSearchTerm: '*plowing*',
-  },
-} as const;
-
-export type Category = keyof typeof CATEGORIES;
+export { CATEGORIES, isCategory, resolveField, type Category, type CategoryConfig, type FieldSource } from './categories.js';
+import type { Category } from './categories.js';
 
 export type ReportStatus =
   | 'pending'        // Created by PWA, waiting for automation
@@ -26,7 +14,7 @@ export type ReportStatus =
   | 'rejected'       // Manually rejected (spam, duplicate, etc.)
   | 'auto-rejected'; // Auto-mode rejected (failed verification gate)
 
-export interface SnowReport {
+export interface Report {
   /** Firestore document ID (not stored in doc, used as reference) */
   id?: string;
 
@@ -51,6 +39,12 @@ export interface SnowReport {
   /** Photo URL (Cloud Storage download URL, or legacy base64 data URL) */
   photo: string | null;
 
+  /** Per-category answers from the PWA (e.g. { size: 'Medium (~28in)' }) */
+  extra?: Record<string, string> | null;
+
+  /** Portal draft bookkeeping so retries resume the same draft instead of orphaning a new one */
+  portalDraft?: { url: string; entityId: string | null; step: 2 | 3; savedAt: string } | null;
+
   /** Optional reporter name */
   reporterName: string | null;
 
@@ -69,3 +63,6 @@ export interface SnowReport {
   /** Timestamp of last status update by automation */
   statusUpdatedAt: FirebaseFirestore.Timestamp | null;
 }
+
+/** @deprecated use Report */
+export type SnowReport = Report;

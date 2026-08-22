@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AUTH_STATE_PATH = join(__dirname, '..', '..', '..', 'automation', '.auth-state.json');
+const AUTH_STATE_PATH = join(__dirname, '..', '..', '..', '.auth-state.json');
 const PORTAL = config.portalBaseUrl;
 
 async function main() {

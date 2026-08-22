@@ -14,6 +14,16 @@ export const config = {
   portalPassword: required('PORTAL_PASSWORD'),
   portalBaseUrl: 'https://311.providenceri.gov',
   headless: process.env['HEADLESS'] === 'true',
+  appName: process.env['APP_NAME'] || 'PVD311 app',
+
+  // Portal "how would you like to receive updates": 585680002 Email, 585680000 Phone,
+  // 585680001 Text, 585680003 No Contact Necessary, 585680004 Portal Comment.
+  // Stays "No Contact" until the relay inbox exists (M6).
+  portalNotificationMethod: process.env['PORTAL_NOTIFICATION_METHOD'] || '585680003',
+
+  // Agent scout (fills unmapped Step-3 fields). Needs ANTHROPIC_API_KEY (read by the SDK).
+  scoutModel: process.env['SCOUT_MODEL'] || 'claude-opus-5',
+  scoutMinConfidence: parseFloat(process.env['SCOUT_MIN_CONFIDENCE'] || '0.7'),
   port: parseInt(process.env['PORT'] || '3311', 10),
 
   // Auto-submission mode

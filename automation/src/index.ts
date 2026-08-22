@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initFirestore, fetchAllReports, fetchReport, updateReportStatus } from './firestore.js';
+import { initFirestore, fetchAllReports, fetchReport, updateReportStatus, saveReportDraft } from './firestore.js';
 import { PortalSubmitter } from './portal.js';
 import { config } from './config.js';
 import { AutoSubmitter } from './auto.js';
@@ -155,16 +155,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
 async function submitInBackground(report: ReturnType<typeof fetchReport> extends Promise<infer T> ? NonNullable<T> : never, dryRun: boolean): Promise<void> {
   const portal = new PortalSubmitter();
-  const mode = dryRun ? 'dry-run' : 'live';
+  const mode = dryRun ? 'inspect' : 'live';
   try {
     await updateReportStatus(report.id, 'processing', `Automation started (${mode})`);
     await portal.launch();
-    const result = await portal.submitReport(report, dryRun);
+    const result = await portal.submitReport(report, { mode, onDraft: (d) => saveReportDraft(report.id, d) });
 
     if (dryRun) {
-      // Return to pending — nothing was actually submitted
-      await updateReportStatus(report.id, 'pending', 'Dry run completed successfully');
-      console.log(`[submit] Report ${report.id} dry run completed`);
+      // Return to pending — nothing was actually submitted (the portal draft is kept for resume)
+      const seen = (result.controls ?? []).map((c) => `${c.id}${c.required ? '*' : ''}`).join(', ') || 'none';
+      await updateReportStatus(report.id, 'pending', `Inspect OK — step-3 controls: ${seen}`);
+      console.log(`[submit] Report ${report.id} inspect completed; controls: ${seen}`);
     } else {
       await updateReportStatus(
         report.id,

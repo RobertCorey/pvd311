@@ -1,7 +1,7 @@
 import { config } from './config.js';
-import { fetchPendingReports, findRecentSubmissions, updateReportStatus } from './firestore.js';
+import { fetchPendingReports, findRecentSubmissions, updateReportStatus, saveReportDraft } from './firestore.js';
 import { PortalSubmitter } from './portal.js';
-import { CATEGORIES, type SnowReport } from '../../shared/types.js';
+import { CATEGORIES, isCategory, type Report } from '../../shared/types.js';
 
 // Providence bounding box
 const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
@@ -129,9 +129,12 @@ export class AutoSubmitter {
     }
   }
 
-  private async verify(report: SnowReport & { id: string }): Promise<string | null> {
-    // Gate 1: Has photo
-    if (!report.photo) return 'No photo attached';
+  private async verify(report: Report & { id: string }): Promise<string | null> {
+    // Gate 1: Valid category (checked first so later gates can read its config)
+    if (!isCategory(report.category)) return `Invalid category: ${report.category}`;
+
+    // Gate 2: Has photo, when the category requires one
+    if (CATEGORIES[report.category].photoRequired !== false && !report.photo) return 'No photo attached';
 
     // Gate 2: Has address
     if (!report.address || !report.address.trim()) return 'No address';
@@ -143,9 +146,6 @@ export class AutoSubmitter {
         return `Blocked address: "${report.address}" matches "${blocked}"`;
       }
     }
-
-    // Gate 4: Valid category
-    if (!(report.category in CATEGORIES)) return `Invalid category: ${report.category}`;
 
     // Gate 5: If coordinates are present, verify they're inside Providence
     if (report.lat != null && report.lng != null) {
@@ -172,13 +172,13 @@ export class AutoSubmitter {
     return null; // passed all gates
   }
 
-  private async submitReport(report: SnowReport & { id: string }): Promise<void> {
+  private async submitReport(report: Report & { id: string }): Promise<void> {
     const portal = new PortalSubmitter();
     this.setSubmissionActive(report.id);
     try {
       await updateReportStatus(report.id, 'processing', 'Auto-submission started');
       await portal.launch();
-      const result = await portal.submitReport(report, false);
+      const result = await portal.submitReport(report, { mode: 'live', onDraft: (d) => saveReportDraft(report.id, d) });
 
       await updateReportStatus(
         report.id,

@@ -2,14 +2,14 @@ import { initializeApp, cert, type ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, type Firestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { readFileSync } from 'node:fs';
 import { config } from './config.js';
-import type { SnowReport, ReportStatus } from '../../shared/types.js';
+import type { Report, ReportStatus } from '../../shared/types.js';
 
 let db: Firestore;
 
 // ── In-memory cache to reduce Firestore reads ──
 const CACHE_TTL_MS = 60_000; // 60 seconds
-let allReportsCache: { data: (SnowReport & { id: string })[]; ts: number } | null = null;
-let pendingCache: { data: (SnowReport & { id: string })[]; ts: number } | null = null;
+let allReportsCache: { data: (Report & { id: string })[]; ts: number } | null = null;
+let pendingCache: { data: (Report & { id: string })[]; ts: number } | null = null;
 
 /** Invalidate caches (call after any status update so next read is fresh). */
 export function invalidateCache(): void {
@@ -28,7 +28,7 @@ export function initFirestore(): Firestore {
 }
 
 /** Fetch recent reports, newest first (capped at 200, cached 60s). */
-export async function fetchAllReports(): Promise<(SnowReport & { id: string })[]> {
+export async function fetchAllReports(): Promise<(Report & { id: string })[]> {
   if (allReportsCache && Date.now() - allReportsCache.ts < CACHE_TTL_MS) {
     return allReportsCache.data;
   }
@@ -40,7 +40,7 @@ export async function fetchAllReports(): Promise<(SnowReport & { id: string })[]
     .get();
 
   const data = snapshot.docs.map((doc) => ({
-    ...(doc.data() as SnowReport),
+    ...(doc.data() as Report),
     id: doc.id,
   }));
 
@@ -49,14 +49,14 @@ export async function fetchAllReports(): Promise<(SnowReport & { id: string })[]
 }
 
 /** Fetch a single report by ID. */
-export async function fetchReport(id: string): Promise<(SnowReport & { id: string }) | null> {
+export async function fetchReport(id: string): Promise<(Report & { id: string }) | null> {
   const doc = await db.collection('reports').doc(id).get();
   if (!doc.exists) return null;
-  return { ...(doc.data() as SnowReport), id: doc.id };
+  return { ...(doc.data() as Report), id: doc.id };
 }
 
 /** Fetch pending reports ordered oldest-first (FIFO, cached 60s). */
-export async function fetchPendingReports(): Promise<(SnowReport & { id: string })[]> {
+export async function fetchPendingReports(): Promise<(Report & { id: string })[]> {
   if (pendingCache && Date.now() - pendingCache.ts < CACHE_TTL_MS) {
     return pendingCache.data;
   }
@@ -67,7 +67,7 @@ export async function fetchPendingReports(): Promise<(SnowReport & { id: string 
     .get();
 
   const data = snapshot.docs.map((doc) => ({
-    ...(doc.data() as SnowReport),
+    ...(doc.data() as Report),
     id: doc.id,
   }));
 
@@ -82,7 +82,7 @@ export async function fetchPendingReports(): Promise<(SnowReport & { id: string 
 }
 
 /** Fetch submitted reports from the last N hours (for duplicate detection). */
-export async function findRecentSubmissions(windowHours: number): Promise<(SnowReport & { id: string })[]> {
+export async function findRecentSubmissions(windowHours: number): Promise<(Report & { id: string })[]> {
   const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000);
   const snapshot = await db
     .collection('reports')
@@ -91,7 +91,7 @@ export async function findRecentSubmissions(windowHours: number): Promise<(SnowR
     .get();
 
   return snapshot.docs.map((doc) => ({
-    ...(doc.data() as SnowReport),
+    ...(doc.data() as Report),
     id: doc.id,
   }));
 }
@@ -111,6 +111,15 @@ export async function updateReportStatus(
   if (portalCaseId) {
     update['portalCaseId'] = portalCaseId;
   }
+  if (status === 'submitted') {
+    update['portalDraft'] = null; // draft is now a real case
+  }
   await db.collection('reports').doc(reportId).update(update);
+  invalidateCache();
+}
+
+/** Persist wizard draft bookkeeping so a retry resumes the same portal draft instead of orphaning a new one. */
+export async function saveReportDraft(reportId: string, draft: NonNullable<Report['portalDraft']>): Promise<void> {
+  await db.collection('reports').doc(reportId).update({ portalDraft: draft });
   invalidateCache();
 }
