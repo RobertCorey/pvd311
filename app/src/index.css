@@ -27,7 +27,8 @@ img { max-width: 100%; display: block; }
 .microtag { font-family: var(--font-display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .header-btn { background: none; border: none; cursor: pointer; }
-.header-link { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; color: var(--ink); text-decoration: none; min-height: var(--tap); display: inline-flex; align-items: center; padding: 0 6px; }
+.header-link { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; color: var(--ink); text-decoration: none; min-height: var(--tap); display: inline-flex; align-items: center; padding: 0 6px; white-space: nowrap; }
+@media (max-width: 419px) { .wordmark { font-size: 1.3rem; gap: 6px; } .microtag { font-size: 0.6rem; padding: 2px 6px; letter-spacing: 0.02em; } .header-link { font-size: 0.85rem; padding: 0 2px; } .app-header { gap: 8px; } }
 
 h1, h2 { font-family: var(--font-display); color: var(--ink); letter-spacing: -0.02em; }
 h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
