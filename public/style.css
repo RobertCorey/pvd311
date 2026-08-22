@@ -1110,3 +1110,13 @@ select.text-input {
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
   }
 }
+
+/* === INFO BANNER (M2 offline outbox — reuses .error-banner element) === */
+.error-banner.info {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+.error-banner.info svg {
+  color: #22c55e;
+}

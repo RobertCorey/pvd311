@@ -527,56 +527,103 @@ async function uploadPhoto(dataUrl) {
 }
 
 // --- Submit ---
+// The confirmation screen's lead <p> — cached so we can swap in offline copy
+// and restore the original wording for online submissions.
+const confirmLeadP = confirmation.querySelector('p');
+const confirmLeadDefault = confirmLeadP ? confirmLeadP.textContent : '';
+const OFFLINE_CONFIRM_TEXT = "Saved on your phone — no connection right now. We'll send it automatically the next time you open this page online.";
+
+// Snapshot the current form into a plain, serializable payload (no timestamp;
+// serverTimestamp() is stamped at send time in sendReport).
+function buildPayload() {
+  return {
+    category: selectedCategory,
+    address: addressInput.value.trim(),
+    lat: currentLat,
+    lng: currentLng,
+    description: descriptionInput.value.trim() || null,
+    extra: collectExtra(),
+    reporterName: nameInput.value.trim() || null,
+    reporterEmail: emailInput.value.trim() || null,
+    status: 'pending',
+    statusDetail: null,
+    portalCaseId: null,
+    statusUpdatedAt: null
+  };
+}
+
+// Upload the photo (if any) then write the report to Firestore. Used for both
+// live submits and outbox flush, so it must be self-contained.
+async function sendReport(payload, photoDataUrl) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('timeout')), 30000)
+  );
+
+  let photoUrl = null;
+  if (photoDataUrl) {
+    photoUrl = await Promise.race([uploadPhoto(photoDataUrl), timeout]);
+  }
+
+  await Promise.race([db.collection('reports').add(Object.assign({
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    photo: photoUrl
+  }, payload)), timeout]);
+}
+
+function showConfirmation(queued) {
+  wizard.style.display = 'none';
+  document.getElementById('wizardNav').style.display = 'none';
+  document.getElementById('progressBar').style.display = 'none';
+
+  // #9: Populate confirmation summary
+  confirmCategory.textContent = CATEGORY_LABELS[selectedCategory] || selectedCategory;
+  confirmAddress.textContent = addressInput.value.trim();
+  if (confirmLeadP) {
+    confirmLeadP.textContent = queued ? OFFLINE_CONFIRM_TEXT : confirmLeadDefault;
+  }
+  confirmation.classList.add('visible');
+}
+
 async function submitReport() {
   overlay.classList.add('visible');
   errorBanner.classList.remove('visible');
 
+  const payload = buildPayload();
+  const photo = photoDataUrl;
+
+  // Offline: save to the outbox and confirm optimistically. We do NOT queue on
+  // timeouts/other errors below (duplicate risk) — only on a known-offline start.
   if (!navigator.onLine) {
+    try {
+      await PVDOutbox.enqueue({ payload, photoDataUrl: photo, queuedAt: Date.now() });
+    } catch (err) {
+      console.error('Outbox enqueue failed:', err);
+      overlay.classList.remove('visible');
+      logEvent('submit_error', { error: 'outbox_enqueue:' + (err && err.message || String(err)) });
+      showError('Could not save your report on this device. Please try again.');
+      return;
+    }
+
+    // Best-effort Background Sync registration (Chromium); harmless where absent.
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.sync) await reg.sync.register('pvd311-outbox');
+    } catch (e) { /* iOS Safari / no SW — page-side flush handles it */ }
+
     overlay.classList.remove('visible');
-    showError('No internet connection. Please try again.');
+    showConfirmation(true);
+    logEvent('report_queued', { category: payload.category });
     return;
   }
 
   try {
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), 30000)
-    );
-
-    let photoUrl = null;
-    if (photoDataUrl) {
-      photoUrl = await Promise.race([uploadPhoto(photoDataUrl), timeout]);
-    }
-
-    await Promise.race([db.collection('reports').add({
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      category: selectedCategory,
-      address: addressInput.value.trim(),
-      lat: currentLat,
-      lng: currentLng,
-      description: descriptionInput.value.trim() || null,
-      extra: collectExtra(),
-      photo: photoUrl,
-      reporterName: nameInput.value.trim() || null,
-      reporterEmail: emailInput.value.trim() || null,
-      status: 'pending',
-      statusDetail: null,
-      portalCaseId: null,
-      statusUpdatedAt: null
-    }), timeout]);
-
+    await sendReport(payload, photo);
     overlay.classList.remove('visible');
-    wizard.style.display = 'none';
-    document.getElementById('wizardNav').style.display = 'none';
-    document.getElementById('progressBar').style.display = 'none';
-
-    // #9: Populate confirmation summary
-    confirmCategory.textContent = CATEGORY_LABELS[selectedCategory] || selectedCategory;
-    confirmAddress.textContent = addressInput.value.trim();
-    confirmation.classList.add('visible');
+    showConfirmation(false);
     const locationMethod = hasExifGps ? 'photo_exif'
       : (currentLat && currentLng) ? 'device_gps'
       : 'manual_entry';
-    logEvent('report_submitted', { category: selectedCategory, location_method: locationMethod });
+    logEvent('report_submitted', { category: payload.category, location_method: locationMethod });
 
   } catch (err) {
     console.error('Submission failed:', err);
@@ -651,3 +698,38 @@ submitAnother.addEventListener('click', () => {
 // --- Init ---
 renderCategoryPicker();
 goToStep(0);
+
+// --- Offline outbox flush ---
+// Flush any reports queued while offline: on load, when we come back online,
+// and when the service worker (Background Sync) pings us.
+function showQueuedSentNotice(n) {
+  errorText.textContent = n === 1 ? 'Sent 1 saved report.' : `Sent ${n} saved reports.`;
+  errorBanner.classList.add('info');
+  errorBanner.classList.add('visible');
+  setTimeout(() => {
+    errorBanner.classList.remove('visible');
+    errorBanner.classList.remove('info');
+  }, 4000);
+}
+
+let flushingOutbox = false;
+async function flushOutbox() {
+  if (flushingOutbox || !window.PVDOutbox || !navigator.onLine) return;
+  flushingOutbox = true;
+  try {
+    const { sent } = await PVDOutbox.flush(sendReport);
+    if (sent >= 1) showQueuedSentNotice(sent);
+  } catch (e) {
+    // Leave items queued for the next attempt.
+  } finally {
+    flushingOutbox = false;
+  }
+}
+
+window.addEventListener('online', flushOutbox);
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'flush-outbox') flushOutbox();
+  });
+}
+flushOutbox();
