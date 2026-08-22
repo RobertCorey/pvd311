@@ -18,6 +18,7 @@
       --yellow: #d29922;
       --red: #f85149;
       --blue: #58a6ff;
+      --purple: #bc8cff;
       --radius: 8px;
     }
 
@@ -142,6 +143,7 @@
       white-space: nowrap;
     }
     .badge.pending    { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .badge.awaiting_review { background: rgba(188,140,255,0.15); color: var(--purple); }
     .badge.processing { background: rgba(210,153,34,0.15); color: var(--yellow); }
     .badge.submitted  { background: rgba(63,185,80,0.15);  color: var(--green); }
     .badge.failed     { background: rgba(248,81,73,0.15);  color: var(--red); }
@@ -353,6 +355,7 @@
       <div class="header-pills">
         <button class="auto-pill" id="headlessPill" title="Toggle headed/headless browser mode">Headed</button>
         <button class="auto-pill" id="autoPill" title="Toggle auto-submission mode">Auto: OFF</button>
+        <span class="status-pill" id="hitlPill" title="Human-in-the-loop review mode"></span>
         <span class="status-pill" id="serverStatus">Idle</span>
       </div>
     </header>
@@ -360,6 +363,7 @@
     <div class="tabs" id="tabs">
       <button class="tab active" data-filter="all">All</button>
       <button class="tab" data-filter="pending">Pending <span class="count" id="countPending">0</span></button>
+      <button class="tab" data-filter="awaiting_review">Review <span class="count" id="countReview">0</span></button>
       <button class="tab" data-filter="processing">Processing <span class="count" id="countProcessing">0</span></button>
       <button class="tab" data-filter="submitted">Submitted <span class="count" id="countSubmitted">0</span></button>
       <button class="tab" data-filter="failed">Failed <span class="count" id="countFailed">0</span></button>
@@ -433,6 +437,20 @@
       return map[cat] || cat;
     }
 
+    function statusLabel(status) {
+      return status === 'awaiting_review' ? 'review' : status;
+    }
+
+    // One-line summary of a report's review state (who it was sent to + when requested).
+    function reviewMeta(r) {
+      if (!r.review) return '';
+      const phone = r.review.telegramMessageId != null ? 'sent to phone' : 'dashboard only';
+      const when = r.review.requestedAt
+        ? 'requested ' + new Date(r.review.requestedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : '';
+      return [phone, when].filter(Boolean).join(' · ');
+    }
+
     // ── Providence boundary check ──
     // Bounding box for Providence, RI (generous but catches obvious outliers)
     const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
@@ -465,6 +483,9 @@
         const el = $(`#count${s[0].toUpperCase() + s.slice(1)}`);
         if (el) el.textContent = reports.filter(r => r.status === s).length;
       }
+      // Awaiting-review count (its own status)
+      const revEl = $('#countReview');
+      if (revEl) revEl.textContent = reports.filter(r => r.status === 'awaiting_review').length;
       // Rejected count includes auto-rejected
       const rejEl = $('#countRejected');
       if (rejEl) rejEl.textContent = reports.filter(r => r.status === 'rejected' || r.status === 'auto-rejected').length;
@@ -482,12 +503,14 @@
             <div class="report-meta">
               ${formatTime(r.timestamp)}
               ${r.portalCaseId ? ' · ' + r.portalCaseId : ''}
+              ${r.status === 'awaiting_review' && r.review ? ' · ' + reviewMeta(r) : ''}
               ${r.statusDetail && r.status === 'failed' ? ' · ' + r.statusDetail : ''}
             </div>
           </div>
           ${locationBadge(r)}
-          <span class="badge ${r.status === 'auto-rejected' ? 'auto-rejected' : r.status}">${r.status}</span>
+          <span class="badge ${r.status === 'auto-rejected' ? 'auto-rejected' : r.status}">${statusLabel(r.status)}</span>
           <div class="actions">
+            ${r.status === 'awaiting_review' ? `<button class="btn danger" onclick="event.stopPropagation(); reviewReject('${r.id}')">Reject</button><button class="btn primary" onclick="event.stopPropagation(); reviewApprove('${r.id}')">Approve</button>` : ''}
             ${r.status === 'pending' ? `<button class="btn danger" onclick="event.stopPropagation(); rejectReport('${r.id}')">Won't Do</button><button class="btn" onclick="event.stopPropagation(); submitReport('${r.id}', true)">Dry Run</button><button class="btn primary" onclick="event.stopPropagation(); submitReport('${r.id}')">Submit to 311</button>` : ''}
             ${r.status === 'failed' ? `<button class="btn danger" onclick="event.stopPropagation(); resetReport('${r.id}')">Reset</button>` : ''}
             ${r.status === 'rejected' || r.status === 'auto-rejected' ? `<button class="btn" onclick="event.stopPropagation(); resetReport('${r.id}')">Undo</button>` : ''}
@@ -515,9 +538,10 @@
       body.innerHTML = `
         <div class="detail-field">
           <label>Status</label>
-          <div class="val"><span class="badge ${r.status}">${r.status}</span></div>
+          <div class="val"><span class="badge ${r.status}">${statusLabel(r.status)}</span></div>
         </div>
         ${r.statusDetail ? `<div class="detail-field"><label>Status Detail</label><div class="val">${r.statusDetail}</div></div>` : ''}
+        ${r.status === 'awaiting_review' && r.review ? `<div class="detail-field"><label>Review</label><div class="val">${r.review.telegramMessageId != null ? 'Sent to phone (Telegram)' : 'Dashboard only'}${r.review.requestedAt ? ' · requested ' + formatTime(r.review.requestedAt) : ''}${r.review.mode ? ' · mode ' + r.review.mode : ''}</div></div>` : ''}
         ${r.portalCaseId ? `<div class="detail-field"><label>311 Case ID</label><div class="val">${r.portalCaseId}</div></div>` : ''}
         <div class="detail-field">
           <label>Category</label>
@@ -547,6 +571,10 @@
       `;
 
       const btns = [];
+      if (r.status === 'awaiting_review') {
+        btns.push(`<button class="btn danger" onclick="reviewReject('${r.id}'); closeDetail();">Reject</button>`);
+        btns.push(`<button class="btn primary" onclick="reviewApprove('${r.id}'); closeDetail();">Approve</button>`);
+      }
       if (r.status === 'pending') {
         btns.push(`<button class="btn danger" onclick="rejectReport('${r.id}'); closeDetail();">Won't Do</button>`);
         btns.push(`<button class="btn" onclick="submitReport('${r.id}', true); closeDetail();">Dry Run</button>`);
@@ -588,6 +616,19 @@
       if (reason === null) return; // cancelled
       await api('POST', '/api/reject', { id, reason: reason || 'Rejected' });
       toast('Report marked as won\'t do');
+      await refresh();
+    }
+
+    // ── HITL review actions (awaiting_review) ──
+    async function reviewApprove(id) {
+      const res = await api('POST', `/api/reports/${id}/approve`);
+      toast(res && res.error ? 'Approve failed: ' + res.error : 'Approved — queued for submission');
+      await refresh();
+    }
+
+    async function reviewReject(id) {
+      const res = await api('POST', `/api/reports/${id}/reject`);
+      toast(res && res.error ? 'Reject failed: ' + res.error : 'Report rejected');
       await refresh();
     }
 
@@ -634,6 +675,14 @@
       } else {
         pill.textContent = 'Idle';
         pill.classList.remove('busy');
+      }
+
+      const hitlPill = $('#hitlPill');
+      if (hitlPill && status.hitlMode) {
+        hitlPill.textContent = `HITL: ${status.hitlMode}${status.telegramEnabled ? ' 📱' : ''}`;
+        hitlPill.title = status.telegramEnabled
+          ? 'Reviews go to Telegram + dashboard'
+          : 'Telegram off — reviews via dashboard only';
       }
     }
 

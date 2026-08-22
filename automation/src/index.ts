@@ -6,6 +6,8 @@ import { initFirestore, fetchAllReports, fetchReport, updateReportStatus, saveRe
 import { PortalSubmitter } from './portal.js';
 import { config } from './config.js';
 import { AutoSubmitter } from './auto.js';
+import { approve, reject } from './hitl.js';
+import { telegramEnabled } from './telegram.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -114,9 +116,33 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
+  // ── API: HITL approve/reject a report awaiting review (from the dashboard) ──
+  if (req.method === 'POST' && url.pathname.startsWith('/api/reports/') &&
+      (url.pathname.endsWith('/approve') || url.pathname.endsWith('/reject'))) {
+    const parts = url.pathname.split('/'); // ['', 'api', 'reports', '<id>', 'approve'|'reject']
+    const id = parts[3];
+    const action = parts[4];
+    if (!id) { json(res, 400, { error: 'Missing report id' }); return; }
+    try {
+      if (action === 'approve') await approve(id, 'dashboard');
+      else await reject(id, 'dashboard');
+      json(res, 200, { status: action === 'approve' ? 'approved' : 'rejected', id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[hitl] ${action} ${id} failed:`, message);
+      json(res, 500, { error: message });
+    }
+    return;
+  }
+
   // ── API: check if a submission is active ──
   if (req.method === 'GET' && url.pathname === '/api/status') {
-    json(res, 200, { activeSubmission, headless: config.headless });
+    json(res, 200, {
+      activeSubmission,
+      headless: config.headless,
+      hitlMode: config.hitlMode,
+      telegramEnabled: telegramEnabled(),
+    });
     return;
   }
 
@@ -199,8 +225,10 @@ async function main(): Promise<void> {
     }
   });
 
-  server.listen(config.port, () => {
-    console.log(`[main] Dashboard running at http://localhost:${config.port}`);
+  // Bind to loopback by default (dashboard is unauthenticated); set HOST=0.0.0.0 to expose.
+  const host = process.env['HOST'] || '127.0.0.1';
+  server.listen(config.port, host, () => {
+    console.log(`[main] Dashboard running at http://${host}:${config.port}`);
     if (config.autoMode) {
       console.log('[main] Auto-submission mode enabled (--auto)');
       autoSubmitter.start();
