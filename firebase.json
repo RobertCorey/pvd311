@@ -4,7 +4,12 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "tests/**",
+      "test-results/**",
+      "package.json",
+      "package-lock.json",
+      "playwright.config.ts"
     ],
     "rewrites": [
       {
