@@ -41,6 +41,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     if (request.method === 'POST' && url.pathname === '/api/report') resp = await createReport(request, env, deps);
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps);
+    else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/email$/.test(url.pathname)) resp = await attachEmail(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
@@ -215,9 +216,20 @@ function projectReport(r: ReportDoc) {
   return {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
-    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline,
+    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline, hasEmail: !!r.reporterEmail,
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
+}
+
+/** POST /api/reports/:id/email — attach an email after submit ("get the city's updates"). Knowing the id is the credential. */
+async function attachEmail(id: string, request: Request, { store }: ApiDeps): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { email?: string } | null;
+  const email = (body?.email ?? '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return json({ error: 'invalid_email', field: 'email' }, 400);
+  const r = await store.fetchReport(id);
+  if (!r) return json({ error: 'not_found' }, 404);
+  await store.patchReport(id, { reporterEmail: email, emailAttachedAt: new Date().toISOString() });
+  return new Response(null, { status: 204 });
 }
 
 async function getReport(id: string, { store }: ApiDeps): Promise<Response> {
