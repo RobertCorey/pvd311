@@ -1,5 +1,6 @@
 /** Minimal Telegram Bot API client (fetch-based, no deps). Inert when TELEGRAM_BOT_TOKEN is unset. */
 import { config } from './config.js';
+import { emailEnabled, alert as emailAlert } from './email.js';
 
 const API = () => `https://api.telegram.org/bot${config.telegramBotToken}`;
 
@@ -61,8 +62,10 @@ export async function getCallbacks(offset: number, timeoutSec = 0): Promise<Call
     }));
 }
 
-/** Fire-and-forget alert; never throws. */
+/** Fire-and-forget alert; never throws. Email first (Rob's preference), Telegram only if configured. */
 export async function alert(text: string): Promise<void> {
-  if (!telegramEnabled()) { console.log(`[alert] ${text.replace(/<[^>]+>/g, '')}`); return; }
+  const plain = text.replace(/<[^>]+>/g, '');
+  if (emailEnabled()) { await emailAlert(plain.split('\n')[0].slice(0, 80), text.replace(/\n/g, '<br>')); return; }
+  if (!telegramEnabled()) { console.log(`[alert] ${plain}`); return; }
   await sendMessage(text).catch((e) => console.error('[telegram] alert failed:', e));
 }

@@ -28,8 +28,16 @@ export const config = {
   // Human-in-the-loop: 'review' (launch mode) | 'ramp' | 'auto'
   hitlMode: (process.env['HITL_MODE'] || 'review') as 'review' | 'ramp' | 'auto',
   trustRampN: parseInt(process.env['TRUST_RAMP_N'] || '3', 10),
-  telegramBotToken: process.env['TELEGRAM_BOT_TOKEN'] || '',
-  telegramChatId: process.env['TELEGRAM_CHAT_ID'] || '7744052689',
+  telegramBotToken: process.env['TELEGRAM_BOT_TOKEN'] || '',   // legacy; Rob prefers email
+  telegramChatId: process.env['TELEGRAM_CHAT_ID'] || '',
+
+  // Email notifications (Resend). Until a domain is verified, from must be onboarding@resend.dev and only Rob's address is deliverable.
+  resendApiKey: process.env['RESEND_API_KEY'] || '',
+  emailTo: process.env['NOTIFY_EMAIL'] || 'robertbcorey@gmail.com',
+  emailFrom: process.env['NOTIFY_FROM'] || 'PVD311 <onboarding@resend.dev>',
+  // Where HITL approve/reject links point (the Cloudflare Worker) and the HMAC secret they're signed with
+  hitlBaseUrl: process.env['HITL_BASE_URL'] || 'https://pvd311-worker.pvd311-worker.workers.dev',
+  hitlSecret: process.env['HITL_SECRET'] || '',
   port: parseInt(process.env['PORT'] || '3311', 10),
 
   // Auto-submission mode

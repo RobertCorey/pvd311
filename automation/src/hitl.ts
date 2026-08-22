@@ -13,6 +13,7 @@ import { config } from './config.js';
 import { getDb, updateReportStatus, invalidateCache } from './firestore.js';
 import { CATEGORIES, type Report } from '../../shared/types.js';
 import * as tg from './telegram.js';
+import { emailEnabled, sendEmail, actionUrl } from './email.js';
 
 export type HitlMode = 'review' | 'ramp' | 'auto';
 
@@ -45,7 +46,23 @@ export async function requestReview(report: R): Promise<void> {
   const buttons = [[{ text: '✅ Approve', callback_data: `approve:${report.id}` }, { text: '❌ Reject', callback_data: `reject:${report.id}` }]];
 
   let messageId: number | null = null;
-  if (tg.telegramEnabled()) {
+  let emailed = false;
+  if (emailEnabled()) {
+    try {
+      const html = [
+        `<p><b>${escape(cat?.label ?? report.category)}</b> → ${escape(cat?.portalCaseTypeName ?? '')}</p>`,
+        `<p>${escape(report.address)}</p>`,
+        report.description ? `<blockquote>${escape(report.description.slice(0, 600))}</blockquote>` : '<p><i>(no description)</i></p>',
+        report.extra && Object.keys(report.extra).length ? `<p><code>${escape(JSON.stringify(report.extra))}</code></p>` : '',
+        report.photo && /^https?:/.test(report.photo) ? `<p><a href="${report.photo}">photo</a></p>` : '',
+        `<p><a href="${actionUrl('approve', report.id)}" style="padding:10px 16px;background:#1E7B45;color:#fff;border-radius:6px;text-decoration:none">✅ Approve &amp; submit</a>&nbsp;&nbsp;<a href="${actionUrl('reject', report.id)}" style="padding:10px 16px;background:#B3261E;color:#fff;border-radius:6px;text-decoration:none">❌ Reject</a></p>`,
+        `<p style="color:#888">ref ${report.id}</p>`,
+      ].join('');
+      await sendEmail(`[PVD311] Review: ${cat?.label ?? report.category} @ ${report.address}`, html);
+      emailed = true;
+    } catch (e) { console.error('[hitl] email send failed (report stays in review queue):', e); }
+  }
+  if (!emailed && tg.telegramEnabled()) {
     try {
       messageId = report.photo && /^https?:/.test(report.photo)
         ? await tg.sendPhoto(report.photo, caption, buttons)
@@ -56,12 +73,12 @@ export async function requestReview(report: R): Promise<void> {
   }
   await getDb().collection('reports').doc(report.id).update({
     status: 'awaiting_review',
-    statusDetail: messageId ? 'Sent to phone for approval' : 'Awaiting approval (dashboard)',
+    statusDetail: emailed ? 'Emailed for approval' : messageId ? 'Sent to phone for approval' : 'Awaiting approval (dashboard)',
     statusUpdatedAt: FieldValue.serverTimestamp(),
-    review: { requestedAt: new Date().toISOString(), telegramMessageId: messageId, mode: config.hitlMode },
+    review: { requestedAt: new Date().toISOString(), telegramMessageId: messageId, emailed, mode: config.hitlMode },
   });
   invalidateCache();
-  console.log(`[hitl] ${report.id} awaiting review${messageId ? ` (tg msg ${messageId})` : ''}`);
+  console.log(`[hitl] ${report.id} awaiting review${emailed ? ' (emailed)' : messageId ? ` (tg msg ${messageId})` : ''}`);
 }
 
 export async function approve(reportId: string, by: string): Promise<void> {
