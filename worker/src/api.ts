@@ -326,6 +326,7 @@ async function nearby(url: URL, { store }: ApiDeps): Promise<Response> {
   const feed = await store.getMeta<CityFeed>('cityFeed');
   for (const it of feed?.items ?? []) {
     if (it.lat == null || it.lng == null) continue;
+    if (/^draft$/i.test(it.status || '')) continue; // abandoned wizards aren't reports
     if (category && it.category !== category) continue;
     const iso = parseCityDate(it.createdOn);
     if (iso != null && Date.parse(iso) < sinceMs) continue;
