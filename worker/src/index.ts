@@ -56,6 +56,16 @@ export default {
     }
     if (url.pathname === '/admin/action' && request.method === 'POST') return adminAction(env, createStore(env), request);
 
+    // Admin: run the watcher / daily jobs on demand (token-gated)
+    if ((url.pathname === '/admin/watch' || url.pathname === '/admin/daily') && request.method === 'POST') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      const t0 = Date.now();
+      try {
+        if (url.pathname === '/admin/watch') await runWatcher(env); else await runDaily(env);
+        return Response.json({ ok: true, ms: Date.now() - t0 });
+      } catch (e) { return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 }, { status: 500 }); }
+    }
+
     // Admin: walk a pending report through the wizard in INSPECT mode (stops before Submit; costs one portal draft).
     if (url.pathname === '/admin/inspect') {
       if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });

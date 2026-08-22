@@ -286,7 +286,7 @@ async function publicFeed(url: URL, { store }: ApiDeps): Promise<Response> {
   const feed = await store.getMeta<CityFeed>('cityFeed');
   const city = (feed?.items ?? [])
     .filter((it) => it.lat != null && it.lng != null && inBbox(it.lat!, it.lng!))
-    .map(cityFeedItem);
+    .filter((it) => !/^draft$/i.test(it.status || '')).map(cityFeedItem);
 
   const items = [...ours, ...city].slice(0, limit);
   return json({ items }, 200, { 'cache-control': 'public, max-age=60' });
