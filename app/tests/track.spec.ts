@@ -76,6 +76,7 @@ test('cancelled report explains and links to the official portal', async ({ page
 });
 
 test('attaching an email posts to the endpoint and swaps to a success notice', async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem('snappvd.myReports', JSON.stringify([{ id: 'abc', category: 'pothole', address: '120 Benefit St', createdAt: new Date().toISOString() }])); });
   await mockReport(page, view());
   await page.route('**/api/reports/*/email', (r) =>
     r.fulfill({ status: 204, contentType: 'application/json', body: '' }));
@@ -91,8 +92,21 @@ test('attaching an email posts to the endpoint and swaps to a success notice', a
 });
 
 test('when the report already has an email, the form is replaced by a confirmation', async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem('snappvd.myReports', JSON.stringify([{ id: 'abc', category: 'pothole', address: '120 Benefit St', createdAt: new Date().toISOString() }])); });
   await mockReport(page, { ...view(), hasEmail: true });
   await page.goto('/r/abc');
   await expect(page.getByText(/pass the city's updates to your email/i)).toBeVisible();
   await expect(page.locator('#track-email')).toHaveCount(0);
+});
+
+test('visitor (not the reporter) sees Follow instead of attach-email and posts to /follow', async ({ page }) => {
+  await page.route('**/api/reports/vis1', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'vis1', category: 'pothole', categoryLabel: 'Pothole Report', address: '120 Benefit St', lat: 41.8268, lng: -71.4053, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-1', portalStatus: 'Submitted', timeline: [{ at: new Date().toISOString(), label: 'Received' }], nextUpdateHint: null, hasEmail: true }) }));
+  let followed = '';
+  await page.route('**/api/reports/vis1/follow', (r) => { followed = r.request().postData() ?? ''; r.fulfill({ status: 204 }); });
+  await page.goto('/r/vis1');
+  await expect(page.getByRole('heading', { name: 'Follow this report' })).toBeVisible();
+  await page.fill('#track-email', 'neighbor@example.com');
+  await page.getByRole('button', { name: 'Follow by email' }).click();
+  await expect(page.locator('.notice-ok')).toContainText("you'll get updates");
+  expect(followed).toContain('neighbor@example.com');
 });

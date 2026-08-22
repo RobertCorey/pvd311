@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { attachEmail, getReport } from '../api/client';
+import { attachEmail, followReport, getReport } from '../api/client';
+import { listMyReports } from '../lib/myReports';
 import { ApiError, type ReportView } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
@@ -19,7 +20,8 @@ function isTerminal(v: ReportView): boolean {
 function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
   switch (v.status) {
     case 'rejected': return { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.rejected') };
-    case 'failed': return { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.failed') };
+    case 'failed':
+    case 'needs_attention': return { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.failed') };
     case 'received': return { headline: t('track.state.received'), tone: 'progress' };
     case 'awaiting_review':
     case 'sending': return { headline: t('track.state.sending'), tone: 'progress' };
@@ -193,7 +195,7 @@ export default function Track() {
         </ul>
       </div>
 
-      <EmailAttach id={id!} hasEmail={view.hasEmail === true} />
+      <EmailAttach id={id!} hasEmail={view.hasEmail === true} mine={listMyReports().some((r) => r.id === id)} />
     </section>
   );
 }
@@ -250,7 +252,8 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
   );
 }
 
-function EmailAttach({ id, hasEmail }: { id: string; hasEmail: boolean }) {
+// Reporter (this device sent it) → attach email. Anyone else → follow it.
+function EmailAttach({ id, hasEmail, mine }: { id: string; hasEmail: boolean; mine: boolean }) {
   const t = useT();
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -262,7 +265,7 @@ function EmailAttach({ id, hasEmail }: { id: string; hasEmail: boolean }) {
     if (!email.trim()) return;
     setBusy(true); setError(false);
     try {
-      await attachEmail(id, email.trim());
+      if (mine) await attachEmail(id, email.trim()); else await followReport(id, email.trim());
       setDone(true);
     } catch {
       setError(true);
@@ -273,16 +276,16 @@ function EmailAttach({ id, hasEmail }: { id: string; hasEmail: boolean }) {
 
   return (
     <div className="section">
-      <h2>{t('track.email.title')}</h2>
-      {hasEmail || done ? (
-        <div className="notice notice-ok" role="status">{t(hasEmail ? 'track.email.hasEmail' : 'track.email.done')}</div>
+      <h2>{t(mine ? 'track.email.title' : 'track.follow.title')}</h2>
+      {(hasEmail && mine) || done ? (
+        <div className="notice notice-ok" role="status">{t(done ? (mine ? 'track.email.done' : 'track.follow.done') : 'track.email.hasEmail')}</div>
       ) : (
         <form className="track-email" onSubmit={onSubmit} noValidate>
           <label className="label" htmlFor="track-email">{t('track.email.label')}</label>
           <input id="track-email" className="input" type="email" inputMode="email" autoComplete="email"
             placeholder={t('track.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} />
-          <p className="hint">{t('track.email.consent')}</p>
-          <button type="submit" className="btn btn-secondary" disabled={!email.trim() || busy}>{busy ? t('track.email.sending') : t('track.email.submit')}</button>
+          <p className="hint">{t(mine ? 'track.email.consent' : 'track.follow.consent')}</p>
+          <button type="submit" className="btn btn-secondary" disabled={!email.trim() || busy}>{busy ? t('track.email.sending') : t(mine ? 'track.email.submit' : 'track.follow.submit')}</button>
           {error && <div className="notice notice-error" role="alert">{t('track.email.error')}</div>}
         </form>
       )}

@@ -1,5 +1,5 @@
 // Worker API v1 — contract from alice (2026-08-22). Keep in sync with worker/.
-export type ReportStatus = 'received' | 'awaiting_review' | 'sending' | 'sent' | 'failed' | 'rejected';
+export type ReportStatus = 'received' | 'awaiting_review' | 'sending' | 'sent' | 'failed' | 'needs_attention' | 'rejected';
 export type PortalStatus = 'Submitted' | 'Assigned' | 'Resolved' | 'Cancelled';
 export type IntakeFlag = 'spam' | 'abuse' | 'personal_info' | 'not_311' | 'emergency';
 

@@ -18,7 +18,7 @@ type T = ReturnType<typeof useT>;
 
 function markerColor(it: FeedItem): string {
   if (it.portalStatus === 'Resolved') return '--success';
-  if (it.portalStatus === 'Cancelled' || it.status === 'failed' || it.status === 'rejected') return '--warn';
+  if (it.portalStatus === 'Cancelled' || it.status === 'failed' || it.status === 'needs_attention' || it.status === 'rejected') return '--warn';
   return '--accent-2';
 }
 
@@ -35,7 +35,7 @@ function statusPill(it: FeedItem, t: T): { label: string; cls: string } {
     if (it.portalStatus) return portalPill(it.portalStatus, t);
     return { label: t('map.status.sent'), cls: 'sent' };
   }
-  if (it.status === 'failed' || it.status === 'rejected') return { label: t('map.status.notSent'), cls: 'failed' };
+  if (it.status === 'failed' || it.status === 'needs_attention' || it.status === 'rejected') return { label: t('map.status.notSent'), cls: 'failed' };
   return { label: t('map.status.waiting'), cls: 'waiting' }; // received | awaiting_review | sending
 }
 

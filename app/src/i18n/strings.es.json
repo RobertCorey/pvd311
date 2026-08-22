@@ -224,5 +224,9 @@
   "report.offlineHint": "Estás sin conexión — lo guardaremos en tu teléfono y lo enviaremos cuando vuelvas a tener conexión.",
   "notFound.title": "Esa página no existe",
   "notFound.body": "El enlace puede estar mal o desactualizado.",
-  "notFound.home": "Reportar un problema"
+  "notFound.home": "Reportar un problema",
+  "track.follow.title": "Seguir este reporte",
+  "track.follow.consent": "Recibirás las mismas actualizaciones de la ciudad que la persona que lo reportó. Nada más — sin boletines.",
+  "track.follow.submit": "Seguir por correo",
+  "track.follow.done": "Listo — recibirás actualizaciones de este reporte."
 }

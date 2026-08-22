@@ -224,5 +224,9 @@
   "report.offlineHint": "You're offline — we'll save this on your phone and send it when you're back online.",
   "notFound.title": "That page doesn't exist",
   "notFound.body": "The link may be wrong or out of date.",
-  "notFound.home": "Report a problem"
+  "notFound.home": "Report a problem",
+  "track.follow.title": "Follow this report",
+  "track.follow.consent": "You'll get the same city status updates as the person who reported it. Nothing else — no newsletters.",
+  "track.follow.submit": "Follow by email",
+  "track.follow.done": "Done — you'll get updates on this report."
 }

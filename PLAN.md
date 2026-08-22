@@ -80,6 +80,6 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] About + Privacy, SnapPVD icon set
 - [ ] Spanish strings (`strings.es.json`) + language switch
 - [x] Location mini-map with draggable pin (spec §3.1)
-- [ ] Dedupe prompt (needs GET /api/nearby) — parked until the Worker ships it
+- [x] Dedupe prompt (GET /api/nearby, 75 m, same category)
 - [x] Flipped Firebase Hosting to `app/dist` 2026-08-22 (`npm run deploy:app`, firebase.app.json) — SnapPVD live at pvdsnow.org
 - [ ] Retire `public/` + legacy firebase.json target; pvdsnow.org → snappvd.org redirect once the domain exists; later Cloudflare

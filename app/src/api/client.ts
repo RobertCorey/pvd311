@@ -94,6 +94,15 @@ export async function attachEmail(id: string, email: string, turnstileToken?: st
   } finally { t.done(); }
 }
 
+/** Follow someone else's report (dedupe path): same city-status emails as the reporter. 204. */
+export async function followReport(id: string, email: string): Promise<void> {
+  const t = withTimeout(15_000);
+  try {
+    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}/follow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: t.signal, body: JSON.stringify({ email }) });
+    if (!resp.ok) throw await parseError(resp);
+  } finally { t.done(); }
+}
+
 export async function getFeed(bbox: [number, number, number, number], limit = 100): Promise<FeedResponse> {
   const t = withTimeout(15_000);
   try {
