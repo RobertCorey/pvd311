@@ -1120,3 +1120,112 @@ select.text-input {
 .error-banner.info svg {
   color: #22c55e;
 }
+
+/* === MY REPORTS === */
+.my-reports {
+  animation: fadeIn 0.25s ease;
+  padding-bottom: 12px;
+}
+.my-reports[hidden] { display: none; }
+
+.my-reports-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 16px;
+}
+
+.mr-item {
+  background: var(--navy-800);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.mr-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mr-cat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.mr-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.mr-pill {
+  flex-shrink: 0;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+
+.mr-pill-waiting,
+.mr-pill-processing {
+  color: var(--ice-300);
+  background: rgba(126, 200, 227, 0.12);
+  border-color: rgba(126, 200, 227, 0.28);
+}
+
+.mr-pill-sent {
+  color: #86efac;
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.mr-pill-failed {
+  color: #fcd9a0;
+  background: rgba(245, 166, 35, 0.12);
+  border-color: rgba(245, 166, 35, 0.3);
+}
+
+.mr-pill-notsent {
+  color: var(--text-secondary);
+  background: rgba(138, 155, 181, 0.1);
+  border-color: var(--border);
+}
+
+.mr-addr {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.35;
+}
+
+.mr-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.mr-detail {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+.my-reports-close {
+  min-width: 100px;
+}

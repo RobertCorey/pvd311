@@ -3,7 +3,7 @@
 // hook to nudge the page to flush its IndexedDB outbox when connectivity
 // returns (via Background Sync where available).
 
-const CACHE = 'pvd311-v2';
+const CACHE = 'pvd311-v3';
 const GSTATIC = 'https://www.gstatic.com/firebasejs/10.14.1/';
 
 // App shell. gstatic scripts are fetched with mode:'cors' during install so we
@@ -12,6 +12,7 @@ const PRECACHE = [
   '/',
   '/index.html',
   '/app.js',
+  '/status.js',
   '/outbox.js',
   '/categories.js',
   '/style.css',
