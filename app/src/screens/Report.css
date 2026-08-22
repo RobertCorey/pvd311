@@ -33,3 +33,8 @@
 .mini-map { margin-top: 12px; }
 .mini-map-skeleton { height: 200px; border-radius: var(--radius-lg); background: var(--line); }
 .mini-map .hint { margin: 6px 0 0; }
+.nearby-card { margin-top: 12px; border-color: var(--accent-2); background: var(--accent-2-soft); box-shadow: none; }
+.nearby-card .label { color: var(--accent-2); }
+.nearby-body { margin: 0 0 8px; line-height: 1.45; }
+.nearby-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.nearby-actions .btn { min-height: var(--tap); padding: 10px 14px; font-size: 0.9rem; text-decoration: none; }

@@ -208,5 +208,21 @@
   "report.location.mapLabel": "Mapa de la ubicación del reporte. Arrastra el pin para ajustarla.",
   "report.location.dragHint": "¿No es exacto? Arrastra el pin al lugar preciso.",
   "report.location.pinMoved": "Pin movido — dirección actualizada.",
-  "report.location.pinOutside": "Ese punto está fuera de Providence — mueve el pin de vuelta dentro de la ciudad."
+  "report.location.pinOutside": "Ese punto está fuera de Providence — mueve el pin de vuelta dentro de la ciudad.",
+  "report.nearby.title": "Ya fue reportado cerca",
+  "report.nearby.body": "{label} en {street}, {age} — a {distance} m de aquí. Reportarlo de nuevo no lo acelera, pero igual puedes enviar el tuyo.",
+  "report.nearby.bodyMore": "{count} reportes similares a menos de {radius} m en las últimas dos semanas.",
+  "report.nearby.viewMap": "Verlo en el mapa",
+  "report.nearby.track": "Ver ese reporte",
+  "report.nearby.dismiss": "Reportar de todos modos",
+  "report.nearby.justNow": "hace un momento",
+  "report.nearby.today": "hoy",
+  "report.nearby.daysAgo": "hace {n} días",
+  "report.nearby.dayAgo": "ayer",
+  "map.status.city": "Reporte de la ciudad",
+  "map.source.city": "del 311 de la ciudad",
+  "report.offlineHint": "Estás sin conexión — lo guardaremos en tu teléfono y lo enviaremos cuando vuelvas a tener conexión.",
+  "notFound.title": "Esa página no existe",
+  "notFound.body": "El enlace puede estar mal o desactualizado.",
+  "notFound.home": "Reportar un problema"
 }

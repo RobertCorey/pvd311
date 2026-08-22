@@ -22,19 +22,25 @@ function markerColor(it: FeedItem): string {
   return '--accent-2';
 }
 
+const KNOWN_PORTAL = ['submitted', 'assigned', 'resolved', 'cancelled'];
+function portalPill(portalStatus: string, t: T): { label: string; cls: string } {
+  const key = portalStatus.toLowerCase();
+  const cls = key === 'resolved' ? 'resolved' : key === 'cancelled' ? 'cancelled' : 'sent';
+  return { label: KNOWN_PORTAL.includes(key) ? t(`map.portal.${key}`) : portalStatus, cls };
+}
+const isCity = (it: FeedItem) => it.source === 'city' || it.status === 'city' || it.id.startsWith('city:');
 function statusPill(it: FeedItem, t: T): { label: string; cls: string } {
+  if (isCity(it)) return it.portalStatus ? portalPill(it.portalStatus, t) : { label: t('map.status.city'), cls: 'sent' };
   if (it.status === 'sent') {
-    if (it.portalStatus) {
-      const cls = it.portalStatus === 'Resolved' ? 'resolved' : it.portalStatus === 'Cancelled' ? 'cancelled' : 'sent';
-      return { label: t(`map.portal.${it.portalStatus.toLowerCase()}`), cls };
-    }
+    if (it.portalStatus) return portalPill(it.portalStatus, t);
     return { label: t('map.status.sent'), cls: 'sent' };
   }
   if (it.status === 'failed' || it.status === 'rejected') return { label: t('map.status.notSent'), cls: 'failed' };
   return { label: t('map.status.waiting'), cls: 'waiting' }; // received | awaiting_review | sending
 }
 
-function ageLabel(iso: string, t: T): string {
+function ageLabel(iso: string | null, t: T): string {
+  if (!iso) return '';
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '';
   const s = Math.max(0, (Date.now() - then) / 1000);
@@ -86,7 +92,7 @@ export default function Feed() {
     () =>
       (items ?? [])
         .filter((it) => Number.isFinite(it.lat) && Number.isFinite(it.lng))
-        .map((it) => ({ id: it.id, lat: it.lat, lng: it.lng, label: it.categoryLabel, color: markerColor(it), href: `/r/${it.id}` })),
+        .map((it) => ({ id: it.id, lat: it.lat, lng: it.lng, label: it.categoryLabel, color: markerColor(it), href: isCity(it) ? undefined : `/r/${it.id}` })),
     [items],
   );
 
@@ -121,13 +127,18 @@ export default function Feed() {
               const pill = statusPill(it, t);
               return (
                 <li key={it.id}>
-                  <Link to={`/r/${it.id}`} className="card feed-row">
-                    <span className="feed-icon" aria-hidden="true"><CategoryIcon k={it.category} /></span>
-                    <span className="feed-cat">{it.categoryLabel}</span>
-                    <span className={`feed-pill feed-pill--${pill.cls}`}>{pill.label}</span>
-                    <span className="feed-addr">{it.address}</span>
-                    <span className="feed-age muted">{ageLabel(it.createdAt, t)}</span>
-                  </Link>
+                  {(() => {
+                    const inner = (<>
+                      <span className="feed-icon" aria-hidden="true"><CategoryIcon k={it.category} /></span>
+                      <span className="feed-cat">{it.categoryLabel}</span>
+                      <span className={`feed-pill feed-pill--${pill.cls}`}>{pill.label}</span>
+                      <span className="feed-addr">{it.address.replace(/,\s*Providence.*$/i, '')}{isCity(it) && <span className="feed-source muted"> · {t('map.source.city')}</span>}</span>
+                      <span className="feed-age muted">{ageLabel(it.createdAt, t)}</span>
+                    </>);
+                    return isCity(it)
+                      ? <div className="card feed-row feed-row--city">{inner}</div>
+                      : <Link to={`/r/${it.id}`} className="card feed-row">{inner}</Link>;
+                  })()}
                 </li>
               );
             })}

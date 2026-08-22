@@ -73,10 +73,11 @@ export async function compressImage(file: Blob, maxBytes = 300 * 1024, maxWidth 
     ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
     for (const q of [0.82, 0.72, 0.62, 0.5]) {
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', q));
-      if (blob && blob.size <= maxBytes) return blob;
+      if (blob && blob.size <= maxBytes) { bmp.close(); return blob; }
     }
     width = Math.round(width * 0.75);
   }
   const last = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.4));
+  bmp.close();
   return last ?? file;
 }

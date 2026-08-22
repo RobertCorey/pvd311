@@ -40,3 +40,17 @@ test('empty feed shows the empty state', async ({ page }) => {
   await expect(page.locator('.feed-empty')).toBeVisible();
   await expect(page.locator('.feed-row')).toHaveCount(0);
 });
+
+test('city feed rows render without a tracking link and with the city status', async ({ page }) => {
+  await setup(page, [
+    { id: 'abc', source: 'snappvd', category: 'pothole', categoryLabel: 'Pothole Report', lat: 41.8268, lng: -71.4053, address: '120 Benefit St, Providence, RI', createdAt: new Date().toISOString(), status: 'sent', portalStatus: 'Assigned' },
+    { id: 'city:9f2', source: 'city', category: 'street_light', categoryLabel: 'Report Street Light Issue', lat: 41.83, lng: -71.39, address: 'Hope St', createdAt: null, status: 'city', portalStatus: 'In Progress' },
+  ]);
+  await page.goto('/map');
+  await expect(page.locator('.feed-row')).toHaveCount(2);
+  await expect(page.locator('a.feed-row')).toHaveCount(1);
+  const city = page.locator('.feed-row--city');
+  await expect(city).toContainText('In Progress');
+  await expect(city).toContainText("from the city's 311 feed");
+  await expect(page.locator('.map-pin')).toHaveCount(2);
+});

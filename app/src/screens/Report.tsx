@@ -2,10 +2,11 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
-import { intake, submitReport } from '../api/client';
-import { ApiError, type IntakeResult } from '../api/types';
+import { getNearby, intake, submitReport } from '../api/client';
+import { Link } from 'react-router-dom';
+import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
 import { rememberReport } from '../lib/myReports';
-import { flushOutbox, outbox } from '../lib/outbox';
+import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
@@ -56,6 +57,20 @@ export default function Report() {
   const [wordingApplied, setWordingApplied] = useState<string | null>(null); // original text when applied
   const intakeKey = useRef<string | null>(null);
 
+  // --- dedupe (spec §3.4): once a location is known, ask for similar reports nearby ---
+  const [nearby, setNearby] = useState<NearbyItem[]>([]);
+  const [nearbyDismissed, setNearbyDismissed] = useState(false);
+  const nearbyKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!loc || !category) { setNearby([]); return; }
+    const key = `${category}:${loc.lat.toFixed(4)}:${loc.lng.toFixed(4)}`;
+    if (key === nearbyKey.current) return;
+    nearbyKey.current = key;
+    let cancelled = false;
+    getNearby(loc.lat, loc.lng, category, 75).then((r) => { if (!cancelled) { setNearby(r.items); setNearbyDismissed(false); } });
+    return () => { cancelled = true; };
+  }, [loc, category]);
+
   // --- submit ---
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileNonce, setTurnstileNonce] = useState(0);
@@ -63,32 +78,38 @@ export default function Report() {
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
 
-  // --- offline outbox ---
+  // --- online state + offline outbox ---
+  const [online, setOnline] = useState(() => navigator.onLine);
   const [pending, setPending] = useState(0);
   const [outboxNotice, setOutboxNotice] = useState<string | null>(null);
-  useEffect(() => { outbox.count().then(setPending).catch(() => {}); }, []);
+  // After a failed flush we stop until the next 'online' event / app open, so a
+  // report the server keeps rejecting can't loop and burn Turnstile tokens.
+  const [flushPaused, setFlushPaused] = useState(false);
+  const refreshPending = useCallback(() => outbox.pending().then((p) => setPending(p.length)).catch(() => {}), []);
+  useEffect(() => { refreshPending(); }, [refreshPending]);
   useEffect(() => {
-    if (!pending || !turnstileToken || !navigator.onLine) return;
+    if (!pending || !turnstileToken || !online || flushPaused || isOutboxPaused()) return;
     let cancelled = false;
-    // One queued item per Turnstile token (tokens are single-use); the widget
-    // re-mounts for the next one.
-    flushOutbox(async (r) => {
-      const created = await submitReport({ ...r, turnstileToken });
+    // One queued item per Turnstile token (tokens are single-use); on success the
+    // widget re-mounts for the next one.
+    flushOutbox(async (r, clientId) => {
+      const created = await submitReport({ ...r, turnstileToken }, clientId);
       rememberReport({ id: created.id, category: r.category, address: r.address, createdAt: created.createdAt });
-    }, 1).then(async () => {
+    }, 1).then(async ({ sent, failed, remaining }) => {
+      if (failed) setFlushPaused(true);
+      setPending(remaining);
       if (cancelled) return;
-      const left = await outbox.count();
-      if (left < pending) setOutboxNotice(t('report.outbox.sent'));
-      setPending(left);
-      setTurnstileToken(null); setTurnstileNonce((n) => n + 1);
+      if (sent) setOutboxNotice(t('report.outbox.sent'));
+      if (sent && remaining) { setTurnstileToken(null); setTurnstileNonce((n) => n + 1); }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [pending, turnstileToken, t]);
+  }, [pending, turnstileToken, online, flushPaused, t]);
   useEffect(() => {
-    const onOnline = () => outbox.count().then(setPending).catch(() => {});
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, []);
+    const onOnline = () => { setOnline(true); resumeOutbox(); setFlushPaused(false); refreshPending(); };
+    const onOffline = () => setOnline(false);
+    window.addEventListener('online', onOnline); window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, [refreshPending]);
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
@@ -144,7 +165,7 @@ export default function Report() {
   // Draggable pin: the reporter corrects the spot; address follows (reverse geocode).
   const pinTimer = useRef<number | null>(null);
   const onPinMove = useCallback((lat: number, lng: number) => {
-    if (!inProvidence(lat, lng)) { setOutside(true); setLocMsg(t('report.location.pinOutside')); return; }
+    if (!inProvidence(lat, lng)) { setOutside(true); setLoc({ lat, lng }); setLocMsg(t('report.location.pinOutside')); return; }
     setOutside(false); setLoc({ lat, lng }); setLocMsg(t('report.location.pinMoved'));
     if (pinTimer.current) window.clearTimeout(pinTimer.current);
     pinTimer.current = window.setTimeout(async () => {
@@ -176,15 +197,15 @@ export default function Report() {
 
   const emergency = !!intakeRes?.flags.includes('emergency');
   const photoRequired = cat ? cat.photoRequired : true;
-  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && !!turnstileToken && !submitting && !outside;
+  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || !cat || !turnstileToken) return;
+    if (!canSubmit || !cat) return;
     setSubmitting(true); setError(null);
     try {
       const blob = photo ? await compressImage(photo).catch(() => photo) : null;
-      if (!navigator.onLine) {
+      if (!online || !navigator.onLine) {
         await outbox.add({
           category: cat.key, description: description.trim(), address: address.trim(),
           lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra: Object.keys(extra).length ? extra : null,
@@ -195,6 +216,7 @@ export default function Report() {
         setSubmitting(false); setQueued(true); window.scrollTo({ top: 0 });
         return;
       }
+      if (!turnstileToken) { setSubmitting(false); return; }
       const created = await submitReport({
         category: cat.key,
         description: description.trim(),
@@ -304,6 +326,7 @@ export default function Report() {
         <input id="address" className="input" value={address} placeholder={t('report.location.placeholder')}
           autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
         {outside && <div className="notice notice-warn" role="alert">{t('report.location.outside')}</div>}
+        {nearby.length > 0 && !nearbyDismissed && <NearbyCard items={nearby} onDismiss={() => setNearbyDismissed(true)} />}
         {loc && (
           <div className="mini-map">
             <Suspense fallback={<div className="mini-map-skeleton" aria-hidden="true" />}>
@@ -363,7 +386,8 @@ export default function Report() {
       </section>
       <div className="submit-bar">
         <button type="submit" className="btn btn-primary" disabled={!canSubmit}>{submitting ? t('report.sending') : t('report.submit')}</button>
-        {!turnstileToken && !submitting && <p className="hint center">{t('report.waitingSpamCheck')}</p>}
+        {!turnstileToken && !submitting && online && <p className="hint center">{t('report.waitingSpamCheck')}</p>}
+        {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
     </form>
   );
@@ -375,5 +399,32 @@ function CatTile({ c, onPick }: { c: UiCategory; onPick: (k: string) => void }) 
       <span className="cat-icon"><CategoryIcon k={c.key} size={26} /></span>
       <span className="cat-text">{c.short}</span>
     </button>
+  );
+}
+
+function ageLabel(t: (k: string, v?: Record<string, string | number>) => string, iso: string | null): string {
+  if (!iso) return '';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return t('report.nearby.today');
+  if (days === 1) return t('report.nearby.dayAgo');
+  return t('report.nearby.daysAgo', { n: days });
+}
+
+function NearbyCard({ items, onDismiss }: { items: NearbyItem[]; onDismiss: () => void }) {
+  const t = useT();
+  const first = items[0];
+  const street = first.address.replace(/,\s*Providence.*$/i, '');
+  return (
+    <div className="card nearby-card" role="status" aria-live="polite">
+      <span className="label">{t('report.nearby.title')}</span>
+      <p className="nearby-body">{t('report.nearby.body', { label: byKey(first.category)?.short ?? first.categoryLabel, street, age: ageLabel(t, first.createdAt), distance: Math.round(first.distanceM) })}</p>
+      {items.length > 1 && <p className="hint">{t('report.nearby.bodyMore', { count: items.length, radius: 75 })}</p>}
+      <div className="nearby-actions">
+        {first.source !== 'city' && !first.id.startsWith('city:')
+          ? <Link className="btn btn-ghost" to={`/r/${first.id}`}>{t('report.nearby.track')}</Link>
+          : <Link className="btn btn-ghost" to="/map">{t('report.nearby.viewMap')}</Link>}
+        <button type="button" className="btn btn-secondary" onClick={onDismiss}>{t('report.nearby.dismiss')}</button>
+      </div>
+    </div>
   );
 }

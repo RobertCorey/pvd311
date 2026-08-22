@@ -22,7 +22,7 @@ export function detectLang(): string {
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState(detectLang);
   const [dict, setDict] = useState<Dict>(lang === 'en' ? (en as Dict) : {});
-  if (lang !== 'en' && Object.keys(dict).length === 0) DICTS[lang]().then(setDict);
+  useEffect(() => { if (lang !== 'en') DICTS[lang]().then(setDict); }, [lang]);
   const setLang = useCallback((l: string) => {
     if (!DICTS[l]) return;
     setLangState(l);
@@ -31,7 +31,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
   const t = useCallback((key: string, vars?: Record<string, string | number>) => {
     let s = dict[key] ?? (en as Dict)[key] ?? key;
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
     return s;
   }, [dict]);
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);

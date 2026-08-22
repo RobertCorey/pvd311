@@ -38,7 +38,8 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
 const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ['year', 31_536_000], ['month', 2_592_000], ['week', 604_800], ['day', 86_400], ['hour', 3_600], ['minute', 60],
 ];
-function relTime(iso: string, justNow: string): string {
+function relTime(iso: string | null | undefined, justNow: string): string {
+  if (!iso) return '';
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '';
   const sec = Math.round((then - Date.now()) / 1000);
@@ -47,7 +48,8 @@ function relTime(iso: string, justNow: string): string {
   for (const [unit, s] of REL_UNITS) if (Math.abs(sec) >= s) return rtf.format(Math.round(sec / s), unit);
   return rtf.format(Math.round(sec / 60), 'minute');
 }
-function absTime(iso: string): string {
+function absTime(iso: string | null | undefined): string {
+  if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -124,7 +126,8 @@ export default function Track() {
 
   const info = statusInfo(view, t);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
-  const entries = [...view.timeline].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  const ts = (iso: string | null) => (iso ? new Date(iso).getTime() || 0 : 0);
+  const entries = [...view.timeline].sort((a, b) => ts(b.at) - ts(a.at));
 
   return (
     <section className="track section">
@@ -153,7 +156,7 @@ export default function Track() {
               <div className="track-tl-body">
                 <span className="track-tl-label">{e.label}</span>
                 <span className="track-tl-time">
-                  <time dateTime={e.at}>{relTime(e.at, t('track.time.justNow'))}</time>
+                  <time dateTime={e.at ?? undefined}>{relTime(e.at, t('track.time.justNow'))}</time>
                   <span className="track-tl-abs"> · {absTime(e.at)}</span>
                 </span>
               </div>

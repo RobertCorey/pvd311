@@ -208,5 +208,21 @@
   "report.location.mapLabel": "Map of the report location. Drag the pin to adjust.",
   "report.location.dragHint": "Not quite right? Drag the pin to the exact spot.",
   "report.location.pinMoved": "Pin moved — address updated.",
-  "report.location.pinOutside": "That spot is outside Providence — move the pin back inside the city."
+  "report.location.pinOutside": "That spot is outside Providence — move the pin back inside the city.",
+  "report.nearby.title": "Already reported nearby",
+  "report.nearby.body": "{label} on {street}, {age} — {distance} m from here. Reporting it again won't speed it up, but you can still send yours.",
+  "report.nearby.bodyMore": "{count} similar reports within {radius} m in the last two weeks.",
+  "report.nearby.viewMap": "See it on the map",
+  "report.nearby.track": "View that report",
+  "report.nearby.dismiss": "Report anyway",
+  "report.nearby.justNow": "just now",
+  "report.nearby.today": "today",
+  "report.nearby.daysAgo": "{n} days ago",
+  "report.nearby.dayAgo": "yesterday",
+  "map.status.city": "City report",
+  "map.source.city": "from the city's 311 feed",
+  "report.offlineHint": "You're offline — we'll save this on your phone and send it when you're back online.",
+  "notFound.title": "That page doesn't exist",
+  "notFound.body": "The link may be wrong or out of date.",
+  "notFound.home": "Report a problem"
 }

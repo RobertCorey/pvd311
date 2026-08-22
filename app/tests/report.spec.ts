@@ -116,3 +116,62 @@ test('typed address geocodes → mini-map with draggable pin appears', async ({ 
   await expect(page.locator('.mini-map .leaflet-container')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('.mini-map .leaflet-marker-draggable')).toHaveCount(1);
 });
+
+test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides it', async ({ page }) => {
+  await mockApi(page);
+  await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [
+    { id: 'near1', source: 'snappvd', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', lat: 41.8241, lng: -71.4129, address: '27 Dorrance St, Providence, RI', createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), status: 'sent', portalStatus: 'Submitted', distanceM: 18 },
+  ] }) }));
+  await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.locator('#address').blur();
+  const card = page.locator('.nearby-card');
+  await expect(card).toContainText('Already reported nearby', { timeout: 10_000 });
+  await expect(card).toContainText('27 Dorrance St, 2 days ago — 18 m');
+  await expect(card.getByRole('link', { name: 'View that report' })).toHaveAttribute('href', '/r/near1');
+  await card.getByRole('button', { name: 'Report anyway' }).click();
+  await expect(card).toHaveCount(0);
+});
+
+test('cold offline start: can queue without a Turnstile token', async ({ page, context }) => {
+  await mockApi(page);
+  // No test token this time: simulate the widget script failing offline.
+  await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; });
+  await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  const submit = page.getByRole('button', { name: 'Send to Providence 311' });
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect(page.locator('.queued')).toContainText('Saved on your phone');
+});
+
+test('flush failure pauses retries instead of looping (no second request until an online event)', async ({ page }) => {
+  await mockApi(page);
+  let calls = 0;
+  await page.route(`${API}/api/report`, (r) => { calls++; r.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ error: 'rate_limited', retryAfterSec: 600 }) }); });
+  await page.goto('/');
+  // Seed one queued item directly (avoids the harness's synthetic offline/online events).
+  await page.evaluate(() => new Promise<void>((done) => {
+    const r = indexedDB.open('snappvd', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
+    r.onsuccess = () => {
+      const tx = r.result.transaction('outbox', 'readwrite');
+      tx.objectStore('outbox').add({ queuedAt: Date.now(), clientId: 'seed-1', attempts: 0, report: { category: 'missed_trash', description: '', address: '25 Dorrance St', lat: null, lng: null, extra: null, photo: null } });
+      tx.oncomplete = () => done();
+    };
+  }));
+  await page.reload();
+  await expect(page.locator('.outbox-card')).toContainText('1 saved report');
+  await page.waitForTimeout(2500);
+  expect(calls).toBe(1);
+  // A real reconnect resumes exactly one more attempt.
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.waitForTimeout(2000);
+  expect(calls).toBe(2);
+});

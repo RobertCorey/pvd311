@@ -68,6 +68,7 @@ export default function MapView({
 }: MapViewProps) {
   const elRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const programmaticRef = useRef(false);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const pinRef = useRef<L.Marker | null>(null);
   const navigate = useNavigate();
@@ -102,6 +103,7 @@ export default function MapView({
 
     markerLayerRef.current = L.layerGroup().addTo(map);
     map.on('moveend', () => {
+      if (programmaticRef.current) { programmaticRef.current = false; return; } // ignore our own setView
       const b = map.getBounds();
       onMoveEndRef.current?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
     });
@@ -174,6 +176,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !center) return;
+    programmaticRef.current = true;
     map.setView(center, zoom ?? map.getZoom(), { animate: !prefersReducedMotion() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [center?.[0], center?.[1], zoom]);

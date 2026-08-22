@@ -1,5 +1,5 @@
 import { APP_VERSION } from '../brand';
-import type { FeedResponse, IntakeRequest, IntakeResult, ReportCreated, ReportSubmission, ReportView } from './types';
+import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView } from './types';
 import { ApiError } from './types';
 
 export const API_BASE: string =
@@ -27,8 +27,9 @@ function withTimeout(ms: number): { signal: AbortSignal; done: () => void } {
   return { signal: c.signal, done: () => clearTimeout(t) };
 }
 
-export async function submitReport(r: ReportSubmission): Promise<ReportCreated> {
+export async function submitReport(r: ReportSubmission, clientId?: string): Promise<ReportCreated> {
   const fd = new FormData();
+  if (clientId) fd.set('clientId', clientId); // idempotency key (outbox retries)
   fd.set('category', r.category);
   fd.set('description', r.description);
   fd.set('address', r.address);
@@ -100,4 +101,16 @@ export async function getFeed(bbox: [number, number, number, number], limit = 10
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as FeedResponse;
   } finally { t.done(); }
+}
+
+/** Dedupe check: reports (ours + city) within radiusM of a point, last 14 days, nearest-first. Never throws. */
+export async function getNearby(lat: number, lng: number, category?: string | null, radiusM = 75): Promise<NearbyResponse> {
+  const t = withTimeout(8_000);
+  try {
+    const q = new URLSearchParams({ lat: String(lat), lng: String(lng), radiusM: String(radiusM) });
+    if (category) q.set('category', category);
+    const resp = await fetch(`${API_BASE}/api/nearby?${q}`, { signal: t.signal });
+    if (!resp.ok) return { items: [] };
+    return (await resp.json()) as NearbyResponse;
+  } catch { return { items: [] }; } finally { t.done(); }
 }

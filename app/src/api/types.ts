@@ -41,7 +41,7 @@ export interface IntakeResult {
   model?: string;
 }
 
-export interface TimelineEntry { at: string; label: string; }
+export interface TimelineEntry { at: string | null; label: string; }
 
 export interface ReportView {
   id: string;
@@ -62,8 +62,12 @@ export interface ReportView {
 
 export interface FeedItem {
   id: string; category: string; categoryLabel: string; lat: number; lng: number;
-  address: string; createdAt: string; status: ReportStatus; portalStatus: PortalStatus | null;
+  address: string; createdAt: string | null; status: ReportStatus | 'city'; portalStatus: PortalStatus | string | null;
+  /** 'snappvd' = ours (id is a tracking token); 'city' = the city's public feed (id = 'city:<hash>', approximate location) */
+  source?: 'snappvd' | 'city';
 }
+export interface NearbyItem extends FeedItem { distanceM: number; }
+export interface NearbyResponse { items: NearbyItem[]; }
 export interface FeedResponse { items: FeedItem[]; }
 
 export class ApiError extends Error {
