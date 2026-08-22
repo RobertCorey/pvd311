@@ -2,8 +2,11 @@ import { test, expect, type Page } from '@playwright/test';
 
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 
-async function mockApi(page: Page, opts: { intake?: object; reportStatus?: number; reportBody?: object } = {}) {
+const SESSION = { uid: 'u1', email: 'me@example.com', idToken: 'tok', refreshToken: 'rt', expiresAt: Date.now() + 3_600_000, provider: 'email' };
+
+async function mockApi(page: Page, opts: { intake?: object; reportStatus?: number; reportBody?: object; signedIn?: boolean } = {}) {
   await page.addInitScript(() => { (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'test-token'; });
+  if (opts.signedIn !== false) await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/intake`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.intake ?? { polishedDescription: null, flags: [], note: null, model: 'mock' }) }));
   await page.route(`${API}/api/report`, (r) => r.fulfill({ status: opts.reportStatus ?? 201, contentType: 'application/json', body: JSON.stringify(opts.reportBody ?? { id: 'abc123xyz', trackingUrl: '/r/abc123xyz', category: 'missed_trash', createdAt: new Date().toISOString() }) }));
@@ -178,4 +181,24 @@ test('flush failure pauses retries instead of looping (no second request until a
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await page.waitForTimeout(2000);
   expect(calls).toBe(2);
+});
+
+test('signed out: Send parks the draft and shows the sign-in gate; after sign-in the draft is restored', async ({ page }) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.fill('#description', 'bins not collected');
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.gate')).toBeVisible();
+  await expect(page.locator('.submit-bar')).toBeHidden();
+  // "Sign in" (seed a session) and come back — the draft survives the round trip.
+  await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
+  await page.goto('/');
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
+  await expect(page.locator('#description')).toHaveValue('bins not collected');
+  await expect(page.locator('.submit-bar')).toContainText("You're signed in");
+  const [req] = await Promise.all([page.waitForRequest(`${API}/api/report`), page.getByRole('button', { name: 'Send to Providence 311' }).click()]);
+  expect(req.headers()['authorization']).toBe('Bearer tok');
+  await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });

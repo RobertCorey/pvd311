@@ -1,9 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
-import { Link } from 'react-router-dom';
+import { useSession } from '../lib/auth';
+import { draftStore } from '../lib/draft';
 import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
 import { rememberReport } from '../lib/myReports';
 import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
@@ -16,11 +17,18 @@ import './Report.css';
 
 const MapView = lazy(() => import('../components/MapView'));
 
+// The sign-in gate is owned by the accounts lead; resolve it at build time so
+// this screen compiles (and degrades to a link) until the component exists.
+const gateModules = import.meta.glob('../components/SignInGate.tsx') as Record<string, () => Promise<{ default: React.ComponentType<{ returnTo: string }> }>>;
+const gateLoader = Object.values(gateModules)[0];
+const SignInGate = gateLoader ? lazy(gateLoader) : null;
+
 type Loc = { lat: number; lng: number } | null;
 
 export default function Report() {
   const navigate = useNavigate();
   const t = useT();
+  const session = useSession();
 
   // --- Phase A: category ---
   const [category, setCategory] = useState<string | null>(null);
@@ -81,6 +89,25 @@ export default function Report() {
 
   // Idempotency key for this draft: a retried submit (timeout, flaky network) can't file twice.
   const draftId = useRef<string>(crypto.randomUUID());
+
+  // --- sign-in gate (accounts are required to SEND; composing stays open) ---
+  const [gated, setGated] = useState(false);
+  const [resumeSend, setResumeSend] = useState(false);
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    draftStore.load().then((d) => {
+      if (!d) return;
+      setCategory(d.category); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
+      setExtra(d.extra); setDescription(d.description);
+      if (d.descriptionOriginal != null) setWordingApplied(d.descriptionOriginal);
+      if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
+      geocodedFor.current = d.address;
+      setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: Turnstile + intent)
+    });
+  }, []);
+  useEffect(() => { if (session && gated) setGated(false); }, [session, gated]);
 
   // --- online state + offline outbox ---
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -206,6 +233,15 @@ export default function Report() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit || !cat) return;
+    if (!session) {
+      // Park the whole draft (photo included) so the sign-in round trip loses nothing.
+      await draftStore.save({
+        category: cat.key, address: address.trim(), lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra, description,
+        descriptionOriginal: wordingApplied, photo: photo ?? null, reason: 'sign_in',
+      });
+      setGated(true);
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       const blob = photo ? await compressImage(photo).catch(() => photo) : null;
@@ -217,6 +253,7 @@ export default function Report() {
           intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined, photo: blob,
         });
         setPending((n) => n + 1);
+        void draftStore.clear();
         setSubmitting(false); setQueued(true); window.scrollTo({ top: 0 });
         return;
       }
@@ -233,12 +270,14 @@ export default function Report() {
         photo: blob,
       }, draftId.current);
       rememberReport({ id: created.id, category: cat.key, address: address.trim(), createdAt: created.createdAt });
+      void draftStore.clear();
       draftId.current = crypto.randomUUID();
       navigate(`/r/${created.id}`, { state: { justSubmitted: true } });
     } catch (err) {
       setSubmitting(false);
       setTurnstileToken(null); setTurnstileNonce((n) => n + 1); // tokens are single-use
       if (err instanceof ApiError) {
+        if (err.status === 401 || err.code === 'auth_required') { setGated(true); return; }
         if (err.code === 'rate_limited') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
         else if (err.code === 'turnstile_failed') setError(t('report.error.turnstile'));
         else if (err.status === 400) setError(err.field ? t('report.error.field', { field: err.field }) : t('report.error.badRequest'));
@@ -393,7 +432,20 @@ export default function Report() {
         <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
         {error && <div className="notice notice-error" role="alert">{error}</div>}
       </section>
-      <div className="submit-bar">
+      {gated && !session ? (
+        <section className="section gate" aria-live="polite">
+          {SignInGate ? (
+            <Suspense fallback={<p className="hint">{t('report.gate.loading')}</p>}><SignInGate returnTo="/" /></Suspense>
+          ) : (
+            <div className="card">
+              <p>{t('report.gate.fallback')}</p>
+              <Link className="btn btn-primary" to="/account?returnTo=%2F">{t('report.gate.signIn')}</Link>
+            </div>
+          )}
+        </section>
+      ) : null}
+      <div className="submit-bar" hidden={gated && !session}>
+        {resumeSend && session && <p className="hint center">{t('report.gate.resumed')}</p>}
         <button type="submit" className="btn btn-primary" disabled={!canSubmit}>{submitting ? t('report.sending') : t('report.submit')}</button>
         {!turnstileToken && !submitting && online && <p className="hint center">{t('report.waitingSpamCheck')}</p>}
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
