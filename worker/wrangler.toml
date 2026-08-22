@@ -1,5 +1,6 @@
 name = "pvd311-worker"
 main = "src/index.ts"
+routes = [{ pattern = "api.fixmypvd.org", custom_domain = true }]
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -23,12 +24,12 @@ HITL_MODE = "review"
 FIREBASE_PROJECT_ID = "pvd-snow-report"
 STORAGE_BUCKET = "pvd-snow-report.firebasestorage.app"
 NOTIFY_EMAIL = "robertbcorey@gmail.com"
-NOTIFY_FROM = "PVD311 <onboarding@resend.dev>"
+NOTIFY_FROM = "FixMyPVD <onboarding@resend.dev>"   # → "FixMyPVD <updates@fixmypvd.org>" once Resend verifies the domain
 REPORTER_EMAIL_ENABLED = "false"   # flip to "true" after the Resend sending domain is verified
-APP_BASE_URL = "https://pvdsnow.org"
+APP_BASE_URL = "https://fixmypvd.org"
 BLOCKED_ADDRESSES = "congdon st,congdon street"
 # Where signed HITL approve/reject email links point. Update to the custom domain at launch.
-HITL_BASE_URL = "https://pvd311-worker.pvd311-worker.workers.dev"
+HITL_BASE_URL = "https://api.fixmypvd.org"
 # Optional: trust-ramp threshold for HITL_MODE="ramp" (default 3 if unset).
 # TRUST_RAMP_N = "3"
 
