@@ -18,7 +18,7 @@ Goal: `app/` served at **https://fixmypvd.org** (and the Firebase hosting domain
 - [ ] `firebase.json`: confirm headers; `npm run preview:app` → smoke on a phone.
 - [x] Firebase custom domain: HOST_ACTIVE/OWNERSHIP_ACTIVE, TEMPORARY (browser-trusted GTS) cert serving 200; CERT_ACTIVE flips on Google's schedule.
 - [x] `npm run deploy` — live on pvdsnow.org + pvd-snow-report.web.app since 2026-08-22.
-- [x] (done from pvdsnow.org 2026-08-22; repeat from fixmypvd.org) Real-browser E2E: submit (photo-optional category, test-marked), confirm Turnstile passes, tracking page renders, `/map` loads. Tell alice to reject the test report.
+- [x] Real-browser checks: full submit from pvdsnow.org 2026-08-22; from fixmypvd.org 2026-08-23 load + geocode/mini-map + Turnstile + Send gate verified (no report filed — accounts are mandatory now; a real signed-in submit happens with the first genuine issue).
 - [ ] Retire legacy: DONE: `firebase.json` hosting → `app/dist`. Remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
 - [x] pvdsnow.org → fixmypvd.org: DONE 2026-08-23 via `scripts/cutover-final.sh` — client-side forward in index.html (path/query/hash preserved) + canonical/OG → fixmypvd.org. A true HTTP 301 needs a second Firebase Hosting site for pvdsnow.org (re-verification → DNS TXT change at Namecheap) or the Cloudflare NS move — optional follow-up (Firebase Hosting has no host-based redirects, so it is a client-side forward in index.html + canonical link + marketing placeholders).
 
