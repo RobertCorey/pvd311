@@ -45,7 +45,7 @@ All pairings above verified ≥ 4.5:1 (lowest: ember-text on paper 4.81, ink on 
 - **Category tiles** are the product: 2-col grid, 120 px tall, surface card with a 2 px ink border, a 44 px *duotone* icon (navy line + ember plate offset), label in Bricolage 1.05 rem. Selected/pressed = ember fill + ink text. "Other / something else" is a wide dashed tile. Seasonal snow tiles get a small "Winter" tag.
 - **Photo card:** the Take-photo button is the biggest ember element on screen (64 px). Preview gets ember corner brackets — "this spot".
 - **Tracking = package tracking:** a ticket card (status headline, case slug, ETA line) over a 4-step rail **Received → Sent to city → City working → Resolved** (Cancelled/Needs attention render as a warn branch on the rail). Timeline below keeps the exact timestamps. Details card = photo with bracket frame + category + address.
-- **Map:** CARTO Voyager (light) / Dark Matter (dark) raster tiles instead of default OSM, branded duotone pins colored by status (ember = open, success = resolved, warn = cancelled/needs attention), a stat strip above the map ("12 open · 3 resolved this week"), list rows with ink glyphs.
+- **Map page: CUT** (Rob, 2026-08-22 — "looks half baked… let's keep focused"). No /map route, no map tab; do not re-add feed/map features, river line or neighborhood chips on a map page. The only maps left are the compose mini-map (pin drag) and tracking — CARTO Voyager/Dark tiles + the two-ink pin stay there.
 - **Illustrations / empty states:** one SVG street scene in the two-ink style (triple-decker, street light, pothole, crow on a wire) reused with masks: My reports empty, 404, map empty, offline-queued. Flat paths, no gradients, < 4 KB each.
 - **Logo / mark:** harbor-ink map pin carrying an **×** — X marks the spot to fix — over an ember circle printed off-register. No camera pun anywhere (the name is FixMyPVD, decided 2026-08-22). Wordmark "FixMyPVD" in Bricolage 800, "FixMy" in ink, "PVD" in ember. App tile: cream ground, mark centered (maskable-safe), favicon = mark on ember.
 
@@ -53,8 +53,8 @@ All pairings above verified ≥ 4.5:1 (lowest: ember-text on paper 4.81, ink on 
 
 Chosen because they're *ownable* (no seal, no trademarks), cheap to render, and they add information, not just decoration:
 
-- **Neighborhoods are first-class.** The city's 25 official neighborhoods (City GIS rings, simplified to 8 KB, lazy-loaded, point-in-polygon in `lib/neighborhoods.ts`). `/map` shows "Smith Hill 3 · Fox Point 2" chips (open reports by hood in view) and every row carries its hood; the tracking page's location card gets a hood tag. This is how residents actually talk about where things are.
-- **The WaterFire line.** The downtown rivers (Providence, Woonasquatucket, Moshassuck — OSM centerlines, 5 KB) drawn on the map in ember with a slow-breathing glow. It's the one place the ember ink means *fire on the water*; it also orients the map instantly.
+- **Neighborhoods are first-class.** The city's 25 official neighborhoods (City GIS rings, simplified to 8 KB, lazy-loaded, point-in-polygon in `lib/neighborhoods.ts`). The tracking page's location card gets a hood tag. (The `/map` page with hood chips was cut by Rob on 2026-08-22.) This is how residents actually talk about where things are.
+- **The WaterFire line** (rivers in ember on the map) — built for /map, which is now cut; `lib/rivers.data.ts` + the `rivers` prop on MapView remain available for the compose mini-map only.
 - **Skyline signature** in the footer on every page: triple-decker · Industrial Trust "Superman" tower · the pedestrian bridge with braziers · State House dome (no figure, no seal) · a steeple. Line art in ink, flames in ember. Plus the line "Made in Providence · the Creative Capital".
 - Kept out on purpose: the Big Blue Bug (trademark), Del's yellow (breaks the two-ink system), dialect microcopy ("wicked") — reads as costume.
 
@@ -66,7 +66,7 @@ Lives at the **Send** step, not at the tile tap: the composed report stays above
 
 1. **Home.** Before: "What's the problem?" over eight identical white cards with a small teal glyph in a box — reads like a settings page. After: the grid is the hero; big two-ink icons, display-type labels, ember press state, tab bar with the Report button under your thumb — it reads like a poster of Providence street problems you tap.
 2. **Tracking.** Before: a status card + a generic dot timeline. After: a ticket with a stamped case number, a parcel-style progress rail with the current step pulsing, an ETA line — you know *where your report is* at a glance.
-3. **Map.** Before: default OSM tiles + generic pins + plain list. After: themed CARTO tiles, branded pins that drop in and pulse while open, a stat strip — the city feels alive and the page feels like ours.
+3. **Map.** Cut on 2026-08-22 (Rob). The before/after that remains is the compose mini-map: default OSM → themed CARTO tiles + the two-ink × pin.
 
 ## Rollout (small commits on `main`)
 

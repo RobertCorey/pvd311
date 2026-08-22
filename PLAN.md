@@ -76,7 +76,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Offline outbox (IndexedDB) with flush on reconnect
 - [x] My reports (device-local tokens)
 - [x] Tracking page `/r/:id` + confirmation (copy/share, email attach)
-- [x] Public map + feed `/map` (Leaflet, lazy)
+- [~] ~~Public map + feed `/map`~~ — CUT by Rob 2026-08-22 ("half baked, keep focused"); nearby dedupe + city-feed scrape kept
 - [x] About + Privacy, FixMyPVD icon set
 - [ ] Spanish strings (`strings.es.json`) + language switch
 - [x] Location mini-map with draggable pin (spec §3.1)

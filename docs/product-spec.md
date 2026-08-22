@@ -88,11 +88,11 @@ Email is **not** on this screen (kept minimal for speed) — it's offered on the
 - **"What to expect"** — plain copy: the city works these in ~days; you'll get email if you added one; this record is public on the city feed.
 - **States:** `pending_send` (offline/queued), `sent_awaiting_caseid`, `submitted`, `assigned`, `resolved`, `cancelled`, `needs_attention` (HITL rejected / submit failed). **Cancelled** shows an explainer (often duplicate / out-of-scope) + a "report again with more detail" nudge. No PII beyond what the reporter entered; the page is reachable only via the unguessable token.
 
-### 3.4 Public map / feed (`/map`)
+### 3.4 Public map — CUT (Rob, 2026-08-22: "half baked… keep focused")
 
-- Map + list toggle of **recent reports** = ours ∪ the city public feed (`/public-requests`), pins colored by status. List rows: category, street, status, age.
-- **Dedupe prompt** (also fires inline on the report screen once location is set): *"Already reported nearby — pothole on Benefit St, 2 days ago. Following it helps the city prioritize."* Actions: **Follow** (attach your email to that case for updates via `POST /api/reports/:token/follow` — for a city-only item, follow subscribes by case id) or **Mine is different — continue.**
-- Ours link to `/r/:token`; city-only items open a read-only detail (or out to the portal).
+No `/map` page. What survives from it:
+- **Dedupe prompt** fires inline on the report screen once location is set (`GET /api/nearby`, 75 m same category): *"Already reported nearby — pothole on Benefit St, 2 days ago."* Actions: **View that report** / **Report anyway.**
+- Backend `/api/public-feed` + the city-feed scrape stay (they feed nearby + the watcher); no UI consumes the feed.
 
 ### 3.5 About / Privacy (`/about`)
 
