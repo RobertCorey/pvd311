@@ -14,7 +14,7 @@
  *   GET /hitl/reject?id&sig              → verify HMAC, reject, tiny HTML page
  */
 import type { Env } from './contracts.js';
-import { runTick, runWatcher, runDaily, makeScout, type EngineState } from './engine.js';
+import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { signAction, timingSafeEqualHex } from './email.js';
@@ -55,7 +55,7 @@ export default {
       if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
       const store = createStore(env);
       const auth = createAuthStore(store);
-      const portal = createPortal(env, { auth, scout: makeScout(env) });
+      const portal = createPortal(env, { auth });
       try {
         await portal.launch();
         const report = await portal.canary();

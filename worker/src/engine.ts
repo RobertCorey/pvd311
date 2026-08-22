@@ -9,8 +9,6 @@
  *   runDaily(env)      — daily: digest counts + selector canary (drift alert)
  */
 import type { Env, ReportDoc, Store } from './contracts.js';
-import type { PortalControl, ScoutResult } from './scout.js';
-import { scoutFields } from './scout.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { createMailer } from './email.js';
@@ -37,18 +35,6 @@ export interface EngineState {
   submissionTimestamps?: number[];
   lastSubmissionTime?: number | null;
   lock?: { until: number } | null;
-}
-
-/** The scout injected into the portal: binds the API key onto the report-specific scouting call. */
-export type Scout = (args: {
-  category: string;
-  caseTypeName: string;
-  report: ReportDoc;
-  controls: PortalControl[];
-}) => Promise<ScoutResult>;
-
-export function makeScout(env: Env): Scout {
-  return (args) => scoutFields({ ...args, apiKey: env.ANTHROPIC_API_KEY });
 }
 
 /** Where signed HITL links point (the deployed Worker). */
@@ -159,7 +145,7 @@ async function submitOne(
   state: EngineState,
 ): Promise<void> {
   const auth = createAuthStore(store);
-  const portal = createPortal(env, { auth, scout: makeScout(env) });
+  const portal = createPortal(env, { auth });
   try {
     await store.updateReportStatus(report.id, 'processing', 'Auto-submission started');
     await portal.launch();
@@ -219,7 +205,7 @@ export async function runWatcher(env: Env): Promise<void> {
   if (!tracked.length) { console.log('[watcher] nothing to watch'); return; }
 
   const auth = createAuthStore(store);
-  const portal = createPortal(env, { auth, scout: makeScout(env) });
+  const portal = createPortal(env, { auth });
   try {
     await portal.launch();
     await portal.ensureLoggedIn();
@@ -269,7 +255,7 @@ export async function runDaily(env: Env): Promise<void> {
 
   // Selector canary (zero-draft): alert only on drift.
   const auth = createAuthStore(store);
-  const portal = createPortal(env, { auth, scout: makeScout(env) });
+  const portal = createPortal(env, { auth });
   try {
     await portal.launch();
     const canary = await portal.canary();
