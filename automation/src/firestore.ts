@@ -83,6 +83,47 @@ export async function fetchPendingReports(): Promise<(Report & { id: string })[]
   return data;
 }
 
+/** Reports stuck in 'processing' longer than N minutes (engine crashed mid-submit). */
+export async function findStuckProcessing(minutes: number): Promise<(Report & { id: string })[]> {
+  const cutoff = new Date(Date.now() - minutes * 60 * 1000);
+  const snapshot = await db
+    .collection('reports')
+    .where('status', '==', 'processing')
+    .where('statusUpdatedAt', '<=', Timestamp.fromDate(cutoff))
+    .get();
+  return snapshot.docs.map((doc) => ({ ...(doc.data() as Report), id: doc.id }));
+}
+
+/** Requeue a failed report for another attempt (draft bookkeeping is kept so the retry resumes the draft). */
+export async function requeueReport(reportId: string, retries: number, detail: string, retryAfter: Date): Promise<void> {
+  await db.collection('reports').doc(reportId).update({
+    status: 'pending',
+    statusDetail: detail,
+    statusUpdatedAt: FieldValue.serverTimestamp(),
+    retries,
+    retryAfter: retryAfter.toISOString(),
+  });
+  invalidateCache();
+}
+
+// ── Engine state (survives restarts) ───────────────────────
+
+export interface EngineState {
+  paused: boolean;
+  consecutiveFailures: number;
+  submissionTimestamps: number[];
+  lastSubmissionTime: number | null;
+}
+
+export async function loadEngineState(): Promise<EngineState | null> {
+  const doc = await db.collection('meta').doc('engine').get().catch(() => null);
+  return doc?.exists ? (doc.data() as EngineState) : null;
+}
+
+export async function saveEngineState(state: EngineState): Promise<void> {
+  await db.collection('meta').doc('engine').set({ ...state, savedAt: new Date().toISOString() }, { merge: true }).catch((e) => console.error('[firestore] saveEngineState:', e));
+}
+
 /** Fetch submitted reports from the last N hours (for duplicate detection). */
 export async function findRecentSubmissions(windowHours: number): Promise<(Report & { id: string })[]> {
   const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000);

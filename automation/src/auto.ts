@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { fetchPendingReports, findRecentSubmissions, updateReportStatus, saveReportDraft } from './firestore.js';
+import { fetchPendingReports, findRecentSubmissions, findStuckProcessing, updateReportStatus, saveReportDraft, requeueReport, loadEngineState, saveEngineState } from './firestore.js';
 import { PortalSubmitter } from './portal.js';
 import { needsHumanApproval, requestReview, processCallbacks } from './hitl.js';
 import { alert } from './telegram.js';
@@ -65,6 +65,7 @@ export class AutoSubmitter {
     this.paused = false;
     this.consecutiveFailures = 0;
     this.enabled = true;
+    this.persistState();
     if (!this.timer) this.start();
     console.log('[auto] Resumed (circuit breaker reset)');
   }
@@ -73,8 +74,28 @@ export class AutoSubmitter {
     if (this.timer) return;
     console.log('[auto] Polling started');
     this.timer = setInterval(() => this.poll(), config.autoPollIntervalMs);
-    // Run first poll immediately
-    this.poll();
+    // Restore breaker/counters from Firestore, then run the first poll
+    this.restoreState().finally(() => this.poll());
+  }
+
+  private async restoreState(): Promise<void> {
+    const st = await loadEngineState().catch(() => null);
+    if (!st) return;
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    this.paused = !!st.paused;
+    this.consecutiveFailures = st.consecutiveFailures || 0;
+    this.submissionTimestamps = (st.submissionTimestamps || []).filter((t) => t > oneHourAgo);
+    this.lastSubmissionTime = st.lastSubmissionTime ?? null;
+    console.log(`[auto] Restored engine state (paused=${this.paused}, failures=${this.consecutiveFailures}, lastHour=${this.submissionTimestamps.length})`);
+  }
+
+  private persistState(): void {
+    void saveEngineState({
+      paused: this.paused,
+      consecutiveFailures: this.consecutiveFailures,
+      submissionTimestamps: this.submissionTimestamps.slice(-50),
+      lastSubmissionTime: this.lastSubmissionTime,
+    });
   }
 
   stop(): void {
@@ -112,7 +133,15 @@ export class AutoSubmitter {
       // Drain phone approvals/rejections first
       await processCallbacks();
 
-      const pending = await fetchPendingReports();
+      // Reap reports the engine abandoned mid-submit (crash/restart). Draft bookkeeping is kept for resume.
+      for (const stuck of await findStuckProcessing(config.autoStuckProcessingMinutes).catch(() => [])) {
+        await updateReportStatus(stuck.id, 'failed', `Reaped: stuck in processing > ${config.autoStuckProcessingMinutes}m`).catch(() => {});
+        this.addLog(stuck.id, 'failed', 'reaped stuck processing');
+        await alert(`♻️ Reaped <b>${stuck.id}</b> — stuck in processing. Retry from the dashboard (draft will resume).`);
+      }
+
+      const now = Date.now();
+      const pending = (await fetchPendingReports()).filter((r) => !r.retryAfter || new Date(r.retryAfter).getTime() <= now);
       if (pending.length === 0) return;
 
       // Process first pending report
@@ -201,13 +230,21 @@ export class AutoSubmitter {
       this.submissionTimestamps.push(Date.now());
       this.lastSubmissionTime = Date.now();
       this.consecutiveFailures = 0;
+      this.persistState();
       this.addLog(report.id, 'submitted', result.caseId || 'success');
       console.log(`[auto] Submitted ${report.id}${result.caseId ? ` as ${result.caseId}` : ''}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[auto] Failed ${report.id}:`, message);
-      await updateReportStatus(report.id, 'failed', `Auto: ${message}`).catch(() => {});
+      const humanNeeded = /^NEEDS_(REVIEW|MAPPING)/.test(message) || /validation failed/i.test(message);
+      const retries = (report.retries ?? 0) + 1;
+      if (!humanNeeded && retries <= config.autoMaxRetries) {
+        await requeueReport(report.id, retries, `Auto retry ${retries}/${config.autoMaxRetries} after: ${message}`, new Date(Date.now() + config.autoRetryBackoffMs)).catch(() => {});
+      } else {
+        await updateReportStatus(report.id, 'failed', `Auto: ${message}`).catch(() => {});
+      }
       this.consecutiveFailures++;
+      this.persistState();
       this.addLog(report.id, 'failed', message);
 
       if (/^NEEDS_(REVIEW|MAPPING)/.test(message)) {

@@ -46,6 +46,14 @@ export interface Report {
   /** Portal draft bookkeeping so retries resume the same draft instead of orphaning a new one */
   portalDraft?: { url: string; entityId: string | null; step: 2 | 3; savedAt: string } | null;
 
+  /** Automatic retry bookkeeping */
+  retries?: number;
+  retryAfter?: string | null;
+
+  /** Last status seen on the city portal for this case (set by the status watcher) */
+  portalStatus?: string | null;
+  portalStatusUpdatedAt?: string | null;
+
   /** Set when a human (or the trust ramp) approved this report for submission */
   approvedAt?: string | null;
 
