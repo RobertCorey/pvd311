@@ -14,8 +14,7 @@ browser = { binding = "BROWSER" }
 #                  11:00 UTC = 06:00 EST (winter) / 07:00 EDT (summer). Crons are UTC-only; for a steady
 #                  06:00 local you'd need to swap between "0 11" (winter) and "0 10" (summer). ~1h drift is fine here.
 [triggers]
-# Watcher every 6h while on the Workers Free plan (10 min/day browser quota); restore "*/30 * * * *" on Workers Paid.
-crons = ["* * * * *", "0 */6 * * *", "0 11 * * *"]
+crons = ["* * * * *", "*/30 * * * *", "0 11 * * *"]
 
 [vars]
 PORTAL_BASE_URL = "https://311.providenceri.gov"
@@ -34,8 +33,8 @@ HITL_BASE_URL = "https://api.fixmypvd.org"
 # TRUST_RAMP_N = "3"
 
 # Cron ticks can spend a while in Browser Run. cpu_ms is honored on Workers Paid; harmless comment otherwise.
-# [limits]
-# cpu_ms = 300000   # re-enable once the account is on Workers Paid
+[limits]
+cpu_ms = 300000
 
 # ── Secrets (set with `wrangler secret put <NAME>` or via CI) ──────────────────────────
 #   PORTAL_EMAIL              portal login
