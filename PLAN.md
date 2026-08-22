@@ -31,8 +31,8 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [ ] Storage rules: authenticated uploads only
 
 ## M4 — Unattended ops
-- [ ] Engine state in Firestore (breaker, counters); reaper for stuck `processing`; auto-retry
-- [ ] HITL mode: Telegram approve/reject (Pi-Bot); trust ramp per category/device; switchable to full-auto
+- [x] Engine state in Firestore (breaker, counters); reaper for stuck `processing`; auto-retry
+- [x] HITL mode: Telegram approve/reject; trust ramp per category; switchable to full-auto (needs TELEGRAM_BOT_TOKEN)
 - [ ] Status watcher: poll My Requests + GetActivities → reporter notifications
 - [ ] `/healthz`, Uptime Kuma, Telegram alerts only for human-needed states; daily digest
 - [ ] Daily selector canary (zero-draft)
