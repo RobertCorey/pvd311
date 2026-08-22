@@ -14,6 +14,7 @@ img { max-width: 100%; display: block; }
 .wordmark { font-family: var(--font-display); font-weight: 700; font-size: 1.35rem; letter-spacing: -0.01em; color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
 .microtag { font-size: 0.7rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.header-btn { background: none; border: none; cursor: pointer; }
 .header-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; min-height: var(--tap); display: inline-flex; align-items: center; padding: 0 6px; }
 
 h2 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 700; color: var(--ink); margin: 0 0 6px; letter-spacing: -0.01em; }

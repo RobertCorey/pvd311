@@ -3,15 +3,18 @@ import { Link } from 'react-router-dom';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import BrandMark from './BrandMark';
+import { useInstallPrompt } from '../lib/useInstallPrompt';
 
 export default function Layout({ children }: { children: ReactNode }) {
   const t = useT();
+  const { canInstall, install } = useInstallPrompt();
   return (
     <div className="app">
       <header className="app-header">
         <Link to="/" className="wordmark" aria-label={BRAND.name}><BrandMark size={26} />{BRAND.name}</Link>
         <div className="header-actions">
           <span className="microtag">{BRAND.notTheCity}</span>
+          {canInstall && <button type="button" className="header-link header-btn" onClick={() => { void install(); }}>{t('header.install')}</button>}
           <Link to="/my" className="header-link">{t('header.myReports')}</Link>
         </div>
       </header>

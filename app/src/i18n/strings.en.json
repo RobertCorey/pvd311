@@ -129,7 +129,6 @@
   "map.age.hours": "{n}h ago",
   "map.age.days": "{n}d ago",
   "map.age.weeks": "{n}w ago",
-
   "about.title": "About SnapPVD",
   "about.tagline": "An independent community project — not the City of Providence.",
   "about.what.h": "What this is",
@@ -158,7 +157,6 @@
   "about.diy.post": ", or by phone. Using SnapPVD is completely optional — it just saves you a few steps.",
   "about.contact.h": "Questions?",
   "about.contact.p1": "Questions, feedback, or a problem with a report? Email us at",
-
   "privacy.title": "Privacy",
   "privacy.tagline": "An independent community project — not the City of Providence.",
   "privacy.intro": "SnapPVD is a free, volunteer-run project. We keep this simple: we collect only what we need to file your report with the city, and nothing else. We never sell your information. Here's the whole picture.",
@@ -203,5 +201,6 @@
   "privacy.changes.p1": "If we change how we handle your information, we'll update this page and the date below.",
   "privacy.contact.h": "Contact",
   "privacy.contact.p1": "Questions about privacy, or a deletion request? Email us at",
-  "privacy.updated": "Last updated: August 22, 2026"
+  "privacy.updated": "Last updated: August 22, 2026",
+  "header.install": "Install"
 }
