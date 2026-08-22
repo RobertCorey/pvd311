@@ -20,7 +20,9 @@ function isTerminal(v: ReportView): boolean {
 
 function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
   switch (v.status) {
-    case 'rejected': return { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.rejected') };
+    case 'rejected': return v.cancelledByReporter
+      ? { headline: t('track.state.cancelledByYou'), tone: 'warn' }
+      : { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.rejected') };
     case 'failed':
     case 'needs_attention': return { headline: t('track.state.needsAttention'), tone: 'warn', explainer: t('track.state.failed') };
     case 'received': return { headline: t('track.state.received'), tone: 'progress' };
