@@ -194,11 +194,34 @@ test('signed out: Send parks the draft and shows the sign-in gate; after sign-in
   await expect(page.locator('.submit-bar')).toBeHidden();
   // "Sign in" (seed a session) and come back — the draft survives the round trip.
   await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
-  await page.goto('/');
+  await page.goto('/?resume=1');
   await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
   await expect(page.locator('#description')).toHaveValue('bins not collected');
   await expect(page.locator('.submit-bar')).toContainText("You're signed in");
   const [req] = await Promise.all([page.waitForRequest(`${API}/api/report`), page.getByRole('button', { name: 'Send to Providence 311' }).click()]);
   expect(req.headers()['authorization']).toBe('Bearer tok');
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
+});
+
+test('a plain visit to / does not resurrect an abandoned draft', async ({ page }) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.gate-slot')).toBeVisible();
+  await page.goto('/');
+  await expect(page.locator('.cat-tile[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('#address')).toHaveCount(0);
+});
+
+test('signed out + offline: Send queues to the outbox instead of gating', async ({ page, context }) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.queued')).toContainText('Saved on your phone');
 });

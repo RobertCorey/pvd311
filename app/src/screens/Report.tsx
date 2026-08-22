@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
-import { useSession } from '../lib/auth';
+import { signOut, useSession } from '../lib/auth';
+import { useLocation } from 'react-router-dom';
 import { draftStore } from '../lib/draft';
 import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
 import { rememberReport } from '../lib/myReports';
@@ -24,6 +25,7 @@ type Loc = { lat: number; lng: number } | null;
 
 export default function Report() {
   const navigate = useNavigate();
+  const location = useLocation();
   const t = useT();
   const session = useSession();
 
@@ -89,10 +91,14 @@ export default function Report() {
   // --- sign-in gate (accounts are required to SEND; composing stays open) ---
   const [gated, setGated] = useState(false);
   const [resumeSend, setResumeSend] = useState(false);
+  const [draftUnsaved, setDraftUnsaved] = useState(false);
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
+    // Only the sign-in round trip (email link → /account → '/?resume=1') resumes a
+    // parked draft; a plain visit to '/' starts fresh (and drops any stale draft).
+    if (!new URLSearchParams(location.search).has('resume')) { void draftStore.clear(); return; }
     draftStore.load().then((d) => {
       if (!d) return;
       setCategory(d.category); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
@@ -104,6 +110,7 @@ export default function Report() {
     });
   }, []);
   useEffect(() => { if (session && gated) setGated(false); }, [session, gated]);
+  const closeGate = useCallback(() => { setGated(false); void draftStore.clear(); }, []);
 
   // --- online state + offline outbox ---
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -127,7 +134,7 @@ export default function Report() {
       setPending(remaining);
       if (cancelled) return;
       if (sent) setOutboxNotice(t('report.outbox.sent'));
-      if (sent && remaining) { setTurnstileToken(null); setTurnstileNonce((n) => n + 1); }
+      if (sent) { setTurnstileToken(null); setTurnstileNonce((n) => n + 1); }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [pending, turnstileToken, online, flushPaused, session, t]);
@@ -229,19 +236,21 @@ export default function Report() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit || !cat) return;
-    if (!session) {
+    const offline = !online || !navigator.onLine;
+    if (!session && !offline) {
       // Park the whole draft (photo included) so the sign-in round trip loses nothing.
-      await draftStore.save({
+      const saved = await draftStore.save({
         category: cat.key, address: address.trim(), lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra, description,
         descriptionOriginal: wordingApplied, photo: photo ?? null, reason: 'sign_in',
       });
+      setDraftUnsaved(!saved);
       setGated(true);
       return;
     }
     setSubmitting(true); setError(null);
     try {
       const blob = photo ? await compressImage(photo).catch(() => photo) : null;
-      if (!online || !navigator.onLine) {
+      if (offline) {
         await outbox.add({
           category: cat.key, description: description.trim(), address: address.trim(),
           lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra: Object.keys(extra).length ? extra : null,
@@ -253,7 +262,7 @@ export default function Report() {
         setSubmitting(false); setQueued(true); window.scrollTo({ top: 0 });
         return;
       }
-      if (!turnstileToken) { setSubmitting(false); return; }
+      if (!turnstileToken || !session) { setSubmitting(false); return; }
       const created = await submitReport({
         category: cat.key,
         description: description.trim(),
@@ -273,7 +282,15 @@ export default function Report() {
       setSubmitting(false);
       setTurnstileToken(null); setTurnstileNonce((n) => n + 1); // tokens are single-use
       if (err instanceof ApiError) {
-        if (err.status === 401 || err.code === 'auth_required') { setGated(true); return; }
+        if (err.status === 401 || err.code === 'auth_required') {
+          signOut();
+          const saved = await draftStore.save({
+            category: cat.key, address: address.trim(), lat: loc?.lat ?? null, lng: loc?.lng ?? null, extra, description,
+            descriptionOriginal: wordingApplied, photo: photo ?? null, reason: 'sign_in',
+          });
+          setDraftUnsaved(!saved); setError(t('report.error.sessionExpired')); setGated(true);
+          return;
+        }
         if (err.code === 'rate_limited') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
         else if (err.code === 'turnstile_failed') setError(t('report.error.turnstile'));
         else if (err.status === 400) setError(err.field ? t('report.error.field', { field: err.field }) : t('report.error.badRequest'));
@@ -430,8 +447,9 @@ export default function Report() {
       </section>
       {gated && !session ? (
         <section className="section gate-slot" aria-live="polite">
+          {draftUnsaved && <div className="notice notice-warn" role="alert">{t('report.gate.unsaved')}</div>}
           <Suspense fallback={<p className="hint">{t('report.gate.loading')}</p>}>
-            <SignInGate category={cat.key} returnTo="/?resume=1" onBack={() => setGated(false)} onSignedIn={() => setGated(false)} />
+            <SignInGate category={cat.key} returnTo="/?resume=1" onBack={closeGate} onSignedIn={closeGate} />
           </Suspense>
         </section>
       ) : null}

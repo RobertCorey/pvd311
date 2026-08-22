@@ -37,7 +37,8 @@ function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const draftStore = {
-  save: (d: Omit<Draft, 'savedAt'>) => tx<IDBValidKey>('readwrite', (s) => s.put({ ...d, savedAt: Date.now() } satisfies Draft, KEY)).then(() => undefined).catch(() => undefined),
+  /** Resolves true when the draft is durably stored; false when IndexedDB is unavailable (private mode, quota). */
+  save: (d: Omit<Draft, 'savedAt'>): Promise<boolean> => tx<IDBValidKey>('readwrite', (s) => s.put({ ...d, savedAt: Date.now() } satisfies Draft, KEY)).then(() => true).catch(() => false),
   load: async (): Promise<Draft | null> => {
     try {
       const d = await tx<Draft | undefined>('readonly', (s) => s.get(KEY));
