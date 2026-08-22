@@ -53,7 +53,7 @@ npm run preview:app              # build + Firebase Hosting preview channel (vie
 npm run deploy:app               # build + deploy app/dist to Firebase Hosting (cutover)
 
 # Worker
-cd worker && npx wrangler dev    # see worker/README
+cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
 
 # Legacy
 npm run dev                      # serves public/ on :3999
