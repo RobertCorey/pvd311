@@ -26,6 +26,8 @@ export interface Env {
   APP_ORIGINS?: string;               // var: comma-separated allowed CORS origins (optional)
   REPORTER_EMAIL_ENABLED?: string;    // var: 'true' once the Resend sending domain is verified
   APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://pvdsnow.org)
+  ACCOUNT_TRUST_N?: string;           // var: per-account HITL ramp threshold (default 3)
+  AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
 }
 
 export type ReportDoc = Report & { id: string };

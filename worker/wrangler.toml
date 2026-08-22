@@ -19,7 +19,9 @@ crons = ["* * * * *", "*/30 * * * *", "0 11 * * *"]
 [vars]
 PORTAL_BASE_URL = "https://311.providenceri.gov"
 APP_NAME = "PVD311 app"
-HITL_MODE = "review"
+HITL_MODE = "ramp"                 # per-account trust ramp (first ACCOUNT_TRUST_N reports per account reviewed, then auto); "review" = panic switch
+ACCOUNT_TRUST_N = "3"
+AUTH_FROM = "FixMyPVD <updates@fixmypvd.org>"   # sign-in link sender (Resend, domain verified 2026-08-22)
 FIREBASE_PROJECT_ID = "pvd-snow-report"
 STORAGE_BUCKET = "pvd-snow-report.firebasestorage.app"
 NOTIFY_EMAIL = "rob@fixmypvd.org"
@@ -29,7 +31,7 @@ APP_BASE_URL = "https://fixmypvd.org"
 BLOCKED_ADDRESSES = "congdon st,congdon street"
 # Where signed HITL approve/reject email links point. Update to the custom domain at launch.
 HITL_BASE_URL = "https://api.fixmypvd.org"
-# Optional: trust-ramp threshold for HITL_MODE="ramp" (default 3 if unset).
+# Legacy per-category ramp threshold (only used for ownerless rows now). Default 3.
 # TRUST_RAMP_N = "3"
 
 # Cron ticks can spend a while in Browser Run. cpu_ms is honored on Workers Paid; harmless comment otherwise.

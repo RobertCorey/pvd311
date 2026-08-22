@@ -21,6 +21,7 @@ interface ServiceAccount {
 const TOKEN_SCOPES = [
   'https://www.googleapis.com/auth/datastore',            // Firestore
   'https://www.googleapis.com/auth/devstorage.read_write', // Firebase Storage
+  'https://www.googleapis.com/auth/identitytoolkit',       // Firebase Auth admin (mint sign-in links — authmail.ts)
 ].join(' ');
 
 // Shared across Store instances (same service account per Worker).
@@ -58,7 +59,7 @@ async function importPrivateKey(pem: string): Promise<CryptoKey> {
   );
 }
 
-async function getAccessToken(env: Env): Promise<string> {
+export async function getAccessToken(env: Env): Promise<string> {
   const nowSec = Math.floor(Date.now() / 1000);
   if (cachedToken && cachedToken.expEpoch - 300 > nowSec) return cachedToken.token;
 

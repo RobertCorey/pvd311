@@ -1,6 +1,7 @@
 /**
  * Public app API — the ONLY thing the client talks to. No Firebase SDK in the client.
- *   POST /api/report      multipart → creates the report (Turnstile-verified, paced per device/IP)
+ *   POST /api/report      multipart → creates the report (account REQUIRED: Firebase ID token; Turnstile-verified; paced per uid + IP)
+ *   POST /api/auth/link   JSON → Worker-minted sign-in link by email (authmail.ts)
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
  *   GET  /api/public-feed → recent reports for the map (no PII)
@@ -12,6 +13,7 @@ import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 import { userFromRequest, type AuthUser } from './auth.js';
 import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './me.js';
+import { sendSignInLink } from './authmail.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -43,16 +45,18 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
   try {
     let resp: Response;
     const reportId = /^\/api\/reports\/([A-Za-z0-9_-]{10,64})(\/cancel)?$/.exec(url.pathname);
+    const isCreate = request.method === 'POST' && url.pathname === '/api/report';
     const needsAuth = url.pathname.startsWith('/api/me') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
-    const auth = needsAuth || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
-    if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
+    const auth = needsAuth || isCreate || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
+    if (isCreate && !auth) resp = json({ error: 'auth_required' }, 401);
+    else if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
     else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport }, auth!);
     else if (request.method === 'PATCH' && reportId && !reportId[2]) resp = await editReport(reportId[1], request, deps.store, auth!);
     else if (request.method === 'POST' && reportId?.[2]) resp = await cancelReport(reportId[1], deps.store, auth!);
-    else if (request.method === 'POST' && url.pathname === '/api/report') resp = await createReport(request, env, deps, auth);
+    else if (isCreate) resp = await createReport(request, env, deps, auth!);
+    else if (request.method === 'POST' && url.pathname === '/api/auth/link') resp = await sendSignInLink(request, env, deps.store);
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps, auth);
-    else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/email$/.test(url.pathname)) resp = await attachEmail(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/follow$/.test(url.pathname)) resp = await followReport(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
     else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
@@ -87,7 +91,7 @@ async function verifyTurnstile(env: Env, token: string | null, ip: string): Prom
   return !!d.success;
 }
 
-/** Pacing per device and per IP, persisted in Firestore meta (low volume → fine).
+/** Pacing per account (uid) and per IP, persisted in Firestore meta (low volume → fine).
  *  Two phases so a rejection by one key never consumes the other's budget: peek all, then commit all. */
 type PaceRec = { last: number; day: string; count: number };
 const paceId = (key: string) => `pace_${key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120)}`;
@@ -117,7 +121,7 @@ function intakeAllowed(ip: string): boolean {
 
 // ── POST /api/report ────────────────────────────────────────
 
-async function createReport(request: Request, env: Env, { store }: ApiDeps, auth: AuthUser | null): Promise<Response> {
+async function createReport(request: Request, env: Env, { store }: ApiDeps, auth: AuthUser): Promise<Response> {
   const ct = request.headers.get('content-type') ?? '';
   if (!ct.includes('multipart/form-data')) return json({ error: 'multipart_required' }, 400);
   const form = await request.formData();
@@ -153,21 +157,19 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   }
   let intakeFlags: string[] | null = null;
   if (f('intakeFlags')) { try { const a = JSON.parse(f('intakeFlags')); if (Array.isArray(a)) intakeFlags = a.map(String).slice(0, 5); } catch { /* ignore */ } }
-  let email = f('email') || null;
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email', field: 'email' }, 400);
-  // Signed in (Worker-verified token): own the report; fall back to the account email for status mail when opted in.
-  const account = auth ? await ensureUser(store, auth) : null;
-  if (account && !email && account.email && account.emailVerified && account.prefs?.emailUpdates !== false) email = account.email;
-  const deviceId = f('deviceId').slice(0, 64) || ip;
+  // Identity comes ONLY from the verified token: owner + the email the city's updates go to (unless opted out).
+  const account = await ensureUser(store, auth);
+  const email = account.email && account.prefs?.emailUpdates !== false ? account.email : null;
+  const deviceId = f('deviceId').slice(0, 64) || null;
 
   const photo = form.get('photo');
   const hasPhoto = photo instanceof File && photo.size > 0;
   if (!hasPhoto && cat.photoRequired !== false) return json({ error: 'photo_required', field: 'photo' }, 400);
   if (hasPhoto && (photo.size > 5 * 1024 * 1024 || !/^image\//.test(photo.type))) return json({ error: 'invalid_photo', field: 'photo' }, 400);
 
-  // Pace per device and per IP
+  // Pace per account and per IP (IP is the backstop against many accounts from one box)
   {
-    const p = await checkPace(store, [`d_${deviceId}`, `ip_${ip}`]);
+    const p = await checkPace(store, [`u_${account.uid}`, `ip_${ip}`]);
     if (!p.ok) return json({ error: 'rate_limited', retryAfterSec: p.retryAfterSec }, 429, { 'retry-after': String(p.retryAfterSec) });
   }
 
@@ -184,7 +186,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     extra, intakeFlags, photo: photoUrl, reporterName: f('name').slice(0, 120) || null, reporterEmail: email,
     status: 'pending', statusDetail: null, portalCaseId: null, statusUpdatedAt: now,
     deviceId, ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
-    ownerUid: account?.uid ?? null,
+    ownerUid: account.uid,
   });
   return json({ id, trackingUrl: `/r/${id}`, category, createdAt: now.toISOString() }, 201);
 }
@@ -255,17 +257,6 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
-}
-
-/** POST /api/reports/:id/email — attach an email after submit ("get the city's updates"). Knowing the id is the credential. */
-async function attachEmail(id: string, request: Request, { store }: ApiDeps): Promise<Response> {
-  const body = (await request.json().catch(() => null)) as { email?: string } | null;
-  const email = (body?.email ?? '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return json({ error: 'invalid_email', field: 'email' }, 400);
-  const r = await store.fetchReport(id);
-  if (!r) return json({ error: 'not_found' }, 404);
-  await store.patchReport(id, { reporterEmail: email, emailAttachedAt: new Date().toISOString() });
-  return new Response(null, { status: 204 });
 }
 
 /** POST /api/reports/:id/follow {email} — get updates on someone else's (FixMyPVD) report instead of filing a duplicate. */

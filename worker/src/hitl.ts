@@ -26,9 +26,10 @@ export async function needsHumanApproval(store: Store, env: Env, report: ReportD
   const mode = env.HITL_MODE;
   if (mode === 'auto') return false;
   if (mode === 'review') return true;
-  // ramp: a trusted account (clean history ≥ ACCOUNT_TRUST_N filed, 0 rejected — or admin `trusted`) skips the tap…
-  if (report.ownerUid && (await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false))) return false;
-  // …otherwise count this category's already-submitted history
+  // ramp: per ACCOUNT — the first ACCOUNT_TRUST_N reports of an account are reviewed; after that, a clean
+  // history (0 rejected — or admin `trusted`) auto-approves. Accounts are mandatory, so every report has an owner;
+  // an ownerless legacy row falls back to the per-category ramp.
+  if (report.ownerUid) return !(await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false));
   const n = trustRampN(env);
   const submitted = await store.countSubmittedByCategory(report.category, n);
   return submitted < n;
