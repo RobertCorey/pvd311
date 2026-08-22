@@ -1,44 +1,58 @@
-/* SnapPVD tokens — docs/product-spec.md §2. Light on :root; dark overrides guarded both ways. */
+/* SnapPVD tokens — docs/design-direction.md ("Ember & Harbor"): two inks (harbor navy + ember) on paper.
+   Light on :root; dark overrides guarded both ways so a manual toggle wins. */
 :root {
-  --bg: #F6F7F9;
-  --surface: #FFFFFF;
-  --ink: #131A24;
-  --accent: #0F766E;
-  --accent-ink: #FFFFFF;     /* text on --accent */
-  --accent-2: #EA6A34;
-  --muted: #5B6675;
-  --line: #E4E7EC;
-  --success: #16794C;
-  --warn: #B45309;
+  --bg: #F7F1E6;             /* paper */
+  --surface: #FFFCF7;
+  --ink: #16213A;            /* harbor */
+  --ember: #F4652A;          /* the action ink */
+  --ember-ink: #16213A;      /* text on --ember (never white) */
+  --ember-text: #BD3F12;     /* ember used as text on paper */
+  --link: #1D5C99;           /* river — inline links only */
+  --muted: #5A6275;
+  --line: #E3DACB;
+  --success: #1B6B45;
+  --warn: #9A4B00;
   --danger: #B42318;
-  --accent-soft: rgba(15, 118, 110, 0.08);
-  --accent-2-soft: rgba(234, 106, 52, 0.12);
-  --danger-soft: rgba(180, 35, 24, 0.08);
-  --warn-soft: rgba(180, 83, 9, 0.1);
-  --success-soft: rgba(22, 121, 76, 0.1);
-  --shadow: 0 1px 2px rgba(19, 26, 36, 0.06), 0 4px 16px rgba(19, 26, 36, 0.06);
+  --ember-soft: rgba(244, 101, 42, 0.14);
+  --ink-soft: rgba(22, 33, 58, 0.07);
+  --danger-soft: rgba(180, 35, 24, 0.09);
+  --warn-soft: rgba(154, 75, 0, 0.1);
+  --success-soft: rgba(27, 107, 69, 0.1);
+  --shadow: 0 1px 0 rgba(22, 33, 58, 0.06), 0 6px 18px rgba(22, 33, 58, 0.07);
   --radius: 12px;
-  --radius-lg: 16px;
-  --font-display: 'Sora', system-ui, sans-serif;
+  --radius-lg: 18px;
+  --font-display: 'Bricolage Grotesque', 'Sora', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --tap: 44px;
+  --grain-opacity: 0.035;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Legacy aliases (old screens still reference these). */
+  --accent: var(--ink);
+  --accent-ink: var(--bg);
+  --accent-2: var(--ember);
+  --accent-soft: var(--ink-soft);
+  --accent-2-soft: var(--ember-soft);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0D1117; --surface: #161C26; --ink: #EAF0F6; --accent: #2DD4BF; --accent-ink: #0D1117; --accent-2: #F98B54;
-    --muted: #9AA7B6; --line: #26303C; --success: #3DD68C; --warn: #F5B65B; --danger: #F97066;
-    --accent-soft: rgba(45, 212, 191, 0.12); --accent-2-soft: rgba(249, 139, 84, 0.16); --danger-soft: rgba(249, 112, 102, 0.12);
-    --warn-soft: rgba(245, 182, 91, 0.12); --success-soft: rgba(61, 214, 140, 0.12);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+    --bg: #0C1222; --surface: #161E33; --ink: #F3ECE0; --ember: #FF7A3A; --ember-ink: #0C1222; --ember-text: #FF8A4F;
+    --link: #8FC3FF; --muted: #A3ABBE; --line: #273050; --success: #4ADE96; --warn: #F5B65B; --danger: #FF7B70;
+    --ember-soft: rgba(255, 122, 58, 0.16); --ink-soft: rgba(243, 236, 224, 0.08); --danger-soft: rgba(255, 123, 112, 0.14);
+    --warn-soft: rgba(245, 182, 91, 0.14); --success-soft: rgba(74, 222, 150, 0.14);
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+    --grain-opacity: 0.05;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0D1117; --surface: #161C26; --ink: #EAF0F6; --accent: #2DD4BF; --accent-ink: #0D1117; --accent-2: #F98B54;
-  --muted: #9AA7B6; --line: #26303C; --success: #3DD68C; --warn: #F5B65B; --danger: #F97066;
-  --accent-soft: rgba(45, 212, 191, 0.12); --accent-2-soft: rgba(249, 139, 84, 0.16); --danger-soft: rgba(249, 112, 102, 0.12);
-  --warn-soft: rgba(245, 182, 91, 0.12); --success-soft: rgba(61, 214, 140, 0.12);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --bg: #0C1222; --surface: #161E33; --ink: #F3ECE0; --ember: #FF7A3A; --ember-ink: #0C1222; --ember-text: #FF8A4F;
+  --link: #8FC3FF; --muted: #A3ABBE; --line: #273050; --success: #4ADE96; --warn: #F5B65B; --danger: #FF7B70;
+  --ember-soft: rgba(255, 122, 58, 0.16); --ink-soft: rgba(243, 236, 224, 0.08); --danger-soft: rgba(255, 123, 112, 0.14);
+  --warn-soft: rgba(245, 182, 91, 0.14); --success-soft: rgba(74, 222, 150, 0.14);
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --grain-opacity: 0.05;
   color-scheme: dark;
 }

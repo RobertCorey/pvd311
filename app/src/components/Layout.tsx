@@ -3,19 +3,20 @@ import { Link } from 'react-router-dom';
 import { BRAND } from '../brand';
 import { useI18n } from '../i18n';
 import BrandMark from './BrandMark';
+import TabBar from './TabBar';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
   const { canInstall, install } = useInstallPrompt();
   return (
-    <div className="app">
+    <div className="app has-tabs">
       <header className="app-header">
-        <Link to="/" className="wordmark" aria-label={BRAND.name}><BrandMark size={26} />{BRAND.name}</Link>
+        <Link to="/" className="wordmark" aria-label={BRAND.name}><BrandMark size={30} /><span aria-hidden="true">{BRAND.wordmark[0]}<em>{BRAND.wordmark[1]}</em></span></Link>
         <div className="header-actions">
           <span className="microtag">{BRAND.notTheCity}</span>
           {canInstall && <button type="button" className="header-link header-btn" onClick={() => { void install(); }}>{t('header.install')}</button>}
-          <Link to="/my" className="header-link">{t('header.myReports')}</Link>
+          <Link to="/my" className="header-link header-my">{t('header.myReports')}</Link>
         </div>
       </header>
       <main>{children}</main>
@@ -35,6 +36,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <p className="disclaimer">{BRAND.disclaimer}</p>
         <div>{t('footer.contact')}: <a href={`mailto:${BRAND.contactEmail}`}>{BRAND.contactEmail}</a></div>
       </footer>
+      <TabBar />
     </div>
   );
 }

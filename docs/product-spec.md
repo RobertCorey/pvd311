@@ -1,79 +1,32 @@
-# SnapPVD — Product Spec
+# FixMyPVD — Product Spec
 
 > Owner: product-design IC (decided, not optioned). Source of truth for name, brand, UX, and the client-facing API contract.
 > Build target: Vite + React + TS mobile-first PWA (`app/`) talking only to the Cloudflare Worker API. The official Providence 311 portal remains the system of record; the Worker drives it headlessly.
-> Status: DECIDED 2026-08-22. Supersedes the PVD-Snow-derived `public/` flow. Do not anchor on the old 4-step wizard — this is a single-screen report: **the reporter picks the category, then snaps + sends.** No AI photo classification; AI is invisible plumbing (moderation/abuse + optional wording cleanup) only.
+> Status: DECIDED 2026-08-22. Supersedes the PVD-Snow-derived `public/` flow. Do not anchor on the old 4-step wizard — this is a single-screen report: **the reporter picks the category, then photo + send.** No AI photo classification; AI is invisible plumbing (moderation/abuse + optional wording cleanup) only.
 
 ---
 
 ## 1. Name
 
-**SnapPVD** — decided.
+**FixMyPVD** — decided 2026-08-22 (client rejected "SnapPVD"; alice's call, folded into the design direction).
 
-- **Why:** "Snap" *is* the hero interaction (photo-first camera button) — the name doubles as the instruction. It is a strong single-word app-icon anchor, unmistakably a consumer app (no seal/navy/"311" officialese), and reads locally as "Snap Providence" (PVD = the airport code residents already use affectionately, not an official designation). Clears the "must never imply it is the city" bar via voice + disclaimer, not by burying the place name.
-- **Domain verdict (whois, 2026-08-22):** `snappvd.org` **and** `snappvd.com` are both **available** ("Domain not found" / "No match"). **Buy `snappvd.org` as primary** (the .org reinforces independent / community / not-for-profit, which supports the "not the city" posture) and **`snappvd.com` defensively** (301 → .org).
-- **Runners-up (both TLDs also verified available 2026-08-22):**
-  1. **FixMyPVD** — strongest "not the city" signal via the FixMyStreet civic-tech lineage; weaker as a single-word icon and one syllable longer.
-  2. **HeyPVD** — friendliest/most casual; but vague about what the app *does*.
-- Rejected from the shortlist: **ReportPVD** (borders on sounding official — "report to Providence"), **SpotPVD** ("spot" is a weaker verb than "snap" for a photo-first tool).
-
-App/store display name: **SnapPVD**. iOS home-screen / PWA short name: **SnapPVD**.
+- **Why:** "Fix my" is the ask in the resident's own words, and it carries the FixMyStreet civic-tech lineage — an independent tool that talks *to* the city, unmistakably *not* the city. PVD is the airport code residents use affectionately. No camera pun anywhere: the photo is the means, the fix is the point.
+- **Domains:** `fixmypvd.org` (primary) + `fixmypvd.com` (defensive 301) — both verified available 2026-08-22. Build under pvdsnow.org meanwhile.
+- **Display / PWA short name:** **FixMyPVD**. Wordmark is set "FixMy" in harbor ink + "PVD" in ember.
+- Internal storage keys (`snappvd` IndexedDB / localStorage, API `source: 'snappvd'`) are *not* renamed — they're invisible and renaming would orphan device-local data.
 
 ---
 
 ## 2. Brand
 
-### Palette (5 tokens + supporting)
+**Superseded by [`design-direction.md`](design-direction.md) ("Ember & Harbor")** — palette, type, mark, motion, and component language live there. Summary: two inks (harbor navy `#16213A` + ember `#F4652A`) on cream paper `#F7F1E6`; dark mode = the same inks on harbor night `#0C1222`; display face Bricolage Grotesque, body Inter; mark = ink map pin with an × ("X marks the spot to fix") over an off-register ember plate.
 
-Chosen for WCAG AA on the pairings the UI actually uses (white text on `--accent`; ink text on `--accent-2`). Deep teal reads civic-but-not-governmental; warm orange is the "signal" color for the map pin, active states, and highlights.
+Still binding from the original spec:
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `--bg` | `#F6F7F9` | `#0D1117` | App background |
-| `--surface` | `#FFFFFF` | `#161C26` | Cards, sheets, inputs |
-| `--ink` | `#131A24` | `#EAF0F6` | Primary text |
-| `--accent` | `#0F766E` | `#2DD4BF` | Primary actions, links, wordmark |
-| `--accent-2` | `#EA6A34` | `#F98B54` | Map pin, active/selected, highlights |
-
-Button text: **white** on `--accent` in light (contrast ≈ 5.3:1, AA); **ink `#0D1117`** on `--accent` in dark (bright teal → dark text, high contrast). `--accent-2` is a fill/stroke color, never a text background — pair it with ink text only.
-
-Supporting tokens the engineer must also define (not part of the "5" but required):
-
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| `--muted` | `#5B6675` | `#9AA7B6` | Secondary text, hints |
-| `--line` | `#E4E7EC` | `#26303C` | Borders, dividers |
-| `--success` | `#16794C` | `#3DD68C` | Resolved status |
-| `--warn` | `#B45309` | `#F5B65B` | Out-of-area, cancelled |
-| `--danger` | `#B42318` | `#F97066` | Emergency/911, hard errors |
-
-Theming rules (from artifact/PWA conventions): define the full light palette on bare `:root`; redefine only changed tokens under `@media (prefers-color-scheme: dark)` guarded `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]` so a manual toggle wins both ways. `body` gets an explicit `--bg`. Respect `prefers-reduced-motion`.
-
-### Typography (Google Fonts)
-
-- **Display / headings + wordmark:** **Sora** (600, 700) — geometric, confident, distinctive; carries the "SnapPVD" wordmark.
-- **Body / UI:** **Inter** (400, 500, 600) — best-in-class small-size mobile legibility.
-- Stacks: `"Sora", system-ui, sans-serif` / `"Inter", system-ui, -apple-system, sans-serif`. Always ship the fallbacks (fonts.googleapis.com is the only allowed remote host).
-
-### Icon concept
-
-A **dropped map pin whose lens is a camera aperture** — one mark that says "photo" + "location here."
-
-- **App tile:** rounded-square (`rx≈22%`) filled `--accent` teal. Centered **white map-pin teardrop** (`M12 2a7 7 0 0 0-7 7c0 5 7 12 7 12s7-7 7-12a7 7 0 0 0-7-7z`). The pin's inner circle is a **camera aperture** — a small hexagon/iris knockout instead of a plain hole. Two thin **`--accent-2` orange focus-brackets** in opposite tile corners frame it (the "snap"). Draw as flat SVG paths, no gradients.
-- **Monochrome / favicon fallback:** white pin + round hole on solid `--accent`, brackets dropped. Favicon emoji stand-in: 📍.
-- Deliverables the IC draws: `icon-mark.svg` (full), `icon-mono.svg`, and PWA `192/512/maskable` PNGs (maskable = tile with ≥10% safe padding).
-
-### Voice
-
-**Direct, neighborly, reassuring.** Plain words, no bureaucratese, no hype; upfront about being a volunteer relay; never speaks *as* the city.
-
-- Microcopy example (hero subtext): **"Snap a city problem. We'll file it with 311 for you."**
-- Microcopy example (rate-limited): **"One report at a time — give it a minute and try again."**
-
-### Tagline + disclaimer
-
-- **Tagline (one sentence):** *"Report a Providence street problem in one photo — we file it with the city's 311 for you."*
-- **Footer disclaimer line (verbatim, every page):** *"SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence."*
+- **Theming rules:** define the full light palette on bare `:root`; redefine only changed tokens under `@media (prefers-color-scheme: dark)` guarded `:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]` so a manual toggle wins both ways. `body` gets an explicit `--bg`. Respect `prefers-reduced-motion`.
+- **Voice:** direct, neighborly, reassuring. Plain words, no bureaucratese, no hype; upfront about being a volunteer relay; never speaks *as* the city.
+- **Tagline:** *"Report a Providence street problem in one photo — we file it with the city's 311 for you."*
+- **Footer disclaimer (verbatim, every page):** *"FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence."*
 
 ---
 
@@ -85,7 +38,7 @@ Mobile-first. **Happy path: ≤4 taps, under 45s.** One report screen (no multi-
 
 ### 3.1 Report screen (`/`) — two phases, one screen
 
-A **slim header** persists across both phases: "SnapPVD" wordmark (teal), a small "not the city" microtag, and a **My reports** affordance (opens the list of tokens saved on this device). No account, no login.
+A **slim header** persists across both phases: "FixMyPVD" wordmark (ink + ember), a small "not the city" microtag, and a **My reports** affordance (opens the list of tokens saved on this device). No account, no login.
 
 **Phase A — Category (step one).** A grid of **big category tiles** is the first and main thing on the screen — the reporter says what's wrong. The **eight core categories** are front and center, each a large icon + label tap target:
 
@@ -109,7 +62,7 @@ Email is **not** on this screen (kept minimal for speed) — it's offered on the
 | No GPS / permission denied | geolocation denied or unsupported | No block. Pin sits at Providence center, address field focused, hint *"Type the nearest address or intersection."* |
 | Photo has no EXIF | photo attached, no GPS tag | Photo keeps; fall back to device GPS → manual. Note: *"No location in this photo — using your device location."* |
 | Photo capture fails | camera unavailable | Fall back to **Choose from library**; if none and category needs a photo, keep Submit disabled with helper; photo-optional categories may proceed. |
-| Outside Providence | resolved lat/lng outside city bbox (`41.772–41.871 N, −71.473 – −71.370 W`) | Amber inline notice under address: *"SnapPVD only covers Providence city limits."* Submit disabled. Offer "fix the address" + a link to the city portal for non-PVD. |
+| Outside Providence | resolved lat/lng outside city bbox (`41.772–41.871 N, −71.473 – −71.370 W`) | Amber inline notice under address: *"FixMyPVD only covers Providence city limits."* Submit disabled. Offer "fix the address" + a link to the city portal for non-PVD. |
 | Offline queue | Submit while `navigator.onLine === false` | Optimistic success: *"Saved on your phone — we'll send it when you're back online."* Store in IndexedDB outbox; register Background Sync; flush on `online` + on load. A queued report has **no tracking token yet** — the confirmation shows a "pending send" state and the token appears (and is saved to My reports) once it flushes to the server. Never double-submit (queue only on known-offline start, not on timeouts). |
 | Emergency flag → 911 | `/api/intake` `flags` includes `emergency` (gas leak, downed live wire, fire, injury, active hazard) | **Blocking** modal, `--danger`: *"This looks like an emergency. Call 911 now — 311 is for non-urgent city issues."* Buttons: **Call 911** (`tel:911`) primary; **It's not an emergency, continue** secondary. No submit until dismissed. |
 | Not-311 notice | `flags` includes `not_311` (state road/RIDOT, RIPTA, police matter, private property dispute, utility co.) | **Non-blocking** notice with the suggested right channel from `note`; user may continue (they may know better) or switch to "Something else." |
@@ -120,7 +73,7 @@ Email is **not** on this screen (kept minimal for speed) — it's offered on the
 ### 3.2 Confirmation screen
 
 - Big check + **"Sent to Providence 311."** (or, when queued offline, **"Saved — we'll send it when you're back online."**).
-- **Tracking link** — the token URL `snappvd.org/r/:token` (no account). **Copy link**, **Add to Home Screen** hint, and it's auto-saved to **My reports** on this device.
+- **Tracking link** — the token URL `fixmypvd.org/r/:token` (no account). **Copy link**, **Add to Home Screen** hint, and it's auto-saved to **My reports** on this device.
 - **Optional email** — field: *"Want the city's status updates by email?"* + consent line *"We pass it to the city so they can email you about this report. Nothing else — no newsletters."* Submitting it calls `POST /api/reports/:token/email`.
 - **Share** — native share (`navigator.share`) + copy; share text names the app and that it takes ~30s.
 - **Submit another** — resets to a clean report screen.
@@ -128,7 +81,7 @@ Email is **not** on this screen (kept minimal for speed) — it's offered on the
 ### 3.3 Tracking page (`/r/:token`)
 
 - **Timeline** (vertical, newest state emphasized):
-  1. **Received by SnapPVD** — ts.
+  1. **Received by FixMyPVD** — ts.
   2. **Sent to the city** — ts + **PVD case id** (e.g. `PVD2026-87657`) once the Worker's headless submit returns it. (Queued/pending shows "Sending to the city…".)
   3. **City status** — mirrors the portal: **Submitted → Assigned → Resolved / Cancelled**, each with ts, polled from My Requests + `GetActivities`.
 - **Content:** the photo, map pin, category, address, description.
@@ -167,7 +120,7 @@ Essentials to render (independent-project framing; the old `public/privacy.html`
 Post in this order; each step gated on the previous going smoothly. No city outreach unless the city contacts us.
 
 1. **Seed (private):** DM the link to ~10 neighbors/friends who already report to 311; fix rough edges from their *real* reports before any public post.
-2. **Reddit** r/providence + r/RhodeIsland: one honest "I built a faster way to file 311 reports from your phone" post (reuse `marketing/reddit.md`, updated to SnapPVD), answer every comment; lead with the pothole/trash pain, disclose it's an independent volunteer project.
+2. **Reddit** r/providence + r/RhodeIsland: one honest "I built a faster way to file 311 reports from your phone" post (reuse `marketing/reddit.md`, updated to FixMyPVD), answer every comment; lead with the pothole/trash pain, disclose it's an independent volunteer project.
 3. **Hyperlocal groups:** Nextdoor + neighborhood-association Facebook groups + ward groups, one tailored post each (`marketing/nextdoor.md`, `marketing/facebook.md`); let the built-in share loop + Add-to-Home carry it peer-to-peer.
 4. **Local press (only if traction is organic):** a single soft tip to a RI outlet (What'sUpNewp / GoLocalProv) — still quiet, still no city contact.
 5. **Watch the numbers before scaling:** track city acceptance vs. cancel rate and submit success on the dashboard; widen distribution only once the city is cleanly accepting reports.

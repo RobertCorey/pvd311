@@ -1,6 +1,6 @@
-# SnapPVD — Design Direction: "Ember & Harbor"
+# FixMyPVD — Design Direction: "Ember & Harbor"
 
-> Owner: design lead (2026-08-22). Supersedes `product-spec.md` §2 (brand) wherever they differ. Decided, not optioned.
+> Owner: design lead (2026-08-22). Supersedes `product-spec.md` §2 (brand) wherever they differ. Decided, not optioned. Product name: **FixMyPVD** (spec §1).
 > Constraint set (unchanged): AA / Lighthouse 100 a11y, perf ≥ 90 (target 99), ≤ 2 font families, en/es strings in `src/i18n`, category-first flow, < 45 s happy path, no AI category guessing.
 
 ## The idea in one line
@@ -41,17 +41,17 @@ All pairings above verified ≥ 4.5:1 (lowest: ember-text on paper 4.81, ink on 
 
 ## Component language
 
-- **Shell:** slim top bar (mark + wordmark, "Not the city" microtag). **Bottom tab bar** on phones — Report (ember camera button, center), Map, Mine — thumb-reachable; hidden while a report is in progress (the sticky Send bar takes the bottom). Footer keeps disclaimer + About/Privacy/portal/language.
+- **Shell:** slim top bar (mark + wordmark, "Not the city" microtag). **Bottom tab bar** on phones — Report (ember button, center), Map, Mine — thumb-reachable; hidden while a report is in progress (the sticky Send bar takes the bottom). Footer keeps disclaimer + About/Privacy/portal/language.
 - **Category tiles** are the product: 2-col grid, 120 px tall, surface card with a 2 px ink border, a 44 px *duotone* icon (navy line + ember plate offset), label in Bricolage 1.05 rem. Selected/pressed = ember fill + ink text. "Other / something else" is a wide dashed tile. Seasonal snow tiles get a small "Winter" tag.
-- **Photo card:** the Take-photo button is the biggest ember element on screen (64 px, camera glyph + label). Preview gets an ember corner-bracket frame (the "snap").
+- **Photo card:** the Take-photo button is the biggest ember element on screen (64 px). Preview gets ember corner brackets — "this spot".
 - **Tracking = package tracking:** a ticket card (status headline, case slug, ETA line) over a 4-step rail **Received → Sent to city → City working → Resolved** (Cancelled/Needs attention render as a warn branch on the rail). Timeline below keeps the exact timestamps. Details card = photo with bracket frame + category + address.
 - **Map:** CARTO Voyager (light) / Dark Matter (dark) raster tiles instead of default OSM, branded duotone pins colored by status (ember = open, success = resolved, warn = cancelled/needs attention), a stat strip above the map ("12 open · 3 resolved this week"), list rows with ink glyphs.
 - **Illustrations / empty states:** one SVG street scene in the two-ink style (triple-decker, street light, pothole, crow on a wire) reused with masks: My reports empty, 404, map empty, offline-queued. Flat paths, no gradients, < 4 KB each.
-- **Logo / mark:** navy map pin over an ember eight-point *flash burst*, plates misregistered — "snap" + "here". Wordmark "SnapPVD" in Bricolage 800 with the "PVD" in ember. App tile: cream ground, mark centered (maskable-safe), favicon = mark on ember.
+- **Logo / mark:** harbor-ink map pin carrying an **×** — X marks the spot to fix — over an ember circle printed off-register. No camera pun anywhere (the name is FixMyPVD, decided 2026-08-22). Wordmark "FixMyPVD" in Bricolage 800, "FixMy" in ink, "PVD" in ember. App tile: cream ground, mark centered (maskable-safe), favicon = mark on ember.
 
 ## Three before → after notes
 
-1. **Home.** Before: "What's the problem?" over eight identical white cards with a small teal glyph in a box — reads like a settings page. After: the grid is the hero; big two-ink icons, display-type labels, ember press state, tab bar with a camera in your thumb — it reads like a poster of Providence street problems you tap.
+1. **Home.** Before: "What's the problem?" over eight identical white cards with a small teal glyph in a box — reads like a settings page. After: the grid is the hero; big two-ink icons, display-type labels, ember press state, tab bar with the Report button under your thumb — it reads like a poster of Providence street problems you tap.
 2. **Tracking.** Before: a status card + a generic dot timeline. After: a ticket with a stamped case number, a parcel-style progress rail with the current step pulsing, an ETA line — you know *where your report is* at a glance.
 3. **Map.** Before: default OSM tiles + generic pins + plain list. After: themed CARTO tiles, branded pins that drop in and pulse while open, a stat strip — the city feels alive and the page feels like ours.
 

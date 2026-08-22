@@ -1,4 +1,4 @@
-# SnapPVD client (`app/`)
+# FixMyPVD client (`app/`)
 
 Vite + React 19 + TypeScript, installable PWA. Talks **only** to the Cloudflare Worker API (`worker/`); no Firebase SDK, no accounts. Product spec: `../docs/product-spec.md`. Wire contract: `../docs/api.md` (types mirrored in `src/api/types.ts`).
 

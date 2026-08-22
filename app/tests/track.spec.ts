@@ -23,7 +23,7 @@ function view(o: ViewOverrides = {}) {
     portalCaseId: o.portalCaseId ?? 'PVD2026-87657',
     portalStatus: o.portalStatus ?? 'Assigned',
     timeline: o.timeline ?? [
-      { at: now, label: 'Received by SnapPVD' },
+      { at: now, label: 'Received by FixMyPVD' },
       { at: now, label: 'Sent to the city' },
     ],
     nextUpdateHint: o.nextUpdateHint ?? 'We check the city for updates daily.',
