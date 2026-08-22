@@ -254,12 +254,69 @@ function populateReview() {
 
 nextBtn.addEventListener('click', async () => {
   if (nextBtn.disabled) return;
+  if (currentStep === 2 && currentLat == null && addressInput.value.trim()) {
+    // Typed address, no coordinates yet: try to geocode so the report carries
+    // lat/lng (rules + portal both prefer it). Never blocks on failure.
+    nextBtn.disabled = true;
+    const prevLabel = nextBtn.textContent;
+    nextBtn.textContent = 'Checking address…';
+    try { await forwardGeocode(addressInput.value.trim()); } catch (e) { /* handled inside */ }
+    nextBtn.textContent = prevLabel;
+    nextBtn.disabled = false;
+  }
   if (currentStep < TOTAL_STEPS - 1) {
     goToStep(currentStep + 1);
   } else {
     await submitReport();
   }
 });
+
+function insideProvidence(lat, lng) {
+  return lat >= PVD_BOUNDS.minLat && lat <= PVD_BOUNDS.maxLat &&
+         lng >= PVD_BOUNDS.minLng && lng <= PVD_BOUNDS.maxLng;
+}
+
+// Forward-geocode a typed address/intersection (ArcGIS World Geocoder, not stored).
+// Sets currentLat/Lng when we get a confident hit; outside-Providence hits only
+// raise the warning and leave coordinates null (the automation/reviewer decides).
+let geocodedFor = null;
+async function forwardGeocode(text) {
+  if (geocodedFor === text) return;
+  geocodedFor = text;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 5000);
+  try {
+    const q = /providence|,\s*ri\b/i.test(text) ? text : `${text}, Providence, RI`;
+    const url = 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates'
+      + `?SingleLine=${encodeURIComponent(q)}&maxLocations=1&outFields=Match_addr,Addr_type,Score`
+      + `&searchExtent=${PVD_BOUNDS.minLng - 0.05},${PVD_BOUNDS.minLat - 0.05},${PVD_BOUNDS.maxLng + 0.05},${PVD_BOUNDS.maxLat + 0.05}`
+      + '&countryCode=USA&f=pjson';
+    const resp = await fetch(url, { signal: ctrl.signal });
+    const data = await resp.json();
+    const c = data.candidates && data.candidates[0];
+    if (!c || !c.location || (c.score || 0) < 80) {
+      logEvent('geocode_miss', { q: text.slice(0, 60) });
+      return;
+    }
+    const { y: lat, x: lng } = c.location;
+    if (!insideProvidence(lat, lng)) {
+      currentLat = null; currentLng = null;
+      latLngEl.textContent = '';
+      pvdWarning.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> <span>That address looks like it is outside Providence. We only submit reports within city limits — double-check the street.</span>';
+      pvdWarning.classList.add('visible');
+      logEvent('geocode_outside', { q: text.slice(0, 60) });
+      return;
+    }
+    currentLat = lat; currentLng = lng;
+    latLngEl.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    pvdWarning.classList.remove('visible');
+    logEvent('geocode_hit', { type: c.attributes && c.attributes.Addr_type });
+  } catch (err) {
+    if (err.name !== 'AbortError') console.warn('Forward geocode failed:', err);
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 backBtn.addEventListener('click', () => {
   if (currentStep > 0) goToStep(currentStep - 1);
@@ -528,7 +585,16 @@ detectBtn.addEventListener('click', () => {
   );
 });
 
-addressInput.addEventListener('input', validateStep);
+addressInput.addEventListener('input', () => {
+  if (geocodedFor !== null && !hasExifGps && locationMethodIsTyped()) {
+    currentLat = null; currentLng = null; latLngEl.textContent = ''; geocodedFor = null;
+    pvdWarning.classList.remove('visible');
+  }
+  validateStep();
+});
+function locationMethodIsTyped() {
+  return !locationSection.classList.contains('state-confirmed');
+}
 
 // --- Step 3: Contact toggle ---
 // --- #7: Error banner ---
@@ -632,6 +698,13 @@ async function submitReport() {
   const payload = buildPayload();
   const photo = photoDataUrl;
 
+  if (payload.lat != null && !insideProvidence(payload.lat, payload.lng)) {
+    overlay.classList.remove('visible');
+    showError('This location is outside Providence, so we can\'t submit it to Providence 311. Check the address and try again.');
+    logEvent('submit_blocked_outside', { category: payload.category });
+    return;
+  }
+
   // Offline: save to the outbox and confirm optimistically. We do NOT queue on
   // timeouts/other errors below (duplicate risk) — only on a known-offline start.
   if (!navigator.onLine) {
@@ -716,6 +789,7 @@ submitAnother.addEventListener('click', () => {
   previewImg.src = '';
   photoCaptureBtn.classList.remove('has-photo');
   addressInput.value = '';
+  geocodedFor = null;
   latLngEl.textContent = '';
   locationStatus.textContent = 'Checking photo for location data...';
   setLocationState(null);
