@@ -41,7 +41,9 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 
 ## M5 — Deploy
 - [x] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts — build unverified (no Docker on the Mac); verify on NAS
-- [ ] Runtime = Cloudflare Workers + Browser Run (spike in `worker/`: canary via Browser Run proves WAF + Playwright compat). If green: port submitter/watcher to the Worker (Firestore via REST, auth state in KV, proofs in R2, cron triggers, dashboard behind Cloudflare Access). If red: VPS (DigitalOcean) with the verified Dockerfile.
+- [x] SPIKE GREEN 2026-08-22: Cloudflare Browser Run logs into the portal with no WAF challenge (egress 104.28.163.178, 48s canary). Runtime = Cloudflare Workers + Browser Run. DO is out.
+- [ ] Port to the Worker: Firestore via REST (service-account JWT), portal.ts → @cloudflare/playwright, auth state in KV, proofs in R2, cron triggers (1-min submit tick, 30-min watcher, daily canary/digest), HITL approve/reject endpoints (signed links), dashboard behind Cloudflare Access
+- [ ] GitHub Actions: deploy Worker on push to main
 - [ ] Sentry restore (front + back)
 
 ## M6 — Domain, relay, launch
