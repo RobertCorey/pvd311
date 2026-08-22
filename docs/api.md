@@ -39,7 +39,13 @@ JSON `{ email }` → 204. Knowing the id is the credential.
 The report's photo bytes (immutable, cacheable).
 
 ## GET /api/public-feed?bbox=minLng,minLat,maxLng,maxLat&limit=100
-`{ items: [{ id, category, categoryLabel, lat, lng, address, createdAt, status, portalStatus }] }` — last 30 days, ours only for now (city feed + `source` later).
+`{ items: [{ id, source, category, categoryLabel, lat, lng, address, createdAt, status, portalStatus }] }`.
+Two sources merged (bbox + limit apply to the combined set; limit ≤ 200):
+- `source: 'snappvd'` — our reports, last 30 days. `status`: received/sending/sent/rejected; `id` = tracking token.
+- `source: 'city'` — the city's own anonymous feed (`/public-requests/`, refreshed by the 30-min watcher into `meta/cityFeed`). `id` = `city:<hash>`, `address` = street only, `createdAt` parsed from the grid's "Created On" (may be null), `status` = `'city'`, and the city's Status Reason (Draft/Submitted/Assigned/Resolved/Cancelled/…) is in `portalStatus`. City items have no case id and are geocoded street-level via ArcGIS, so `lat`/`lng` are approximate; un-geocodable rows are omitted from the feed.
+
+## GET /api/nearby?lat=&lng=&category=&radiusM=75
+`{ items: [{ ...same fields as public-feed..., distanceM }] }` — reports within `radiusM` metres (default 75, max 2000) of `lat,lng`, from the last 14 days, both sources, sorted nearest-first. `category` (a `shared/categories.ts` key) optionally filters. City items with an unparseable date are kept (a fresh dedupe signal is not dropped). Used by the client's "already reported nearby?" dedupe prompt. Errors: `invalid_coords` (400).
 
 ## Later
-`GET /api/nearby`, `POST /api/reports/:id/follow`, `source: 'snappvd'|'city'` on feed items.
+`POST /api/reports/:id/follow`.
