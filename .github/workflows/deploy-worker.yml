@@ -1,0 +1,45 @@
+# Deploy the PVD311 Cloudflare Worker on push to main.
+#
+# Requires two GitHub repo secrets (alice/Rob set these — the workflow does NOT create them):
+#   CLOUDFLARE_API_TOKEN   — a token with "Edit Cloudflare Workers" permission for the account
+#   CLOUDFLARE_ACCOUNT_ID  — the Cloudflare account id that owns pvd311-worker
+#
+# The Worker's own runtime secrets (PORTAL_EMAIL, PORTAL_PASSWORD, CANARY_TOKEN,
+# FIREBASE_SERVICE_ACCOUNT, ANTHROPIC_API_KEY, RESEND_API_KEY, HITL_SECRET) are NOT set here —
+# manage them with `wrangler secret put` (see worker/wrangler.toml).
+name: deploy-worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - 'shared/**'
+      - '.github/workflows/deploy-worker.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Deploy
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

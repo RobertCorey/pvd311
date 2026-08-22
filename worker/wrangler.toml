@@ -3,13 +3,41 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Browser Run (headless Chromium) — requires Workers Paid for meaningful quota
+# Browser Run (headless Chromium) — requires Workers Paid for meaningful quota.
 browser = { binding = "BROWSER" }
 
-# Secrets (set with `wrangler secret put NAME`): PORTAL_EMAIL, PORTAL_PASSWORD, CANARY_TOKEN
+# Cron triggers:
+#   "* * * * *"    submit tick (reaper + one submission, HITL-gated)
+#   "*/30 * * * *" status watcher (My Requests diff)
+#   "0 11 * * *"   daily digest + selector canary
+#                  11:00 UTC = 06:00 EST (winter) / 07:00 EDT (summer). Crons are UTC-only; for a steady
+#                  06:00 local you'd need to swap between "0 11" (winter) and "0 10" (summer). ~1h drift is fine here.
+[triggers]
+crons = ["* * * * *", "*/30 * * * *", "0 11 * * *"]
+
 [vars]
 PORTAL_BASE_URL = "https://311.providenceri.gov"
+APP_NAME = "PVD311 app"
+HITL_MODE = "review"
+FIREBASE_PROJECT_ID = "pvd-snow-report"
+STORAGE_BUCKET = "pvd-snow-report.firebasestorage.app"
+NOTIFY_EMAIL = "robertbcorey@gmail.com"
+NOTIFY_FROM = "PVD311 <onboarding@resend.dev>"
+BLOCKED_ADDRESSES = "congdon st,congdon street"
+# Where signed HITL approve/reject email links point. Update to the custom domain at launch.
+HITL_BASE_URL = "https://pvd311-worker.pvd311-worker.workers.dev"
+# Optional: trust-ramp threshold for HITL_MODE="ramp" (default 3 if unset).
+# TRUST_RAMP_N = "3"
 
-# Spike phase: no cron yet. Later: every minute for the submitter, daily canary.
-# [triggers]
-# crons = ["* * * * *"]
+# Cron ticks can spend a while in Browser Run. cpu_ms is honored on Workers Paid; harmless comment otherwise.
+[limits]
+cpu_ms = 300000
+
+# ── Secrets (set with `wrangler secret put <NAME>` or via CI) ──────────────────────────
+#   PORTAL_EMAIL              portal login
+#   PORTAL_PASSWORD           portal login
+#   CANARY_TOKEN              x-canary-token for /canary and /api/status
+#   FIREBASE_SERVICE_ACCOUNT  service-account JSON, as a single-line string
+#   ANTHROPIC_API_KEY         agent scout (unmapped Step-3 fields)
+#   RESEND_API_KEY            outbound email (HITL + alerts + digest)
+#   HITL_SECRET               HMAC secret for signed approve/reject links
