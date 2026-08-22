@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import { shortLabel } from '../lib/categories';
-import { GOOGLE_CLIENT_ID, loadGsi, pendingEmail, sendSignInLink, signInWithGoogleCredential } from '../lib/auth';
+import { AuthError, GOOGLE_CLIENT_ID, loadGsi, pendingEmail, sendSignInLink, signInWithGoogleCredential } from '../lib/auth';
 import CategoryIcon from './CategoryIcon';
 import './SignInGate.css';
 
@@ -15,19 +15,15 @@ import './SignInGate.css';
  * `returnTo` is remembered so the email link (which lands on /account) can resume the report.
  */
 export interface SignInGateProps {
-  /** Category key of the draft — used for the small "step" header. */
-  category: string;
-  /** Where to come back to after sign-in, e.g. `/?resume=1`. */
+  /** Category key of the draft — used for the small "step" header (omitted → no strip). */
+  category?: string;
+  /** Where to come back to after sign-in, e.g. `/`. Carried inside the email link, so it survives a new tab. */
   returnTo: string;
-  /** Dismiss the gate (keeps the draft, shows the submit bar again). */
-  onBack: () => void;
-  /** Called once a Google sign-in completes in place (email links complete on /account). */
+  /** Dismiss the gate (keeps the draft, shows the submit bar again). Omitted → no back button. */
+  onBack?: () => void;
+  /** Called once a Google sign-in completes in place (email links complete on /account and navigate to returnTo). */
   onSignedIn?: () => void;
 }
-
-const RESUME_KEY = 'fixmypvd.resume';
-export function rememberReturnTo(path: string) { try { sessionStorage.setItem(RESUME_KEY, path); } catch { /* ignore */ } }
-export function takeReturnTo(): string | null { try { const v = sessionStorage.getItem(RESUME_KEY); sessionStorage.removeItem(RESUME_KEY); return v; } catch { return null; } }
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
 
@@ -39,12 +35,11 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
   const inputRef = useRef<HTMLInputElement>(null);
   const gBtn = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { rememberReturnTo(returnTo); }, [returnTo]);
   // Bring the card into view (it appears where the Send bar was) and focus the email field.
   useEffect(() => { inputRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); inputRef.current?.focus({ preventScroll: true }); }, []);
 
   const fail = useCallback((err: unknown) => {
-    const code = (err as { code?: string })?.code ?? '';
+    const code = err instanceof AuthError ? err.code : '';
     setPhase('error');
     setError(/EMAIL/.test(code) ? 'email' : /TOO_MANY|RATE/.test(code) ? 'rate' : 'generic');
   }, []);
@@ -71,16 +66,18 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
     e.preventDefault();
     if (!email.trim() || phase === 'busy') return;
     setPhase('busy'); setError(null);
-    try { await sendSignInLink(email); setPhase('sent'); } catch (err) { fail(err); }
+    try { await sendSignInLink(email, returnTo); setPhase('sent'); } catch (err) { fail(err); }
   }
 
   return (
     <section className="gate rise" aria-labelledby="gate-title">
       <div className="gate-card">
-        <div className="gate-step">
-          <span className="gate-step-icon" aria-hidden="true"><CategoryIcon k={category} size={28} /></span>
-          <span className="gate-step-text">{t('gate.step', { category: shortLabel(category, t) })}</span>
-        </div>
+        {category && (
+          <div className="gate-step">
+            <span className="gate-step-icon" aria-hidden="true"><CategoryIcon k={category} size={28} /></span>
+            <span className="gate-step-text">{t('gate.step', { category: shortLabel(category, t) })}</span>
+          </div>
+        )}
 
         {phase === 'sent' ? (
           <div className="gate-sent" role="status" aria-live="polite">
@@ -119,7 +116,7 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
 
         <p className="gate-fine">{t('gate.fine')} <Link to="/privacy">{t('nav.privacy')}</Link></p>
       </div>
-      <button type="button" className="btn btn-ghost gate-back" onClick={onBack}>{t('gate.back')}</button>
+      {onBack && <button type="button" className="btn btn-ghost gate-back" onClick={onBack}>{t('gate.back')}</button>}
     </section>
   );
 }
