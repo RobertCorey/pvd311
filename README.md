@@ -2,7 +2,7 @@
 
 Report a Providence street problem in one photo — we file it with the city's 311 for you. **SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
 
-Pre-launch. The legacy PWA (`public/`, frozen) is live at [pvdsnow.org](https://pvdsnow.org); the new client (`app/`) deploys to preview channels until snappvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
+Pre-launch (quiet). Live at [pvdsnow.org](https://pvdsnow.org) until snappvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
 
 Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git history before `c81a893`). Plan and status: [`PLAN.md`](PLAN.md), [`.claude/STATE.md`](.claude/STATE.md). Portal research: [`scripts/`](scripts/).
 
@@ -21,7 +21,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 | Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Leaflet map, Cloudflare Turnstile, Playwright tests. Talks only to the Worker API. |
 | Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
 | Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
-| Legacy | `public/` (frozen PWA, live until cutover), `automation/` (laptop engine, reference only) |
+| Legacy | `automation/` (laptop engine, reference only). The old `public/` PWA was removed after cutover (git history before a0f7776) |
 | Target | Providence 311 portal (Power Pages / Dynamics 365) |
 
 ## Project structure
@@ -37,10 +37,9 @@ app/               SnapPVD client (React)
 worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
 shared/            category registry (single source of truth)
 docs/              product-spec.md (SnapPVD), provisioning-task.md
-public/            legacy PWA (frozen)
 automation/        legacy laptop engine (reference)
 scripts/           portal research, case-type census
-firebase.json      hosting → app/dist (legacy public/ is no longer deployed)
+firebase.json      hosting → app/dist
 ```
 
 ## Development
@@ -55,9 +54,6 @@ npm run deploy                   # build + deploy app/dist to Firebase Hosting (
 # Worker
 cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
 
-# Legacy
-npm run legacy:dev               # serves the frozen public/ on :3999
-npm run test:rules               # Firestore/Storage rules (emulator, needs Java)
 ```
 
 Headless browsers cannot pass Turnstile (by design) — real end-to-end submits are done from a real browser.

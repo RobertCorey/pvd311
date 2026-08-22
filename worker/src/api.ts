@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
+import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 
 const DEFAULT_ORIGINS = ['https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -43,6 +44,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps);
     else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/email$/.test(url.pathname)) resp = await attachEmail(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
+    else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
     for (const [k, v] of Object.entries(cors)) resp.headers.set(k, v);
@@ -246,14 +248,92 @@ async function getPhoto(id: string, { store }: ApiDeps): Promise<Response> {
   return new Response(p.bytes, { headers: { 'content-type': p.contentType, 'cache-control': 'public, max-age=31536000, immutable' } });
 }
 
-// ── GET /api/public-feed ────────────────────────────────────
+// ── GET /api/public-feed (ours + city) ──────────────────────
+
+interface FeedItem {
+  id: string; source: 'snappvd' | 'city'; category: string; categoryLabel: string;
+  lat: number | null; lng: number | null; address: string; createdAt: string | null;
+  status: string; portalStatus: string | null;
+}
+
+function ourFeedItem(r: ReportDoc): FeedItem {
+  return {
+    id: r.id, source: 'snappvd', category: r.category, categoryLabel: CATEGORIES[r.category]?.label ?? r.category,
+    lat: r.lat, lng: r.lng, address: r.address, createdAt: toIso(r.timestamp),
+    status: PUBLIC_STATUS[r.status] ?? 'received', portalStatus: r.portalStatus ?? null,
+  };
+}
+
+/** City items carry the city's Status Reason in `portalStatus`; `status` is the synthetic 'city'. */
+function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
+  return {
+    id: cityItemId(it), source: 'city', category: it.category, categoryLabel: CATEGORIES[it.category]?.label ?? it.category,
+    lat: it.lat, lng: it.lng, address: it.street, createdAt: parseCityDate(it.createdOn),
+    status: 'city', portalStatus: it.status || null,
+  };
+}
 
 async function publicFeed(url: URL, { store }: ApiDeps): Promise<Response> {
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 100)));
   const bbox = (url.searchParams.get('bbox') ?? '').split(',').map(Number);
-  const items = (await store.findReportsSince(24 * 30, limit))
-    .filter((r) => r.lat != null && r.lng != null)
-    .filter((r) => bbox.length !== 4 || bbox.some(Number.isNaN) || (r.lng! >= bbox[0] && r.lat! >= bbox[1] && r.lng! <= bbox[2] && r.lat! <= bbox[3]))
-    .map((r) => ({ id: r.id, category: r.category, categoryLabel: CATEGORIES[r.category]?.label ?? r.category, lat: r.lat, lng: r.lng, address: r.address, createdAt: toIso(r.timestamp), status: PUBLIC_STATUS[r.status] ?? 'received', portalStatus: r.portalStatus ?? null }));
+  const inBbox = (lat: number, lng: number) =>
+    bbox.length !== 4 || bbox.some(Number.isNaN) || (lng >= bbox[0] && lat >= bbox[1] && lng <= bbox[2] && lat <= bbox[3]);
+
+  const ours = (await store.findReportsSince(24 * 30, limit))
+    .filter((r) => r.lat != null && r.lng != null && inBbox(r.lat!, r.lng!))
+    .map(ourFeedItem);
+
+  const feed = await store.getMeta<CityFeed>('cityFeed');
+  const city = (feed?.items ?? [])
+    .filter((it) => it.lat != null && it.lng != null && inBbox(it.lat!, it.lng!))
+    .map(cityFeedItem);
+
+  const items = [...ours, ...city].slice(0, limit);
   return json({ items }, 200, { 'cache-control': 'public, max-age=60' });
+}
+
+// ── GET /api/nearby?lat=&lng=&category=&radiusM=75 (ours + city, last 14 days) ──
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function nearby(url: URL, { store }: ApiDeps): Promise<Response> {
+  const lat = Number(url.searchParams.get('lat'));
+  const lng = Number(url.searchParams.get('lng'));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return json({ error: 'invalid_coords', field: 'lat' }, 400);
+  const radiusM = Math.min(2000, Math.max(1, Number(url.searchParams.get('radiusM') ?? 75)));
+  const category = url.searchParams.get('category') || null;
+  const sinceMs = Date.now() - 14 * 24 * 3_600_000;
+
+  const out: (FeedItem & { distanceM: number })[] = [];
+
+  // Ours (query already windowed to 14 days).
+  for (const r of await store.findReportsSince(24 * 14, 500)) {
+    if (r.lat == null || r.lng == null) continue;
+    if (category && r.category !== category) continue;
+    const d = haversineMeters(lat, lng, r.lat, r.lng);
+    if (d > radiusM) continue;
+    out.push({ ...ourFeedItem(r), distanceM: Math.round(d) });
+  }
+
+  // City (filter to 14 days; unparseable dates are kept so a fresh dedupe signal isn't dropped).
+  const feed = await store.getMeta<CityFeed>('cityFeed');
+  for (const it of feed?.items ?? []) {
+    if (it.lat == null || it.lng == null) continue;
+    if (category && it.category !== category) continue;
+    const iso = parseCityDate(it.createdOn);
+    if (iso != null && Date.parse(iso) < sinceMs) continue;
+    const d = haversineMeters(lat, lng, it.lat, it.lng);
+    if (d > radiusM) continue;
+    out.push({ ...cityFeedItem(it), distanceM: Math.round(d) });
+  }
+
+  out.sort((a, b) => a.distanceM - b.distanceM);
+  return json({ items: out }, 200, { 'cache-control': 'public, max-age=30' });
 }

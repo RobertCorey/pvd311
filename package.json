@@ -10,13 +10,9 @@
     "deploy:all": "npm run deploy && firebase deploy --only firestore:rules,storage",
     "dashboard": "cd automation && npm start",
     "deploy:app": "npm run deploy",
-    "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --expires 7d",
-    "legacy:dev": "npx serve -l 3999 --no-clipboard public",
-    "legacy:test": "cd public && npx playwright test"
+    "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --expires 7d"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "@firebase/rules-unit-testing": "^4.0.1",
-    "firebase": "^11.10.0"
+    "typescript": "^5.9.3"
   }
 }

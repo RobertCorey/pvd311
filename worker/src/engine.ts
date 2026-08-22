@@ -8,11 +8,13 @@
  *   runWatcher(env)    — every 30 min: diff My Requests vs submitted reports, patch portalStatus
  *   runDaily(env)      — daily: digest counts + selector canary (drift alert)
  */
-import type { Env, ReportDoc, Store } from './contracts.js';
+import type { Page } from '@cloudflare/playwright';
+import type { Env, Portal, ReportDoc, Store } from './contracts.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
+import { fetchCityFeed } from './cityfeed.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 
 // Providence bounding box (same as Node engine).
@@ -207,41 +209,66 @@ export async function runWatcher(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
   const tracked = await store.listSubmittedWithCaseId();
-  if (!tracked.length) { console.log('[watcher] nothing to watch'); return; }
 
   const auth = createAuthStore(store);
   const portal = createPortal(env, { auth });
   try {
     await portal.launch();
     await portal.ensureLoggedIn();
-    const rows = await portal.readMyRequests();
-    if (!rows.length) { console.warn('[watcher] My Requests returned 0 rows — skipping pass'); return; }
-    const byId = new Map(rows.map((r) => [r.caseId, r]));
 
-    for (const report of tracked) {
-      const caseId = report.portalCaseId;
-      if (!caseId) continue;
-      const row = byId.get(caseId);
-      if (!row) continue;
-      const from = report.portalStatus ?? null;
-      const to = row.status;
-      if (!to || to === from) continue;
+    // My Requests status diff (skipped when we have nothing to watch, but the city feed below still runs).
+    if (tracked.length) {
+      const rows = await portal.readMyRequests();
+      if (!rows.length) {
+        console.warn('[watcher] My Requests returned 0 rows — skipping diff');
+      } else {
+        const byId = new Map(rows.map((r) => [r.caseId, r]));
+        for (const report of tracked) {
+          const caseId = report.portalCaseId;
+          if (!caseId) continue;
+          const row = byId.get(caseId);
+          if (!row) continue;
+          const from = report.portalStatus ?? null;
+          const to = row.status;
+          if (!to || to === from) continue;
 
-      await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
-      console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
-      if (report.reporterEmail) {
-        const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
-        const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', Resolved: 'is marked resolved by the city', Cancelled: 'was cancelled by the city' };
-        await mailer.sendTo(report.reporterEmail, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
-          `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">SnapPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
+          await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
+          console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
+          if (report.reporterEmail) {
+            const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
+            const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', Resolved: 'is marked resolved by the city', Cancelled: 'was cancelled by the city' };
+            await mailer.sendTo(report.reporterEmail, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
+              `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">SnapPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
+          }
+          if (/resolved|cancel/i.test(to)) {
+            await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
+          }
+        }
       }
-      if (/resolved|cancel/i.test(to)) {
-        await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
-      }
+    } else {
+      console.log('[watcher] nothing to watch');
+    }
+
+    // City-wide public feed (anonymous PCF grid) → meta/cityFeed. Non-fatal; reuses this page.
+    try {
+      await fetchCityFeed(env, portalPage(portal), store);
+    } catch (e) {
+      console.error('[watcher] city feed failed:', e instanceof Error ? e.message : e);
     }
   } finally {
     await portal.close().catch(() => {});
   }
+}
+
+/**
+ * The city feed reuses the watcher's already-open (logged-in) page to avoid a second Browser Run
+ * session. The Portal interface doesn't expose its page, so reach the WorkerPortal's private field
+ * directly — cheaper than launching a browser just for the read-only /public-requests/ scrape.
+ */
+function portalPage(portal: Portal): Page {
+  const p = (portal as unknown as { page?: Page | null }).page;
+  if (!p) throw new Error('portal page unavailable (launch() not called?)');
+  return p;
 }
 
 // ── Daily digest + selector canary ─────────────────────────────────────────────────────
