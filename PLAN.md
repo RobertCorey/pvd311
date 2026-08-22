@@ -75,10 +75,11 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Report screen: 8 tiles + Other (picker first, per Rob), photo (camera/library, EXIF → location), geolocation + forward/reverse geocode + Providence guard, per-category extra questions, description + AI intake (moderation/polish, reporter approves), sticky submit
 - [x] Offline outbox (IndexedDB) with flush on reconnect
 - [x] My reports (device-local tokens)
-- [ ] Tracking page `/r/:id` + confirmation (copy/share, email attach once the Worker has the endpoint)  ← IC app-track
-- [ ] Public map + feed `/map` (Leaflet, lazy) ← IC app-map
-- [ ] About + Privacy, SnapPVD icon set ← IC app-about
+- [x] Tracking page `/r/:id` + confirmation (copy/share, email attach)
+- [x] Public map + feed `/map` (Leaflet, lazy)
+- [x] About + Privacy, SnapPVD icon set
 - [ ] Spanish strings (`strings.es.json`) + language switch
-- [ ] Location mini-map with draggable pin (spec §3.1) — after MapView lands
+- [x] Location mini-map with draggable pin (spec §3.1)
 - [ ] Dedupe prompt (needs GET /api/nearby) — parked until the Worker ships it
-- [ ] Flip Firebase Hosting to `app/dist` once the Worker endpoints are live (firebase.json `_comment`), then retire `public/`; later Cloudflare
+- [x] Flipped Firebase Hosting to `app/dist` 2026-08-22 (`npm run deploy:app`, firebase.app.json) — SnapPVD live at pvdsnow.org
+- [ ] Retire `public/` + legacy firebase.json target; pvdsnow.org → snappvd.org redirect once the domain exists; later Cloudflare
