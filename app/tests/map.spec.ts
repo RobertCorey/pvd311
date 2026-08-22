@@ -11,6 +11,7 @@ const THREE = [
 async function setup(page: Page, items: object[]) {
   // Never hit real OSM tiles.
   await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('**/api/public-feed*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items }) }));
 }
 

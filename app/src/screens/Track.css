@@ -1,67 +1,94 @@
 .track { display: flex; flex-direction: column; }
-.track-h1 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); margin: 0 0 6px; }
+.track-h1 { font-family: var(--font-display); font-size: 1.7rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: var(--ink); margin: 0 0 6px; }
 .track-block-btn { width: 100%; margin-top: 14px; text-decoration: none; }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* --- skeleton --- */
 .track-skeleton { display: flex; flex-direction: column; gap: 12px; }
-.sk-line { height: 14px; border-radius: 7px; background: var(--accent-soft); animation: sk-pulse 1.4s ease-in-out infinite; }
+.sk-line { height: 14px; border-radius: 7px; background: var(--ink-soft); animation: sk-pulse 1.4s ease-in-out infinite; }
 .sk-line.sk-lg { height: 22px; width: 70%; }
 .sk-line.sk-sm { width: 45%; }
 @keyframes sk-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
 /* --- confirmation header --- */
-.track-confirm { text-align: center; padding: 8px 0 4px; margin-bottom: 6px; }
-.track-check { width: 60px; height: 60px; margin: 4px auto 12px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: var(--success-soft); color: var(--success); }
-.track-confirm .track-h1 { color: var(--accent); }
+.track-confirm { text-align: center; padding: 8px 0 4px; margin-bottom: 6px; animation: rise 0.3s var(--ease-out) both; }
+.track-check { width: 68px; height: 68px; margin: 4px auto 14px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: var(--ember); color: var(--ember-ink); box-shadow: 0 4px 0 rgba(22, 33, 58, 0.25); animation: pop 0.45s var(--ease-bounce) both; }
+@keyframes pop { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
 .track-confirm-sub { margin: 0 auto 16px; max-width: 34ch; text-wrap: pretty; }
 .track-confirm .label { text-align: start; }
 .track-link-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 12px; }
-.track-link-input { flex: 1 1 auto; min-width: 0; font-size: 0.9rem; color: var(--muted); }
+.track-link-input { flex: 1 1 auto; min-width: 0; font-size: 0.9rem; color: var(--muted); font-family: var(--font-mono); }
 .track-copy { flex: 0 0 auto; width: auto; white-space: nowrap; }
 .track-confirm-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .track-confirm-actions .btn { flex: 1 1 auto; min-width: 140px; text-decoration: none; }
 .track-confirm .hint { text-align: center; margin-top: 12px; }
 
-/* --- status card --- */
-.track-status { margin-top: 8px; border-inline-start-width: 4px; }
-.track-status--progress { border-inline-start-color: var(--accent); }
-.track-status--ok { border-inline-start-color: var(--success); }
-.track-status--warn { border-inline-start-color: var(--warn); }
-.track-status-headline { font-size: 1.2rem; margin: 4px 0 0; }
-.track-case { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 5px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-.track-case-label { font-weight: 500; opacity: 0.8; }
-.track-status-explainer { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
+/* --- ticket (status + rail) --- */
+.ticket { position: relative; margin-top: 8px; background: var(--surface); border: 2px solid var(--ink); border-radius: var(--radius-lg); padding: 14px 16px 16px; box-shadow: 0 4px 0 rgba(22, 33, 58, 0.18), var(--shadow); animation: rise 0.3s var(--ease-out) both; }
+/* perforated notch line under the head, like a stub */
+.ticket-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 2px dashed var(--line); }
+.ticket-head .label { margin: 0; }
+.track-status--ok .track-status-headline { color: var(--success); }
+.track-status--warn .track-status-headline { color: var(--warn); }
+.track-status-headline { font-size: 1.35rem; margin: 0; line-height: 1.15; }
+.track-case { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--bg); font-family: var(--font-mono); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.track-case-label { font-family: var(--font-display); font-weight: 700; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.track-status-explainer { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
 .track-portal-link { display: inline-block; margin-top: 8px; font-size: 0.9rem; font-weight: 600; }
+.ticket-eta { margin: 12px 0 0; font-size: 0.85rem; color: var(--muted); }
 
-/* --- timeline --- */
+/* rail: 4 steps, horizontal, connectors fill as steps complete */
+.rail { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); position: relative; counter-reset: step; }
+.rail-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; animation: rise 0.3s var(--ease-out) both; }
+.rail-step::before { content: ''; position: absolute; top: 13px; inset-inline-start: -50%; width: 100%; height: 3px; background: var(--line); z-index: 0; }
+.rail-step:first-child::before { display: none; }
+.rail-step--done::before { background: var(--ink); }
+.rail-step--active::before, .rail-step--warn::before { background: linear-gradient(90deg, var(--ink), var(--line)); }
+.rail-dot { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 999px; border: 3px solid var(--line); background: var(--surface); display: flex; align-items: center; justify-content: center; color: var(--bg); }
+.rail-dot svg { width: 14px; height: 14px; }
+.rail-step--done .rail-dot { background: var(--ink); border-color: var(--ink); }
+.rail-step--active .rail-dot { border-color: var(--ember); background: var(--ember); animation: pulse-ring 2s var(--ease-out) infinite; }
+.rail-step--warn .rail-dot { background: var(--warn); border-color: var(--warn); color: var(--surface); }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 var(--ember-soft), 0 0 0 0 var(--ember); } 70% { box-shadow: 0 0 0 10px rgba(244, 101, 42, 0), 0 0 0 3px rgba(244, 101, 42, 0); } 100% { box-shadow: 0 0 0 0 rgba(244, 101, 42, 0); } }
+.rail-label { font-family: var(--font-display); font-weight: 700; font-size: 0.7rem; line-height: 1.2; color: var(--muted); max-width: 7.5em; }
+.rail-step--done .rail-label, .rail-step--active .rail-label { color: var(--ink); }
+.rail-step--warn .rail-label { color: var(--warn); }
+.rail--ok .rail-step:last-child.rail-step--done .rail-dot { background: var(--success); border-color: var(--success); }
+.rail--ok .rail-step:last-child.rail-step--done .rail-label { color: var(--success); }
+
+/* --- timeline (exact timestamps) --- */
 .track-timeline { list-style: none; margin: 8px 0 0; padding: 0; }
 .track-tl-row { display: grid; grid-template-columns: 20px 1fr; gap: 4px 12px; padding-bottom: 16px; position: relative; }
 .track-tl-row::before { content: ''; position: absolute; inset-inline-start: 9px; top: 16px; bottom: -2px; width: 2px; background: var(--line); }
 .track-tl-row:last-child { padding-bottom: 0; }
 .track-tl-row:last-child::before { display: none; }
 .track-tl-dot { grid-row: 1 / span 2; width: 12px; height: 12px; margin-top: 4px; border-radius: 999px; background: var(--surface); border: 2.5px solid var(--line); z-index: 1; }
-.track-tl-row.is-current .track-tl-dot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.track-tl-row.is-current .track-tl-dot { background: var(--ember); border-color: var(--ember); box-shadow: 0 0 0 4px var(--ember-soft); }
 .track-tl-body { display: flex; flex-direction: column; gap: 2px; }
 .track-tl-label { font-weight: 600; color: var(--muted); font-size: 0.95rem; }
 .track-tl-row.is-current .track-tl-label { color: var(--ink); }
 .track-tl-time { font-size: 0.8rem; color: var(--muted); }
-.track-tl-abs { opacity: 0.75; }
+.track-tl-abs { }
 
 /* --- details --- */
 .track-details { display: flex; flex-direction: column; gap: 14px; }
-.track-photo { width: 100%; max-height: 280px; object-fit: cover; border-radius: var(--radius); border: 1.5px solid var(--line); }
+.track-photo-frame { position: relative; }
+.track-photo { width: 100%; max-height: 280px; object-fit: cover; border-radius: var(--radius); border: 2px solid var(--ink); }
+.track-photo-frame::before, .track-photo-frame::after { content: ''; position: absolute; width: 22px; height: 22px; border: 3px solid var(--ember); pointer-events: none; }
+.track-photo-frame::before { top: -5px; left: -5px; border-right: 0; border-bottom: 0; border-top-left-radius: 6px; }
+.track-photo-frame::after { bottom: -5px; right: -5px; border-left: 0; border-top: 0; border-bottom-right-radius: 6px; }
 .track-cat { display: flex; align-items: center; gap: 10px; }
-.track-cat-icon { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); flex: 0 0 auto; }
-.track-cat-label { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; }
-.track-map { padding: 12px; border: 1.5px dashed var(--line); border-radius: var(--radius); background: var(--bg); }
-.track-map-addr { margin: 4px 0 0; font-weight: 500; line-height: 1.4; }
-.track-map-coords { margin: 4px 0 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.track-cat-icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--ink); flex: 0 0 auto; }
+.track-cat-label { font-family: var(--font-display); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; }
+.track-map { padding: 12px; border: 2px dashed var(--line); border-radius: var(--radius); background: var(--bg); }
+.track-map-addr { margin: 4px 0 0; font-weight: 600; line-height: 1.4; }
+.track-map-coords { margin: 4px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* --- what to expect --- */
 .track-expect { margin: 8px 0 0; padding-inline-start: 20px; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
 .track-expect li { margin-bottom: 6px; }
+.track-expect li::marker { color: var(--ember); }
 
 /* --- email attach --- */
 .track-email { display: flex; flex-direction: column; }

@@ -37,6 +37,23 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
   }
 }
 
+/** Parcel-style rail: Received → Sent to city → City working → Resolved. `done` = steps completed;
+ *  `branch` marks a warn ending (city closed it / never sent). */
+function railState(v: ReportView): { done: number; branch: 'closed' | 'notSent' | null } {
+  switch (v.status) {
+    case 'rejected': case 'failed': case 'needs_attention': return { done: 1, branch: 'notSent' };
+    case 'received': case 'awaiting_review': case 'sending': return { done: 1, branch: null };
+    case 'sent':
+      switch (v.portalStatus) {
+        case 'Assigned': return { done: 3, branch: null };
+        case 'Resolved': return { done: 4, branch: null };
+        case 'Cancelled': return { done: 3, branch: 'closed' };
+        default: return { done: 2, branch: null };
+      }
+    default: return { done: 1, branch: null };
+  }
+}
+
 const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ['year', 31_536_000], ['month', 2_592_000], ['week', 604_800], ['day', 86_400], ['hour', 3_600], ['minute', 60],
 ];
@@ -127,26 +144,47 @@ export default function Track() {
   }
 
   const info = statusInfo(view, t);
+  const rail = railState(view);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
   const ts = (iso: string | null) => (iso ? new Date(iso).getTime() || 0 : 0);
   const entries = [...view.timeline].sort((a, b) => ts(b.at) - ts(a.at));
+  const railLabels = [t('track.rail.received'), t('track.rail.sent'), t('track.rail.working'), t('track.rail.resolved')];
+  if (rail.branch === 'closed') railLabels[3] = t('track.rail.closed');
+  if (rail.branch === 'notSent') railLabels[1] = t('track.rail.notSent');
 
   return (
     <section className="track section">
       {justSubmitted && <ConfirmHeader trackUrl={trackUrl} />}
 
-      <div className={`track-status card track-status--${info.tone}`} aria-live="polite">
-        <span className="label">{t('track.status.label')}</span>
+      <div className={`track-status ticket track-status--${info.tone}`} aria-live="polite">
+        <div className="ticket-head">
+          <span className="label">{t('track.status.label')}</span>
+          {view.portalCaseId && (
+            <span className="track-case" aria-label={`${t('track.caseId.label')} ${view.portalCaseId}`}>
+              <span className="track-case-label">{t('track.caseId.label')}</span>{view.portalCaseId}
+            </span>
+          )}
+        </div>
         <h2 className="track-status-headline">{info.headline}</h2>
-        {view.portalCaseId && (
-          <span className="track-case" aria-label={`${t('track.caseId.label')} ${view.portalCaseId}`}>
-            <span className="track-case-label">{t('track.caseId.label')}</span>{view.portalCaseId}
-          </span>
-        )}
         {info.explainer && <p className="track-status-explainer">{info.explainer}</p>}
         {info.portalLink && (
           <a className="track-portal-link" href={BRAND.portalUrl} target="_blank" rel="noopener">{t('track.portalLink')}</a>
         )}
+        <ol className={`rail rail--${rail.branch ?? 'ok'}`} aria-label={t('track.timeline.title')}>
+          {railLabels.map((label, i) => {
+            const state = i < rail.done ? 'done' : i === rail.done && rail.branch ? 'warn' : i === rail.done ? 'active' : 'todo';
+            return (
+              <li key={i} className={`rail-step rail-step--${state}`} style={{ animationDelay: `${i * 60}ms` }} aria-current={state === 'active' ? 'step' : undefined}>
+                <span className="rail-dot" aria-hidden="true">
+                  {state === 'done' && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>}
+                  {state === 'warn' && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round"><path d="M12 5v9M12 18.5v.5" /></svg>}
+                </span>
+                <span className="rail-label">{label}</span>
+              </li>
+            );
+          })}
+        </ol>
+        {view.nextUpdateHint && <p className="ticket-eta">{view.nextUpdateHint}</p>}
       </div>
 
       <div className="section">
@@ -165,15 +203,14 @@ export default function Track() {
             </li>
           ))}
         </ol>
-        {view.nextUpdateHint && <p className="hint">{view.nextUpdateHint}</p>}
       </div>
 
       <div className="section">
         <h2>{t('track.details.title')}</h2>
         <div className="card track-details">
-          {view.photoUrl && <img className="track-photo" src={view.photoUrl} alt={t('track.details.photoAlt')} />}
+          {view.photoUrl && <div className="track-photo-frame"><img className="track-photo" src={view.photoUrl} alt={t('track.details.photoAlt')} /></div>}
           <div className="track-cat">
-            <span className="track-cat-icon"><CategoryIcon k={view.category} size={22} /></span>
+            <span className="track-cat-icon"><CategoryIcon k={view.category} size={40} /></span>
             <span className="track-cat-label">{view.categoryLabel}</span>
           </div>
           <div className="track-map" data-map data-lat={view.lat ?? undefined} data-lng={view.lng ?? undefined}>

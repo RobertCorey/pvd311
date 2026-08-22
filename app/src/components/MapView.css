@@ -5,7 +5,7 @@
   border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--surface);
-  border: 1.5px solid var(--line);
+  border: 2px solid var(--ink);
   z-index: 0;
 }
 
@@ -13,23 +13,37 @@
 .mapview .map-pin {
   background: transparent;
   border: 0;
-  filter: drop-shadow(0 1px 2px rgba(19, 26, 36, 0.35));
   cursor: pointer;
 }
-.mapview .map-pin svg { display: block; }
+.mapview .map-pin svg { display: block; position: relative; filter: drop-shadow(0 2px 2px rgba(22, 33, 58, 0.35)); }
+.mapview .map-pin-drop { display: block; transform-origin: 50% 95%; animation: pin-drop 0.42s var(--ease-bounce) both; }
+@keyframes pin-drop { from { opacity: 0; transform: translateY(-18px) scale(0.6); } to { opacity: 1; transform: none; } }
+.mapview .map-pin-halo {
+  position: absolute; left: 50%; bottom: 1px; width: 18px; height: 18px; margin-left: -9px; border-radius: 999px;
+  background: var(--halo, var(--ember)); opacity: 0.35; transform-origin: center; animation: halo 2.4s ease-out infinite;
+}
+@keyframes halo { 0% { transform: scale(0.6); opacity: 0.45; } 100% { transform: scale(2.4); opacity: 0; } }
+.mapview .leaflet-marker-draggable .map-pin-drop { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .mapview .map-pin-drop, .mapview .map-pin-halo { animation: none; }
+  .mapview .map-pin-halo { display: none; }
+}
 
 /* Controls + attribution readable in both themes. */
 .mapview .leaflet-control-attribution {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   color: var(--muted);
+  font-family: var(--font-body);
 }
-.mapview .leaflet-control-attribution a { color: var(--accent); }
+.mapview .leaflet-control-attribution a { color: var(--link); }
+.mapview .leaflet-bar { border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; box-shadow: none; }
 .mapview .leaflet-bar a {
   background: var(--surface);
   color: var(--ink);
   border-bottom-color: var(--line);
+  font-family: var(--font-display);
+  font-weight: 700;
 }
-.mapview .leaflet-bar a:hover { background: var(--accent-soft); }
+.mapview .leaflet-bar a:hover { background: var(--ember-soft); }
 
-/* Dark map tiles read fine; nudge the container focus ring to our token. */
-.mapview.leaflet-container:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mapview.leaflet-container:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }

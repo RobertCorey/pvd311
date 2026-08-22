@@ -5,6 +5,7 @@ import { getFeed } from '../api/client';
 import { PVD_BOUNDS } from '../lib/geo';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
+import Illustration from '../components/Illustration';
 import type { MapMarker } from '../components/MapView';
 import './Feed.css';
 
@@ -19,8 +20,10 @@ type T = ReturnType<typeof useT>;
 function markerColor(it: FeedItem): string {
   if (it.portalStatus === 'Resolved') return '--success';
   if (it.portalStatus === 'Cancelled' || it.status === 'failed' || it.status === 'needs_attention' || it.status === 'rejected') return '--warn';
-  return '--accent-2';
+  return '--ember';
 }
+const isOpen = (it: FeedItem) => markerColor(it) === '--ember';
+const WEEK_MS = 7 * 86_400_000;
 
 const KNOWN_PORTAL = ['submitted', 'assigned', 'resolved', 'cancelled'];
 function portalPill(portalStatus: string, t: T): { label: string; cls: string } {
@@ -92,9 +95,15 @@ export default function Feed() {
     () =>
       (items ?? [])
         .filter((it) => Number.isFinite(it.lat) && Number.isFinite(it.lng))
-        .map((it) => ({ id: it.id, lat: it.lat, lng: it.lng, label: it.categoryLabel, color: markerColor(it), href: isCity(it) ? undefined : `/r/${it.id}` })),
+        .map((it) => ({ id: it.id, lat: it.lat, lng: it.lng, label: it.categoryLabel, color: markerColor(it), open: isOpen(it), href: isCity(it) ? undefined : `/r/${it.id}` })),
     [items],
   );
+  const stats = useMemo(() => {
+    const list = items ?? [];
+    const since = Date.now() - WEEK_MS;
+    const recent = (it: FeedItem) => { const t = it.createdAt ? new Date(it.createdAt).getTime() : NaN; return Number.isFinite(t) && t >= since; };
+    return { open: list.filter(isOpen).length, resolved: list.filter((it) => it.portalStatus === 'Resolved').length, week: list.filter(recent).length };
+  }, [items]);
 
   const showSkeleton = loading && items === null;
 
@@ -102,6 +111,14 @@ export default function Feed() {
     <section className="section feed">
       <h2>{t('map.title')}</h2>
       <p className="hint">{t('map.subtitle')}</p>
+
+      {items && items.length > 0 && (
+        <dl className="feed-stats rise" aria-label={t('map.stats.label')}>
+          <div className="feed-stat feed-stat--open"><dt>{t('map.stats.open')}</dt><dd>{stats.open}</dd></div>
+          <div className="feed-stat feed-stat--resolved"><dt>{t('map.stats.resolved')}</dt><dd>{stats.resolved}</dd></div>
+          <div className="feed-stat"><dt>{t('map.stats.week')}</dt><dd>{stats.week}</dd></div>
+        </dl>
+      )}
 
       <div className="feed-map">
         <Suspense fallback={<div className="feed-map-skeleton" aria-hidden="true" />}>
@@ -135,16 +152,21 @@ export default function Feed() {
                       <span className="feed-addr">{it.address.replace(/,\s*Providence.*$/i, '')}{isCity(it) && <span className="feed-source muted"> · {t('map.source.city')}</span>}</span>
                       <span className="feed-age muted">{ageLabel(it.createdAt, t)}</span>
                     </>);
+                    const cls = `card feed-row rise${isOpen(it) ? ' feed-row--open' : ''}`;
                     return isCity(it)
-                      ? <div className="card feed-row feed-row--city">{inner}</div>
-                      : <Link to={`/r/${it.id}`} className="card feed-row">{inner}</Link>;
+                      ? <div className={`${cls} feed-row--city`}>{inner}</div>
+                      : <Link to={`/r/${it.id}`} className={cls}>{inner}</Link>;
                   })()}
                 </li>
               );
             })}
           </ul>
         ) : (
-          <p className="muted feed-empty">{t('map.empty')}</p>
+          <div className="empty feed-empty rise">
+            <Illustration kind="street" className="illo" />
+            <h2>{t('empty.map.title')}</h2>
+            <p className="muted">{t('map.empty')}</p>
+          </div>
         )}
       </div>
     </section>
