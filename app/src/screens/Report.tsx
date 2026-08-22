@@ -17,11 +17,7 @@ import './Report.css';
 
 const MapView = lazy(() => import('../components/MapView'));
 
-// The sign-in gate is owned by the accounts lead; resolve it at build time so
-// this screen compiles (and degrades to a link) until the component exists.
-const gateModules = import.meta.glob('../components/SignInGate.tsx') as Record<string, () => Promise<{ default: React.ComponentType<{ returnTo: string }> }>>;
-const gateLoader = Object.values(gateModules)[0];
-const SignInGate = gateLoader ? lazy(gateLoader) : null;
+const SignInGate = lazy(() => import('../components/SignInGate'));
 
 type Loc = { lat: number; lng: number } | null;
 
@@ -435,14 +431,9 @@ export default function Report() {
       </section>
       {gated && !session ? (
         <section className="section gate" aria-live="polite">
-          {SignInGate ? (
-            <Suspense fallback={<p className="hint">{t('report.gate.loading')}</p>}><SignInGate returnTo="/" /></Suspense>
-          ) : (
-            <div className="card">
-              <p>{t('report.gate.fallback')}</p>
-              <Link className="btn btn-primary" to="/account?returnTo=%2F">{t('report.gate.signIn')}</Link>
-            </div>
-          )}
+          <Suspense fallback={<p className="hint">{t('report.gate.loading')}</p>}>
+            <SignInGate category={cat.key} returnTo="/?resume=1" onBack={() => setGated(false)} onSignedIn={() => setGated(false)} />
+          </Suspense>
         </section>
       ) : null}
       <div className="submit-bar" hidden={gated && !session}>
