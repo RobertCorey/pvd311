@@ -1,0 +1,534 @@
+{
+  "capturedOn": "2026-08-21",
+  "source": "live census via case-type lookup modal + step-3 sampling (see PORTAL-RESEARCH-ADDENDUM)",
+  "caseTypeCount": 126,
+  "caseTypes": [
+    {
+      "id": "bae7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Abandoned or Vacant City Owned Property Concerns"
+    },
+    {
+      "id": "c94b243f-dd25-f011-9989-001dd806d5d5",
+      "name": "Abandoned or Vacant Private Property Concerns"
+    },
+    {
+      "id": "bce7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Abandoned Vehicle to Report"
+    },
+    {
+      "id": "0d14e369-5b9a-ef11-8a6a-001dd830140a",
+      "name": "Accessibility Concerns on City Property"
+    },
+    {
+      "id": "6ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Accessibility Concerns on Private Property"
+    },
+    {
+      "id": "7ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Accessible and Handicapped Parking Sign Requests"
+    },
+    {
+      "id": "bee7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Accessible Parking Issues or Concerns"
+    },
+    {
+      "id": "10e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "After-School Program Information"
+    },
+    {
+      "id": "630efb0b-0454-ef11-a317-001dd8068673",
+      "name": "Animal Control Concerns"
+    },
+    {
+      "id": "0ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Assistance or Concern with a Business License"
+    },
+    {
+      "id": "38e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Assistance or Concern with a City Cemetery"
+    },
+    {
+      "id": "770b6122-fcee-ef11-be20-001dd8053af7",
+      "name": "Bike Path and Lane Issues or Concerns"
+    },
+    {
+      "id": "c4e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Blocked Storm Drain or Catch Basin "
+    },
+    {
+      "id": "4ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Broken Water Pipe or Water Leaks"
+    },
+    {
+      "id": "c8e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Building Code Violations"
+    },
+    {
+      "id": "76e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Business License Assistance"
+    },
+    {
+      "id": "5d0efb0b-0454-ef11-a317-001dd8068673",
+      "name": "City Claim Questions"
+    },
+    {
+      "id": "74e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "City Sponsored Event Information"
+    },
+    {
+      "id": "70e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "City-Owned Property Concerns"
+    },
+    {
+      "id": "6ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Concern about a Wheelchair Ramp on Private Property"
+    },
+    {
+      "id": "cce7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Concerns about a Business"
+    },
+    {
+      "id": "02e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Concerns or Issues on the Pedestrian Bridge"
+    },
+    {
+      "id": "8ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Concerns with a Construction Site"
+    },
+    {
+      "id": "fee7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Contact City Council"
+    },
+    {
+      "id": "cae7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Crosswalk and Road Striping Concerns "
+    },
+    {
+      "id": "cee7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Damaged Manhole or Utility Cover"
+    },
+    {
+      "id": "d2e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Damaged Storm Drain or Catch Basin"
+    },
+    {
+      "id": "4ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Dead Animal on Roadway or Sidewalk"
+    },
+    {
+      "id": "d4e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Decorative Street Light Issue"
+    },
+    {
+      "id": "d6e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Defective or Failed Utility Trench Repairs"
+    },
+    {
+      "id": "d8e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Disaster Preparedness Information"
+    },
+    {
+      "id": "8ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Discarded Syringes"
+    },
+    {
+      "id": "dae7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Downed Wire or Leaning Utility Pole"
+    },
+    {
+      "id": "66e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Elections and Voting Information"
+    },
+    {
+      "id": "c2e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Electric Scooter Issues"
+    },
+    {
+      "id": "dce7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Electrical, Mechanical, Plumbing Inspection Requests"
+    },
+    {
+      "id": "8ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Emergency and Disaster Information"
+    },
+    {
+      "id": "f6e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Encampment Concern(s)"
+    },
+    {
+      "id": "82e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Energy Efficiency Issues"
+    },
+    {
+      "id": "e4e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Faulty Plumbing or Raw Sewage "
+    },
+    {
+      "id": "78e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Fire Hydrant Issue"
+    },
+    {
+      "id": "e6e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Food Assistance Information"
+    },
+    {
+      "id": "63411634-181e-f011-9989-001dd80947ed",
+      "name": "General Question or Concern DPW related"
+    },
+    {
+      "id": "a4c9e86b-0907-f011-bae2-001dd804f125",
+      "name": "General Questions, Comments or Concerns"
+    },
+    {
+      "id": "f4e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Graffiti in a Park"
+    },
+    {
+      "id": "92e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Graffiti on City-Owned Property"
+    },
+    {
+      "id": "7ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Graffiti on Private Property"
+    },
+    {
+      "id": "7ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Hate Crime"
+    },
+    {
+      "id": "f8e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Hazardous Waste Disposal"
+    },
+    {
+      "id": "28e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Home Repair Assistance"
+    },
+    {
+      "id": "fae7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Housing Assistance Information"
+    },
+    {
+      "id": "5c006794-b08c-ef11-ac21-001dd804e2ae",
+      "name": "I am unsure or do not know how to classify my request."
+    },
+    {
+      "id": "56d37a28-cc3f-ef11-8409-001dd800f706",
+      "name": "Illegal Business or Vending Operations"
+    },
+    {
+      "id": "00e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Illegal Dumping"
+    },
+    {
+      "id": "04e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Illegal Housing Issues or Concerns"
+    },
+    {
+      "id": "e0e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Information about events in the City"
+    },
+    {
+      "id": "08e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Information on Public Art"
+    },
+    {
+      "id": "0ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Job Training Information"
+    },
+    {
+      "id": "50e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Maintenance Issue in a City Park"
+    },
+    {
+      "id": "12e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Maintenance Issue on City Property"
+    },
+    {
+      "id": "1ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Missed Trash Day Pick-up Issue"
+    },
+    {
+      "id": "16e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Missing Manhole or Utility Cover"
+    },
+    {
+      "id": "fce7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "No Public Utilities"
+    },
+    {
+      "id": "18e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Noise or Sound Disturbances"
+    },
+    {
+      "id": "0e8e7734-cc3f-ef11-8409-001dd800f706",
+      "name": "Overflowing Dumpster"
+    },
+    {
+      "id": "e8e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Overgrowth or High Grass on Private Property"
+    },
+    {
+      "id": "1ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Overgrowth or High Grass Public Property"
+    },
+    {
+      "id": "84e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Overnight Parking Violations"
+    },
+    {
+      "id": "30e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Parking Issues to Report"
+    },
+    {
+      "id": "86e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Parking Meters Malfunction"
+    },
+    {
+      "id": "22e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Permit Issues at a Construction Site"
+    },
+    {
+      "id": "b076f168-cd3f-ef11-8409-001dd800f706",
+      "name": "Plastic Bag Ban Violation "
+    },
+    {
+      "id": "5f0efb0b-0454-ef11-a317-001dd8068673",
+      "name": "Pothole Report"
+    },
+    {
+      "id": "9ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Providence Fire Department Inquiry"
+    },
+    {
+      "id": "590efb0b-0454-ef11-a317-001dd8068673",
+      "name": "Providence Police Department Inquiry"
+    },
+    {
+      "id": "550efb0b-0454-ef11-a317-001dd8068673",
+      "name": "Providence Public School Department (PPSD) Inquiry"
+    },
+    {
+      "id": "80e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Providence Water Engineering Issues "
+    },
+    {
+      "id": "52e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Public Transit Issues and Concerns"
+    },
+    {
+      "id": "24e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Recreational Programs "
+    },
+    {
+      "id": "f0e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Register to Film in the City"
+    },
+    {
+      "id": "ece7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Repair a Parking Sign"
+    },
+    {
+      "id": "eee7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Repair a Traffic Sign "
+    },
+    {
+      "id": "2ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Repair Existing Guardrail "
+    },
+    {
+      "id": "96e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report a City Employee Misconduct"
+    },
+    {
+      "id": "3ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report a Leaning City Streetlight Pole"
+    },
+    {
+      "id": "2ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report a Smell of Gas"
+    },
+    {
+      "id": "48e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Discrimination "
+    },
+    {
+      "id": "4ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report General Public Safety Issues or Concerns "
+    },
+    {
+      "id": "88e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Public Health Hazards"
+    },
+    {
+      "id": "44e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Sewage Backup"
+    },
+    {
+      "id": "64e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Street Flooding"
+    },
+    {
+      "id": "d0e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Street Light Issue"
+    },
+    {
+      "id": "60e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Suspicious Activity"
+    },
+    {
+      "id": "b8e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Report Un-shoveled Sidewalks"
+    },
+    {
+      "id": "fe14d86e-6280-f111-ab0e-001dd8015c9c",
+      "name": "Report Voter Intimidation Activity"
+    },
+    {
+      "id": "34e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Request a New Parking Sign"
+    },
+    {
+      "id": "98e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Request a New Traffic Sign "
+    },
+    {
+      "id": "3ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Request Reboarding of Abandoned Property "
+    },
+    {
+      "id": "9714e369-5b9a-ef11-8a6a-001dd830140a",
+      "name": "Request Rodent Baiting Information"
+    },
+    {
+      "id": "3ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Request Street Repair(s)"
+    },
+    {
+      "id": "42e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Reserve Private Events in City Hall"
+    },
+    {
+      "id": "72e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Senior Services"
+    },
+    {
+      "id": "46e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Sidewalk Issue that is Tree-Related"
+    },
+    {
+      "id": "54e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Sidewalk Panel Repair"
+    },
+    {
+      "id": "638b20a7-cd3f-ef11-8409-001dd800f706",
+      "name": "Sidewalk Panel Request"
+    },
+    {
+      "id": "eae7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Sinkhole Concern"
+    },
+    {
+      "id": "58e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Small Business Support"
+    },
+    {
+      "id": "5ae8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Snow Plowing or Salting or Sanding Request"
+    },
+    {
+      "id": "ef3410cc-cd3f-ef11-8409-001dd800f706",
+      "name": "Speeding and Traffic Calming Concerns "
+    },
+    {
+      "id": "06e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Street Closure Request"
+    },
+    {
+      "id": "5ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Street Sweeping Issue or Concern"
+    },
+    {
+      "id": "c6e7b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Substandard Housing Code Issues or Violations "
+    },
+    {
+      "id": "62e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Tax Assessor Inquiry"
+    },
+    {
+      "id": "40e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Tax Collector Inquiry"
+    },
+    {
+      "id": "9ce8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Traffic Control Issues or Changes"
+    },
+    {
+      "id": "b1c3d9d8-cd3f-ef11-8409-001dd800f706",
+      "name": "Traffic Signal Malfunction"
+    },
+    {
+      "id": "68e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Trash on Private Property or Sidewalk"
+    },
+    {
+      "id": "6d0efb0b-0454-ef11-a317-001dd8068673",
+      "name": "Trash on Streets and Public Property"
+    },
+    {
+      "id": "6ee8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Trash or Recycling Bins or Cans Left Out"
+    },
+    {
+      "id": "36e8b671-7a2e-ef11-840a-001dd8039400",
+      "name": "Trash or Recycling Bins or Carts"
+    },
+    {
+      "id": "070b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Tree Related Issue(s)"
+    },
+    {
+      "id": "090b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Urban Planning & Green Spaces"
+    },
+    {
+      "id": "0d0b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Vital Records Inquiry"
+    },
+    {
+      "id": "0f0b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Water Meter Issue"
+    },
+    {
+      "id": "110b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Water Quality Issues or Concerns"
+    },
+    {
+      "id": "170b1e94-b7f3-ef11-be20-001dd804ed86",
+      "name": "Zoning Violation Concerns"
+    }
+  ],
+  "step3VisibleExtraFieldsSampled": {
+    "Missed Trash Day Pick-up Issue": [
+      "description"
+    ],
+    "Abandoned Vehicle to Report": [
+      "cop_vehicledetails",
+      "description"
+    ],
+    "Pothole Report": [
+      "cop_size",
+      "description"
+    ],
+    "Report Street Light Issue": [
+      "description"
+    ],
+    "Illegal Dumping": [
+      "description"
+    ],
+    "Animal Control Concerns": [
+      "cop_typeofanimal",
+      "description"
+    ]
+  }
+}

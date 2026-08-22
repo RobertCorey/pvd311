@@ -1,15 +1,8 @@
 rules_version = '2';
 
+// Sunset lockdown: deny all client access. Admin SDK bypasses rules.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /reports/{fileName} {
-      allow write: if request.resource.size < 5 * 1024 * 1024
-                   && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp']
-                   && fileName.matches('.*\\.(jpg|jpeg|png|webp)');
-      allow read: if true;
-      allow delete: if false;
-    }
-
     match /{allPaths=**} {
       allow read, write: if false;
     }
