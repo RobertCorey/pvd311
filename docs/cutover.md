@@ -20,7 +20,7 @@ Goal: `app/` served at **https://fixmypvd.org** (and the Firebase hosting domain
 - [x] `npm run deploy` — live on pvdsnow.org + pvd-snow-report.web.app since 2026-08-22.
 - [x] (done from pvdsnow.org 2026-08-22; repeat from fixmypvd.org) Real-browser E2E: submit (photo-optional category, test-marked), confirm Turnstile passes, tracking page renders, `/map` loads. Tell alice to reject the test report.
 - [ ] Retire legacy: DONE: `firebase.json` hosting → `app/dist`. Remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
-- [ ] pvdsnow.org → 301 to fixmypvd.org (Firebase Hosting `redirects` in `firebase.json`, keyed on host, or at Cloudflare once the old zone moves).
+- [ ] pvdsnow.org → fixmypvd.org: run `scripts/cutover-final.sh` once Firebase shows CERT_ACTIVE (Firebase Hosting has no host-based redirects, so it is a client-side forward in index.html + canonical link + marketing placeholders).
 
 ## 3. After
 - [ ] `robots.txt` Sitemap line → real sitemap or drop it.
