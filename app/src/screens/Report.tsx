@@ -269,7 +269,10 @@ export default function Report() {
             <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
           </div>
         )}
-        <h2>{t('report.whatsWrong')}</h2>
+        <div className="home-hero">
+          <h2>{t('report.whatsWrong')}</h2>
+          <p className="hero-sub">{t('report.heroSub')}</p>
+        </div>
         <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
           {featured.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}
           {!showAll ? (
@@ -287,7 +290,7 @@ export default function Report() {
     <form className="report" onSubmit={onSubmit} noValidate>
       <div className="chosen">
         <button type="button" className="chip" onClick={() => setCategory(null)} aria-label={`${cat.short} — ${t('report.change')}`}>
-          <CategoryIcon k={cat.key} size={18} />{cat.short}<span className="chip-change">{t('report.change')}</span>
+          <CategoryIcon k={cat.key} size={24} />{cat.short}<span className="chip-change">{t('report.change')}</span>
         </button>
       </div>
 
@@ -398,9 +401,11 @@ export default function Report() {
 }
 
 function CatTile({ c, onPick }: { c: UiCategory; onPick: (k: string) => void }) {
+  const t = useT();
   return (
     <button type="button" className="cat-tile" onClick={() => onPick(c.key)} data-category={c.key}>
-      <span className="cat-icon"><CategoryIcon k={c.key} size={26} /></span>
+      <span className="cat-icon"><CategoryIcon k={c.key} size={46} /></span>
+      {c.seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
       <span className="cat-text">{c.short}</span>
     </button>
   );
