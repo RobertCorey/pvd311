@@ -70,6 +70,8 @@ await t('data: URL photo denied', () => assertFails(create(anon, good('anon-1', 
 await t('long description denied', () => assertFails(create(anon, good('anon-1', { description: 'x'.repeat(2001) }))));
 await t('short address denied', () => assertFails(create(anon, good('anon-1', { address: 'ab' }))));
 await t('extra too many keys denied', () => assertFails(create(anon, good('anon-1', { extra: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, 'v'])) }))));
+await t('intake fields ok', () => assertSucceeds(create(anon, good('anon-1', { descriptionOriginal: 'orig', intakeFlags: ['not_311'] }))));
+await t('intakeFlags too many denied', () => assertFails(create(anon, good('anon-1', { intakeFlags: ['a','b','c','d','e','f'] }))));
 await t('queuedAt number ok', () => assertSucceeds(create(anon, good('anon-1', { queuedAt: 1700000000000 }))));
 await t('no client list of all reports', () => assertFails(getDocs(reports(anon))));
 await t('no client updates', async () => {

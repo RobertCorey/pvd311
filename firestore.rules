@@ -10,7 +10,7 @@ service cloud.firestore {
     function isCategory(c) {
       return c in ['pothole', 'missed_trash', 'bins_carts', 'street_light', 'illegal_dumping',
                    'abandoned_vehicle', 'parking', 'animal_control', 'unshoveled_sidewalk',
-                   'missed_plowing', 'unsure'];
+                   'missed_plowing', 'unsure', 'noise'];
     }
     function inProvidence() {
       return d().lat is number && d().lng is number
@@ -23,7 +23,8 @@ service cloud.firestore {
         && isCategory(d().category)
         && d().keys().hasOnly(['timestamp', 'category', 'address', 'lat', 'lng', 'description', 'extra', 'photo',
                                'reporterName', 'reporterEmail', 'status', 'statusDetail', 'portalCaseId',
-                               'statusUpdatedAt', 'reporterUid', 'queuedAt', 'appVersion'])
+                               'statusUpdatedAt', 'reporterUid', 'queuedAt', 'appVersion',
+                               'descriptionOriginal', 'intakeFlags'])
         && d().address is string && d().address.size() >= 3 && d().address.size() < 500
         && ((d().lat == null && d().lng == null) || inProvidence())
         && (d().description == null || (d().description is string && d().description.size() < 2000))
@@ -36,7 +37,9 @@ service cloud.firestore {
         && (!('statusUpdatedAt' in d()) || d().statusUpdatedAt == null)
         && d().portalCaseId == null
         && (!('queuedAt' in d()) || d().queuedAt is number)
-        && (!('appVersion' in d()) || d().appVersion is string);
+        && (!('appVersion' in d()) || d().appVersion is string)
+        && (!('descriptionOriginal' in d()) || d().descriptionOriginal == null || (d().descriptionOriginal is string && d().descriptionOriginal.size() < 2000))
+        && (!('intakeFlags' in d()) || d().intakeFlags == null || (d().intakeFlags is list && d().intakeFlags.size() <= 5));
     }
     // Per-device pacing: the PWA batches the report create with users/{uid}.lastReportAt = now.
     function pacedOk() {

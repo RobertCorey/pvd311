@@ -40,6 +40,10 @@ export interface Report {
   /** Photo URL (Cloud Storage download URL, or legacy base64 data URL) */
   photo: string | null;
 
+  /** AI intake (M6): the reporter-approved description is `description`; the original is kept if it changed; flags feed review gates */
+  descriptionOriginal?: string | null;
+  intakeFlags?: ('spam' | 'abuse' | 'personal_info' | 'not_311' | 'emergency')[] | null;
+
   /** Per-category answers from the PWA (e.g. { size: 'Medium (~28in)' }) */
   extra?: Record<string, string> | null;
 
