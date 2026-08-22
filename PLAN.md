@@ -25,18 +25,18 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [ ] Service worker: real offline queue instead of kill switch; manifest/icon fixes for iOS
 
 ## M3 — Safety before reopening writes
-- [ ] Firestore rules rewrite (create-only, schema-validated) + App Check (reCAPTCHA Enterprise) enforced on Firestore + Storage
+- [x] Firestore rules rewrite (create-only, schema-validated, deployed) + App Check registered (enforcement flips when PWA ships it)
 - [ ] Anonymous auth + per-UID quota; abuse config list replaces the Congdon St hack
-- [ ] Billing kill switch (budget → Pub/Sub → disable billing) + alerts
-- [ ] Storage rules: authenticated uploads only
+- [ ] Billing kill switch (budget → Pub/Sub → disable billing) + alerts — BLOCKED: project needs Blaze billing (Rob)
+- [x] Storage rules: authenticated per-uid uploads (deployed)
 
 ## M4 — Unattended ops
 - [x] Engine state in Firestore (breaker, counters); reaper for stuck `processing`; auto-retry
 - [x] HITL mode: Telegram approve/reject; trust ramp per category; switchable to full-auto (needs TELEGRAM_BOT_TOKEN)
-- [ ] Status watcher: poll My Requests + GetActivities → reporter notifications
+- [x] Status watcher: poll My Requests (+ optional GetActivities) → Telegram alerts; reporter email notifications in M6
 - [ ] `/healthz`, Uptime Kuma, Telegram alerts only for human-needed states; daily digest
-- [ ] Daily selector canary (zero-draft)
-- [ ] Dashboard bound to localhost / behind auth
+- [x] Daily selector canary (zero-draft)
+- [x] Dashboard bound to localhost (HOST env to expose)
 
 ## M5 — Deploy
 - [ ] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts
