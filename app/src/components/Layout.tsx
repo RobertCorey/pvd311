@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header className="app-header">
         <Link to="/" className="wordmark" aria-label={BRAND.name}><BrandMark size={30} /><span aria-hidden="true">{BRAND.wordmark[0]}<em>{BRAND.wordmark[1]}</em></span></Link>
         <div className="header-actions">
-          <span className="microtag">{BRAND.notTheCity}</span>
+          <span className="microtag">{t('header.notTheCity')}</span>
           {canInstall && <button type="button" className="header-link header-btn" onClick={() => { void install(); }}>{t('header.install')}</button>}
           <Link to="/my" className="header-link header-my">{t('header.myReports')}</Link>
           <AccountLink className="header-link" />

@@ -28,6 +28,12 @@ export const ALL_CATEGORIES: UiCategory[] = Object.entries(CATEGORIES as Record<
 
 export const byKey = (k: string | null | undefined) => ALL_CATEGORIES.find((c) => c.key === k) ?? null;
 
+/** Localized picker label: `cat.<key>.short` from i18n, falling back to the English `short`. */
+export function shortLabel(key: string, t: (k: string) => string): string {
+  const s = t(`cat.${key}.short`);
+  return s.startsWith('cat.') ? (byKey(key)?.short ?? key) : s;
+}
+
 export function inSeason(c: UiCategory, now = new Date()): boolean {
   if (!c.seasonal) return true;
   const m = now.getMonth();

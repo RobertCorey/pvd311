@@ -11,7 +11,6 @@ export const BRAND = {
   siteUrl: typeof location !== 'undefined' && /fixmypvd\.org$/.test(location.hostname) ? 'https://fixmypvd.org' : (typeof location !== 'undefined' ? location.origin : 'https://fixmypvd.org'),
   contactEmail: 'pvdsnow@proton.me',  // TODO → hello@fixmypvd.org once the domain + inbox exist
   disclaimer: 'FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.',
-  notTheCity: 'Not the city',
   portalUrl: 'https://311.providenceri.gov',
   themeColor: '#F7F1E6',
 } as const;

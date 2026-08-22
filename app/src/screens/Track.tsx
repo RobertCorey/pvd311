@@ -181,7 +181,7 @@ export default function Track() {
               <li key={i} className={`rail-step rail-step--${state}`} style={{ animationDelay: `${i * 60}ms` }} aria-current={state === 'active' ? 'step' : undefined}>
                 <span className="rail-dot" aria-hidden="true">
                   {state === 'done' && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>}
-                  {state === 'warn' && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round"><path d="M12 5v9M12 18.5v.5" /></svg>}
+                  {state === 'warn' && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round"><path d="M12 5v8" /><circle cx="12" cy="18.5" r="1.8" fill="currentColor" stroke="none" /></svg>}
                 </span>
                 <span className="rail-label">{label}</span>
               </li>

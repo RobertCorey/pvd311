@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { listMyReports } from '../lib/myReports';
-import { byKey } from '../lib/categories';
+import { byKey, shortLabel } from '../lib/categories';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -25,7 +25,7 @@ export default function MyReports() {
           {items.map((r) => (
             <li key={r.id}><Link to={`/r/${r.id}`} className="card my-row rise">
               <span className="my-icon" aria-hidden="true"><CategoryIcon k={r.category} size={36} /></span>
-              <span className="my-cat">{byKey(r.category)?.short ?? r.category}</span>
+              <span className="my-cat">{byKey(r.category) ? shortLabel(r.category, t) : r.category}</span>
               <span className="my-addr">{r.address}</span>
               <span className="muted my-date">{new Date(r.createdAt).toLocaleDateString()}</span>
             </Link></li>

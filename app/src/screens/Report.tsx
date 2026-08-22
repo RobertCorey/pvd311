@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, type UiCategory } from '../lib/categories';
+import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { Link } from 'react-router-dom';
@@ -290,8 +290,8 @@ export default function Report() {
   return (
     <form className="report" onSubmit={onSubmit} noValidate>
       <div className="chosen">
-        <button type="button" className="chip" onClick={() => setCategory(null)} aria-label={`${cat.short} — ${t('report.change')}`}>
-          <CategoryIcon k={cat.key} size={24} />{cat.short}<span className="chip-change">{t('report.change')}</span>
+        <button type="button" className="chip" onClick={() => setCategory(null)} aria-label={`${shortLabel(cat.key, t)} — ${t('report.change')}`}>
+          <CategoryIcon k={cat.key} size={24} />{shortLabel(cat.key, t)}<span className="chip-change">{t('report.change')}</span>
         </button>
       </div>
 
@@ -408,7 +408,7 @@ function CatTile({ c, onPick }: { c: UiCategory; onPick: (k: string) => void }) 
     <button type="button" className="cat-tile" onClick={() => onPick(c.key)} data-category={c.key}>
       <span className="cat-icon"><CategoryIcon k={c.key} size={46} /></span>
       {c.seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
-      <span className="cat-text">{c.short}</span>
+      <span className="cat-text">{shortLabel(c.key, t)}</span>
     </button>
   );
 }
@@ -428,7 +428,7 @@ function NearbyCard({ items, onDismiss }: { items: NearbyItem[]; onDismiss: () =
   return (
     <div className="card nearby-card" role="status" aria-live="polite">
       <span className="label">{t('report.nearby.title')}</span>
-      <p className="nearby-body">{t('report.nearby.body', { label: byKey(first.category)?.short ?? first.categoryLabel, street, age: ageLabel(t, first.createdAt), distance: Math.round(first.distanceM) })}</p>
+      <p className="nearby-body">{t('report.nearby.body', { label: byKey(first.category) ? shortLabel(first.category, t) : first.categoryLabel, street, age: ageLabel(t, first.createdAt), distance: Math.round(first.distanceM) })}</p>
       {items.length > 1 && <p className="hint">{t('report.nearby.bodyMore', { count: items.length, radius: 75 })}</p>}
       <div className="nearby-actions">
         {first.source !== 'city' && !first.id.startsWith('city:')
