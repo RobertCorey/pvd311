@@ -98,7 +98,6 @@ function SignedOut() {
           <GoogleSignInButton className="account-google" label={t('account.google')} width={280} onBusy={() => setPhase('busy')} onSignedIn={() => { void afterSignIn(); }} onError={fail} />
         </div>
       )}
-      <p className="hint account-optional">{t('account.optional')} <Link to="/map">{t('account.reportAnon')}</Link></p>
     </>
   );
 }

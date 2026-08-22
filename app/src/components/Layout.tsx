@@ -27,7 +27,6 @@ export default function Layout({ children }: { children: ReactNode }) {
         <Skyline className="footer-skyline" />
         <nav aria-label="Site">
           <Link to="/">{t('nav.report')}</Link>
-          <Link to="/map">{t('nav.map')}</Link>
           <Link to="/about">{t('nav.about')}</Link>
           <Link to="/privacy">{t('nav.privacy')}</Link>
           <a href={BRAND.portalUrl} target="_blank" rel="noopener">{t('nav.portal')}</a>

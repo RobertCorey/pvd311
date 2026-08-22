@@ -492,9 +492,7 @@ function NearbyCard({ items, onDismiss }: { items: NearbyItem[]; onDismiss: () =
       <p className="nearby-body">{t('report.nearby.body', { label: byKey(first.category) ? shortLabel(first.category, t) : first.categoryLabel, street, age: ageLabel(t, first.createdAt), distance: Math.round(first.distanceM) })}</p>
       {items.length > 1 && <p className="hint">{t('report.nearby.bodyMore', { count: items.length, radius: 75 })}</p>}
       <div className="nearby-actions">
-        {first.source !== 'city' && !first.id.startsWith('city:')
-          ? <Link className="btn btn-ghost" to={`/r/${first.id}`}>{t('report.nearby.track')}</Link>
-          : <Link className="btn btn-ghost" to="/map">{t('report.nearby.viewMap')}</Link>}
+        {first.source !== 'city' && !first.id.startsWith('city:') && <Link className="btn btn-ghost" to={`/r/${first.id}`}>{t('report.nearby.track')}</Link>}
         <button type="button" className="btn btn-secondary" onClick={onDismiss}>{t('report.nearby.dismiss')}</button>
       </div>
     </div>

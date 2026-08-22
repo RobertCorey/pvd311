@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 const ROUTES: Array<[string, RegExp]> = [
   ['/', /What's the problem\?|¿Cuál es el problema\?/],
-  ['/map', /Recent reports|Reportes recientes/],
+  ['/map', /What's the problem\?|¿Cuál es el problema\?/], // legacy route → redirects home
   ['/about', /About|Acerca/],
   ['/privacy', /Privacy|Privacidad/],
   ['/my', /My reports|Mis reportes/],

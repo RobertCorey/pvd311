@@ -1,12 +1,11 @@
 import { Suspense, lazy } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import Report from './screens/Report';
 
 // Report is the landing screen and stays eager; every other screen is its own
 // chunk so the first paint doesn't wait on code the visitor may never use.
 const Track = lazy(() => import('./screens/Track'));
-const Feed = lazy(() => import('./screens/Feed'));
 const About = lazy(() => import('./screens/About'));
 const Privacy = lazy(() => import('./screens/Privacy'));
 const NotFound = lazy(() => import('./screens/NotFound'));
@@ -20,7 +19,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Report />} />
           <Route path="/r/:id" element={<Track />} />
-          <Route path="/map" element={<Feed />} />
+          <Route path="/map" element={<Navigate to="/" replace />} />
           <Route path="/my" element={<MyReports />} />
           <Route path="/account" element={<Account />} />
           <Route path="/about" element={<About />} />

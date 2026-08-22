@@ -27,7 +27,6 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['home', (p) => p.goto('/')],
   ['details', async (p) => { await p.goto('/'); await p.click('[data-category="pothole"]'); }],
   ['track', (p) => p.goto('/r/demo?submitted=1')],
-  ['map', async (p) => { await p.goto('/map'); await p.waitForTimeout(1200); }],
   ['about', (p) => p.goto('/about')],
   ['my', (p) => p.goto('/my')],
 ];
