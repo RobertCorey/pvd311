@@ -1,6 +1,6 @@
 # Nextdoor
 
-> **FIXMYPVD_URL** = https://fixmypvd.org — placeholder used throughout this file. Swap to https://fixmypvd.org once that domain is bought (one find-and-replace of `FIXMYPVD_URL`).
+> **FIXMYPVD_URL** = https://fixmypvd.org — the live URL (placeholder kept so a future domain change is one find-and-replace).
 
 Post to your own neighborhood. Neighborly tone. Lead with the everyday pothole/trash pain.
 

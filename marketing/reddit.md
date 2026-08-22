@@ -1,6 +1,6 @@
 # Reddit
 
-> **FIXMYPVD_URL** = https://fixmypvd.org — placeholder used throughout this file. Swap to https://fixmypvd.org once that domain is bought (one find-and-replace of `FIXMYPVD_URL`).
+> **FIXMYPVD_URL** = https://fixmypvd.org — the live URL (placeholder kept so a future domain change is one find-and-replace).
 
 Post to **r/providence** first; run the shorter **r/RhodeIsland** variant a day or two later only if r/providence goes well. Answer every comment. Lead with the everyday pothole/trash pain. Disclose the volunteer, not-the-city framing up front.
 

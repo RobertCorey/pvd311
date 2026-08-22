@@ -16,11 +16,11 @@ Goal: `app/` served at **https://fixmypvd.org** (and the Firebase hosting domain
 - [x] API primary → https://api.fixmypvd.org with workers.dev fallback (30881dc).
 - [x] `app/src/brand.ts`: FixMyPVD, origin-aware siteUrl (design lead). contactEmail → hello@fixmypvd.org still TODO (inbox: alice).
 - [ ] `firebase.json`: confirm headers; `npm run preview:app` → smoke on a phone.
-- [x] Firebase custom domain added via API (alice); waiting for CERT_ACTIVE → then HTTPS 200.
+- [x] Firebase custom domain: HOST_ACTIVE/OWNERSHIP_ACTIVE, TEMPORARY (browser-trusted GTS) cert serving 200; CERT_ACTIVE flips on Google's schedule.
 - [x] `npm run deploy` — live on pvdsnow.org + pvd-snow-report.web.app since 2026-08-22.
 - [x] (done from pvdsnow.org 2026-08-22; repeat from fixmypvd.org) Real-browser E2E: submit (photo-optional category, test-marked), confirm Turnstile passes, tracking page renders, `/map` loads. Tell alice to reject the test report.
 - [ ] Retire legacy: DONE: `firebase.json` hosting → `app/dist`. Remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
-- [ ] pvdsnow.org → fixmypvd.org: run `scripts/cutover-final.sh` once Firebase shows CERT_ACTIVE (Firebase Hosting has no host-based redirects, so it is a client-side forward in index.html + canonical link + marketing placeholders).
+- [x] pvdsnow.org → fixmypvd.org: DONE 2026-08-23 via `scripts/cutover-final.sh` — client-side forward in index.html (path/query/hash preserved) + canonical/OG → fixmypvd.org. A true HTTP 301 needs a second Firebase Hosting site for pvdsnow.org (re-verification → DNS TXT change at Namecheap) or the Cloudflare NS move — optional follow-up (Firebase Hosting has no host-based redirects, so it is a client-side forward in index.html + canonical link + marketing placeholders).
 
 ## 3. After
 - [ ] `robots.txt` Sitemap line → real sitemap or drop it.

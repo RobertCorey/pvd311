@@ -1,6 +1,6 @@
 # X / Twitter
 
-> **FIXMYPVD_URL** = https://fixmypvd.org — placeholder used throughout this file. Swap to https://fixmypvd.org once that domain is bought (one find-and-replace of `FIXMYPVD_URL`).
+> **FIXMYPVD_URL** = https://fixmypvd.org — the live URL (placeholder kept so a future domain change is one find-and-replace).
 
 Three short posts. Space them out — don't fire all three at once. Keep the quiet-launch discipline: **don't tag the city or reporters at launch.** Press comes later, and only if traction is organic (see README).
 
