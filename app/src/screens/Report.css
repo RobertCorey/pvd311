@@ -30,3 +30,6 @@
 .outbox-card { margin-bottom: 14px; }
 .outbox-card .hint { margin: 0 0 8px; }
 .queued p { margin: 12px 0 18px; }
+.mini-map { margin-top: 12px; }
+.mini-map-skeleton { height: 200px; border-radius: var(--radius-lg); background: var(--line); }
+.mini-map .hint { margin: 6px 0 0; }

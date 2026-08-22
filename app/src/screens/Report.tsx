@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
@@ -11,6 +11,8 @@ import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
 import './Report.css';
+
+const MapView = lazy(() => import('../components/MapView'));
 
 type Loc = { lat: number; lng: number } | null;
 
@@ -138,6 +140,18 @@ export default function Report() {
       setOutside(false); setLoc({ lat: hit.lat, lng: hit.lng });
     } catch { /* ignore */ }
   }, [address, photoHasGps]);
+
+  // Draggable pin: the reporter corrects the spot; address follows (reverse geocode).
+  const pinTimer = useRef<number | null>(null);
+  const onPinMove = useCallback((lat: number, lng: number) => {
+    if (!inProvidence(lat, lng)) { setOutside(true); setLocMsg(t('report.location.pinOutside')); return; }
+    setOutside(false); setLoc({ lat, lng }); setLocMsg(t('report.location.pinMoved'));
+    if (pinTimer.current) window.clearTimeout(pinTimer.current);
+    pinTimer.current = window.setTimeout(async () => {
+      const label = await reverseGeocode(lat, lng).catch(() => null);
+      if (label) { setAddress(label); geocodedFor.current = label; }
+    }, 400);
+  }, [t]);
 
   // Intake (moderation + optional polish) after a pause in typing.
   useEffect(() => {
@@ -290,6 +304,14 @@ export default function Report() {
         <input id="address" className="input" value={address} placeholder={t('report.location.placeholder')}
           autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
         {outside && <div className="notice notice-warn" role="alert">{t('report.location.outside')}</div>}
+        {loc && (
+          <div className="mini-map">
+            <Suspense fallback={<div className="mini-map-skeleton" aria-hidden="true" />}>
+              <MapView center={[loc.lat, loc.lng]} zoom={17} height={200} draggablePin={loc} onPinMove={onPinMove} ariaLabel={t('report.location.mapLabel')} />
+            </Suspense>
+            <p className="hint">{t('report.location.dragHint')}</p>
+          </div>
+        )}
       </section>
 
       {/* Details */}

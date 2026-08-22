@@ -105,3 +105,15 @@ test('language switch to Español persists and translates the picker', async ({ 
   await expect(page.getByRole('heading', { name: '¿Cuál es el problema?' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.lang)).toBe('es');
 });
+
+test('typed address geocodes → mini-map with draggable pin appears', async ({ page }) => {
+  await mockApi(page);
+  await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.locator('#address').blur();
+  await expect(page.locator('.mini-map .leaflet-container')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.mini-map .leaflet-marker-draggable')).toHaveCount(1);
+  await page.screenshot({ path: '/private/tmp/claude-501/-Users-rob-Code-pvd311/5c4989e3-4134-4424-845f-3f927b9f1d80/scratchpad/minimap.png', fullPage: true });
+});

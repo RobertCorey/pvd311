@@ -204,5 +204,9 @@
   "privacy.contact.h": "Contact",
   "privacy.contact.p1": "Questions about privacy, or a deletion request? Email us at",
   "privacy.updated": "Last updated: August 22, 2026",
-  "header.install": "Install"
+  "header.install": "Install",
+  "report.location.mapLabel": "Map of the report location. Drag the pin to adjust.",
+  "report.location.dragHint": "Not quite right? Drag the pin to the exact spot.",
+  "report.location.pinMoved": "Pin moved — address updated.",
+  "report.location.pinOutside": "That spot is outside Providence — move the pin back inside the city."
 }

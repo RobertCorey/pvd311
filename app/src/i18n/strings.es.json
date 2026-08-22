@@ -66,5 +66,9 @@
   "extra.vehicleDetails": "Datos del vehículo (marca, color, placa si se ve)",
   "extra.vehicleDetails.placeholder": "p. ej. Honda Civic plateado, placa de RI ABC-123",
   "my.empty": "Todavía no hay reportes desde este dispositivo. Los reportes que envíes se guardan aquí para que revises su estado — sin cuenta.",
-  "footer.contact": "Contacto"
+  "footer.contact": "Contacto",
+  "report.location.mapLabel": "Mapa de la ubicación del reporte. Arrastra el pin para ajustarla.",
+  "report.location.dragHint": "¿No es exacto? Arrastra el pin al lugar preciso.",
+  "report.location.pinMoved": "Pin movido — dirección actualizada.",
+  "report.location.pinOutside": "Ese punto está fuera de Providence — mueve el pin de vuelta dentro de la ciudad."
 }
