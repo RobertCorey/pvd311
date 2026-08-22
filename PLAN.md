@@ -60,8 +60,10 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - Full-auto agent loop default; VPS primary; languages; native apps; public-feed dedupe UX
 
 ## M7 — Worker is the product backbone (supersedes the laptop engine + client Firestore writes)
-- [ ] Engine/HITL/watcher/canary running on cron in the Worker (port landing)
-- [ ] App API: POST /api/report (multipart photo → Storage, server-side validation, Turnstile verify, IP/device rate limit), POST /api/intake (AI classify/polish/moderate), GET /api/reports/:token (tracking), GET /api/public-feed
+- [x] Engine/HITL/watcher/canary running on cron in the Worker (deployed 2026-08-22; E2E: API report → cron → HITL email → signed reject; inspect-mode wizard from the edge)
+- [x] App API: POST /api/report (Turnstile, pacing, photo → Firestore on Spark, served by /api/photos/:id), POST /api/intake (moderation + polish; verified it strips PII), GET /api/reports/:id, GET /api/public-feed
+- [ ] Proof screenshots + photos to a real bucket (R2 or Blaze) — Spark can't take server-side bucket writes
+- [ ] POST /api/reports/:id/email (attach email after submit); later: /api/nearby, follow
 - [ ] Archive automation/ (reference only); delete Firestore client rules/App Check enforcement once the client no longer writes
 
 ## M8 — Product identity + UX (decided by a product-design IC, not Rob)
