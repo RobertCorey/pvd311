@@ -48,7 +48,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] SPIKE GREEN 2026-08-22: Cloudflare Browser Run logs into the portal with no WAF challenge (egress 104.28.163.178, 48s canary). Runtime = Cloudflare Workers + Browser Run. DO is out.
 - [ ] Port to the Worker: Firestore via REST (service-account JWT), portal.ts → @cloudflare/playwright, auth state in KV, proofs in R2, cron triggers (1-min submit tick, 30-min watcher, daily canary/digest), HITL approve/reject endpoints (signed links), dashboard behind Cloudflare Access
 - [ ] GitHub Actions: deploy Worker on push to main
-- [ ] Sentry restore (front + back)
+- [x] Sentry restore (front: app/index.html loader, 2026-08-22; back: Worker — alice)
 
 ## M6 — Domain, relay, launch
 - [ ] Pick name, buy domain, inbound routing → readable inbox; set as portal contact email
