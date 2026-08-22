@@ -5,6 +5,7 @@ import { useI18n } from '../i18n';
 import BrandMark from './BrandMark';
 import TabBar from './TabBar';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
+import AccountLink from './AccountLink';
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
@@ -17,6 +18,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <span className="microtag">{BRAND.notTheCity}</span>
           {canInstall && <button type="button" className="header-link header-btn" onClick={() => { void install(); }}>{t('header.install')}</button>}
           <Link to="/my" className="header-link header-my">{t('header.myReports')}</Link>
+          <AccountLink className="header-link" />
         </div>
       </header>
       <main>{children}</main>
