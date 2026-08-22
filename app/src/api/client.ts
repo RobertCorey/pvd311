@@ -1,6 +1,7 @@
 import { APP_VERSION } from '../brand';
 import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView } from './types';
 import { ApiError } from './types';
+import { authHeaders } from '../lib/auth';
 
 // Primary API host with a fallback: if the custom domain is unreachable (DNS/cert
 // propagation, outage) we switch to the workers.dev origin for the session.
@@ -65,7 +66,7 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
   if (r.photo) fd.set('photo', r.photo, 'photo.jpg');
   const t = withTimeout(45_000);
   try {
-    const resp = await apiFetch(`/api/report`, { method: 'POST', body: fd, signal: t.signal });
+    const resp = await apiFetch(`/api/report`, { method: 'POST', body: fd, signal: t.signal, headers: await authHeaders() }); // bearer only when signed in
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as ReportCreated;
   } finally { t.done(); }
@@ -97,7 +98,7 @@ export async function intake(req: Omit<IntakeRequest, 'appVersion'>, turnstileTo
 export async function getReport(id: string): Promise<ReportView> {
   const t = withTimeout(15_000);
   try {
-    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}`, { signal: t.signal });
+    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}`, { signal: t.signal, headers: await authHeaders() });
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as ReportView;
   } finally { t.done(); }
