@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { attachEmail, followReport, getReport } from '../api/client';
-import { listMyReports } from '../lib/myReports';
+import { getReport } from '../api/client';
 import { ApiError, type ReportView } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import OwnerActions from '../components/OwnerActions';
-import { useSession } from '../lib/auth';
 import './Track.css';
 
 type Tone = 'progress' | 'ok' | 'warn';
@@ -83,7 +81,6 @@ export default function Track() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const t = useT();
-  const session = useSession();
 
   const justSubmitted = (location.state as { justSubmitted?: boolean } | null)?.justSubmitted === true
     || searchParams.get('submitted') === '1';
@@ -146,7 +143,6 @@ export default function Track() {
     );
   }
 
-  const mine = view.mine === true || listMyReports().some((r) => r.id === id);
   const info = statusInfo(view, t);
   const rail = railState(view);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
@@ -237,7 +233,6 @@ export default function Track() {
       </div>
 
       <OwnerActions id={id!} view={view} onChange={() => load({ silent: true })} />
-      {!(session && !mine) && <EmailAttach id={id!} hasEmail={view.hasEmail === true} mine={mine} />}
     </section>
   );
 }
@@ -295,42 +290,3 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
 }
 
 // Reporter (this device sent it) → attach email. Anyone else → follow it.
-function EmailAttach({ id, hasEmail, mine }: { id: string; hasEmail: boolean; mine: boolean }) {
-  const t = useT();
-  const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState(false);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setBusy(true); setError(false);
-    try {
-      if (mine) await attachEmail(id, email.trim()); else await followReport(id, email.trim());
-      setDone(true);
-    } catch {
-      setError(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="section">
-      <h2>{t(mine ? 'track.email.title' : 'track.follow.title')}</h2>
-      {(hasEmail && mine) || done ? (
-        <div className="notice notice-ok" role="status">{t(done ? (mine ? 'track.email.done' : 'track.follow.done') : 'track.email.hasEmail')}</div>
-      ) : (
-        <form className="track-email" onSubmit={onSubmit} noValidate>
-          <label className="label" htmlFor="track-email">{t('track.email.label')}</label>
-          <input id="track-email" className="input" type="email" inputMode="email" autoComplete="email"
-            placeholder={t('track.email.placeholder')} value={email} onChange={(e) => setEmail(e.target.value)} />
-          <p className="hint">{t(mine ? 'track.email.consent' : 'track.follow.consent')}</p>
-          <button type="submit" className="btn btn-secondary" disabled={!email.trim() || busy}>{busy ? t('track.email.sending') : t(mine ? 'track.email.submit' : 'track.follow.submit')}</button>
-          {error && <div className="notice notice-error" role="alert">{t('track.email.error')}</div>}
-        </form>
-      )}
-    </div>
-  );
-}
