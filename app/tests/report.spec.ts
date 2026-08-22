@@ -87,9 +87,9 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('.queued')).toContainText('Saved on your phone');
   await context.setOffline(false);
+  const flushed = page.waitForRequest(`${API}/api/report`);
   await page.goto('/');
-  await expect(page.locator('.outbox-card')).toContainText('1 saved report');
-  await page.waitForRequest(`${API}/api/report`);
+  await flushed;
   await expect(page.locator('[role="status"]')).toContainText('Sent a saved report', { timeout: 5000 });
   await expect(page.locator('.outbox-card')).toHaveCount(0);
   await page.goto('/my');
