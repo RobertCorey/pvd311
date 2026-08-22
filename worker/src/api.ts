@@ -10,7 +10,7 @@ import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 
-const DEFAULT_ORIGINS = ['https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
+const DEFAULT_ORIGINS = ['https://snappvd.org', 'https://www.snappvd.org', 'https://snappvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
 const PACE_MS = 3 * 60_000;       // one report per device per 3 min
 const DAILY_CAP = 5;              // per device per day
@@ -43,6 +43,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps);
     else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/email$/.test(url.pathname)) resp = await attachEmail(url.pathname.split('/')[3], request, deps);
+    else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/follow$/.test(url.pathname)) resp = await followReport(url.pathname.split('/')[3], request, deps);
     else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
     else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
@@ -231,6 +232,18 @@ async function attachEmail(id: string, request: Request, { store }: ApiDeps): Pr
   const r = await store.fetchReport(id);
   if (!r) return json({ error: 'not_found' }, 404);
   await store.patchReport(id, { reporterEmail: email, emailAttachedAt: new Date().toISOString() });
+  return new Response(null, { status: 204 });
+}
+
+/** POST /api/reports/:id/follow {email} — get updates on someone else's (SnapPVD) report instead of filing a duplicate. */
+async function followReport(id: string, request: Request, { store }: ApiDeps): Promise<Response> {
+  const body = (await request.json().catch(() => null)) as { email?: string } | null;
+  const email = (body?.email ?? '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return json({ error: 'invalid_email', field: 'email' }, 400);
+  const r = await store.fetchReport(id);
+  if (!r) return json({ error: 'not_found' }, 404);
+  const followers = Array.from(new Set([...(((r as unknown as { followers?: string[] }).followers) ?? []), email])).slice(0, 50);
+  await store.patchReport(id, { followers });
   return new Response(null, { status: 204 });
 }
 
