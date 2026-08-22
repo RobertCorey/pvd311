@@ -42,6 +42,8 @@ try {
   out.pendingCount = (await store.fetchPendingReports()).length;
   out.rejectedCount = await store.countByStatus('rejected');
   out.recentSubmissions24h = (await store.findRecentSubmissions(24)).length;
+  const feed = await store.findReportsSince(24 * 90, 20); // public feed, last 90 days, cap 20
+  out.feed = { count: feed.length, noRejectedLeak: !feed.some((r) => r.status === 'rejected' || r.status === 'auto-rejected') };
   const engine = await store.getMeta('engine');
   out.engineMeta = engine
     ? { keys: Object.keys(engine), paused: engine.paused, consecutiveFailures: engine.consecutiveFailures }
