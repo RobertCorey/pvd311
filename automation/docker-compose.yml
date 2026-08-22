@@ -1,0 +1,71 @@
+# PVD311 automation — dashboard + Playwright submission engine.
+#
+# Run from THIS directory (automation/):
+#     docker compose up -d --build
+#
+# The build context is the repo root (..) because the TypeScript build compiles
+# the sibling ../shared package alongside automation/src. The Dockerfile lives at
+# automation/Dockerfile. See DEPLOY.md for the full setup, secrets, and NAS/VPS
+# walkthroughs.
+
+services:
+  automation:
+    build:
+      context: ..
+      dockerfile: automation/Dockerfile
+    image: pvd311-automation:1.58.2
+    container_name: pvd311-automation
+    restart: unless-stopped
+
+    # Secrets + tunables. Create automation/.env from the template in DEPLOY.md
+    # ("Create .env"). Every var in .env is also available for ${...} below.
+    env_file:
+      - .env
+
+    environment:
+      # Operational defaults. Anything set here overrides .env; keep secrets in
+      # .env, not here.
+      HEADLESS: "true"
+      AUTH_STATE_PATH: /data/.auth-state.json
+      PROOF_DIR: /data/proofs
+      PORT: "3311"
+      # The Firebase Admin service-account key is bind-mounted read-only at this
+      # path (see volumes below). config.ts reads it via readFileSync.
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-service-account.json
+
+    volumes:
+      # Persist portal auth state (.auth-state.json) + proof screenshots.
+      - pvd311-data:/data
+      # Firebase Admin service-account JSON, read-only. Point at it with
+      # FIREBASE_SERVICE_ACCOUNT_HOST_PATH in .env, or just drop the file next to
+      # this compose file as firebase-service-account.json. The file must be
+      # readable by uid 1000 (pwuser) — see DEPLOY.md → "Firebase key".
+      - ${FIREBASE_SERVICE_ACCOUNT_HOST_PATH:-./firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
+
+    # The dashboard has NO authentication. Publish it to host loopback ONLY.
+    # Reach it via an SSH tunnel (DEPLOY.md), never expose 3311 to the LAN/WAN.
+    ports:
+      - "127.0.0.1:3311:3311"
+
+    # Chromium needs more than Docker's default 64 MB /dev/shm. The app also
+    # passes --disable-dev-shm-usage, so this is belt-and-suspenders.
+    shm_size: "1gb"
+
+    # --auto is baked into the image CMD; no need to repeat it here.
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3311/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  pvd311-data:
+    name: pvd311-data

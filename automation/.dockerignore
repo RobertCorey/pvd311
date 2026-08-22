@@ -1,0 +1,44 @@
+# Keep secrets, local state, and heavy/generated dirs out of the build.
+#
+# NOTE ON PLACEMENT: Docker only auto-reads the .dockerignore at the *root of the
+# build context*. This project's build context is the REPO ROOT (the tsc build
+# needs ../shared), so to make these patterns take effect during `docker build`,
+# either symlink this file to the repo root:
+#     ln -sf automation/.dockerignore ../.dockerignore   # run from automation/
+# or copy it there. The Dockerfile also COPYs only the exact paths it needs
+# (package manifests, tsconfig, src/, shared/) and never `COPY . .`, so no
+# secret or local artifact can enter the image even if this file is not applied —
+# the patterns below are defense-in-depth plus a faster, smaller build context.
+#
+# Patterns use **/ so they match whether the context is the repo root or automation/.
+
+# Secrets / credentials — never ship these into an image layer
+**/.env
+**/.env.*
+!**/.env.example
+**/.auth-state.json
+**/firebase-service-account*.json
+**/*serviceAccount*.json
+**/serviceAccountKey*.json
+
+# Local runtime output
+**/proofs/
+**/data/
+
+# Dependencies + build output (rebuilt inside the image)
+**/node_modules/
+**/dist/
+
+# VCS / editor / OS cruft
+.git/
+.gitignore
+**/.DS_Store
+**/*.log
+**/npm-debug.log*
+
+# Docker + docs (not needed at build time)
+**/Dockerfile
+**/docker-compose*.yml
+**/.dockerignore
+**/DEPLOY.md
+**/*.md
