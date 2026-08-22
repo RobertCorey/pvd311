@@ -1,0 +1,283 @@
+import { config } from './config.js';
+import { fetchPendingReports, findRecentSubmissions, findStuckProcessing, updateReportStatus, saveReportDraft, requeueReport, loadEngineState, saveEngineState } from './firestore.js';
+import { PortalSubmitter } from './portal.js';
+import { needsHumanApproval, requestReview, processCallbacks } from './hitl.js';
+import { alert } from './telegram.js';
+import { runCanary } from './canary.js';
+import { sendDailyDigest } from './digest.js';
+import { runWatcher } from './watcher.js';
+import { CATEGORIES, isCategory } from '../../shared/types.js';
+// Providence bounding box
+const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
+export class AutoSubmitter {
+    isSubmissionActive;
+    setSubmissionActive;
+    enabled;
+    paused = false;
+    consecutiveFailures = 0;
+    submissionTimestamps = [];
+    lastSubmissionTime = null;
+    log = [];
+    timer = null;
+    busy = false;
+    /** Callback so index.ts can check/set activeSubmission */
+    constructor(isSubmissionActive, setSubmissionActive) {
+        this.isSubmissionActive = isSubmissionActive;
+        this.setSubmissionActive = setSubmissionActive;
+        this.enabled = config.autoMode;
+    }
+    getState() {
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        return {
+            enabled: this.enabled,
+            paused: this.paused,
+            consecutiveFailures: this.consecutiveFailures,
+            submissionsThisHour: this.submissionTimestamps.filter(t => t > oneHourAgo).length,
+            lastSubmissionTime: this.lastSubmissionTime ? new Date(this.lastSubmissionTime).toISOString() : null,
+            log: this.log.slice(-50),
+        };
+    }
+    setEnabled(on) {
+        this.enabled = on;
+        if (on && !this.timer)
+            this.start();
+        if (!on && this.timer)
+            this.stop();
+        console.log(`[auto] ${on ? 'Enabled' : 'Disabled'}`);
+    }
+    resume() {
+        this.paused = false;
+        this.consecutiveFailures = 0;
+        this.enabled = true;
+        this.persistState();
+        if (!this.timer)
+            this.start();
+        console.log('[auto] Resumed (circuit breaker reset)');
+    }
+    start() {
+        if (this.timer)
+            return;
+        console.log('[auto] Polling started');
+        this.timer = setInterval(() => this.poll(), config.autoPollIntervalMs);
+        // Restore breaker/counters from Firestore, then run the first poll
+        this.restoreState().finally(() => this.poll());
+    }
+    async restoreState() {
+        const st = await loadEngineState().catch(() => null);
+        if (!st)
+            return;
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        this.paused = !!st.paused;
+        this.consecutiveFailures = st.consecutiveFailures || 0;
+        this.submissionTimestamps = (st.submissionTimestamps || []).filter((t) => t > oneHourAgo);
+        this.lastSubmissionTime = st.lastSubmissionTime ?? null;
+        console.log(`[auto] Restored engine state (paused=${this.paused}, failures=${this.consecutiveFailures}, lastHour=${this.submissionTimestamps.length})`);
+    }
+    persistState() {
+        void saveEngineState({
+            paused: this.paused,
+            consecutiveFailures: this.consecutiveFailures,
+            submissionTimestamps: this.submissionTimestamps.slice(-50),
+            lastSubmissionTime: this.lastSubmissionTime,
+        });
+    }
+    stop() {
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+        console.log('[auto] Polling stopped');
+    }
+    addLog(reportId, action, detail) {
+        this.log.push({ time: new Date().toISOString(), reportId, action, detail });
+        if (this.log.length > 50)
+            this.log.shift();
+    }
+    lastDailyRun = null;
+    lastWatcherRun = 0;
+    /** Every ~30 min: poll the portal for status changes on submitted cases (read-only). */
+    async watcherTick() {
+        if (Date.now() - this.lastWatcherRun < config.watcherIntervalMs)
+            return;
+        this.lastWatcherRun = Date.now();
+        try {
+            const changes = await runWatcher();
+            for (const c of changes) {
+                console.log(`[watcher] ${c.caseId}: ${c.from ?? '—'} → ${c.to}`);
+                if (/resolved|cancel/i.test(c.to))
+                    await alert(`🏁 <b>${c.caseId}</b> is now <b>${c.to}</b> (report ${c.reportId})`);
+            }
+        }
+        catch (e) {
+            console.error('[auto] watcher failed:', e);
+        }
+    }
+    /** Once per day (first poll after 06:00 local): selector canary + digest. Never creates drafts. */
+    async dailyTasks() {
+        const now = new Date();
+        const day = now.toISOString().slice(0, 10);
+        if (now.getHours() < 6 || this.lastDailyRun === day)
+            return;
+        this.lastDailyRun = day;
+        try {
+            await sendDailyDigest();
+        }
+        catch (e) {
+            console.error('[auto] digest failed:', e);
+        }
+        try {
+            await runCanary();
+        }
+        catch (e) {
+            console.error('[auto] canary failed:', e);
+            await alert(`🚨 Canary could not run: ${e instanceof Error ? e.message : e}`);
+        }
+    }
+    async poll() {
+        if (!this.enabled || this.paused || this.busy)
+            return;
+        if (this.isSubmissionActive())
+            return;
+        // Rate limit: check hourly cap
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        this.submissionTimestamps = this.submissionTimestamps.filter(t => t > oneHourAgo);
+        if (this.submissionTimestamps.length >= config.autoMaxPerHour) {
+            console.log('[auto] Hourly rate limit reached, skipping poll');
+            return;
+        }
+        // Minimum delay between submissions
+        if (this.lastSubmissionTime && Date.now() - this.lastSubmissionTime < config.autoSubmissionDelayMs) {
+            return;
+        }
+        this.busy = true;
+        try {
+            await this.dailyTasks();
+            await this.watcherTick();
+            // Drain phone approvals/rejections first
+            await processCallbacks();
+            // Reap reports the engine abandoned mid-submit (crash/restart). Draft bookkeeping is kept for resume.
+            for (const stuck of await findStuckProcessing(config.autoStuckProcessingMinutes).catch(() => [])) {
+                await updateReportStatus(stuck.id, 'failed', `Reaped: stuck in processing > ${config.autoStuckProcessingMinutes}m`).catch(() => { });
+                this.addLog(stuck.id, 'failed', 'reaped stuck processing');
+                await alert(`♻️ Reaped <b>${stuck.id}</b> — stuck in processing. Retry from the dashboard (draft will resume).`);
+            }
+            const now = Date.now();
+            const pending = (await fetchPendingReports()).filter((r) => !r.retryAfter || new Date(r.retryAfter).getTime() <= now);
+            if (pending.length === 0)
+                return;
+            // Process first pending report
+            const report = pending[0];
+            const rejection = await this.verify(report);
+            if (rejection) {
+                await updateReportStatus(report.id, 'auto-rejected', rejection);
+                this.addLog(report.id, 'auto-rejected', rejection);
+                console.log(`[auto] Rejected ${report.id}: ${rejection}`);
+                return;
+            }
+            // Human-in-the-loop gate
+            if (await needsHumanApproval(report)) {
+                await requestReview(report);
+                return;
+            }
+            // Submit
+            await this.submitReport(report);
+        }
+        catch (err) {
+            console.error('[auto] Poll error:', err);
+        }
+        finally {
+            this.busy = false;
+        }
+    }
+    async verify(report) {
+        // Gate 1: Valid category (checked first so later gates can read its config)
+        if (!isCategory(report.category))
+            return `Invalid category: ${report.category}`;
+        // Gate 2: Has photo, when the category requires one
+        if (CATEGORIES[report.category].photoRequired !== false && !report.photo)
+            return 'No photo attached';
+        // Gate 2: Has address
+        if (!report.address || !report.address.trim())
+            return 'No address';
+        // Gate 3: Address blocklist (spam/abuse)
+        const addr = report.address.trim().toLowerCase();
+        for (const blocked of config.blockedAddresses) {
+            if (addr.includes(blocked.toLowerCase())) {
+                return `Blocked address: "${report.address}" matches "${blocked}"`;
+            }
+        }
+        // Gate 5: If coordinates are present, verify they're inside Providence
+        if (report.lat != null && report.lng != null) {
+            if (report.lat < PVD_BOUNDS.minLat || report.lat > PVD_BOUNDS.maxLat ||
+                report.lng < PVD_BOUNDS.minLng || report.lng > PVD_BOUNDS.maxLng) {
+                return `Outside Providence (${report.lat}, ${report.lng})`;
+            }
+        }
+        // Gate 6: Duplicate check (only when both reports have coordinates)
+        if (report.lat != null && report.lng != null) {
+            const recent = await findRecentSubmissions(config.autoDuplicateWindowHours);
+            for (const existing of recent) {
+                if (existing.lat == null || existing.lng == null)
+                    continue;
+                const dist = haversineMeters(report.lat, report.lng, existing.lat, existing.lng);
+                if (dist < config.autoDuplicateDistanceMeters) {
+                    return `Duplicate: within ${Math.round(dist)}m of submitted report ${existing.id}`;
+                }
+            }
+        }
+        return null; // passed all gates
+    }
+    async submitReport(report) {
+        const portal = new PortalSubmitter();
+        this.setSubmissionActive(report.id);
+        try {
+            await updateReportStatus(report.id, 'processing', 'Auto-submission started');
+            await portal.launch();
+            const result = await portal.submitReport(report, { mode: 'live', onDraft: (d) => saveReportDraft(report.id, d) });
+            await updateReportStatus(report.id, 'submitted', result.caseId ? `Auto-submitted as ${result.caseId}` : 'Auto-submitted successfully', result.caseId);
+            this.submissionTimestamps.push(Date.now());
+            this.lastSubmissionTime = Date.now();
+            this.consecutiveFailures = 0;
+            this.persistState();
+            this.addLog(report.id, 'submitted', result.caseId || 'success');
+            console.log(`[auto] Submitted ${report.id}${result.caseId ? ` as ${result.caseId}` : ''}`);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`[auto] Failed ${report.id}:`, message);
+            const humanNeeded = /^NEEDS_(REVIEW|MAPPING)/.test(message) || /validation failed/i.test(message);
+            const retries = (report.retries ?? 0) + 1;
+            if (!humanNeeded && retries <= config.autoMaxRetries) {
+                await requeueReport(report.id, retries, `Auto retry ${retries}/${config.autoMaxRetries} after: ${message}`, new Date(Date.now() + config.autoRetryBackoffMs)).catch(() => { });
+            }
+            else {
+                await updateReportStatus(report.id, 'failed', `Auto: ${message}`).catch(() => { });
+            }
+            this.consecutiveFailures++;
+            this.persistState();
+            this.addLog(report.id, 'failed', message);
+            if (/^NEEDS_(REVIEW|MAPPING)/.test(message)) {
+                await alert(`⚠️ <b>Needs a human</b> — report ${report.id}\n${message}`);
+            }
+            if (this.consecutiveFailures >= config.autoCircuitBreakerThreshold) {
+                this.paused = true;
+                console.error(`[auto] Circuit breaker tripped after ${this.consecutiveFailures} consecutive failures`);
+                await alert(`🛑 <b>Circuit breaker tripped</b> after ${this.consecutiveFailures} failures. Last: ${message}\nResume from the dashboard.`);
+            }
+        }
+        finally {
+            await portal.close();
+            this.setSubmissionActive(null);
+        }
+    }
+}
+/** Haversine distance in meters between two lat/lng points. */
+function haversineMeters(lat1, lng1, lat2, lng2) {
+    const R = 6_371_000; // Earth radius in meters
+    const toRad = (deg) => deg * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}

@@ -1,0 +1,478 @@
+import { chromium } from 'playwright';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { config } from './config.js';
+import { CATEGORIES, resolveField } from '../../shared/types.js';
+import { scoutFields } from './scout.js';
+const PORTAL = config.portalBaseUrl;
+const STEP_TIMEOUT = 45_000; // Portal postbacks observed at 5–18s
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const AUTH_STATE_PATH = process.env['AUTH_STATE_PATH'] || join(__dirname, '..', '..', '..', '.auth-state.json');
+const PROOF_DIR = process.env['PROOF_DIR'] || join(__dirname, '..', '..', '..', 'proofs');
+export class PortalSubmitter {
+    browser = null;
+    context = null;
+    page = null;
+    loggedIn = false;
+    async launch() {
+        this.browser = await chromium.launch({
+            headless: config.headless,
+            args: ['--disable-dev-shm-usage'],
+        });
+        const contextOpts = {
+            viewport: { width: 1280, height: 900 },
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        };
+        if (existsSync(AUTH_STATE_PATH)) {
+            contextOpts.storageState = AUTH_STATE_PATH;
+            console.log('[portal] Restoring saved auth state');
+        }
+        this.context = await this.browser.newContext(contextOpts);
+        this.page = await this.context.newPage();
+    }
+    async close() {
+        if (this.context && this.loggedIn) {
+            try {
+                await this.context.storageState({ path: AUTH_STATE_PATH });
+                console.log('[portal] Auth state saved');
+            }
+            catch { /* non-fatal */ }
+        }
+        await this.browser?.close();
+        this.browser = null;
+        this.context = null;
+        this.page = null;
+        this.loggedIn = false;
+    }
+    getPage() {
+        if (!this.page)
+            throw new Error('Browser not launched');
+        return this.page;
+    }
+    /** Read-only page access for the canary/watcher. Callers must never click Next/Submit. */
+    pageForReadOnlyChecks() {
+        return this.getPage();
+    }
+    // ── Login ──────────────────────────────────────────────────
+    async ensureLoggedIn(force = false) {
+        const page = this.getPage();
+        if (!force) {
+            try {
+                await page.goto(`${PORTAL}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+                if (await page.$('.username')) {
+                    console.log('[portal] Already logged in (reused session)');
+                    this.loggedIn = true;
+                    return;
+                }
+            }
+            catch { /* fall through to login */ }
+        }
+        console.log('[portal] Logging in...');
+        await page.goto(`${PORTAL}/SignIn?returnUrl=%2F`, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+        await page.fill('#Username', config.portalEmail);
+        await page.fill('#PasswordValue', config.portalPassword);
+        await page.click('#submit-signin-local');
+        await page.waitForURL('**/', { timeout: 20_000 });
+        if (!(await page.$('.username')))
+            throw new Error('Portal login failed — no username element after sign-in');
+        this.loggedIn = true;
+        console.log('[portal] Logged in successfully');
+    }
+    /** True when the portal bounced us to the sign-in page mid-flow. */
+    async sessionLost() {
+        const page = this.getPage();
+        return /\/SignIn/i.test(page.url());
+    }
+    // ── Submit a single report ─────────────────────────────────
+    async submitReport(report, opts = {}) {
+        await this.ensureLoggedIn();
+        try {
+            return await this.runWizard(report, opts);
+        }
+        catch (err) {
+            // One re-auth retry if the session died mid-wizard
+            if (await this.sessionLost()) {
+                console.log('[portal] Session lost mid-wizard — re-authenticating and retrying once');
+                await this.ensureLoggedIn(true);
+                return await this.runWizard(report, opts);
+            }
+            throw err;
+        }
+    }
+    async runWizard(report, opts) {
+        const page = this.getPage();
+        const mode = opts.mode ?? 'live';
+        const cat = CATEGORIES[report.category];
+        if (!cat)
+            throw new Error(`Unknown category: ${report.category}`);
+        console.log(`[portal] [${mode.toUpperCase()}] Report ${report.id}: ${cat.portalCaseTypeName} @ ${report.address}`);
+        // Draft-resume: if a previous attempt already created the draft, jump back into it.
+        let resumedAt = null;
+        if (report.portalDraft?.url) {
+            resumedAt = await this.tryResumeDraft(report.portalDraft);
+            if (resumedAt)
+                console.log(`[portal]   Resumed existing draft at step ${resumedAt}`);
+            else
+                console.log('[portal]   Could not resume saved draft — starting fresh');
+        }
+        if (!resumedAt) {
+            await page.goto(`${PORTAL}/my-requests/New-Request/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            await page.waitForSelector('#casetypecode', { timeout: 20_000 });
+            await this.fillStep1(report.category);
+            await this.saveDraft(opts, 2);
+        }
+        if (!resumedAt || resumedAt === 2) {
+            await this.fillStep2(report.address, report.lat, report.lng);
+            await this.saveDraft(opts, 3);
+        }
+        return this.fillStep3(report, mode);
+    }
+    async saveDraft(opts, step) {
+        if (!opts.onDraft)
+            return;
+        const page = this.getPage();
+        const entityId = await page.$eval('#EntityFormView_EntityID', (el) => el.value).catch(() => null);
+        await opts.onDraft({ url: page.url(), entityId: entityId || null, step, savedAt: new Date().toISOString() }).catch(() => { });
+    }
+    async tryResumeDraft(draft) {
+        const page = this.getPage();
+        try {
+            await page.goto(draft.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            if (await this.sessionLost())
+                return null;
+            if (draft.step === 2 && (await page.$('#addressIn')))
+                return 2;
+            if (draft.step === 3 && (await page.$('#description')))
+                return 3;
+        }
+        catch { /* fall through */ }
+        return null;
+    }
+    // ── Step 1 ─────────────────────────────────────────────────
+    async fillStep1(category) {
+        const page = this.getPage();
+        const cat = CATEGORIES[category];
+        console.log('[portal]   Step 1: request type + case type...');
+        await page.selectOption('#casetypecode', cat.requestType ?? '2'); // Problem
+        await page.waitForTimeout(400);
+        // Open the case-type lookup. The aria-label drifted once already ("Case Type" → "Choose an Issue (Case Type)"), so match loosely.
+        const launch = page.locator('button[aria-label*="Case Type" i][aria-label*="lookup modal" i]').first();
+        await launch.click();
+        await page.waitForSelector('.modal.in .query.form-control', { timeout: 15_000 });
+        await page.waitForTimeout(400);
+        // Narrow the (13-page) list with a wildcard search, then select by GUID — never by text.
+        const searchInput = page.locator('.modal.in .query.form-control');
+        await searchInput.clear();
+        await searchInput.pressSequentially(cat.portalSearchTerm, { delay: 60 });
+        await page.click('.modal.in button[aria-label="Search Results"]');
+        await page.waitForTimeout(1_200);
+        let row = page.locator(`.modal.in table tbody tr[data-id="${cat.portalCaseTypeGuid}"]`).first();
+        if (!(await row.isVisible().catch(() => false))) {
+            // Fallback: search by the exact name
+            await searchInput.clear();
+            await searchInput.pressSequentially(cat.portalCaseTypeName, { delay: 40 });
+            await page.click('.modal.in button[aria-label="Search Results"]');
+            await page.waitForTimeout(1_200);
+            row = page.locator(`.modal.in table tbody tr[data-id="${cat.portalCaseTypeGuid}"]`).first();
+        }
+        await row.waitFor({ timeout: 10_000 }).catch(() => {
+            throw new Error(`Case type GUID ${cat.portalCaseTypeGuid} ("${cat.portalCaseTypeName}") not found in lookup — census may be stale`);
+        });
+        console.log(`[portal]   Case type: "${(await row.getAttribute('data-name')) ?? cat.portalCaseTypeName}"`);
+        await row.locator('span[role="checkbox"]').click();
+        await page.waitForTimeout(300);
+        await page.locator('.modal.in .primary.btn.btn-primary, .modal.in button[aria-label="Select"]').first().click();
+        await page.waitForSelector('.modal.in', { state: 'detached', timeout: 5_000 }).catch(() => { });
+        await page.waitForTimeout(400);
+        // How the city should send updates. '585680003' = No Contact Necessary (until the relay inbox exists).
+        await page.selectOption('#cop_methodofupdate', config.portalNotificationMethod);
+        await page.click('#NextButton');
+        await page.waitForURL(/stepid/, { timeout: STEP_TIMEOUT });
+        console.log('[portal]   Step 1 complete (draft created)');
+    }
+    // ── Step 2 ─────────────────────────────────────────────────
+    async fillStep2(address, lat, lng) {
+        const page = this.getPage();
+        console.log('[portal]   Step 2: location...');
+        await page.waitForSelector('#addressIn', { timeout: 20_000 });
+        if (lat && lng) {
+            const arcgisAddr = await this.arcgisReverseGeocode(lat, lng);
+            if (arcgisAddr) {
+                console.log(`[portal]   ArcGIS resolved: ${arcgisAddr.street}, ${arcgisAddr.city} ${arcgisAddr.zip}`);
+                await page.fill('#addressIn', arcgisAddr.full);
+                await page.evaluate((a) => {
+                    const set = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el)
+                            el.value = val;
+                    };
+                    set('cop_address', JSON.stringify(a.full));
+                    set('cop_street1', a.street);
+                    set('cop_city', a.city);
+                    set('cop_stateorprovidence', a.state);
+                    set('cop_zipofpostalcode', a.zip);
+                    set('cop_countryorregion', a.country);
+                    set('cop_latitude', a.lat);
+                    set('cop_longitude', a.lng);
+                }, arcgisAddr);
+            }
+            else {
+                console.log('[portal]   ArcGIS reverse geocode failed, falling back to autocomplete');
+                await this.fillStep2Autocomplete(address);
+            }
+        }
+        else {
+            await this.fillStep2Autocomplete(address);
+        }
+        const before = page.url();
+        await page.click('#NextButton');
+        await page.waitForFunction((u) => location.href !== u, before, { timeout: STEP_TIMEOUT });
+        await page.waitForSelector('#description', { timeout: 20_000 });
+        console.log('[portal]   Step 2 complete');
+    }
+    async fillStep2Autocomplete(address) {
+        const page = this.getPage();
+        await page.locator('#addressIn').pressSequentially(address, { delay: 50 });
+        await page.waitForSelector('tr.suggestRow', { timeout: 10_000 });
+        await page.click('tr.suggestRow td.suggestData');
+        await page.waitForTimeout(1_000);
+    }
+    async arcgisReverseGeocode(lat, lng) {
+        try {
+            const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode?location=${lng},${lat}&featureTypes=StreetAddress,StreetName,StreetInt&f=pjson`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+            if (!data.address)
+                return null;
+            const a = data.address;
+            return {
+                full: a.LongLabel || a.Match_addr || `${a.Address}, ${a.City}, ${a.RegionAbbr}, ${a.Postal}, USA`,
+                street: a.Address || a.ShortLabel || '',
+                city: a.City || 'Providence',
+                state: a.RegionAbbr || 'RI',
+                zip: a.Postal || '',
+                country: a.CountryCode || 'USA',
+                lat: String(lat),
+                lng: String(lng),
+            };
+        }
+        catch (err) {
+            console.error('[portal]   ArcGIS reverse geocode error:', err);
+            return null;
+        }
+    }
+    // ── Step 3 ─────────────────────────────────────────────────
+    /** Dump the visible, fillable Step-3 controls (excluding the always-present description/address/case-type). */
+    async dumpControls() {
+        const page = this.getPage();
+        return page.evaluate(() => {
+            const SKIP = new Set(['cop_casetype_name', 'cop_address', 'description', 'PreviousButton', 'NextButton', 'AttachFile']);
+            const out = [];
+            document.querySelectorAll('select, input, textarea').forEach((el) => {
+                if (!el.offsetParent)
+                    return; // hidden
+                if (!el.id || SKIP.has(el.id))
+                    return;
+                if (el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.type === 'file')
+                    return;
+                const label = el.getAttribute('aria-label')
+                    || document.querySelector(`label[for="${el.id}"]`)?.textContent?.trim().replace(/\s+/g, ' ')
+                    || el.id;
+                if (/leave this field blank/i.test(label) || /^frm_pref_/.test(el.id))
+                    return; // honeypot — never touch
+                if (el.type === 'radio') {
+                    // Collapse a radio group into one control keyed by its group name (e.g. cop_cartrequesttype)
+                    const key = el.name.split('$').pop() || el.name;
+                    let g = out.find((x) => x.type === 'radio' && x.name === el.name);
+                    if (!g) {
+                        g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, options: [] };
+                        out.push(g);
+                    }
+                    g.options.push(label.replace(new RegExp('^' + g.label + '\\s*'), '').trim() || label);
+                    return;
+                }
+                const c = { id: el.id, label, tag: el.tagName.toLowerCase(), type: el.type || null, required: !!el.required || el.getAttribute('aria-required') === 'true' };
+                if (el.tagName === 'SELECT')
+                    c.options = Array.from(el.options).map((o) => o.textContent.trim()).filter((t) => t && t !== 'Select');
+                out.push(c);
+            });
+            return out;
+        });
+    }
+    async setControl(c, value) {
+        const page = this.getPage();
+        const sel = `#${c.id}`;
+        if (c.tag === 'select') {
+            await page.selectOption(sel, { label: value }).catch(async () => page.selectOption(sel, value));
+        }
+        else if (c.type === 'radio') {
+            const radios = page.locator(`input[type="radio"][name="${c.name}"]`);
+            const n = await radios.count();
+            for (let i = 0; i < n; i++) {
+                const r = radios.nth(i);
+                const lab = (await r.getAttribute('aria-label')) || '';
+                if (lab.toLowerCase().includes(value.toLowerCase())) {
+                    await r.check();
+                    await r.dispatchEvent('change').catch(() => { });
+                    return;
+                }
+            }
+            await radios.last().check(); // last option is conventionally "Other"
+            return;
+        }
+        else if (c.type === 'checkbox') {
+            if (/^(yes|true|1|on)$/i.test(value))
+                await page.check(sel);
+            else
+                await page.uncheck(sel);
+        }
+        else {
+            await page.fill(sel, value);
+        }
+        // The portal marks fields dirty via onchange; make sure it fires.
+        await page.dispatchEvent(sel, 'change').catch(() => { });
+    }
+    async fillStep3(report, mode) {
+        const page = this.getPage();
+        const cat = CATEGORIES[report.category];
+        console.log('[portal]   Step 3: details...');
+        // Description
+        const descParts = [];
+        if (report.description)
+            descParts.push(report.description);
+        if (report.lat && report.lng) {
+            descParts.push(`Exact location: https://maps.google.com/?q=${report.lat.toFixed(6)},${report.lng.toFixed(6)}`);
+        }
+        descParts.push(`[Submitted via ${config.appName} — ref:${report.id}]`);
+        await page.fill('#description', descParts.join('\n\n'));
+        // Conditional fields: known mappings first, then the agent scout for anything left visible.
+        const controls = await this.dumpControls();
+        const filled = {};
+        const unmapped = [];
+        for (const c of controls) {
+            const src = cat.fields?.[c.id];
+            const v = src ? resolveField(src, report) : undefined;
+            if (v !== undefined) {
+                await this.setControl(c, v);
+                filled[c.id] = v;
+            }
+            else
+                unmapped.push(c);
+        }
+        if (Object.keys(filled).length)
+            console.log(`[portal]   Filled mapped fields: ${JSON.stringify(filled)}`);
+        let scouted;
+        // Scout runs in live mode, and in inspect mode when a key is configured (so new categories can be previewed without submitting).
+        if (unmapped.length && (mode === 'live' || process.env['ANTHROPIC_API_KEY'])) {
+            console.log(`[portal]   ${unmapped.length} unmapped control(s): ${unmapped.map((c) => c.id).join(', ')} — calling scout`);
+            const result = await scoutFields({ category: report.category, caseTypeName: cat.portalCaseTypeName, report, controls: unmapped });
+            scouted = result.values;
+            for (const c of unmapped) {
+                const v = scouted[c.id];
+                if (v !== undefined)
+                    await this.setControl(c, v);
+            }
+            console.log(`[portal]   Scout filled: ${JSON.stringify(scouted)} (confidence ${result.confidence})`);
+            if (result.confidence < config.scoutMinConfidence && mode === 'live') {
+                throw new Error(`NEEDS_REVIEW: scout confidence ${result.confidence} below ${config.scoutMinConfidence} for ${unmapped.map((c) => c.id).join(', ')} — ${result.notes}`);
+            }
+        }
+        if (report.photo)
+            await this.uploadPhoto(report.photo);
+        if (mode === 'inspect') {
+            const proofPath = await this.screenshot(report.id, 'inspect');
+            console.log(`[portal]   INSPECT — stopping before submit. Controls: ${controls.map((c) => c.id).join(', ') || '(none)'}`);
+            return { mode, controls, proofPath, scouted };
+        }
+        // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
+        const navPromise = page.waitForURL(/my-requests|New-Request/, { timeout: 60_000 });
+        await page.click('#NextButton', { timeout: 10_000 });
+        await Promise.race([
+            navPromise.then(() => 'navigated'),
+            page.waitForTimeout(5_000).then(async () => {
+                const btnValue = await page.$eval('#NextButton', (el) => el.value).catch(() => '');
+                if (btnValue === 'Processing...') {
+                    await navPromise;
+                    return 'navigated';
+                }
+                const errorText = await page.$eval('.validation-summary-errors', (el) => el.textContent?.trim()).catch(() => '');
+                throw new Error(`Portal form validation failed${errorText ? ': ' + errorText : ' (button still shows "Submit")'}`);
+            }),
+        ]);
+        console.log('[portal]   Step 3 complete — report submitted');
+        const caseId = await this.extractCaseId();
+        const proofPath = await this.screenshot(report.id, caseId ?? 'submitted');
+        return { mode, caseId, proofPath, controls, scouted };
+    }
+    // ── Proof ──────────────────────────────────────────────────
+    async screenshot(reportId, tag) {
+        try {
+            mkdirSync(PROOF_DIR, { recursive: true });
+            const p = join(PROOF_DIR, `${reportId}-${tag}-${Date.now()}.png`);
+            await this.getPage().screenshot({ path: p, fullPage: true });
+            return p;
+        }
+        catch {
+            return undefined;
+        }
+    }
+    // ── Photo upload ───────────────────────────────────────────
+    async uploadPhoto(photoSource) {
+        const page = this.getPage();
+        try {
+            const tmpDir = join(tmpdir(), 'pvd311-photos');
+            mkdirSync(tmpDir, { recursive: true });
+            let tmpPath;
+            if (photoSource.startsWith('data:')) {
+                const matches = photoSource.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (!matches) {
+                    console.log('[portal]   Skipping photo — invalid data URL');
+                    return;
+                }
+                const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+                tmpPath = join(tmpDir, `report-photo.${ext}`);
+                writeFileSync(tmpPath, Buffer.from(matches[2], 'base64'));
+            }
+            else {
+                const resp = await fetch(photoSource);
+                if (!resp.ok) {
+                    console.log(`[portal]   Skipping photo — fetch failed (${resp.status})`);
+                    return;
+                }
+                tmpPath = join(tmpDir, 'report-photo.jpg');
+                writeFileSync(tmpPath, Buffer.from(await resp.arrayBuffer()));
+            }
+            await page.setInputFiles('#AttachFile', tmpPath);
+            await page.evaluate(() => {
+                if (typeof window.chooseAttachment === 'function')
+                    window.chooseAttachment();
+            });
+            await page.waitForTimeout(500);
+            console.log('[portal]   Photo uploaded');
+        }
+        catch (err) {
+            console.error('[portal]   Photo upload failed (non-fatal):', err);
+        }
+    }
+    // ── Case ID extraction ─────────────────────────────────────
+    async extractCaseId() {
+        const page = this.getPage();
+        try {
+            await page.goto(`${PORTAL}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+            await page.waitForSelector('[role="grid"] [role="row"]', { timeout: 30_000 });
+            await page.waitForTimeout(3_000); // lazy grid
+            // Newest case is the first data row; its title cell reads "PVD2026-12345 <Case Type Name>".
+            const text = await page.locator('[role="grid"] [role="row"]').nth(1).textContent();
+            const m = text?.match(/PVD\d{4}-\d+/);
+            if (m) {
+                console.log(`[portal]   Case ID: ${m[0]}`);
+                return m[0];
+            }
+        }
+        catch { /* non-fatal */ }
+        console.log('[portal]   Could not extract case ID (non-fatal)');
+        return undefined;
+    }
+}

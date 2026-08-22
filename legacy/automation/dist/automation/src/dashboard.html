@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PVD311 Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0c1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --blue: #58a6ff;
+      --purple: #bc8cff;
+      --radius: 8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .shell {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .status-pill {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .status-pill.busy {
+      background: rgba(210, 153, 34, 0.15);
+      border-color: var(--yellow);
+      color: var(--yellow);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      padding: 6px 14px;
+      font-size: 13px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .tab .count {
+      display: inline-block;
+      min-width: 18px;
+      text-align: center;
+      padding: 0 5px;
+      margin-left: 4px;
+      font-size: 11px;
+      background: var(--border);
+      border-radius: 10px;
+    }
+
+    .report-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .report-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--surface);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .report-row:hover { background: #1c2129; }
+
+    .report-info {
+      min-width: 0;
+    }
+    .report-title {
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .report-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .badge.pending    { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .badge.awaiting_review { background: rgba(188,140,255,0.15); color: var(--purple); }
+    .badge.processing { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .badge.submitted  { background: rgba(63,185,80,0.15);  color: var(--green); }
+    .badge.failed     { background: rgba(248,81,73,0.15);  color: var(--red); }
+    .badge.rejected   { background: rgba(125,133,144,0.15); color: var(--text-muted); }
+    .badge.location-warn { background: rgba(210,153,34,0.15); color: var(--yellow); font-size: 10px; }
+
+    .actions { display: flex; gap: 6px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #262c34; border-color: #484f58; }
+    .btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+    .btn.primary {
+      background: rgba(88,166,255,0.15);
+      border-color: rgba(88,166,255,0.4);
+      color: var(--accent);
+    }
+    .btn.primary:hover { background: rgba(88,166,255,0.25); }
+    .btn.danger {
+      color: var(--red);
+      border-color: rgba(248,81,73,0.3);
+    }
+    .btn.danger:hover { background: rgba(248,81,73,0.1); }
+
+    .empty {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* ── Detail panel ── */
+    .detail-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 100;
+    }
+    .detail-overlay.open { display: block; }
+
+    .detail-panel {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: min(480px, 100vw);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 101;
+      overflow-y: auto;
+      transform: translateX(100%);
+      transition: transform 0.2s ease;
+    }
+    .detail-overlay.open .detail-panel { transform: translateX(0); }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+    }
+    .detail-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .detail-close:hover { background: var(--border); color: var(--text); }
+
+    .detail-body { padding: 20px; }
+
+    .detail-field {
+      margin-bottom: 16px;
+    }
+    .detail-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .detail-field .val {
+      font-size: 14px;
+    }
+
+    .detail-photo {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .detail-actions {
+      display: flex;
+      gap: 8px;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      position: sticky;
+      bottom: 0;
+      background: var(--surface);
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      padding: 8px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      z-index: 200;
+      transition: transform 0.2s ease;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Auto-mode ── */
+    .auto-pill {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .auto-pill.on  { background: rgba(63,185,80,0.15); border-color: var(--green); color: var(--green); }
+    .auto-pill.paused { background: rgba(210,153,34,0.15); border-color: var(--yellow); color: var(--yellow); }
+
+    .header-pills { display: flex; align-items: center; gap: 8px; }
+
+    .badge.auto-rejected { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+    .auto-log {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .auto-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .auto-log-body {
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .auto-log-entry {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      padding: 6px 16px;
+      font-size: 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .auto-log-entry:last-child { border-bottom: none; }
+    .auto-log-time { color: var(--text-muted); white-space: nowrap; }
+    .auto-log-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>PVD311 Dashboard</h1>
+      <div class="header-pills">
+        <button class="auto-pill" id="headlessPill" title="Toggle headed/headless browser mode">Headed</button>
+        <button class="auto-pill" id="autoPill" title="Toggle auto-submission mode">Auto: OFF</button>
+        <span class="status-pill" id="hitlPill" title="Human-in-the-loop review mode"></span>
+        <span class="status-pill" id="serverStatus">Idle</span>
+      </div>
+    </header>
+
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-filter="all">All</button>
+      <button class="tab" data-filter="pending">Pending <span class="count" id="countPending">0</span></button>
+      <button class="tab" data-filter="awaiting_review">Review <span class="count" id="countReview">0</span></button>
+      <button class="tab" data-filter="processing">Processing <span class="count" id="countProcessing">0</span></button>
+      <button class="tab" data-filter="submitted">Submitted <span class="count" id="countSubmitted">0</span></button>
+      <button class="tab" data-filter="failed">Failed <span class="count" id="countFailed">0</span></button>
+      <button class="tab" data-filter="rejected">Rejected <span class="count" id="countRejected">0</span></button>
+    </div>
+
+    <div id="reportList"></div>
+
+    <div class="auto-log" id="autoLogSection" style="display:none">
+      <div class="auto-log-header" onclick="document.getElementById('autoLogBody').style.display = document.getElementById('autoLogBody').style.display === 'none' ? '' : 'none'">
+        <span>Auto-Mode Activity</span>
+        <span style="font-weight:400; color:var(--text-muted)" id="autoLogCount">0 entries</span>
+      </div>
+      <div class="auto-log-body" id="autoLogBody"></div>
+    </div>
+  </div>
+
+  <!-- Detail slide-over -->
+  <div class="detail-overlay" id="detailOverlay">
+    <div class="detail-panel" id="detailPanel">
+      <div class="detail-header">
+        <span style="font-weight:600; font-size:15px;">Report Detail</span>
+        <button class="detail-close" id="detailClose">&times;</button>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+      <div class="detail-actions" id="detailActions"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let reports = [];
+    let knownIds = new Set();
+    let firstLoad = true;
+    let currentFilter = 'all';
+    let pollTimer = null;
+
+    const $ = (sel) => document.querySelector(sel);
+
+    // ── API helpers ──
+    async function api(method, path, body) {
+      const opts = { method, headers: {} };
+      if (body) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, opts);
+      return res.json();
+    }
+
+    function toast(msg) {
+      const el = $('#toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ── Rendering ──
+    function formatTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts._seconds ? ts._seconds * 1000 : ts);
+      return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+
+    function categoryLabel(cat) {
+      const map = {
+        unshoveled_sidewalk: 'Unshoveled Sidewalk',
+        missed_plowing: 'Missed Street Plowing',
+      };
+      return map[cat] || cat;
+    }
+
+    function statusLabel(status) {
+      return status === 'awaiting_review' ? 'review' : status;
+    }
+
+    // One-line summary of a report's review state (who it was sent to + when requested).
+    function reviewMeta(r) {
+      if (!r.review) return '';
+      const phone = r.review.telegramMessageId != null ? 'sent to phone' : 'dashboard only';
+      const when = r.review.requestedAt
+        ? 'requested ' + new Date(r.review.requestedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : '';
+      return [phone, when].filter(Boolean).join(' · ');
+    }
+
+    // ── Providence boundary check ──
+    // Bounding box for Providence, RI (generous but catches obvious outliers)
+    const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
+
+    function isInProvidence(lat, lng) {
+      if (lat == null || lng == null) return null; // unknown
+      return lat >= PVD_BOUNDS.minLat && lat <= PVD_BOUNDS.maxLat &&
+             lng >= PVD_BOUNDS.minLng && lng <= PVD_BOUNDS.maxLng;
+    }
+
+    function locationBadge(r) {
+      if (r.lat == null || r.lng == null) return '<span class="badge location-warn">NO COORDS</span>';
+      if (!isInProvidence(r.lat, r.lng)) return '<span class="badge location-warn">OUTSIDE PVD</span>';
+      return '';
+    }
+
+    function statusMatch(status, filter) {
+      if (filter === 'all') return true;
+      if (filter === 'rejected') return status === 'rejected' || status === 'auto-rejected';
+      return status === filter;
+    }
+
+    function renderList() {
+      const filtered = currentFilter === 'all'
+        ? reports
+        : reports.filter(r => statusMatch(r.status, currentFilter));
+
+      // Update counts
+      for (const s of ['pending', 'processing', 'submitted', 'failed']) {
+        const el = $(`#count${s[0].toUpperCase() + s.slice(1)}`);
+        if (el) el.textContent = reports.filter(r => r.status === s).length;
+      }
+      // Awaiting-review count (its own status)
+      const revEl = $('#countReview');
+      if (revEl) revEl.textContent = reports.filter(r => r.status === 'awaiting_review').length;
+      // Rejected count includes auto-rejected
+      const rejEl = $('#countRejected');
+      if (rejEl) rejEl.textContent = reports.filter(r => r.status === 'rejected' || r.status === 'auto-rejected').length;
+
+      const container = $('#reportList');
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty">No reports found</div>';
+        return;
+      }
+
+      container.innerHTML = '<div class="report-list">' + filtered.map(r => `
+        <div class="report-row" data-id="${r.id}">
+          <div class="report-info">
+            <div class="report-title">${categoryLabel(r.category)} — ${r.address || 'No address'}</div>
+            <div class="report-meta">
+              ${formatTime(r.timestamp)}
+              ${r.portalCaseId ? ' · ' + r.portalCaseId : ''}
+              ${r.status === 'awaiting_review' && r.review ? ' · ' + reviewMeta(r) : ''}
+              ${r.statusDetail && r.status === 'failed' ? ' · ' + r.statusDetail : ''}
+            </div>
+          </div>
+          ${locationBadge(r)}
+          <span class="badge ${r.status === 'auto-rejected' ? 'auto-rejected' : r.status}">${statusLabel(r.status)}</span>
+          <div class="actions">
+            ${r.status === 'awaiting_review' ? `<button class="btn danger" onclick="event.stopPropagation(); reviewReject('${r.id}')">Reject</button><button class="btn primary" onclick="event.stopPropagation(); reviewApprove('${r.id}')">Approve</button>` : ''}
+            ${r.status === 'pending' ? `<button class="btn danger" onclick="event.stopPropagation(); rejectReport('${r.id}')">Won't Do</button><button class="btn" onclick="event.stopPropagation(); submitReport('${r.id}', true)">Dry Run</button><button class="btn primary" onclick="event.stopPropagation(); submitReport('${r.id}')">Submit to 311</button>` : ''}
+            ${r.status === 'failed' ? `<button class="btn danger" onclick="event.stopPropagation(); resetReport('${r.id}')">Reset</button>` : ''}
+            ${r.status === 'rejected' || r.status === 'auto-rejected' ? `<button class="btn" onclick="event.stopPropagation(); resetReport('${r.id}')">Undo</button>` : ''}
+          </div>
+        </div>
+      `).join('') + '</div>';
+
+      container.querySelectorAll('.report-row').forEach(row => {
+        row.addEventListener('click', () => openDetail(row.dataset.id));
+      });
+    }
+
+    // ── Detail panel ──
+    async function openDetail(id) {
+      const overlay = $('#detailOverlay');
+      const body = $('#detailBody');
+      const actions = $('#detailActions');
+
+      body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted)"><div class="spinner"></div></div>';
+      actions.innerHTML = '';
+      overlay.classList.add('open');
+
+      const r = await api('GET', `/api/reports/${id}`);
+
+      body.innerHTML = `
+        <div class="detail-field">
+          <label>Status</label>
+          <div class="val"><span class="badge ${r.status}">${statusLabel(r.status)}</span></div>
+        </div>
+        ${r.statusDetail ? `<div class="detail-field"><label>Status Detail</label><div class="val">${r.statusDetail}</div></div>` : ''}
+        ${r.status === 'awaiting_review' && r.review ? `<div class="detail-field"><label>Review</label><div class="val">${r.review.telegramMessageId != null ? 'Sent to phone (Telegram)' : 'Dashboard only'}${r.review.requestedAt ? ' · requested ' + formatTime(r.review.requestedAt) : ''}${r.review.mode ? ' · mode ' + r.review.mode : ''}</div></div>` : ''}
+        ${r.portalCaseId ? `<div class="detail-field"><label>311 Case ID</label><div class="val">${r.portalCaseId}</div></div>` : ''}
+        <div class="detail-field">
+          <label>Category</label>
+          <div class="val">${categoryLabel(r.category)}</div>
+        </div>
+        <div class="detail-field">
+          <label>Address</label>
+          <div class="val">${r.address ? `<a href="https://www.google.com/maps/search/${encodeURIComponent(r.address + ', Providence, RI')}" target="_blank" rel="noopener" style="color:var(--accent)">${r.address}</a>` : '—'}</div>
+        </div>
+        <div class="detail-field">
+          <label>Coordinates</label>
+          <div class="val">${r.lat != null ? `<a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" rel="noopener" style="color:var(--accent)">${r.lat}, ${r.lng}</a>${isInProvidence(r.lat, r.lng) === false ? ' <span class="badge location-warn">OUTSIDE PVD</span>' : ''}` : '<span class="badge location-warn">NO COORDS</span>'}</div>
+        </div>
+        <div class="detail-field">
+          <label>Description</label>
+          <div class="val">${r.description || '—'}</div>
+        </div>
+        <div class="detail-field">
+          <label>Reporter</label>
+          <div class="val">${[r.reporterName, r.reporterEmail].filter(Boolean).join(' · ') || '—'}</div>
+        </div>
+        <div class="detail-field">
+          <label>Submitted</label>
+          <div class="val">${formatTime(r.timestamp)}</div>
+        </div>
+        ${r.photo ? `<div class="detail-field"><label>Photo</label><img class="detail-photo" src="${r.photo}"></div>` : ''}
+      `;
+
+      const btns = [];
+      if (r.status === 'awaiting_review') {
+        btns.push(`<button class="btn danger" onclick="reviewReject('${r.id}'); closeDetail();">Reject</button>`);
+        btns.push(`<button class="btn primary" onclick="reviewApprove('${r.id}'); closeDetail();">Approve</button>`);
+      }
+      if (r.status === 'pending') {
+        btns.push(`<button class="btn danger" onclick="rejectReport('${r.id}'); closeDetail();">Won't Do</button>`);
+        btns.push(`<button class="btn" onclick="submitReport('${r.id}', true); closeDetail();">Dry Run</button>`);
+        btns.push(`<button class="btn primary" onclick="submitReport('${r.id}'); closeDetail();">Submit to 311</button>`);
+      }
+      if (r.status === 'failed' || r.status === 'submitted') {
+        btns.push(`<button class="btn" onclick="resetReport('${r.id}'); closeDetail();">Reset to Pending</button>`);
+      }
+      if (r.status === 'rejected' || r.status === 'auto-rejected') {
+        btns.push(`<button class="btn" onclick="resetReport('${r.id}'); closeDetail();">Undo — Reset to Pending</button>`);
+      }
+      actions.innerHTML = btns.join('');
+    }
+
+    function closeDetail() {
+      $('#detailOverlay').classList.remove('open');
+    }
+
+    $('#detailClose').addEventListener('click', closeDetail);
+    $('#detailOverlay').addEventListener('click', (e) => {
+      if (e.target === $('#detailOverlay')) closeDetail();
+    });
+
+    // ── Actions ──
+    async function submitReport(id, dryRun = false) {
+      toast(dryRun ? 'Starting dry run...' : 'Starting submission...');
+      await api('POST', '/api/submit', { id, dryRun });
+      startPolling();
+    }
+
+    async function resetReport(id) {
+      await api('POST', '/api/reset', { id });
+      toast('Report reset to pending');
+      await refresh();
+    }
+
+    async function rejectReport(id) {
+      const reason = prompt('Reason (optional):', 'spam / duplicate');
+      if (reason === null) return; // cancelled
+      await api('POST', '/api/reject', { id, reason: reason || 'Rejected' });
+      toast('Report marked as won\'t do');
+      await refresh();
+    }
+
+    // ── HITL review actions (awaiting_review) ──
+    async function reviewApprove(id) {
+      const res = await api('POST', `/api/reports/${id}/approve`);
+      toast(res && res.error ? 'Approve failed: ' + res.error : 'Approved — queued for submission');
+      await refresh();
+    }
+
+    async function reviewReject(id) {
+      const res = await api('POST', `/api/reports/${id}/reject`);
+      toast(res && res.error ? 'Reject failed: ' + res.error : 'Report rejected');
+      await refresh();
+    }
+
+    // ── Notification sound ──
+    function playNotificationSound() {
+      try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(1047, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch {}
+    }
+
+    // ── Data loading ──
+    async function refresh() {
+      reports = await api('GET', '/api/reports');
+
+      if (firstLoad) {
+        knownIds = new Set(reports.map(r => r.id));
+        firstLoad = false;
+      } else {
+        const newReports = reports.filter(r => !knownIds.has(r.id));
+        if (newReports.length > 0) {
+          playNotificationSound();
+          toast(`${newReports.length} new report${newReports.length > 1 ? 's' : ''}`);
+          newReports.forEach(r => knownIds.add(r.id));
+        }
+      }
+
+      renderList();
+
+      const status = await api('GET', '/api/status');
+      const pill = $('#serverStatus');
+      if (status.activeSubmission) {
+        pill.textContent = 'Submitting...';
+        pill.classList.add('busy');
+      } else {
+        pill.textContent = 'Idle';
+        pill.classList.remove('busy');
+      }
+
+      const hitlPill = $('#hitlPill');
+      if (hitlPill && status.hitlMode) {
+        hitlPill.textContent = `HITL: ${status.hitlMode}${status.telegramEnabled ? ' 📱' : ''}`;
+        hitlPill.title = status.telegramEnabled
+          ? 'Reviews go to Telegram + dashboard'
+          : 'Telegram off — reviews via dashboard only';
+      }
+    }
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(async () => {
+        await refresh();
+        const status = await api('GET', '/api/status');
+        if (!status.activeSubmission) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          toast('Submission complete');
+        }
+      }, 2000);
+    }
+
+    // ── Tabs ──
+    $('#tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentFilter = tab.dataset.filter;
+      renderList();
+    });
+
+    // ── Auto-mode ──
+    let autoState = null;
+    let lastAutoLogLen = 0;
+
+    async function refreshAuto() {
+      try {
+        autoState = await api('GET', '/api/auto');
+        // If auto-submitter logged a new event, refresh reports immediately
+        if (autoState.log.length !== lastAutoLogLen) {
+          lastAutoLogLen = autoState.log.length;
+          refresh();
+        }
+        const pill = $('#autoPill');
+        pill.classList.remove('on', 'paused');
+        if (autoState.paused) {
+          pill.textContent = 'Auto: PAUSED';
+          pill.classList.add('paused');
+          pill.title = `Paused — ${autoState.consecutiveFailures} failures. Click to resume.`;
+        } else if (autoState.enabled) {
+          pill.textContent = `Auto: ON (${autoState.submissionsThisHour}/hr)`;
+          pill.classList.add('on');
+          pill.title = 'Click to disable auto-submission';
+        } else {
+          pill.textContent = 'Auto: OFF';
+          pill.title = 'Click to enable auto-submission';
+        }
+
+        // Activity log
+        const section = $('#autoLogSection');
+        const logBody = $('#autoLogBody');
+        const logCount = $('#autoLogCount');
+        if (autoState.log.length > 0 || autoState.enabled || autoState.paused) {
+          section.style.display = '';
+          logCount.textContent = `${autoState.log.length} entries`;
+          logBody.innerHTML = autoState.log.slice().reverse().map(entry => {
+            const color = entry.action === 'submitted' ? 'var(--green)' :
+                          entry.action === 'auto-rejected' ? 'var(--yellow)' : 'var(--red)';
+            const time = new Date(entry.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+            return `<div class="auto-log-entry">
+              <span class="auto-log-time">${time}</span>
+              <span class="auto-log-detail">${entry.reportId.slice(0, 8)}… — ${entry.detail}</span>
+              <span style="color:${color}; font-weight:500; text-transform:uppercase; font-size:11px">${entry.action}</span>
+            </div>`;
+          }).join('');
+        } else {
+          section.style.display = 'none';
+        }
+      } catch {}
+    }
+
+    $('#autoPill').addEventListener('click', async () => {
+      if (!autoState) return;
+      if (autoState.paused) {
+        await api('POST', '/api/auto/resume');
+        toast('Auto-mode resumed');
+      } else {
+        await api('POST', '/api/auto', { enabled: !autoState.enabled });
+        toast(autoState.enabled ? 'Auto-mode disabled' : 'Auto-mode enabled');
+      }
+      await refreshAuto();
+    });
+
+    // ── Headless toggle ──
+    let headlessMode = false;
+
+    async function refreshHeadless() {
+      try {
+        const status = await api('GET', '/api/status');
+        headlessMode = !!status.headless;
+        const pill = $('#headlessPill');
+        pill.classList.remove('on');
+        if (headlessMode) {
+          pill.textContent = 'Headless';
+          pill.title = 'Browser runs hidden — click to switch to headed';
+        } else {
+          pill.textContent = 'Headed';
+          pill.classList.add('on');
+          pill.title = 'Browser window visible — click to switch to headless';
+        }
+      } catch {}
+    }
+
+    $('#headlessPill').addEventListener('click', async () => {
+      await api('POST', '/api/headless', { headless: !headlessMode });
+      toast(headlessMode ? 'Switched to headed mode' : 'Switched to headless mode');
+      await refreshHeadless();
+    });
+
+    // ── Init ──
+    refresh();
+    refreshAuto();
+    refreshHeadless();
+    // Full report refresh every 5 min (costs Firestore reads)
+    setInterval(() => refresh(), 300000);
+    // Auto-state poll every 10s (free — in-memory only, triggers refresh on new activity)
+    setInterval(() => refreshAuto(), 10000);
+  </script>
+</body>
+</html>
