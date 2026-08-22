@@ -20,7 +20,22 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Selector hardening (loose aria-label match for case-type button), honeypot never filled
 - [x] Relax photo-required gate per category
 
-## M2 — PWA de-snowed (public/)
+## PIVOT 2026-08-22 (Rob): only sacred cow = official portal driven by headless browsers. `public/` FROZEN (live, no new work). Client rebuilt in `app/` (M7); automation moves to the Cloudflare Worker (`worker/`, alice); product decisions per `docs/product-spec.md` (SnapPVD).
+
+## M7 — SnapPVD client (app/) — bob
+- [x] Scaffold: Vite + React + TS, installable PWA, Playwright; Worker API client; Turnstile; brand + tokens + i18n strings file
+- [x] Report screen: 8 tiles + Other (picker first, per Rob), photo (camera/library, EXIF → location), geolocation + forward/reverse geocode + Providence guard, per-category extra questions, description + AI intake (moderation/polish, reporter approves), sticky submit
+- [x] Offline outbox (IndexedDB) with flush on reconnect
+- [x] My reports (device-local tokens)
+- [ ] Tracking page `/r/:id` + confirmation (copy/share, email attach once the Worker has the endpoint)  ← IC app-track
+- [ ] Public map + feed `/map` (Leaflet, lazy) ← IC app-map
+- [ ] About + Privacy, SnapPVD icon set ← IC app-about
+- [ ] Spanish strings (`strings.es.json`) + language switch
+- [ ] Location mini-map with draggable pin (spec §3.1) — after MapView lands
+- [ ] Dedupe prompt (needs GET /api/nearby) — parked until the Worker ships it
+- [ ] Flip Firebase Hosting to `app/dist` once the Worker endpoints are live (firebase.json `_comment`), then retire `public/`
+
+## M2 — PWA de-snowed (public/) — DONE, then FROZEN by the pivot
 - [x] Restore wizard index.html from git (51e3331^), strip snow copy/theme/icons (working title "PVD 311" until M6)
 - [x] Category picker driven by a curated launch set (~8) mapped to census GUIDs; "I'm unsure" fallback (`scripts/gen-categories.mjs` → `public/categories.js`; seasonal hiding; per-category extra questions; photo-optional gate)
 - [x] Reporter email promoted ("get the city's updates"); consent copy
