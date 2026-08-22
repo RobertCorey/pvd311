@@ -13,6 +13,7 @@ const firebaseConfig = {
 };
 
 const APP_VERSION = 'v12';
+window.APP_VERSION = APP_VERSION;
 const APP_CHECK_SITE_KEY = '6LfgOJMtAAAAAI-W7gY4bSJ32_y00tZgfZHf9SnG'; // reCAPTCHA Enterprise
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(location.hostname);
 
@@ -250,7 +251,27 @@ function populateReview() {
   reviewPhoto.src = photoDataUrl || '';
   reviewPhoto.parentElement.hidden = !photoDataUrl;
   renderExtraQuestions();
+  if (window.PVDIntake) {
+    PVDIntake.onReview({
+      category: selectedCategory,
+      description: descriptionInput.value.trim(),
+      address: addressInput.value.trim(),
+      extra: collectExtra(),
+      hasPhoto: !!photoDataUrl
+    });
+  }
 }
+
+// Intake suggested a different category and the reporter accepted it.
+document.addEventListener('pvd:switch-category', (e) => {
+  const key = e.detail && e.detail.key;
+  if (!key || !CATEGORY_BY_KEY[key]) return;
+  selectedCategory = key;
+  categoryBtns.querySelectorAll('.category-btn').forEach(b => b.classList.toggle('selected', b.dataset.category === key));
+  reviewCategory.textContent = CATEGORY_LABELS[key] || key;
+  renderExtraQuestions();
+  logEvent('select_category', { category: key, via: 'intake' });
+});
 
 nextBtn.addEventListener('click', async () => {
   if (nextBtn.disabled) return;
@@ -627,7 +648,7 @@ const OFFLINE_CONFIRM_TEXT = "Saved on your phone — no connection right now. W
 // Snapshot the current form into a plain, serializable payload (no timestamp;
 // serverTimestamp() is stamped at send time in sendReport).
 function buildPayload() {
-  return {
+  const payload = {
     category: selectedCategory,
     address: addressInput.value.trim(),
     lat: currentLat,
@@ -641,6 +662,7 @@ function buildPayload() {
     portalCaseId: null,
     statusUpdatedAt: null
   };
+  return window.PVDIntake ? PVDIntake.apply(payload) : payload;
 }
 
 // Upload the photo (if any) then write the report to Firestore. Used for both
@@ -798,6 +820,7 @@ submitAnother.addEventListener('click', () => {
   emailInput.value = '';
   extraQuestions.innerHTML = '';
   extraQuestions.hidden = true;
+  if (window.PVDIntake) PVDIntake.reset();
   errorBanner.classList.remove('visible');
   pvdWarning.classList.remove('visible');
 
