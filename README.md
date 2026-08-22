@@ -1,8 +1,8 @@
-# SnapPVD
+# FixMyPVD
 
-Report a Providence street problem in one photo — we file it with the city's 311 for you. **SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
+Report a Providence street problem in one photo — we file it with the city's 311 for you. **FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
 
-Pre-launch (quiet). Live at [pvdsnow.org](https://pvdsnow.org) until snappvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
+Pre-launch (quiet). Live at [pvdsnow.org](https://pvdsnow.org) until fixmypvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
 
 Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git history before `c81a893`). Plan and status: [`PLAN.md`](PLAN.md), [`.claude/STATE.md`](.claude/STATE.md). Portal research: [`scripts/`](scripts/).
 
@@ -27,7 +27,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 ## Project structure
 
 ```
-app/               SnapPVD client (React)
+app/               FixMyPVD client (React)
   src/screens/     Report (tiles → details), Track (/r/:id), Feed (/map), MyReports, About, Privacy
   src/api/         Worker API client + types (wire contract)
   src/lib/         categories (from shared/), geo (EXIF, geocode, compress), outbox, myReports
@@ -36,7 +36,7 @@ app/               SnapPVD client (React)
   tests/           Playwright (mobile emulation, API mocked)
 worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
 shared/            category registry (single source of truth)
-docs/              product-spec.md (SnapPVD), provisioning-task.md
+docs/              product-spec.md (FixMyPVD), provisioning-task.md
 automation/        legacy laptop engine (reference)
 scripts/           portal research, case-type census
 firebase.json      hosting → app/dist

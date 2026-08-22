@@ -1,19 +1,19 @@
-# SnapPVD — quiet-launch kit
+# FixMyPVD — quiet-launch kit
 
-Copy for the SnapPVD launch. Each channel has its own file; post in the order below, and **each step is gated on the previous one going smoothly.**
+Copy for the FixMyPVD launch. Each channel has its own file; post in the order below, and **each step is gated on the previous one going smoothly.**
 
 ## The one rule
 
-**No city outreach — ever — unless the city contacts us first.** SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence. Don't tag, DM, email, or reply to city accounts to promote it. If the city reaches out, that's a separate conversation.
+**No city outreach — ever — unless the city contacts us first.** FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence. Don't tag, DM, email, or reply to city accounts to promote it. If the city reaches out, that's a separate conversation.
 
 ## The URL placeholder
 
-Every file uses the token **`SNAPPVD_URL`** in place of the live URL, with the current value in a header line at the top of the file:
+Every file uses the token **`FIXMYPVD_URL`** in place of the live URL, with the current value in a header line at the top of the file:
 
 - **Now:** `https://pvdsnow.org`
-- **Later:** `https://snappvd.org`, once the domain is bought.
+- **Later:** `https://fixmypvd.org`, once the domain is bought.
 
-To publish, find-and-replace `SNAPPVD_URL` with the current URL. When the domain changes, that's the only edit.
+To publish, find-and-replace `FIXMYPVD_URL` with the current URL. When the domain changes, that's the only edit.
 
 ## Launch order (from product-spec §5)
 
