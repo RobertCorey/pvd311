@@ -12,7 +12,9 @@
     "test:rules": "firebase emulators:exec --only firestore,storage --project pvd311-rules-test 'node tests/rules/firestore.rules.test.mjs'",
     "app:build": "cd app && npm run build",
     "app:test": "cd app && npx playwright test",
-    "app:dev": "cd app && npm run dev"
+    "app:dev": "cd app && npm run dev",
+    "deploy:app": "cd app && npm run build && cd .. && firebase deploy --only hosting --config firebase.app.json",
+    "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --config firebase.app.json --expires 7d"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
