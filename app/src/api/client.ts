@@ -1,0 +1,92 @@
+import { APP_VERSION } from '../brand';
+import type { FeedResponse, IntakeRequest, IntakeResult, ReportCreated, ReportSubmission, ReportView } from './types';
+import { ApiError } from './types';
+
+export const API_BASE: string =
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? 'https://pvd311-worker.pvd311-worker.workers.dev';
+
+/** Stable per-device id (pacing on the server). Never PII. */
+export function deviceId(): string {
+  try {
+    const k = 'pvd311.deviceId';
+    let v = localStorage.getItem(k);
+    if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); }
+    return v;
+  } catch { return 'ephemeral-' + Math.random().toString(36).slice(2); }
+}
+
+async function parseError(resp: Response): Promise<ApiError> {
+  let body: { error?: string; field?: string; retryAfterSec?: number } = {};
+  try { body = await resp.json(); } catch { /* non-JSON error */ }
+  return new ApiError(resp.status, body.error ?? `http_${resp.status}`, body.field, body.retryAfterSec);
+}
+
+function withTimeout(ms: number): { signal: AbortSignal; done: () => void } {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  return { signal: c.signal, done: () => clearTimeout(t) };
+}
+
+export async function submitReport(r: ReportSubmission): Promise<ReportCreated> {
+  const fd = new FormData();
+  fd.set('category', r.category);
+  fd.set('description', r.description);
+  fd.set('address', r.address);
+  if (r.lat != null && r.lng != null) { fd.set('lat', String(r.lat)); fd.set('lng', String(r.lng)); }
+  if (r.extra && Object.keys(r.extra).length) fd.set('extra', JSON.stringify(r.extra));
+  if (r.email) fd.set('email', r.email);
+  if (r.name) fd.set('name', r.name);
+  fd.set('turnstileToken', r.turnstileToken);
+  fd.set('deviceId', deviceId());
+  fd.set('appVersion', APP_VERSION);
+  if (r.descriptionOriginal) fd.set('descriptionOriginal', r.descriptionOriginal);
+  if (r.intakeFlags?.length) fd.set('intakeFlags', JSON.stringify(r.intakeFlags));
+  if (r.photo) fd.set('photo', r.photo, 'photo.jpg');
+  const t = withTimeout(45_000);
+  try {
+    const resp = await fetch(`${API_BASE}/api/report`, { method: 'POST', body: fd, signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    return (await resp.json()) as ReportCreated;
+  } finally { t.done(); }
+}
+
+/** Moderation + optional polish. Never throws — null means "no suggestion". */
+export async function intake(req: Omit<IntakeRequest, 'appVersion'>, turnstileToken?: string | null): Promise<IntakeResult | null> {
+  const t = withTimeout(6_000);
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
+    const resp = await fetch(`${API_BASE}/api/intake`, {
+      method: 'POST', headers, signal: t.signal,
+      body: JSON.stringify({ ...req, appVersion: APP_VERSION } satisfies IntakeRequest),
+    });
+    if (!resp.ok) return null;
+    const d = (await resp.json()) as Partial<IntakeResult>;
+    const flags = Array.isArray(d.flags) ? d.flags.filter((f): f is IntakeResult['flags'][number] =>
+      ['spam', 'abuse', 'personal_info', 'not_311', 'emergency'].includes(String(f))).slice(0, 5) : [];
+    return {
+      polishedDescription: typeof d.polishedDescription === 'string' && d.polishedDescription.trim() ? d.polishedDescription.trim().slice(0, 600) : null,
+      flags,
+      note: typeof d.note === 'string' && d.note.trim() ? d.note.trim().slice(0, 200) : null,
+      model: typeof d.model === 'string' ? d.model : undefined,
+    };
+  } catch { return null; } finally { t.done(); }
+}
+
+export async function getReport(id: string): Promise<ReportView> {
+  const t = withTimeout(15_000);
+  try {
+    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}`, { signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    return (await resp.json()) as ReportView;
+  } finally { t.done(); }
+}
+
+export async function getFeed(bbox: [number, number, number, number], limit = 100): Promise<FeedResponse> {
+  const t = withTimeout(15_000);
+  try {
+    const resp = await fetch(`${API_BASE}/api/public-feed?bbox=${bbox.join(',')}&limit=${limit}`, { signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    return (await resp.json()) as FeedResponse;
+  } finally { t.done(); }
+}

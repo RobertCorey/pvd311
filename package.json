@@ -9,7 +9,10 @@
     "deploy:rules": "firebase deploy --only firestore:rules,storage",
     "deploy:all": "firebase deploy --only hosting,firestore:rules,storage",
     "dashboard": "cd automation && npm start",
-    "test:rules": "firebase emulators:exec --only firestore,storage --project pvd311-rules-test 'node tests/rules/firestore.rules.test.mjs'"
+    "test:rules": "firebase emulators:exec --only firestore,storage --project pvd311-rules-test 'node tests/rules/firestore.rules.test.mjs'",
+    "app:build": "cd app && npm run build",
+    "app:test": "cd app && npx playwright test",
+    "app:dev": "cd app && npm run dev"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

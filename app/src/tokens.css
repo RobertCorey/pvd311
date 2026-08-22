@@ -1,0 +1,25 @@
+/* Placeholder tokens lifted from the live site; the product spec will replace them. */
+:root {
+  --navy-900: #0a1628;
+  --navy-800: #111d33;
+  --navy-700: #182a45;
+  --navy-600: #1e3a5f;
+  --ice-400: #7ec8e3;
+  --ice-300: #a8ddf0;
+  --ice-200: #d0eef8;
+  --white-pure: #ffffff;
+  --alert-amber: #f5a623;
+  --success-green: #34d399;
+  --danger-red: #ef4444;
+  --text-primary: #e8edf3;
+  --text-secondary: #8a9bb5;
+  --text-muted: #5a6e87;
+  --border: rgba(126, 200, 227, 0.12);
+  --border-focus: rgba(126, 200, 227, 0.35);
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body: 'Source Sans 3', -apple-system, system-ui, sans-serif;
+  --tap: 44px;
+}

@@ -27,7 +27,8 @@
           }
         ]
       }
-    ]
+    ],
+    "_comment": "PIVOT 2026-08-22: flip \"public\" to \"app/dist\" (and run `cd app && npm run build` first) when app/ reaches parity; rewrites already SPA-friendly."
   },
   "firestore": {
     "rules": "firestore.rules",
