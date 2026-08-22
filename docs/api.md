@@ -93,5 +93,5 @@ JSON `{ description }` (≤2000) → `{ ok, description }`. 403 `not_owner`, 409
 → `{ ok, status: "rejected" }`; the tracker shows "Not filed". 409 `not_cancellable` once a browser picked it up (`sending`) or after. An abandoned city draft from an earlier attempt is left alone (undeletable, harmless).
 
 ## Changes to existing endpoints
-- `POST /api/report`: account required (above). `GET /api/reports/:id` with a bearer adds `mine`, `following`, `editable`, and `description` (owners only); always adds `owned`.
+- `POST /api/report`: account required (above). `GET /api/reports/:id` with a bearer adds `mine`, `following`, `editable`, and `description` (owners only); always adds `owned` and `cancelledByReporter` (status `rejected` + this flag = the reporter withdrew it).
 - HITL trust ramp (`HITL_MODE=ramp`, the launch mode): the first `ACCOUNT_TRUST_N` (3) reports of each account are human-reviewed; after that, an account with 0 rejected reports — or `users/{uid}.trusted=true` — auto-approves. `HITL_MODE=review` = every report tapped (panic switch).

@@ -253,7 +253,7 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
     portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline, hasEmail: !!r.reporterEmail,
-    owned: !!r.ownerUid,
+    owned: !!r.ownerUid, cancelledByReporter: r.cancelledByReporter === true,
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
