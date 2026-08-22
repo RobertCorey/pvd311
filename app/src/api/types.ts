@@ -59,7 +59,7 @@ export interface ReportView {
   nextUpdateHint: string | null;
   hasEmail?: boolean;
   /** Present when the caller is signed in (see docs/api.md Accounts). */
-  owned?: boolean; mine?: boolean; following?: boolean; editable?: boolean; description?: string | null;
+  owned?: boolean; cancelledByReporter?: boolean; mine?: boolean; following?: boolean; editable?: boolean; description?: string | null;
 }
 
 export interface FeedItem {

@@ -365,5 +365,6 @@
   "report.gate.fallback": "Un paso más: inicia sesión para que la ciudad pueda contactarte sobre este reporte y para que una sola persona no sature el 311. Tu reporte está guardado — volverás justo aquí.",
   "report.gate.signIn": "Iniciar sesión para enviar",
   "report.gate.resumed": "Ya iniciaste sesión — tu reporte está listo. Toca Enviar.",
-  "report.outbox.signIn": "Inicia sesión para enviar tus reportes guardados"
+  "report.outbox.signIn": "Inicia sesión para enviar tus reportes guardados",
+  "track.state.cancelledByYou": "Cancelado por ti — este reporte no se envió a la ciudad."
 }

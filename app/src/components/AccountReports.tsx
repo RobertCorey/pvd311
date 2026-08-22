@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../lib/auth';
 import { claimReports, myReports, type MyReportView } from '../api/me';
 import { listMyReports } from '../lib/myReports';
-import { byKey } from '../lib/categories';
+import { shortLabel } from '../lib/categories';
 import { useT } from '../i18n';
 import '../screens/Account.css';
 
@@ -51,7 +51,7 @@ export default function AccountReports() {
           <ul className="my-list">
             {remote.map((r) => (
               <li key={r.id}><Link to={`/r/${r.id}`} className="card my-row">
-                <span className="my-cat">{byKey(r.category)?.short ?? r.categoryLabel}</span>
+                <span className="my-cat">{shortLabel(r.category, t)}</span>
                 <span className="my-addr">{r.address}</span>
                 <span className="muted my-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</span>
               </Link></li>

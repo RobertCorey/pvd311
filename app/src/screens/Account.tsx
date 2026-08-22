@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useT } from '../i18n';
-import { byKey } from '../lib/categories';
+import { shortLabel } from '../lib/categories';
 import { listMyReports } from '../lib/myReports';
 import {
   AuthError, GOOGLE_CLIENT_ID, completeSignInLink, isSignInLink, loadGsi, pendingEmail, sendSignInLink,
@@ -241,7 +241,7 @@ function SignedIn() {
         <ul className="my-list">
           {following.map((r) => (
             <li key={r.id}><Link to={`/r/${r.id}`} className="card my-row">
-              <span className="my-cat">{byKey(r.category)?.short ?? r.categoryLabel}</span>
+              <span className="my-cat">{shortLabel(r.category, t)}</span>
               <span className="my-addr">{r.address}</span>
               <span className="muted my-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</span>
             </Link></li>
