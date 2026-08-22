@@ -1,6 +1,9 @@
 // One composed-but-unsent report, persisted across the sign-in round trip
 // (email-link opens a new page). Photo is stored as a Blob; IndexedDB handles it.
-const DB = 'fixmypvd-draft', STORE = 'draft', KEY = 'current';
+import { idbTx, type StoreSpec } from './idb';
+
+const SPEC: StoreSpec = { db: 'fixmypvd-draft', store: 'draft' };
+const KEY = 'current';
 
 export interface Draft {
   savedAt: number;
@@ -16,23 +19,7 @@ export interface Draft {
   reason: 'sign_in';
 }
 
-function open(): Promise<IDBDatabase> {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return open().then((db) => new Promise<T>((res, rej) => {
-    const t = db.transaction(STORE, mode);
-    t.oncomplete = () => db.close(); t.onabort = () => db.close();
-    const req = fn(t.objectStore(STORE));
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  }));
-}
+const tx = <T,>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>) => idbTx<T>(SPEC, mode, fn);
 
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 

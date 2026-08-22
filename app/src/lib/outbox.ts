@@ -4,7 +4,9 @@
 // the flush therefore runs from the Report screen where a widget can mount.
 import type { ReportSubmission } from '../api/types';
 
-const DB = 'snappvd', STORE = 'outbox';
+import { idbTx, type StoreSpec } from './idb';
+
+const SPEC: StoreSpec = { db: 'snappvd', store: 'outbox', options: { keyPath: 'id', autoIncrement: true } };
 export interface OutboxItem {
   id?: number;
   queuedAt: number;
@@ -16,24 +18,7 @@ export interface OutboxItem {
 }
 export const MAX_ATTEMPTS = 3;
 
-function open(): Promise<IDBDatabase> {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return open().then((db) => new Promise<T>((res, rej) => {
-    const t = db.transaction(STORE, mode);
-    t.oncomplete = () => db.close();
-    t.onabort = () => db.close();
-    const req = fn(t.objectStore(STORE));
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  }));
-}
+const tx = <T,>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>) => idbTx<T>(SPEC, mode, fn);
 
 export const outbox = {
   add: (report: OutboxItem['report']) => tx<IDBValidKey>('readwrite', (s) => s.add({ queuedAt: Date.now(), clientId: crypto.randomUUID(), attempts: 0, report } satisfies OutboxItem)),
