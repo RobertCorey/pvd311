@@ -20,6 +20,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Sentry error monitoring (same project as the legacy app; lazy loader, no PII) -->
+    <script>
+      window.sentryOnLoad = function () { Sentry.init({ release: 'snappvd@app', sendDefaultPii: false, tracesSampleRate: 0 }); };
+    </script>
+    <script src="https://js.sentry-cdn.com/04195069c1daa8e3d2057b6405e37a21.min.js" crossorigin="anonymous" data-lazy="no" async></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
