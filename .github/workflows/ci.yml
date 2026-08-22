@@ -10,9 +10,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 24 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '21' }
       - name: worker typecheck
         run: cd worker && npm ci && npm run typecheck
-      - name: firestore/storage rules tests (emulator)
-        run: npm ci && npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project pvd311-rules-test "node tests/rules/firestore.rules.test.mjs"

@@ -1,18 +1,8 @@
 rules_version = '2';
 
-// PVD311 relaunch (M3): anonymous-auth users may upload report photos under
-// their own uid and read them back (getDownloadURL needs read). Nothing else.
-// Automation reads via Admin SDK / tokenized download URLs (bypass rules).
+// SnapPVD: photos are stored via the Worker; no client access to the bucket.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /reports/{uid}/{file} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null && request.auth.uid == uid
-        && request.resource.size < 5 * 1024 * 1024
-        && request.resource.contentType.matches('image/(jpeg|png|webp|heic)')
-        && file.matches('[A-Za-z0-9_-]{1,64}[.](jpg|jpeg|png|webp|heic)');
-      allow update, delete: if false;
-    }
     match /{allPaths=**} {
       allow read, write: if false;
     }
