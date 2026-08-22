@@ -57,11 +57,17 @@ const PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB' +
   'Nl7BcQAAAABJRU5ErkJggg==';
 
-const NON_SEASONAL_KEYS = [
-  'pothole', 'missed_trash', 'bins_carts', 'street_light', 'illegal_dumping',
-  'abandoned_vehicle', 'parking', 'animal_control', 'unsure',
-];
-const SEASONAL_KEYS = ['unshoveled_sidewalk', 'missed_plowing'];
+// Derive the expected sets from the generated registry so adding a category
+// to shared/categories.ts (then `node scripts/gen-categories.mjs`) never
+// breaks this spec.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+const CATEGORIES: Array<{ key: string; seasonal: string | null }> = (() => {
+  const src = readFileSync(join(__dirname, '..', 'categories.js'), 'utf8');
+  return JSON.parse(src.slice(src.indexOf('['), src.lastIndexOf(']') + 1));
+})();
+const NON_SEASONAL_KEYS = CATEGORIES.filter(c => !c.seasonal).map(c => c.key);
+const SEASONAL_KEYS = CATEGORIES.filter(c => c.seasonal === 'winter').map(c => c.key);
 
 async function setup(page: Page, opts: { month?: number } = {}) {
   await page.addInitScript(firebaseMock);
