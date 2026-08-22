@@ -16,6 +16,7 @@ Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 40
 | `turnstileToken` | required (Cloudflare Turnstile, sitekey `0x4AAAAAAEYpfrjTLnEgk7-y`) |
 | `deviceId` | random uuid persisted on the device (pacing: 1 per 3 min, 5 per day; also per IP) |
 | `appVersion` | string |
+| `clientId` | uuid generated once per report attempt and reused on outbox retries → idempotent: a repeat returns the existing `{id,…}` with 200 and `idempotent:true` |
 | `descriptionOriginal`, `intakeFlags` | from intake, optional |
 | `photo` | image/*, ≤ 5 MB; required unless the category has `photoRequired:false`. Client should compress to ≤ ~300 KB. |
 
@@ -29,8 +30,8 @@ Rate-limited ~10/min per IP. Never suggests a category (the reporter picks). Cli
 
 ## GET /api/reports/:id — tracking (no PII)
 `{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, timeline: [{at, label}], nextUpdateHint|null, hasEmail }`
-`status`: `received` | `sending` | `sent` | `rejected`. `portalStatus` (from the city): `Submitted` | `Assigned` | `Resolved` | `Cancelled`.
-Client label map: received → "Received"; sending → "Sending to the city"; sent → "Sent" + case id; rejected → "Needs attention".
+`status`: `received` | `sending` | `sent` | `needs_attention` | `rejected`. `portalStatus` (from the city): `Submitted` | `Assigned` | `Resolved` | `Cancelled`.
+Client label map: received → "Received"; sending → "Sending to the city"; sent → "Sent" + case id; needs_attention → "Needs attention — we're looking at it"; rejected → "Not filed".
 
 ## POST /api/reports/:id/email — attach an email after submit
 JSON `{ email }` → 204. Knowing the id is the credential.

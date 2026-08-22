@@ -392,6 +392,15 @@ export function createStore(env: Env): Store {
       return docs.map(docToReport);
     },
 
+    async findByClientId(clientId): Promise<ReportDoc | null> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: fieldFilter('clientId', 'EQUAL', { stringValue: clientId }),
+        limit: 1,
+      });
+      return docs.length ? docToReport(docs[0]) : null;
+    },
+
     async findByStatus(status, limit): Promise<ReportDoc[]> {
       const docs = await runQuery(env, {
         from: [{ collectionId: 'reports' }],

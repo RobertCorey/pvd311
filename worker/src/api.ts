@@ -109,6 +109,13 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
 
   if (!(await verifyTurnstile(env, f('turnstileToken') || null, ip))) return json({ error: 'turnstile_failed' }, 403);
 
+  // Idempotency: the client's outbox reuses the same clientId on retry — never create a second report for it.
+  const clientId = f('clientId').slice(0, 64) || null;
+  if (clientId) {
+    const existing = await store.findByClientId(clientId);
+    if (existing) return json({ id: existing.id, trackingUrl: `/r/${existing.id}`, category: existing.category, createdAt: toIso(existing.timestamp), idempotent: true }, 200);
+  }
+
   const category = f('category');
   const cat = CATEGORIES[category];
   if (!cat) return json({ error: 'invalid_category', field: 'category' }, 400);
@@ -156,7 +163,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps): Pro
     timestamp: now, category, address, lat, lng, description: description || null, descriptionOriginal: f('descriptionOriginal') || null,
     extra, intakeFlags, photo: photoUrl, reporterName: f('name').slice(0, 120) || null, reporterEmail: email,
     status: 'pending', statusDetail: null, portalCaseId: null, statusUpdatedAt: now,
-    deviceId, ip, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
+    deviceId, ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
   });
   return json({ id, trackingUrl: `/r/${id}`, category, createdAt: now.toISOString() }, 201);
 }
@@ -198,7 +205,7 @@ async function intake(request: Request, env: Env): Promise<Response> {
 
 // ── GET /api/reports/:id ─────────────────────────────────────
 
-const PUBLIC_STATUS: Record<string, string> = { pending: 'received', awaiting_review: 'received', processing: 'sending', submitted: 'sent', failed: 'received', rejected: 'rejected', 'auto-rejected': 'rejected' };
+const PUBLIC_STATUS: Record<string, string> = { pending: 'received', awaiting_review: 'received', processing: 'sending', submitted: 'sent', failed: 'needs_attention', rejected: 'rejected', 'auto-rejected': 'rejected' };
 
 function toIso(t: unknown): string | null {
   if (!t) return null;
@@ -216,6 +223,7 @@ function projectReport(r: ReportDoc) {
   if (r.portalCaseId) timeline.push({ at: toIso(r.statusUpdatedAt), label: `Filed with the city as ${r.portalCaseId}` });
   if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
   if (status === 'rejected') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Not filed' });
+  if (status === 'needs_attention') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Needs attention — we are looking at it' });
   return {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
