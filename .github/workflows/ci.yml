@@ -17,4 +17,4 @@ jobs:
       - name: worker typecheck
         run: cd worker && npm ci && npm run typecheck
       - name: firestore/storage rules tests (emulator)
-        run: npm ci && npm run test:rules
+        run: npm ci && npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project pvd311-rules-test "node tests/rules/firestore.rules.test.mjs"
