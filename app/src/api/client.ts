@@ -2,8 +2,28 @@ import { APP_VERSION } from '../brand';
 import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView } from './types';
 import { ApiError } from './types';
 
-export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? 'https://pvd311-worker.pvd311-worker.workers.dev';
+// Primary API host with a fallback: if the custom domain is unreachable (DNS/cert
+// propagation, outage) we switch to the workers.dev origin for the session.
+// TODO(cutover): flip PRIMARY default to https://api.fixmypvd.org once Firebase shows
+// the domain CONNECTED, and add `page.route('https://api.fixmypvd.org/**', r => r.abort())`
+// to the test mocks so specs keep hitting the mocked workers.dev host.
+const FALLBACK_BASE = 'https://pvd311-worker.pvd311-worker.workers.dev';
+const PRIMARY_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? FALLBACK_BASE;
+let activeBase = PRIMARY_BASE;
+/** @deprecated use apiFetch(); kept for modules that build URLs themselves. */
+export const API_BASE: string = PRIMARY_BASE;
+export const apiBase = () => activeBase;
+
+/** fetch() against the API with host fallback on a network-level failure of the primary host. */
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${activeBase}${path}`, init);
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError' || activeBase === FALLBACK_BASE) throw err;
+    activeBase = FALLBACK_BASE;
+    return fetch(`${activeBase}${path}`, init);
+  }
+}
 
 /** Stable per-device id (pacing on the server). Never PII. */
 export function deviceId(): string {
@@ -45,7 +65,7 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
   if (r.photo) fd.set('photo', r.photo, 'photo.jpg');
   const t = withTimeout(45_000);
   try {
-    const resp = await fetch(`${API_BASE}/api/report`, { method: 'POST', body: fd, signal: t.signal });
+    const resp = await apiFetch(`/api/report`, { method: 'POST', body: fd, signal: t.signal });
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as ReportCreated;
   } finally { t.done(); }
@@ -57,7 +77,7 @@ export async function intake(req: Omit<IntakeRequest, 'appVersion'>, turnstileTo
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
-    const resp = await fetch(`${API_BASE}/api/intake`, {
+    const resp = await apiFetch(`/api/intake`, {
       method: 'POST', headers, signal: t.signal,
       body: JSON.stringify({ ...req, appVersion: APP_VERSION } satisfies IntakeRequest),
     });
@@ -77,7 +97,7 @@ export async function intake(req: Omit<IntakeRequest, 'appVersion'>, turnstileTo
 export async function getReport(id: string): Promise<ReportView> {
   const t = withTimeout(15_000);
   try {
-    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}`, { signal: t.signal });
+    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}`, { signal: t.signal });
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as ReportView;
   } finally { t.done(); }
@@ -89,7 +109,7 @@ export async function attachEmail(id: string, email: string, turnstileToken?: st
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
-    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}/email`, { method: 'POST', headers, signal: t.signal, body: JSON.stringify({ email }) });
+    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}/email`, { method: 'POST', headers, signal: t.signal, body: JSON.stringify({ email }) });
     if (!resp.ok) throw await parseError(resp);
   } finally { t.done(); }
 }
@@ -98,7 +118,7 @@ export async function attachEmail(id: string, email: string, turnstileToken?: st
 export async function followReport(id: string, email: string): Promise<void> {
   const t = withTimeout(15_000);
   try {
-    const resp = await fetch(`${API_BASE}/api/reports/${encodeURIComponent(id)}/follow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: t.signal, body: JSON.stringify({ email }) });
+    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}/follow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: t.signal, body: JSON.stringify({ email }) });
     if (!resp.ok) throw await parseError(resp);
   } finally { t.done(); }
 }
@@ -106,7 +126,7 @@ export async function followReport(id: string, email: string): Promise<void> {
 export async function getFeed(bbox: [number, number, number, number], limit = 100): Promise<FeedResponse> {
   const t = withTimeout(15_000);
   try {
-    const resp = await fetch(`${API_BASE}/api/public-feed?bbox=${bbox.join(',')}&limit=${limit}`, { signal: t.signal });
+    const resp = await apiFetch(`/api/public-feed?bbox=${bbox.join(',')}&limit=${limit}`, { signal: t.signal });
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as FeedResponse;
   } finally { t.done(); }
@@ -118,7 +138,7 @@ export async function getNearby(lat: number, lng: number, category?: string | nu
   try {
     const q = new URLSearchParams({ lat: String(lat), lng: String(lng), radiusM: String(radiusM) });
     if (category) q.set('category', category);
-    const resp = await fetch(`${API_BASE}/api/nearby?${q}`, { signal: t.signal });
+    const resp = await apiFetch(`/api/nearby?${q}`, { signal: t.signal });
     if (!resp.ok) return { items: [] };
     return (await resp.json()) as NearbyResponse;
   } catch { return { items: [] }; } finally { t.done(); }
