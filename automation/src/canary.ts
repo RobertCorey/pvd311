@@ -13,7 +13,7 @@ const STEP1_SELECTORS: Record<string, string> = {
   caseTypeLaunch: 'button[aria-label*="Case Type" i][aria-label*="lookup modal" i]',
   notificationMethod: '#cop_methodofupdate',
   nextButton: '#NextButton',
-  honeypot: 'input[aria-label*="Leave this field blank" i]',
+  honeypot: 'input[id^="frm_pref_"]',
 };
 
 export interface CanaryResult { ok: boolean; missing: string[]; notes: string[] }
