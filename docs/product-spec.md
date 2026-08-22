@@ -2,7 +2,7 @@
 
 > Owner: product-design IC (decided, not optioned). Source of truth for name, brand, UX, and the client-facing API contract.
 > Build target: Vite + React + TS mobile-first PWA (`app/`) talking only to the Cloudflare Worker API. The official Providence 311 portal remains the system of record; the Worker drives it headlessly.
-> Status: DECIDED 2026-08-22. Supersedes the PVD-Snow-derived `public/` flow. Do not anchor on the old 4-step wizard — this is a single-screen, photo-first report.
+> Status: DECIDED 2026-08-22. Supersedes the PVD-Snow-derived `public/` flow. Do not anchor on the old 4-step wizard — this is a single-screen report: **the reporter picks the category, then snaps + sends.** No AI photo classification; AI is invisible plumbing (moderation/abuse + optional wording cleanup) only.
 
 ---
 
@@ -79,21 +79,26 @@ A **dropped map pin whose lens is a camera aperture** — one mark that says "ph
 
 ## 3. UX Spec
 
-Mobile-first. **Happy path: ≤4 taps, under 45s.** One report screen (no wizard). Sticky submit. Everything below the photo auto-fills; the user confirms.
+Mobile-first. **Happy path: ≤4 taps, under 45s.** One report screen (no multi-route wizard) with progressive disclosure. **The reporter picks the category — there is no AI "what is this photo" step.** AI is invisible plumbing: a moderation/abuse pass and an optional wording cleanup, on the review step only.
 
-**Happy-path tap count:** (1) tap **Take photo** → system camera → use shot; app auto-fills location from photo EXIF and reverse-geocodes the address; `/api/intake` runs. (2) tap the **"Looks like a Pothole — confirm"** chip. (3) tap **Send to 311**. → Confirmation. (Pin drag / description are optional and don't add required taps.)
+**Happy-path tap count:** (1) tap a **category tile** (e.g. Pothole). (2) tap **Take photo** → system camera → use shot; app auto-fills location from photo EXIF and reverse-geocodes the address. (3) tap **Send to 311**. → Confirmation. (Pin drag / description / reaching a less-common category via the "Other" sheet are optional and don't add required taps.)
 
-### 3.1 Report screen (`/`) — single scroll
+### 3.1 Report screen (`/`) — two phases, one screen
 
-Top-to-bottom:
+A **slim header** persists across both phases: "SnapPVD" wordmark (teal), a small "not the city" microtag, and a **My reports** affordance (opens the list of tokens saved on this device). No account, no login.
 
-1. **Slim header** — "SnapPVD" wordmark (teal), a small "not the city" microtag, and a **My reports** affordance (opens the list of tokens saved on this device). No account, no login.
-2. **Photo hero** — large tappable card, `--accent` outline. Primary **Take photo** (`<input capture="environment">`), secondary **Choose from library**. After capture: compressed thumbnail (max ~1280px, JPEG q≈0.7) + **Retake**. Photo is **required for**: pothole, illegal_dumping, abandoned_vehicle, parking, unshoveled_sidewalk, missed_plowing. **Optional for**: missed_trash, bins_carts, street_light, animal_control, noise, unsure. (Sourced from `photoRequired` in `shared/categories.ts`.)
-3. **Location card** — mini interactive map with a **draggable pin** (`--accent-2`) + an **address text field** below (always editable). "Use my location" GPS chip. Resolution priority: **photo EXIF GPS → device GPS → manual type/pin-drag**. Shows the reverse-geocoded address (ArcGIS World Geocoder, matching the portal) and a subtle lat/lng line. Pin drag re-reverse-geocodes.
-4. **Description field** — single growing textarea, placeholder *"What's going on? (optional)"*.
-5. **AI intake band** (`aria-live="polite"`, appears once a photo and/or description exist; debounced call to `/api/intake`) — e.g. **"Looks like a Pothole — confirm?"** with a primary confirm chip and a **Change** button opening the category sheet. If intake returns a `polishedDescription`, offer it as a one-tap "use suggested wording" (never auto-overwrite the user's text). Renders `flags` as notices (see states). The city never receives unreviewed AI text — polished text is a *suggestion the reporter accepts*, and final submission is HITL-gated server-side at launch.
-6. **Category chip** — the current selection, always visible and tappable → **category bottom sheet** (the 12 launch categories from `shared/categories.ts`, seasonal ones hidden out of season; "Something else" always present). Manual pick overrides the AI suggestion.
-7. **Sticky Submit** — **"Send to Providence 311."** Disabled only when a hard block is active (no category, required photo missing, outside Providence, rate-limited).
+**Phase A — Category (step one).** A grid of **big category tiles** is the first and main thing on the screen — the reporter says what's wrong. The **eight core categories** are front and center, each a large icon + label tap target:
+
+> **Pothole · Missed trash · Bins/carts · Street light · Illegal dumping · Abandoned vehicle · Parking · Animal control**
+
+In winter the two **snow** tiles (**Unshoveled sidewalk**, **Street not plowed**) surface alongside them (seasonal flag in `shared/categories.ts`). A final **Other / something else** tile opens a **bottom sheet** with the full list — **Noise**, **I'm not sure**, and anything not promoted to a core tile. Tapping any tile selects it and advances to Phase B (brief auto-advance, matching the fast old flow). The full launch set and GUIDs come from `shared/categories.ts`; keep the core-eight ordering here in sync with it.
+
+**Phase B — Details.** The chosen category shows as an **editable chip** at the top (tap it → back to the grid / sheet to change). Below it, top-to-bottom:
+
+1. **Photo** — large tappable card, `--accent` outline. Primary **Take photo** (`<input capture="environment">`), secondary **Choose from library**. After capture: compressed thumbnail (max ~1280px, JPEG q≈0.7) + **Retake**. Photo is **required for**: pothole, illegal_dumping, abandoned_vehicle, parking, unshoveled_sidewalk, missed_plowing. **Optional for**: missed_trash, bins_carts, street_light, animal_control, noise, unsure. (Sourced from `photoRequired` in `shared/categories.ts`.)
+2. **Location card** — mini interactive map with a **draggable pin** (`--accent-2`) + an **address text field** below (always editable). "Use my location" GPS chip. Resolution priority: **photo EXIF GPS → device GPS → manual type/pin-drag**. Shows the reverse-geocoded address (ArcGIS World Geocoder, matching the portal) and a subtle lat/lng line. Pin drag re-reverse-geocodes.
+3. **Description field** — single growing textarea, placeholder *"What's going on? (optional)"*.
+4. **Review + Submit** — sticky **"Send to Providence 311."** Just above it, two bits of **invisible AI plumbing** call `/api/intake` (debounced, once a description and/or photo exists): (a) a **moderation/abuse pass** whose `flags` surface as notices here (emergency → 911 block, not_311 notice, abuse block — see states); (b) an **optional one-tap "tidy up wording"** offering the `polishedDescription` (never auto-overwrites the reporter's text; skipping it is fine). No category suggestion — the reporter already chose. The city never receives unreviewed AI text: polish is a suggestion the reporter accepts, and final submission is HITL-gated server-side at launch. Submit is disabled only on a hard block (no category, required photo missing, outside Providence, rate-limited).
 
 Email is **not** on this screen (kept minimal for speed) — it's offered on the confirmation screen.
 
@@ -174,7 +179,7 @@ Creates a report and returns its tracking token. The Worker validates server-sid
   "extra": { "size": "Medium (~28in)" },
   "reporterName": null,
   "reporterEmail": null,
-  "acceptedSuggestion": true,
+  "usedPolishedText": false,
   "clientDedupeAckToken": null,
   "turnstileToken": "0.abc..."
 }
@@ -186,22 +191,20 @@ Creates a report and returns its tracking token. The Worker validates server-sid
 - Errors: `429` (`rate_limited`, `Retry-After` header), `422` (`outside_area`), `400` (`bad_request`), `403` (bad Turnstile).
 
 ### POST /api/intake  (application/json)
-AI classification + polish + moderation. **No side effects** (does not create a report).
-- Request:
+Moderation/abuse pass + optional wording cleanup. **No category classification** — the reporter picks the category — and **no side effects** (does not create a report). Called on the review step.
+- Request (`category` is always the reporter's pick, never null):
 ```json
-{ "category": null, "description": "big hole in the road on benefit", "address": "Benefit St", "hasPhoto": true }
+{ "category": "pothole", "description": "big hole in the road on benefit", "address": "Benefit St", "hasPhoto": true }
 ```
 - `200`:
 ```json
 {
-  "suggestedCategory": "pothole",
-  "confidence": 0.86,
   "polishedDescription": "Large pothole in the roadway on Benefit St.",
   "flags": [],
   "note": null
 }
 ```
-- `flags` ⊆ `["emergency","not_311","needs_more_info","possible_duplicate","low_quality_photo"]`. `note` is a short human string when a flag needs explaining (e.g. not_311 → which channel). `suggestedCategory` is a key from `shared/categories.ts` or `"unsure"`.
+- `flags` ⊆ `["emergency","not_311","abuse","needs_more_info","low_quality_photo"]`. `note` is a short human string when a flag needs explaining (e.g. not_311 → which channel). `polishedDescription` is a suggestion only; the client never auto-applies it.
 
 ### GET /api/reports/:token
 - `200`:
