@@ -20,20 +20,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Selector hardening (loose aria-label match for case-type button), honeypot never filled
 - [x] Relax photo-required gate per category
 
-## PIVOT 2026-08-22 (Rob): only sacred cow = official portal driven by headless browsers. `public/` FROZEN (live, no new work). Client rebuilt in `app/` (M7); automation moves to the Cloudflare Worker (`worker/`, alice); product decisions per `docs/product-spec.md` (SnapPVD).
-
-## M7 — SnapPVD client (app/) — bob
-- [x] Scaffold: Vite + React + TS, installable PWA, Playwright; Worker API client; Turnstile; brand + tokens + i18n strings file
-- [x] Report screen: 8 tiles + Other (picker first, per Rob), photo (camera/library, EXIF → location), geolocation + forward/reverse geocode + Providence guard, per-category extra questions, description + AI intake (moderation/polish, reporter approves), sticky submit
-- [x] Offline outbox (IndexedDB) with flush on reconnect
-- [x] My reports (device-local tokens)
-- [ ] Tracking page `/r/:id` + confirmation (copy/share, email attach once the Worker has the endpoint)  ← IC app-track
-- [ ] Public map + feed `/map` (Leaflet, lazy) ← IC app-map
-- [ ] About + Privacy, SnapPVD icon set ← IC app-about
-- [ ] Spanish strings (`strings.es.json`) + language switch
-- [ ] Location mini-map with draggable pin (spec §3.1) — after MapView lands
-- [ ] Dedupe prompt (needs GET /api/nearby) — parked until the Worker ships it
-- [ ] Flip Firebase Hosting to `app/dist` once the Worker endpoints are live (firebase.json `_comment`), then retire `public/`
+> PIVOT 2026-08-22 (Rob): only sacred cow = official portal driven by headless browsers. M1–M6 below are the pre-pivot plan; `public/` is FROZEN (live, no new work). See M7–M9.
 
 ## M2 — PWA de-snowed (public/) — DONE, then FROZEN by the pivot
 - [x] Restore wizard index.html from git (51e3331^), strip snow copy/theme/icons (working title "PVD 311" until M6)
@@ -78,9 +65,18 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [ ] Archive automation/ (reference only); delete Firestore client rules/App Check enforcement once the client no longer writes
 
 ## M8 — Product identity + UX (decided by a product-design IC, not Rob)
-- [ ] Name (available .org/.com, clearly unofficial), brand tokens, logo
-- [ ] UX spec: one-screen photo-first report → AI suggests → confirm; tracking page; public map; copy
+- [x] Name: SnapPVD (snappvd.org/.com available 2026-08-22 — Rob buys), brand tokens, logo concept
+- [x] UX spec (docs/product-spec.md): category-first one-screen report, AI = moderation/polish only (Rob), tracking page, public map, copy
 
-## M9 — New client `app/` (bob)
-- [ ] Vite + React + TS, mobile-first PWA, component library, Playwright tests; talks only to the Worker API
-- [ ] Replace public/ on Firebase Hosting; later Cloudflare
+## M9 — New client `app/` (bob) — SnapPVD per docs/product-spec.md
+- [x] Scaffold: Vite + React + TS, installable PWA, Playwright; Worker API client; Turnstile; brand + tokens + i18n strings file
+- [x] Report screen: 8 tiles + Other (picker first, per Rob), photo (camera/library, EXIF → location), geolocation + forward/reverse geocode + Providence guard, per-category extra questions, description + AI intake (moderation/polish, reporter approves), sticky submit
+- [x] Offline outbox (IndexedDB) with flush on reconnect
+- [x] My reports (device-local tokens)
+- [ ] Tracking page `/r/:id` + confirmation (copy/share, email attach once the Worker has the endpoint)  ← IC app-track
+- [ ] Public map + feed `/map` (Leaflet, lazy) ← IC app-map
+- [ ] About + Privacy, SnapPVD icon set ← IC app-about
+- [ ] Spanish strings (`strings.es.json`) + language switch
+- [ ] Location mini-map with draggable pin (spec §3.1) — after MapView lands
+- [ ] Dedupe prompt (needs GET /api/nearby) — parked until the Worker ships it
+- [ ] Flip Firebase Hosting to `app/dist` once the Worker endpoints are live (firebase.json `_comment`), then retire `public/`; later Cloudflare
