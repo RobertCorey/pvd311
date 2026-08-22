@@ -1,16 +1,17 @@
-# Twitter/X
+# X / Twitter
 
-## Tweet
+> **SNAPPVD_URL** = https://pvdsnow.org — placeholder used throughout this file. Swap to https://snappvd.org once that domain is bought (one find-and-replace of `SNAPPVD_URL`).
 
-Street still buried after 2 feet of snow? I built pvdsnow.org — file a 311 report for unplowed streets or unshoveled sidewalks in 30 seconds from your phone.
+Three short posts. Space them out — don't fire all three at once. Keep the quiet-launch discipline: **don't tag the city or reporters at launch.** Press comes later, and only if traction is organic (see README).
 
-Free, volunteer-run, not affiliated with the city. More reports = more accountability.
+## Launch
 
-@PVDCityHall
+New: **SnapPVD** — a free way to file a Providence 311 report from your phone in about 30 seconds. Pick the problem, snap a photo, send. We relay it to the city's official 311 and give you a link to track it. Volunteer project, not the city. **SNAPPVD_URL**
 
-## Reporters to tag
+## Pothole
 
-Consider tagging in a reply or quote tweet (not the main post — too many tags looks spammy):
+That pothole that's been on your block for weeks? Report it to Providence 311 in about 30 seconds with **SnapPVD** — snap a photo, confirm the address, send. We file it with the city for you and you get a link to track it. **SNAPPVD_URL**
 
-- @TedNesi
-- @DanMcGowan
+## Missed trash
+
+They skip your trash or recycling pickup? **SnapPVD** files a Providence 311 report for you in about 30 seconds — photo optional for this one, no account. Volunteer project, not the city; you get a link to follow it. **SNAPPVD_URL**

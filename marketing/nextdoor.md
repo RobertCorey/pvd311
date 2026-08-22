@@ -1,11 +1,15 @@
 # Nextdoor
 
+> **SNAPPVD_URL** = https://pvdsnow.org — placeholder used throughout this file. Swap to https://snappvd.org once that domain is bought (one find-and-replace of `SNAPPVD_URL`).
+
+Post to your own neighborhood. Neighborly tone. Lead with the everyday pothole/trash pain.
+
 ## Post
 
-Still buried after this weekend's storm? I built **pvdsnow.org** — a free app that lets you file a 311 report for unplowed streets or unshoveled sidewalks in about 30 seconds, right from your phone.
+Tired of that pothole on your street, or a trash pickup they skipped? I built a free tool called **SnapPVD** that files a Providence 311 report for you in about 30 seconds, right from your phone.
 
-Your report goes directly to the city's official 311 system. The more people report, the more visibility the city has on what still needs attention.
+Pick the problem — pothole, missed trash or recycling, broken street light, illegal dumping, abandoned vehicle, parking, an animal issue, and more — snap a photo, confirm the address, and send. We relay it into the city's official 311 for you, and you get a link to track it. No account, and it works in Spanish too.
 
-Volunteer project, not affiliated with the city. Just a Providence resident trying to make it easier to report.
+A few honest things: this is a volunteer community project — SnapPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence. A neighbor reviews each report before it's filed, so it's not instant, and it's **not for emergencies** — call 911 for anything urgent. Once filed, a report is a public record on the city's 311 feed.
 
-**pvdsnow.org**
+If your block has something that needs fixing, give it a try: **SNAPPVD_URL**
