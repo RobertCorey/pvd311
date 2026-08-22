@@ -1,0 +1,27 @@
+# Cutover checklist — SnapPVD client goes live
+
+Goal: `app/` served at **https://snappvd.org** (and the Firebase hosting domains), `public/` retired, pvdsnow.org redirecting.
+
+## 0. Prereqs (Rob)
+- [ ] Buy `snappvd.org` (Cloudflare Registrar, dashboard; no API). `.com` optional → redirect.
+- [ ] Decide: keep Firebase Hosting for the client (current plan) or move to Cloudflare Pages later.
+
+## 1. Hosts allow-lists (alice — Worker + Cloudflare)
+- [ ] Turnstile widget domains: add `snappvd.org`, `www.snappvd.org` (preview channels `*--pvd-snow-report.web.app` can't be listed — previews stay view-only).
+- [ ] Worker CORS origins: add `https://snappvd.org`, `https://www.snappvd.org`.
+- [ ] Worker: tracking URLs / emails use `https://snappvd.org/r/{id}`.
+- [ ] DNS (Cloudflare zone, DNS-only/grey cloud for Firebase): `A`/`TXT` records from the Firebase custom-domain wizard.
+
+## 2. Client (bob)
+- [ ] `app/src/brand.ts`: `siteUrl`, `domain`, `contactEmail` final.
+- [ ] `firebase.app.json`: confirm headers; `npm run preview:app` → smoke on a phone.
+- [ ] Firebase console → Hosting → add custom domain `snappvd.org` (+ `www`), complete verification, wait for cert.
+- [ ] `npm run deploy:app` (deploys `app/dist` to the live site — this REPLACES `public/`).
+- [ ] Real-browser E2E from `https://snappvd.org`: submit (photo-optional category, test-marked), confirm Turnstile passes, tracking page renders, `/map` loads. Tell alice to reject the test report.
+- [ ] Retire legacy: `firebase.json` hosting → point at `app/dist` too (or delete the `public/` target), remove Firestore client rules/App Check enforcement once no client writes remain (alice owns rules).
+- [ ] pvdsnow.org → 301 to snappvd.org (Firebase Hosting `redirects` in `firebase.app.json`, keyed on host, or at Cloudflare once the old zone moves).
+
+## 3. After
+- [ ] `robots.txt` Sitemap line → real sitemap or drop it.
+- [ ] Lighthouse on the live origin (target ≥90 perf, 100 a11y).
+- [ ] Update README, STATE.md, memory (`project-firebase-ops`): domain live, cutover date.
