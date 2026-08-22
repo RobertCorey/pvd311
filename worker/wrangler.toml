@@ -13,7 +13,8 @@ browser = { binding = "BROWSER" }
 #                  11:00 UTC = 06:00 EST (winter) / 07:00 EDT (summer). Crons are UTC-only; for a steady
 #                  06:00 local you'd need to swap between "0 11" (winter) and "0 10" (summer). ~1h drift is fine here.
 [triggers]
-crons = ["* * * * *", "*/30 * * * *", "0 11 * * *"]
+# Watcher every 6h while on the Workers Free plan (10 min/day browser quota); restore "*/30 * * * *" on Workers Paid.
+crons = ["* * * * *", "0 */6 * * *", "0 11 * * *"]
 
 [vars]
 PORTAL_BASE_URL = "https://311.providenceri.gov"

@@ -29,6 +29,7 @@ export default {
         await runTick(env, ctx);
         break;
       case '*/30 * * * *':
+      case '0 */6 * * *':
         ctx.waitUntil(runWatcher(env));
         break;
       case '0 11 * * *':
