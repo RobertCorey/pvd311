@@ -23,7 +23,7 @@
 .chosen { margin: 6px 0 4px; }
 .chosen .chip { background: var(--ember); border-color: var(--ember); color: var(--ember-ink); }
 .chosen .chip svg { width: 24px; height: 24px; }
-.chip-change { font-weight: 600; color: var(--ember-ink); opacity: 0.75; font-size: 0.8rem; margin-left: 2px; text-decoration: underline; text-underline-offset: 3px; }
+.chip-change { font-weight: 600; color: var(--ember-ink); font-size: 0.8rem; margin-left: 2px; text-decoration: underline; text-underline-offset: 3px; }
 .chip:disabled { opacity: 0.6; }
 .detect-chip { margin-bottom: 12px; }
 
