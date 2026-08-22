@@ -22,6 +22,8 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   RESEND_API_KEY: string;
   HITL_SECRET: string;
+  TURNSTILE_SECRET: string;
+  APP_ORIGINS?: string;               // var: comma-separated allowed CORS origins (optional)
 }
 
 export type ReportDoc = Report & { id: string };
@@ -42,7 +44,9 @@ export interface Store {
   countByStatus(status: ReportStatus): Promise<number>;
   getMeta<T>(docId: string): Promise<T | null>;                  // collection 'meta'
   setMeta(docId: string, data: Record<string, unknown>): Promise<void>; // merge
-  uploadFile(path: string, bytes: Uint8Array, contentType: string): Promise<string>; // Firebase Storage; returns gs path
+  /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */
+  uploadFile(path: string, bytes: Uint8Array, contentType: string, opts?: { downloadToken?: string }): Promise<string>;
+  findReportsSince(hoursAgo: number, limit: number): Promise<ReportDoc[]>;      // public feed: any status except rejected
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */
