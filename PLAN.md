@@ -41,7 +41,7 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 
 ## M5 — Deploy
 - [x] Dockerfile (official Playwright image, shm fix), compose, secrets as mounts — build unverified (no Docker on the Mac); verify on NAS
-- [ ] NAS first (known-good residential IP); VPS spike with WAF test from its IP
+- [ ] VPS (DigitalOcean/Hetzner) is the ONLY runtime — cloud-only per Rob; WAF test from its IP first. (Dockerfile verified by a throwaway build on the NAS, 2026-08-22.)
 - [ ] Sentry restore (front + back)
 
 ## M6 — Domain, relay, launch
