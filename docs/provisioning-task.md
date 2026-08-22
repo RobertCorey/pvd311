@@ -12,7 +12,8 @@ Rules for the helper agent:
 
 ---
 
-## 1. Firebase → Blaze  **[Rob]**   (unblocks photo uploads + billing guards)
+## 1. Firebase → Blaze  **[Rob]**   (optional for now — see note)
+> Update 2026-08-22: the existing Storage bucket predates the Blaze requirement and still works on Spark, and Spark's hard quotas act as a natural cost cap. Blaze is only needed for reCAPTCHA Enterprise/Identity Platform admin features and real budget alerts. Safe to defer; do steps 2–5 first.
 - [ ] https://console.firebase.google.com/project/pvd-snow-report/overview → **Upgrade** → link/create a billing account (card).
 - Verify: `gcloud billing projects describe pvd-snow-report --format="value(billingEnabled)"` → `True`
 - Then the agent: `gcloud billing budgets create --billing-account=<id> --display-name="pvd311 cap" --budget-amount=25USD --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0` (alerts only; alice installs the kill switch later).
