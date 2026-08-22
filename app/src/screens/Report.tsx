@@ -11,6 +11,7 @@ import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
+import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
 
 const MapView = lazy(() => import('../components/MapView'));
@@ -330,6 +331,7 @@ export default function Report() {
           </button>
         )}
         <label className="label" htmlFor="address">{t('report.location.label')}</label>
+        <SavedAddresses onPick={(a) => { setAddress(a.address); geocodedFor.current = a.address; setOutside(false); if (a.lat != null && a.lng != null) setLoc({ lat: a.lat, lng: a.lng }); }} />
         <input id="address" className="input" value={address} placeholder={t('report.location.placeholder')}
           autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
         {outside && <div className="notice notice-warn" role="alert">{t('report.location.outside')}</div>}
