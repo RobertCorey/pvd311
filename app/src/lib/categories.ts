@@ -50,9 +50,9 @@ export const EXTRA_QUESTIONS: Record<string, { label: string; type: 'choice' | '
 /** The "Other / something else" sheet: every category grouped the way residents think about the city.
  *  Keys must exist in shared/categories.ts; `inSeason` still filters the snow tiles. */
 export const GROUPS: { key: 'streets' | 'trash' | 'lights' | 'animals' | 'other'; keys: string[] }[] = [
-  { key: 'streets', keys: ['pothole', 'parking', 'abandoned_vehicle', 'unshoveled_sidewalk', 'missed_plowing'] },
+  { key: 'streets', keys: ['pothole', 'sidewalk_repair', 'street_flooding', 'parking', 'abandoned_vehicle', 'unshoveled_sidewalk', 'missed_plowing'] },
   { key: 'trash', keys: ['missed_trash', 'bins_carts', 'illegal_dumping'] },
-  { key: 'lights', keys: ['street_light'] },
-  { key: 'animals', keys: ['animal_control'] },
-  { key: 'other', keys: ['noise'] },
+  { key: 'lights', keys: ['street_light', 'traffic_signal'] },
+  { key: 'animals', keys: ['animal_control', 'dead_animal'] },
+  { key: 'other', keys: ['noise', 'graffiti', 'tree'] },
 ];

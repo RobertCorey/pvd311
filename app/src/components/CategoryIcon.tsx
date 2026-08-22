@@ -172,6 +172,86 @@ const ICONS: Record<string, ReactNode> = {
   ),
 
   // Ellipsis: ember discs offset behind ink rings.
+  // Spray can with an ember tag swash on the wall.
+  graffiti: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M15 18 q4 -6 9 -2 q3 3 -1 6 q-5 3 -8 -4z" />
+      </g>
+      <path d="M6 12 h7 v16 h-7z" />
+      <path d="M8 12 V9 h3 v3" />
+      <path d="M9.5 6 V9" />
+      <path d="M12 6 h3" />
+      <path d="M16 20 q4 -6 9 -2 q3 3 -1 6" />
+    </>
+  ),
+
+  // Cracked sidewalk slab, heaved; ember plate is the lifted slab.
+  sidewalk_repair: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M4 22 L14 18 L16 23 L4 26z" />
+      </g>
+      <path d="M3 26 H29" />
+      <path d="M4 22 L14 18 L16 23" />
+      <path d="M16 23 L28 22" />
+      <path d="M14 18 L12 13 M14 18 L18 14" />
+      <path d="M8 22 L9 24 M22 22 L23 24" />
+    </>
+  ),
+
+  // Tree with a snapped limb; ember canopy plate.
+  tree: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <circle cx="16" cy="11" r="7" />
+      </g>
+      <path d="M16 29 V18" />
+      <path d="M9 12 a7 7 0 1 1 14 0 a5 5 0 0 1 -4 6 H13 a5 5 0 0 1 -4 -6z" />
+      <path d="M20 17 L26 22 M24 19 L23 23" />
+      <path d="M11 29 h10" />
+    </>
+  ),
+
+  // Water over the road: ember pool plate, wave lines, a submerged sign.
+  street_flooding: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M3 22 q4 -3 8 0 t8 0 t8 0 v5 H3z" />
+      </g>
+      <path d="M3 21 q4 -3 8 0 t8 0 t8 0" />
+      <path d="M3 26 q4 -3 8 0 t8 0 t8 0" />
+      <path d="M16 17 V8 M12 8 h8 v5 h-8z" />
+    </>
+  ),
+
+  // Traffic signal: housing in ink, ember plate behind, the red light filled.
+  traffic_signal: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <rect x="11" y="4" width="10" height="20" rx="3" />
+      </g>
+      <rect x="11" y="4" width="10" height="20" rx="3" />
+      <circle cx="16" cy="9" r="2" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="14.5" r="2" />
+      <circle cx="16" cy="20" r="2" />
+      <path d="M16 24 V29 M12 29 h8" />
+    </>
+  ),
+
+  // Dead animal: quiet — paw print on a small mound, ember plate is the mound.
+  dead_animal: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M5 26 q11 -10 22 0z" />
+      </g>
+      <path d="M3 27 H29" />
+      <path d="M5 26 q11 -10 22 0" />
+      <circle cx="13" cy="12" r="1.6" /><circle cx="17.5" cy="10.5" r="1.6" /><circle cx="22" cy="12" r="1.6" />
+      <path d="M14 19 q3.5 -4 7 0 q2 3 -1.5 3.5 h-4 q-3.5 -0.5 -1.5 -3.5z" />
+    </>
+  ),
+
   other: (
     <>
       <g fill="var(--ember)" stroke="none" transform={PLATE}>
