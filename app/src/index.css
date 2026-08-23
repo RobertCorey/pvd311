@@ -61,6 +61,8 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 .app-footer nav { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
 .app-footer nav a { text-decoration: none; font-weight: 600; color: var(--ink); min-height: var(--tap); display: inline-flex; align-items: center; }
 .app-footer .disclaimer { max-width: 440px; margin: 0 auto 8px; line-height: 1.45; text-wrap: pretty; }
+.app-footer .footer-contact { margin-top: 2px; }
+.app-footer .footer-contact a { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 8px; }
 
 /* Bottom tab bar (phones): Report / Map / Mine — thumb zone. */
 .tabbar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex; justify-content: center; pointer-events: none; }

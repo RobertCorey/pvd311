@@ -85,7 +85,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     const limit = Math.min(300, Math.max(1, Number(url.searchParams.get('events')) || 100));
     const statuses = ['pending', 'awaiting_review', 'processing', 'submitted', 'failed', 'rejected', 'auto-rejected'] as const;
     const day = new Date().toISOString().slice(0, 10);
-    const [engine, recs, counts, cityFeed, intakeDay, users, events] = await Promise.all([
+    const [engine, recs, counts, cityFeed, intakeDay, users, events, unconfirmed, reconcile] = await Promise.all([
       store.getMeta<Record<string, unknown>>('engine').catch(() => null),
       Promise.all(SUBSYSTEMS.map((d) => store.getMeta<HealthRec>(`health_${d.key}`).catch(() => null))),
       Promise.all(statuses.map((st) => store.countByStatus(st).catch(() => -1))),
@@ -93,6 +93,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       store.getMeta<{ count?: number }>(`intake_day_${day}`).catch(() => null),
       store.countUsers().catch(() => -1),
       store.recentEvents(limit).catch(() => []),
+      store.findSubmittedUnconfirmed(50).catch(() => []),
+      store.getMeta<{ at?: string; scanned?: number; adopted?: number; stranded?: number; missing?: number; error?: string | null }>('reconcile').catch(() => null),
     ]);
     const subsystems = SUBSYSTEMS.map((d, i) => {
       const rec = recs[i];
@@ -119,6 +121,13 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       counts: Object.fromEntries(statuses.map((st, i) => [st, counts[i]])),
       users, ai: { intakeToday: intakeDay?.count ?? 0, dailyCap: 1500 },
       cityFeed: { fetchedAt: cityFeed?.fetchedAt ?? null, items: cityFeed?.items?.length ?? 0 },
+      sync: {
+        // DB ↔ portal agreement. caseIdPending = portal accepted a submission but we have not confirmed its number yet.
+        caseIdPending: unconfirmed.length,
+        caseIdPendingOldestAt: unconfirmed.map((r) => toIso(r.statusUpdatedAt)).filter(Boolean).sort()[0] ?? null,
+        reconcile: reconcile ? { at: reconcile.at ?? null, scanned: reconcile.scanned ?? 0, adopted: reconcile.adopted ?? 0, stranded: reconcile.stranded ?? 0, missing: reconcile.missing ?? 0, error: reconcile.error ?? null } : null,
+        status: unconfirmed.length === 0 && !(reconcile?.missing) ? 'ok' : (reconcile?.missing ? 'error' : 'warn'),
+      },
       events,
     });
   }

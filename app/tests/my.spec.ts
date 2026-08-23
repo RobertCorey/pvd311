@@ -35,9 +35,19 @@ test('device-only report gets its status fetched and an attach button when signe
   await expect(main).not.toContainText('Nothing here yet');
 });
 
-test('nothing anywhere → empty state (and a sign-in nudge when signed out)', async ({ page }) => {
+test('signed out with no reports → sign-in prompt, not the empty state', async ({ page }) => {
   await setup(page, { signedIn: false });
   await page.goto('/my');
-  await expect(page.locator('main')).toContainText('Nothing here yet');
-  await expect(page.getByRole('link', { name: /Sign in to see your reports/ })).toBeVisible();
+  const main = page.locator('main');
+  await expect(main).toContainText('Your reports are waiting');
+  await expect(main).not.toContainText('No reports yet');
+  await expect(main.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/account?returnTo=%2Fmy');
+});
+
+test('signed in with no reports → "No reports yet" empty state', async ({ page }) => {
+  await setup(page, { account: [] });
+  await page.goto('/my');
+  const main = page.locator('main');
+  await expect(main).toContainText('No reports yet');
+  await expect(main).not.toContainText('Your reports are waiting');
 });

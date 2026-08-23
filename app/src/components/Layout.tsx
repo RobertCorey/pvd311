@@ -25,20 +25,20 @@ export default function Layout({ children }: { children: ReactNode }) {
       <main>{children}</main>
       <footer className="app-footer">
         <Skyline className="footer-skyline" />
-        <nav aria-label="Site">
+        <nav aria-label={t('footer.nav')}>
           <Link to="/">{t('nav.report')}</Link>
           <Link to="/about">{t('nav.about')}</Link>
           <Link to="/privacy">{t('nav.privacy')}</Link>
           <a href={BRAND.portalUrl} target="_blank" rel="noopener">{t('nav.portal')}</a>
         </nav>
-        <div className="lang-switch" role="group" aria-label="Language">
+        <div className="lang-switch" role="group" aria-label={t('footer.language')}>
           <button type="button" className={`lang-btn${lang === 'en' ? ' active' : ''}`} onClick={() => setLang('en')} lang="en" aria-pressed={lang === 'en'}>English</button>
           <span aria-hidden="true">·</span>
           <button type="button" className={`lang-btn${lang === 'es' ? ' active' : ''}`} onClick={() => setLang('es')} lang="es" aria-pressed={lang === 'es'}>Español</button>
         </div>
-        <p className="disclaimer">{BRAND.disclaimer}</p>
+        <p className="disclaimer">{t('brand.disclaimer')}</p>
         <p className="made-in">{t('footer.madeIn')}</p>
-        <div>{t('footer.contact')}: <a href={`mailto:${BRAND.contactEmail}`}>{BRAND.contactEmail}</a></div>
+        <div className="footer-contact">{t('footer.contact')}: <a href={`mailto:${BRAND.contactEmail}`}>{BRAND.contactEmail}</a></div>
       </footer>
       <TabBar />
     </div>

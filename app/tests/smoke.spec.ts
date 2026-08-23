@@ -14,6 +14,22 @@ const ROUTES: Array<[string, RegExp]> = [
   ['/definitely-not-a-route', /doesn't exist|no existe/],
 ];
 
+test('footer disclaimer is localized to Spanish on / and /about', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('snappvd.lang', 'es');
+    (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'x';
+  });
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  await page.route(`${API}/api/public-feed*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
+  await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
+  await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
+  for (const path of ['/', '/about']) {
+    await page.goto(path);
+    await expect(page.locator('.app-footer .disclaimer')).toContainText('no está afiliado');
+  }
+});
+
 for (const lang of ['en', 'es']) {
   test(`all routes render in ${lang} without page errors`, async ({ page }) => {
     const errors: string[] = [];

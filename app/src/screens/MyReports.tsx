@@ -6,7 +6,7 @@ export default function MyReports() {
   const t = useT();
   return (
     <section className="section">
-      <h2>{t('header.myReports')}</h2>
+      <h1>{t('header.myReports')}</h1>
       <AccountReports />
     </section>
   );

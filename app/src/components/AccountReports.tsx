@@ -51,13 +51,21 @@ export default function AccountReports() {
 
   const loading = !!session && account == null;
   if (!loading && (account ?? []).length === 0 && local.length === 0) {
+    if (!session) {
+      return (
+        <div className="empty rise">
+          <Illustration kind="empty" className="illo" />
+          <p className="muted">{t('my.signedOut.prompt')}</p>
+          <Link className="btn btn-primary" to="/account?returnTo=%2Fmy">{t('my.signedOut.cta')}</Link>
+        </div>
+      );
+    }
     return (
       <div className="empty rise">
         <Illustration kind="empty" className="illo" />
         <h2>{t('empty.my.title')}</h2>
         <p className="muted">{t('my.empty')}</p>
         <Link className="btn btn-primary" to="/">{t('empty.my.cta')}</Link>
-        {!session && <p className="hint"><Link to="/account">{t('my.signIn')}</Link></p>}
       </div>
     );
   }
