@@ -1,0 +1,24 @@
+<!--
+  Step-3 conditional controls for "Trash or Recycling Bins or Carts" (case type 36e8b671-...).
+  Radio group cop_cartrequesttype — mapped in shared/categories.ts (from extra.cartIssue,
+  default "Other"). dumpControls() collapses the group by its name and setControl() picks the
+  radio whose aria-label matches the value. The option aria-labels ARE the contract:
+  the "change a label" mutation renames "Other" so the default value no longer matches → NEEDS_REVIEW.
+-->
+<div class="form-group" role="radiogroup" aria-label="What is your cart issue?">
+  <label class="cart-radio">
+    <input type="radio" id="cop_cartrequesttype_0" name="ctl00$ContentContainer$cop_cartrequesttype"
+           value="585680000" aria-label="I did not receive my new carts." />
+    I did not receive my new carts.
+  </label>
+  <label class="cart-radio">
+    <input type="radio" id="cop_cartrequesttype_1" name="ctl00$ContentContainer$cop_cartrequesttype"
+           value="585680001" aria-label="My old carts were not removed" />
+    My old carts were not removed
+  </label>
+  <label class="cart-radio">
+    <input type="radio" id="cop_cartrequesttype_2" name="ctl00$ContentContainer$cop_cartrequesttype"
+           value="585680002" aria-label="Other" />
+    Other
+  </label>
+</div>

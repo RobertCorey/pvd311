@@ -1,0 +1,17 @@
+<!--
+  Step-3 conditional controls for "Pothole Report" (case type 5f0efb0b-...).
+  Snapshot of the single extra visible control the portal renders for this case type
+  (per scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md §"Step-3 conditional fields").
+  The sim server wraps this with #description, the honeypot, #AttachFile and #NextButton.
+  Mapped in shared/categories.ts as fields.cop_size (from extra.size, default "Unknown").
+-->
+<div class="form-group">
+  <label for="cop_size">Approximate size of the pothole</label>
+  <select id="cop_size" name="ctl00$ContentContainer$cop_size" aria-label="Approximate size of the pothole">
+    <option value="">Select</option>
+    <option value="585680000">Small (~4in)</option>
+    <option value="585680001">Medium (~28in)</option>
+    <option value="585680002">Large (~36in)</option>
+    <option value="585680003">Unknown</option>
+  </select>
+</div>

@@ -1,0 +1,19 @@
+<!--
+  Step-3 conditional controls for "Noise or Sound Disturbances" (case type 18e8b671-...).
+  cop_noisesource has NO static mapping in shared/categories.ts (noise has no `fields`),
+  so dumpControls() reports it as unmapped and, in live mode, the agent scout fills it.
+  Used to prove the scout IS invoked on an unmapped-but-known control (with the Anthropic
+  client stubbed), and — with an empty ANTHROPIC_API_KEY and the real scout — that an
+  unmapped control fails loud as NEEDS_MAPPING.
+-->
+<div class="form-group">
+  <label for="cop_noisesource">Where is the noise coming from?</label>
+  <select id="cop_noisesource" name="ctl00$ContentContainer$cop_noisesource" aria-label="Where is the noise coming from?">
+    <option value="">Select</option>
+    <option value="585680000">Residence</option>
+    <option value="585680001">Business</option>
+    <option value="585680002">Street or Public Space</option>
+    <option value="585680003">Construction</option>
+    <option value="585680004">Other</option>
+  </select>
+</div>
