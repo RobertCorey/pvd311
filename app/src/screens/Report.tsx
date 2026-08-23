@@ -501,15 +501,16 @@ export default function Report() {
       </section>
 
       {/* Human check — a labelled form step above Send, not a post-tap failure */}
+      <section className="section human-check" aria-labelledby="human-check-title">
+        <h2 id="human-check-title">{t('report.human.title')}</h2>
+        <p className="hint">{t('report.human.hint')}</p>
+        <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
+        {turnstileSlow && !turnstileToken && online && (
+          <p className="hint">{t('report.human.trouble', { email: BRAND.contactEmail })}</p>
+        )}
+      </section>
       <section className="section">
         <p className="public-record">{t('report.publicRecord')}</p>
-        <div className="human-check" role="group" aria-labelledby="human-check-label">
-          <span className="label" id="human-check-label">{t('report.humanCheck.label')}</span>
-          <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
-          {turnstileSlow && !turnstileToken && online && (
-            <p className="hint">{t('report.humanCheck.trouble', { email: BRAND.contactEmail })}</p>
-          )}
-        </div>
         {error && <div className="notice notice-error" role="alert">{error}</div>}
       </section>
       {gated && !session ? (

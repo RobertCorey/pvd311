@@ -278,8 +278,8 @@ test('human check is a labelled step; trouble help appears if the token never ar
   await expect(page.getByText("Quick check that you're a person")).toBeVisible();
   await page.fill('#address', '25 Dorrance St');
   await expect(page.locator('.submit-bar .hint')).toHaveText("Checking you're a real person…");
-  await expect(page.locator('.human-check .hint')).toContainText('Trouble loading the check?', { timeout: 4000 });
-  await expect(page.locator('.human-check .hint')).toContainText('rob@fixmypvd.org');
+  await expect(page.locator('.human-check').getByText('Trouble loading the check?')).toBeVisible({ timeout: 4000 });
+  await expect(page.locator('.human-check').getByText('rob@fixmypvd.org')).toBeVisible();
 });
 
 test('typed address that geocodes to nothing shows an inline check-the-street message', async ({ page }) => {

@@ -45,7 +45,7 @@ export default function Turnstile({ onToken }: { onToken: (token: string | null)
       if (cancelled || !ref.current || !window.turnstile) return;
       idRef.current = window.turnstile.render(ref.current, {
         sitekey: TURNSTILE_SITE_KEY,
-        theme: 'dark',
+        theme: 'light',
         size: 'flexible',
         callback: (t: string) => cb.current(t),
         'expired-callback': () => cb.current(null),

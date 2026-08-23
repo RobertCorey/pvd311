@@ -33,7 +33,7 @@
 .compose-title { font-size: 1.35rem; font-weight: 800; line-height: 1.15; margin: 0 0 6px; }
 .signin-disclosure { margin: 0 0 8px; font-size: 0.85rem; line-height: 1.4; color: var(--muted); text-wrap: pretty; }
 .human-check { display: flex; flex-direction: column; gap: 8px; }
-.human-check .label { margin: 0; }
+.human-check h2 { margin: 0; }
 .human-check .hint { margin: 0; }
 .photo-card { border: 2px dashed var(--line); border-radius: var(--radius); padding: 20px; text-align: center; }
 .photo-compressing .hint { margin: 0; }
@@ -60,7 +60,7 @@
 .turnstile { margin: 10px 0; }
 .notice { margin-bottom: 12px; }
 .hint.center { text-align: center; }
-.submit-bar { position: sticky; bottom: 0; z-index: 5; background: var(--bg); padding: 10px 0 max(12px, env(safe-area-inset-bottom)); margin: 0 -16px; padding-left: 16px; padding-right: 16px; box-shadow: 0 -12px 16px -12px rgba(22, 33, 58, 0.25); }
+.submit-bar { position: sticky; bottom: 0; z-index: 5; background: var(--bg); border-top: 2px solid var(--line); padding: 10px 0 max(16px, env(safe-area-inset-bottom)); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
 .submit-bar .hint { margin: 6px 0 0; }
 /* While a report is in progress the Send bar owns the bottom edge: hide the tab bar. */
 .app:has(.submit-bar) .tabbar { display: none; }
