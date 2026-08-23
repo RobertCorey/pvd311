@@ -230,6 +230,7 @@ async function intake(request: Request, env: Env, { store }: ApiDeps): Promise<R
   if (!body || typeof body.description !== 'string') return json({ error: 'invalid_body' }, 400);
   const extra = body.extra && typeof body.extra === 'object' ? Object.fromEntries(Object.entries(body.extra).slice(0, 8).map(([k, v]) => [k.slice(0, 40), String(v).slice(0, 200)])) : {};
   const out = await moderate(env, { category: body.category ?? null, description: body.description, address: body.address ?? '', extra, hasPhoto: !!body.hasPhoto }, store);
+  if (out.flags.length) await logEvent(store, { level: out.flags.includes('emergency') ? 'warn' : 'info', kind: 'intake.flagged', msg: `Intake flagged ${out.flags.join(', ')} (${body.category ?? 'no category'})${out.note ? ` — ${out.note}` : ''}` });
   return json(out);
 }
 

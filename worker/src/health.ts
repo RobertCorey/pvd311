@@ -8,17 +8,17 @@
 import type { Store } from './contracts.js';
 
 export type Subsystem = 'tick' | 'submit' | 'watcher' | 'cityfeed' | 'canary' | 'daily' | 'email' | 'ai' | 'auth_mail' | 'api';
-export const SUBSYSTEMS: { key: Subsystem; label: string; freshMs: number | null; staleMs: number | null; what: string }[] = [
-  { key: 'tick', label: 'Engine tick', freshMs: 3 * 60_000, staleMs: 10 * 60_000, what: 'Cron every minute: reaper, gates, review, submit' },
-  { key: 'submit', label: 'Portal submit', freshMs: null, staleMs: null, what: 'Headless browser filing reports on 311.providenceri.gov' },
-  { key: 'watcher', label: 'Status watcher', freshMs: 45 * 60_000, staleMs: 2 * 3_600_000, what: 'Every 30 min: diff My Requests, email reporters' },
-  { key: 'cityfeed', label: 'City feed scrape', freshMs: 45 * 60_000, staleMs: 3 * 3_600_000, what: 'Public-requests feed + geocoding (nearby dedupe)' },
-  { key: 'canary', label: 'Portal canary', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Daily zero-draft check that the city form has not changed' },
-  { key: 'daily', label: 'Daily job', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Digest, retention, event cleanup' },
-  { key: 'email', label: 'Email (Resend)', freshMs: null, staleMs: null, what: 'Reporter + admin mail' },
-  { key: 'ai', label: 'AI moderation', freshMs: null, staleMs: null, what: 'Anthropic intake / server-side moderation' },
-  { key: 'auth_mail', label: 'Sign-in links', freshMs: null, staleMs: null, what: 'Worker-minted email links' },
-  { key: 'api', label: 'Public API', freshMs: null, staleMs: null, what: 'Report creation' },
+export const SUBSYSTEMS: { key: Subsystem; label: string; freshMs: number | null; staleMs: number | null; what: string; expected: string | null }[] = [
+  { key: 'tick', label: 'Engine tick', freshMs: 3 * 60_000, staleMs: 10 * 60_000, what: 'Cron every minute: reaper, gates, review, submit' , expected: 'every minute' },
+  { key: 'submit', label: 'Portal submit', freshMs: null, staleMs: null, what: 'Headless browser filing reports on 311.providenceri.gov' , expected: null },
+  { key: 'watcher', label: 'Status watcher', freshMs: 45 * 60_000, staleMs: 2 * 3_600_000, what: 'Every 30 min: diff My Requests, email reporters' , expected: 'every 30 min' },
+  { key: 'cityfeed', label: 'City feed scrape', freshMs: 45 * 60_000, staleMs: 3 * 3_600_000, what: 'Public-requests feed + geocoding (nearby dedupe)' , expected: 'every 30 min' },
+  { key: 'canary', label: 'Portal canary', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Daily zero-draft check that the city form has not changed' , expected: 'daily, 7 am' },
+  { key: 'daily', label: 'Daily job', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Digest, retention, event cleanup' , expected: 'daily, 7 am' },
+  { key: 'email', label: 'Email (Resend)', freshMs: null, staleMs: null, what: 'Reporter + admin mail' , expected: null },
+  { key: 'ai', label: 'AI moderation', freshMs: null, staleMs: null, what: 'Anthropic intake / server-side moderation' , expected: null },
+  { key: 'auth_mail', label: 'Sign-in links', freshMs: null, staleMs: null, what: 'Worker-minted email links' , expected: null },
+  { key: 'api', label: 'Public API', freshMs: null, staleMs: null, what: 'Report creation' , expected: null },
 ];
 
 export interface HealthRec { lastOkAt?: string | null; lastErrorAt?: string | null; lastError?: string | null; lastDetail?: string | null; day?: string; okToday?: number; errToday?: number }

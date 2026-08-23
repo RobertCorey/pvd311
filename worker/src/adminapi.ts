@@ -98,7 +98,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
         key: d.key, label: d.label, what: d.what, status: deriveStatus(d, rec, now),
         lastOkAt: rec?.lastOkAt ?? null, lastErrorAt: rec?.lastErrorAt ?? null, lastError: rec?.lastError ?? null, lastDetail: rec?.lastDetail ?? null,
         okToday: rec?.day === day ? rec?.okToday ?? 0 : 0, errToday: rec?.day === day ? rec?.errToday ?? 0 : 0,
-        expectedEvery: d.freshMs ? `${Math.round(d.freshMs / 60_000)} min` : null,
+        expectedEvery: d.expected,
       };
     });
     const paused = !!engine?.['paused'];
