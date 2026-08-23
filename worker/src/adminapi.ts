@@ -10,6 +10,7 @@
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
  *   GET  /api/admin/health                 → system visibility: subsystem traffic lights, counters, event stream
  *   GET  /api/admin/reports/:id/proofs     → [{ name, createdAt, contentType }]  ·  GET …/proofs/:name → image bytes
+ *   POST /api/admin/canary/golden/:category/rebaseline → JSON { controls? } replaces the live golden; no body clears it (next live dump re-mints)
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
  */
@@ -19,6 +20,7 @@ import type { AuthUser } from './auth.js';
 import { approve, reject } from './hitl.js';
 import { createMailer } from './email.js';
 import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js';
+import { canaryGoldenStatus, rebaselineGolden } from './canary-golden.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -87,7 +89,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     const limit = Math.min(300, Math.max(1, Number(url.searchParams.get('events')) || 100));
     const statuses = ['pending', 'awaiting_review', 'processing', 'submitted', 'failed', 'rejected', 'auto-rejected'] as const;
     const day = new Date().toISOString().slice(0, 10);
-    const [engine, recs, counts, cityFeed, intakeDay, users, events, unconfirmed, reconcile] = await Promise.all([
+    const [engine, recs, counts, cityFeed, intakeDay, users, events, unconfirmed, canary, reconcile] = await Promise.all([
       store.getMeta<Record<string, unknown>>('engine').catch(() => null),
       Promise.all(SUBSYSTEMS.map((d) => store.getMeta<HealthRec>(`health_${d.key}`).catch(() => null))),
       Promise.all(statuses.map((st) => store.countByStatus(st).catch(() => -1))),
@@ -96,6 +98,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       store.countUsers().catch(() => -1),
       store.recentEvents(limit).catch(() => []),
       store.findSubmittedUnconfirmed(50).catch(() => []),
+      canaryGoldenStatus(store).catch(() => ({ categories: [] })),
       store.getMeta<{ at?: string; scanned?: number; adopted?: string[] | number; stranded?: string[] | number; missing?: string[] | number; error?: string | null }>('reconcile').catch(() => null),
     ]);
     const subsystems = SUBSYSTEMS.map((d, i) => {
@@ -123,6 +126,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       counts: Object.fromEntries(statuses.map((st, i) => [st, counts[i]])),
       users, ai: { intakeToday: intakeDay?.count ?? 0, dailyCap: 1500 },
       cityFeed: { fetchedAt: cityFeed?.fetchedAt ?? null, items: cityFeed?.items?.length ?? 0 },
+      canary: { enabled: env.DRIFT_CANARY_ENABLED === '1' || env.DRIFT_CANARY_ENABLED === 'true', ...canary },
       sync: {
         // DB ↔ portal agreement. caseIdPending = portal accepted a submission but we have not confirmed its number yet.
         caseIdPending: unconfirmed.length,
@@ -186,6 +190,16 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       const [submitted, rejected] = await Promise.all([store.countOwnerByStatus(uid, 'submitted'), store.countOwnerByStatus(uid, 'rejected')]);
       return json({ uid, email: fresh.email ?? null, provider: fresh.provider ?? null, trusted: !!fresh.trusted, submitted, rejected, createdAt: fresh.createdAt ?? null });
     }
+  }
+
+  const gold = /^\/api\/admin\/canary\/golden\/([a-z_]{2,40})\/rebaseline$/.exec(path);
+  if (gold && m === 'POST') {
+    const category = gold[1];
+    const body = (await request.json().catch(() => null)) as { controls?: unknown } | null;
+    const controls = Array.isArray(body?.controls) ? (body!.controls as Parameters<typeof rebaselineGolden>[2]) : undefined;
+    await rebaselineGolden(store, category, controls);
+    await logEvent(store, { level: 'warn', kind: 'admin.rebaseline', msg: `${controls ? 'Replaced' : 'Cleared'} live golden for ${category} (by ${auth.email})`, data: { category } });
+    return json(await canaryGoldenStatus(store));
   }
 
   if (m === 'POST' && path === '/api/admin/engine/resume') {

@@ -23,6 +23,7 @@ import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
 import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
+import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 
 // Providence bounding box (same as Node engine).
 const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
@@ -621,21 +622,27 @@ export async function recordControls(
   rawControls: PortalControl[],
   source: string,
   goldens: Record<string, GoldenSnapshot> = GOLDEN_CONTROLS,
-): Promise<{ drift: boolean; delta?: DriftDelta }> {
+): Promise<{ drift: boolean; delta?: DriftDelta; minted?: boolean }> {
   const controls = normalizeControls(rawControls);
-  await store.setMeta(`controls_${category}`, { at: new Date().toISOString(), source, controls }).catch(() => {});
+  const eff = await getEffectiveGolden(store, category, goldens);
 
-  const golden = goldens[category];
-  if (!golden) {
-    // No golden to diff against yet — record the sighting so a golden can be minted from a real dump.
-    await logEvent(store, { level: 'info', kind: 'canary.controls_seen', msg: `Observed Step-3 controls for ${category} with no golden yet (${controls.length} controls)`, data: { category, source, controls } });
-    return { drift: false };
+  // Two-tier goldens: never diff a LIVE dump against a SIM snapshot. If the effective baseline is the
+  // committed sim golden (or nothing), MINT this dump as the live baseline — no drift, no alert.
+  if (!eff || eff.source === 'sim') {
+    await writeLiveGolden(store, category, controls);
+    await store.setMeta(`controls_${category}`, { at: new Date().toISOString(), source, controls, drifted: false }).catch(() => {});
+    await logEvent(store, { level: 'info', kind: 'canary.golden_minted', msg: `Minted live golden for ${category} from ${source} (${controls.length} controls; prior baseline: ${eff?.source ?? 'none'})`, data: { category, source, priorSource: eff?.source ?? null, controls } });
+    return { drift: false, minted: true };
   }
-  const delta = diffControls(golden.controls, controls);
-  if (!hasDrift(delta)) return { drift: false };
+
+  // Live-vs-live diff.
+  const delta = diffControls(eff.controls, controls);
+  const drift = hasDrift(delta);
+  await store.setMeta(`controls_${category}`, { at: new Date().toISOString(), source, controls, drifted: drift }).catch(() => {});
+  if (!drift) return { drift: false };
 
   const summary = summarizeDrift(category, delta);
-  await logEvent(store, { level: 'error', kind: 'canary.drift', msg: `Step-3 controls drifted — ${summary}`, data: { category, source, goldenSource: golden.source, fieldCount: driftFieldCount(delta), delta } });
+  await logEvent(store, { level: 'error', kind: 'canary.drift', msg: `Step-3 controls drifted — ${summary}`, data: { category, source, goldenSource: eff.source, fieldCount: driftFieldCount(delta), delta } });
   await mailer.alert('Portal control drift', `<p>Step-3 controls changed for <b>${escHtml(category)}</b> (${escHtml(source)}) since the golden was captured.</p><p>${escHtml(summary)}</p>`).catch(() => {});
   await markError(store, 'canary', `control drift (${category}): ${summary}`);
   return { drift: true, delta };
