@@ -9,6 +9,12 @@
  *   POST /api/admin/users/:uid/trust       → JSON { trusted: boolean } (override the ramp)
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
  *   GET  /api/admin/health                 → system visibility: subsystem traffic lights, counters, event stream
+ *   GET  /api/admin/reports?status&category&q&before&limit → all reports, newest first (admin projection); q = substring on address/description/email/id/caseId
+ *   GET  /api/admin/users?before&limit     → accounts with report counts + trust
+ *   GET  /api/admin/events?level&kind&reportId&before&limit → filtered event stream
+ *   GET  /api/admin/categories             → registry (label, portal case type + GUID, fields, photo/seasonal) + per-category golden/controls status + counts
+ *   GET  /api/admin/config                 → live settings with explanations (no secrets)
+ *   GET  /api/admin/explain                → "how it works" sections with live numbers (Learn tabs)
  *   GET  /api/admin/reports/:id/proofs     → [{ name, createdAt, contentType }]  ·  GET …/proofs/:name → image bytes
  *   POST /api/admin/canary/golden/:category/rebaseline → JSON { controls? } replaces the live golden; no body clears it (next live dump re-mints)
  *   POST /api/admin/engine/resume          → clear circuit breaker
@@ -21,6 +27,8 @@ import { approve, reject } from './hitl.js';
 import { createMailer } from './email.js';
 import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js';
 import { canaryGoldenStatus, rebaselineGolden } from './canary-golden.js';
+import { explainSystem } from './adminexplain.js';
+import type { ReportStatus } from '../../shared/types.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -141,6 +149,85 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       },
       events,
     });
+  }
+
+  if (m === 'GET' && path === '/api/admin/reports') {
+    const status = (url.searchParams.get('status') || null) as ReportStatus | null;
+    const category = url.searchParams.get('category') || null;
+    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+    const before = url.searchParams.get('before') || null;
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
+    // With a search term, scan a wider window and filter in-memory (Firestore has no substring search).
+    const rows = await store.listReports({ status, category, before, limit: q ? Math.min(1000, limit * 10) : limit });
+    const hit = (r: ReportDoc) => !q || [r.id, r.address, r.description ?? '', r.reporterEmail ?? '', r.portalCaseId ?? '', r.statusDetail ?? ''].some((v) => String(v).toLowerCase().includes(q));
+    const items = rows.filter(hit).slice(0, limit).map(adminProjection);
+    const last = rows[rows.length - 1];
+    return json({ items, next: rows.length >= limit && last ? toIso(last.timestamp) : null });
+  }
+
+  if (m === 'GET' && path === '/api/admin/users') {
+    const before = url.searchParams.get('before') || null;
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
+    const users = await store.listUsers({ before, limit });
+    const items = await Promise.all(users.map(async (u) => {
+      const [submitted, rejected, pending] = await Promise.all([
+        store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0), store.countOwnerByStatus(u.uid, 'awaiting_review').catch(() => 0),
+      ]);
+      const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
+      return { uid: u.uid, email: u.email, displayName: u.displayName ?? null, provider: u.provider, emailVerified: !!u.emailVerified, createdAt: u.createdAt, lastSeenAt: u.lastSeenAt ?? null,
+        trusted: !!u.trusted, emailUpdates: u.prefs?.emailUpdates !== false, following: (u.following ?? []).length, addresses: (u.addresses ?? []).length,
+        submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) };
+    }));
+    return json({ items, next: users.length >= limit ? users[users.length - 1].createdAt : null });
+  }
+
+  if (m === 'GET' && path === '/api/admin/events') {
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
+    const items = await store.listEvents({ level: url.searchParams.get('level') || null, kind: url.searchParams.get('kind') || null, reportId: url.searchParams.get('reportId') || null, before: url.searchParams.get('before') || null, limit });
+    return json({ items, next: items.length >= limit ? items[items.length - 1].at : null });
+  }
+
+  if (m === 'GET' && path === '/api/admin/categories') {
+    const canary = await canaryGoldenStatus(store).catch(() => ({ categories: [] as { category: string; goldenSource: string | null; goldenAt: string | null; lastLiveAt: string | null; drifted: boolean }[] }));
+    const byCat = new Map(canary.categories.map((c) => [c.category, c]));
+    const items = await Promise.all(Object.entries(CATEGORIES).map(async ([key, c]) => {
+      const [submitted, rejected] = await Promise.all([
+        store.listReports({ status: 'submitted', category: key, limit: 200 }).then((r) => r.length).catch(() => 0),
+        store.listReports({ status: 'rejected', category: key, limit: 200 }).then((r) => r.length).catch(() => 0),
+      ]);
+      const g = byCat.get(key);
+      return { key, label: c.label, portalCaseTypeName: c.portalCaseTypeName, portalCaseTypeGuid: c.portalCaseTypeGuid, portalSearchTerm: c.portalSearchTerm, requestType: c.requestType ?? '2',
+        photoRequired: c.photoRequired !== false, seasonal: c.seasonal ?? null, fields: c.fields ?? {},
+        golden: g ? { source: g.goldenSource, at: g.goldenAt, lastLiveAt: g.lastLiveAt, drifted: g.drifted } : null,
+        counts: { submitted, rejected } };
+    }));
+    return json({ items });
+  }
+
+  if (m === 'GET' && path === '/api/admin/config') {
+    const row = (key: string, value: unknown, what: string) => ({ key, value, what });
+    return json({ items: [
+      row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = first ACCOUNT_TRUST_N per account, then auto unless flagged; auto = nothing to you (flags still force review).'),
+      row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before it auto-files.'),
+      row('REPORTER_EMAIL_ENABLED', env.REPORTER_EMAIL_ENABLED === 'true', 'Whether reporters/followers get email (filed, status changes, not-filed). Admin mail is always on.'),
+      row('RECONCILE_ENABLED', env.RECONCILE_ENABLED ?? '0', 'Watcher compares the whole My Requests list to our DB every 30 min (adopt / stranded / missing).'),
+      row('DRIFT_CANARY_ENABLED', env.DRIFT_CANARY_ENABLED ?? '0', 'Nightly Step-3 control diff on the designated canary draft; alerts when the city changes the form.'),
+      row('ADMIN_EMAILS', env.ADMIN_EMAILS ?? '', 'Google accounts allowed into /admin.'),
+      row('APP_BASE_URL', env.APP_BASE_URL ?? null, 'Public app origin used in emails and tracking links.'),
+      row('PORTAL_BASE_URL', env.PORTAL_BASE_URL ?? null, 'The city portal the browser drives.'),
+      row('NOTIFY_EMAIL', env.NOTIFY_EMAIL ?? null, 'Where admin mail goes.'),
+      row('NOTIFY_FROM', env.NOTIFY_FROM ?? null, 'From address for all mail (Resend, domain verified).'),
+      row('BLOCKED_ADDRESSES', (env as unknown as { BLOCKED_ADDRESSES?: string }).BLOCKED_ADDRESSES ?? '(default)', 'Addresses the engine auto-rejects (substring match).'),
+      row('Pacing', '1 per 3 min, 5 per day, per mailbox and per IP', 'Enforced in POST /api/report via Firestore counters.'),
+      row('Intake AI limits', '10/min per IP, 1,500/day global', 'Caps Anthropic spend; server-side moderation runs once per report regardless.'),
+      row('Engine limits', 'lock 12 min · stuck reaper 20 min · retries 2 with backoff · breaker after repeated failures · hourly cap', 'See worker/src/engine.ts constants.'),
+      row('Retention', 'photos 30 days after the city closes a case · events 14 days · HITL links 30 days', 'Daily job at 7 am ET.'),
+    ] });
+  }
+
+  if (m === 'GET' && path === '/api/admin/explain') {
+    const [users, submitted, rejected] = await Promise.all([store.countUsers().catch(() => -1), store.countByStatus('submitted').catch(() => -1), store.countByStatus('rejected').catch(() => -1)]);
+    return json({ sections: explainSystem(env, { users, submitted, rejected, categories: Object.keys(CATEGORIES).length }) });
   }
 
   const proof = /^\/api\/admin\/reports\/([A-Za-z0-9_-]{10,64})\/proofs(?:\/([A-Za-z0-9_-]{1,120}))?$/.exec(path);

@@ -558,6 +558,50 @@ export function createStore(env: Env): Store {
       return docs.map(docToReport);
     },
 
+    async listReports({ status, category, before, limit }): Promise<ReportDoc[]> {
+      const filters: unknown[] = [];
+      if (status) filters.push(fieldFilter('status', 'EQUAL', { stringValue: status }));
+      if (category) filters.push(fieldFilter('category', 'EQUAL', { stringValue: category }));
+      if (before) filters.push(fieldFilter('timestamp', 'LESS_THAN', { timestampValue: before }));
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        ...(filters.length ? { where: filters.length === 1 ? filters[0] : andFilter(...filters) } : {}),
+        orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+        limit,
+      });
+      return docs.map(docToReport);
+    },
+
+    async listUsers({ before, limit }): Promise<UserDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'users' }],
+        ...(before ? { where: fieldFilter('createdAt', 'LESS_THAN', { stringValue: before }) } : {}),
+        orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
+        limit,
+      });
+      return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as UserDoc), uid: d.name.split('/').pop() as string }));
+    },
+
+    async listEvents({ level, kind, reportId, before, limit }) {
+      const filters: unknown[] = [];
+      if (level) filters.push(fieldFilter('level', 'EQUAL', { stringValue: level }));
+      if (kind) filters.push(fieldFilter('kind', 'EQUAL', { stringValue: kind }));
+      if (reportId) filters.push(fieldFilter('reportId', 'EQUAL', { stringValue: reportId }));
+      if (before) filters.push(fieldFilter('at', 'LESS_THAN', { timestampValue: before }));
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'events' }],
+        ...(filters.length ? { where: filters.length === 1 ? filters[0] : andFilter(...filters) } : {}),
+        orderBy: [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }],
+        limit,
+      });
+      return docs.map((d) => {
+        const data = decodeFields(d.fields ?? {}) as Record<string, unknown>;
+        const ts = data.at as { toDate?: () => Date; seconds?: number } | string | null;
+        const at = !ts ? '' : typeof ts === 'string' ? ts : typeof ts.toDate === 'function' ? ts.toDate().toISOString() : typeof ts.seconds === 'number' ? new Date(ts.seconds * 1000).toISOString() : '';
+        return { id: d.name.split('/').pop() as string, at, level: String(data.level ?? 'info'), kind: String(data.kind ?? ''), msg: String(data.msg ?? ''), reportId: (data.reportId as string | null) ?? null, data: (data.data as Record<string, unknown> | null) ?? null };
+      });
+    },
+
     async countUsers(): Promise<number> {
       return runCount(env, { from: [{ collectionId: 'users' }] });
     },
