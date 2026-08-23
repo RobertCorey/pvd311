@@ -7,6 +7,7 @@
  *   GET  /api/nearby      → dedupe signal (ours + city, last 14 days)
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
+ *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
  */
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
@@ -15,6 +16,7 @@ import { userFromRequest, type AuthUser } from './auth.js';
 import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './me.js';
 import { sendSignInLink } from './authmail.js';
 import { moderate } from './moderation.js';
+import { handleAdmin, isAdmin } from './adminapi.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -49,11 +51,12 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     let resp: Response;
     const reportId = /^\/api\/reports\/([A-Za-z0-9_-]{10,64})(\/cancel)?$/.exec(url.pathname);
     const isCreate = request.method === 'POST' && url.pathname === '/api/report';
-    const needsAuth = url.pathname.startsWith('/api/me') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
+    const needsAuth = url.pathname.startsWith('/api/me') || url.pathname.startsWith('/api/admin') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
     const auth = needsAuth || isCreate || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
     if (isCreate && !auth) resp = json({ error: 'auth_required' }, 401);
     else if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
-    else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport }, auth!);
+    else if (url.pathname.startsWith('/api/admin')) resp = await handleAdmin(request, url, env, deps.store, auth);
+    else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport, admin: isAdmin(env, auth) }, auth!);
     else if (request.method === 'PATCH' && reportId && !reportId[2]) resp = await editReport(reportId[1], request, deps.store, auth!);
     else if (request.method === 'POST' && reportId?.[2]) resp = await cancelReport(reportId[1], deps.store, auth!);
     else if (isCreate) resp = await createReport(request, env, deps, auth!);

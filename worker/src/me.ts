@@ -18,7 +18,7 @@
 import type { Env, ReportDoc, SavedAddress, Store, UserDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
 
-export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown> }
+export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown>; admin?: boolean }
 export interface Viewer { uid: string; following: Set<string> }
 
 const json = (body: unknown, status = 200) =>
@@ -50,9 +50,9 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
   return doc;
 }
 
-function projectMe(u: UserDoc) {
+function projectMe(u: UserDoc, admin = false) {
   return {
-    uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
+    admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
     prefs: { emailUpdates: u.prefs?.emailUpdates !== false }, addresses: u.addresses ?? [], following: u.following ?? [], createdAt: u.createdAt,
   };
 }
@@ -65,7 +65,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   const viewer: Viewer = { uid: user.uid, following: new Set(user.following ?? []) };
 
   if (path === '/api/me') {
-    if (m === 'GET') return json(projectMe(user));
+    if (m === 'GET') return json(projectMe(user, !!deps.admin));
     if (m === 'PATCH') {
       const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown } } | null;
       if (!body) return json({ error: 'invalid_body' }, 400);
@@ -76,7 +76,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
       }
       if (body.prefs && typeof body.prefs === 'object' && 'emailUpdates' in body.prefs) patch['prefs.emailUpdates'] = body.prefs.emailUpdates === true;
       if (Object.keys(patch).length) await store.patchUser(user.uid, patch);
-      return json(projectMe((await store.getUser(user.uid)) ?? user));
+      return json(projectMe((await store.getUser(user.uid)) ?? user, !!deps.admin));
     }
     return json({ error: 'not_found' }, 404);
   }

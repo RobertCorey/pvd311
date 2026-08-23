@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleApi, paceIdentity } from '../src/api';
+import { isAdmin } from '../src/adminapi';
 import type { Store, ReportDoc } from '../src/contracts';
 
 const ts = (iso: string) => ({ seconds: Math.floor(Date.parse(iso) / 1000), nanoseconds: 0, toDate: () => new Date(iso) });
@@ -77,5 +78,20 @@ describe('hardening', () => {
     const closed = { ...env, ALLOW_NO_TURNSTILE: undefined };
     const r = await handleApi(new Request('https://api.test/api/report', { method: 'POST', body: fd, headers: { authorization: 'Bearer nope' } }), closed, { store: mockStore() });
     expect([401, 403]).toContain(r!.status); // 401 from the (unverifiable) token, never 201
+  });
+});
+
+describe('admin gate', () => {
+  const envA = { ADMIN_EMAILS: 'Rob@Example.com, other@x.y' } as any;
+  it('admits only allowlisted, verified, Google-provider accounts', () => {
+    expect(isAdmin(envA, { uid: 'u', email: 'rob@example.com', emailVerified: true, name: null, provider: 'google.com' })).toBe(true);
+    expect(isAdmin(envA, { uid: 'u', email: 'rob@example.com', emailVerified: true, name: null, provider: 'password' })).toBe(false); // email-link account: no
+    expect(isAdmin(envA, { uid: 'u', email: 'rob@example.com', emailVerified: false, name: null, provider: 'google.com' })).toBe(false);
+    expect(isAdmin(envA, { uid: 'u', email: 'someone@example.com', emailVerified: true, name: null, provider: 'google.com' })).toBe(false);
+    expect(isAdmin(envA, null)).toBe(false);
+    expect(isAdmin({} as any, { uid: 'u', email: 'rob@example.com', emailVerified: true, name: null, provider: 'google.com' })).toBe(false); // no allowlist → nobody
+  });
+  it('/api/admin/* is 401 without a token', async () => {
+    expect((await get('/api/admin/overview'))!.status).toBe(401);
   });
 });

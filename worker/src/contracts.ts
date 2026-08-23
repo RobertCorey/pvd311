@@ -28,6 +28,7 @@ export interface Env {
   REPORTER_EMAIL_ENABLED?: string;    // var: 'true' once the Resend sending domain is verified
   APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://pvdsnow.org)
   ACCOUNT_TRUST_N?: string;           // var: per-account HITL ramp threshold (default 3)
+  ADMIN_EMAILS?: string;              // var: comma-separated admin emails for /api/admin/* + in-app /admin (Google sign-in required)
   AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
 }
 
