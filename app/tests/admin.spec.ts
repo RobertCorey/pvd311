@@ -41,19 +41,53 @@ test('admin → queue renders; approve moves the row; 409 resyncs', async ({ pag
   await setup(page, { admin: true });
   await page.route(`${API}/api/admin/reports/aaaaaaaaaaaa/approve`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(report('aaaaaaaaaaaa', 'pending', { statusDetail: 'Approved by admin:me@example.com' })) }));
   await page.route(`${API}/api/admin/reports/ffffffffffff/requeue`, (r) => r.fulfill({ status: 409, contentType: 'application/json', body: '{"error":"not_failed","status":"submitted"}' }));
+  await page.route(`${API}/api/admin/reports/*/proofs`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route(`${API}/api/admin/users/*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u9', email: 'r@example.com', provider: 'google.com', trusted: false, submitted: 2, rejected: 0, createdAt: new Date().toISOString() }) }));
   await page.goto('/admin');
-  const main = page.locator('main');
-  await expect(main).toContainText('Running');
-  await expect(main).toContainText('personal_info');
-  await expect(main).toContainText('Original wording');
-  await page.getByRole('button', { name: /Approve & send/ }).click();
-  await expect(main).toContainText(/Approved — goes out/);
-  // Row moved from Awaiting review (now empty) to Pending and lost its approve action.
-  await expect(main.locator('.admin-section', { hasText: 'Awaiting review' })).toContainText('Nothing here');
-  await expect(main.locator('.admin-section', { hasText: 'Pending' })).toContainText('Pothole');
-  await expect(page.getByRole('button', { name: /Approve & send/ })).toHaveCount(0);
+  const shell = page.locator('.admin-shell');
+  await expect(shell).toContainText('Running');
+  // Awaiting review is the default section: one row with its flag; open the detail pane by clicking it.
+  const table = page.locator('.admin-table');
+  await expect(table.locator('tbody tr')).toHaveCount(1);
+  await expect(table).toContainText('personal_info');
+  await table.locator('tbody tr').first().click();
+  const pane = page.locator('.admin-pane');
+  await expect(pane).toContainText('Original wording');
+  await expect(pane).toContainText('2 sent · 0 rejected');
+  await pane.getByRole('button', { name: /Approve & send/ }).click();
+  await expect(page.locator('main')).toContainText(/Approved — goes out/);
+  // Row moved from Awaiting review (now 0) to Pending (1); the pane closes because the row left the section.
+  await expect(page.getByRole('button', { name: /Awaiting review/ })).toContainText('0');
+  await expect(page.getByRole('button', { name: /^Pending/ })).toContainText('1');
+  await expect(pane).toHaveCount(0);
+  // Failed section → requeue gets a 409 → toast + resync.
+  await page.getByRole('button', { name: /^Failed/ }).click();
   await page.getByRole('button', { name: /Requeue/ }).click();
-  await expect(main).toContainText(/Already moved on/);
+  await expect(page.locator('main')).toContainText(/Already moved on/);
+});
+
+test('keyboard: j selects, r opens the reason box, reject sends the reason, Esc closes', async ({ page }) => {
+  await setup(page, { admin: true });
+  await page.route(`${API}/api/admin/reports/*/proofs`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route(`${API}/api/admin/users/*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u9', email: 'r@example.com', provider: 'google.com', trusted: false, submitted: 0, rejected: 0, createdAt: null }) }));
+  let sentReason: string | null = null;
+  await page.route(`${API}/api/admin/reports/aaaaaaaaaaaa/reject`, (r) => { sentReason = (r.request().postDataJSON() as { reason?: string }).reason ?? null; r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(report('aaaaaaaaaaaa', 'rejected')) }); });
+  await page.goto('/admin');
+  await expect(page.locator('.admin-table tbody tr')).toHaveCount(1);
+  await page.locator('body').press('j');
+  await expect(page.locator('.admin-pane')).toBeVisible();
+  await page.locator('body').press('r');
+  const reason = page.locator('#admin-reason');
+  await expect(reason).toBeFocused();
+  await reason.fill('Duplicate of PVD2026-1');
+  await page.getByRole('button', { name: 'Reject report' }).click();
+  await expect(page.locator('main')).toContainText('Rejected.');
+  expect(sentReason).toBe('Duplicate of PVD2026-1');
+  await page.getByRole('button', { name: /^Failed/ }).click();
+  await page.locator('.admin-table tbody tr').first().click();
+  await expect(page.locator('.admin-pane')).toBeVisible();
+  await page.locator('body').press('Escape');
+  await expect(page.locator('.admin-pane')).toHaveCount(0);
 });
 
 test('account page links to /admin only for admins', async ({ page }) => {
@@ -97,6 +131,7 @@ test('system tab: banner, traffic lights with error + unknown, numbers, filtered
   await expect(main.locator('.sys-card--ok')).toContainText('Expected every minute');
   await expect(main.locator('.sys-num', { hasText: 'Awaiting review' })).toContainText('2');
   await expect(main.locator('.sys-event')).toHaveCount(3);
+  await expect(main.locator('.sys-events-table')).toBeVisible();
   await page.getByRole('button', { name: 'Errors' }).click();
   await expect(main.locator('.sys-event')).toHaveCount(1);
   await page.getByRole('button', { name: 'Reports' }).click();

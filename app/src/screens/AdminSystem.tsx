@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
-import { adminHealth, type AdminCanary, type AdminCanaryCategory, type AdminEvent, type AdminHealth, type AdminSync, type Light, type Subsystem } from '../api/admin';
+import { adminHealth, type AdminCanary, type AdminCanaryCategory, type AdminEvent, type AdminHealth, type AdminSync, type Subsystem } from '../api/admin';
 import { shortLabel } from '../lib/categories';
+import { Dot, abs, rel, When } from './adminUtil';
 import './Admin.css';
 
 type Filter = 'all' | 'errors' | 'reports' | 'admin';
@@ -43,7 +44,7 @@ export default function AdminSystem() {
         <Dot status={data.overall} />
         <strong>{t(`admin.sys.overall.${data.overall}`)}</strong>
         <span>{data.engine.paused ? t('admin.engine.paused') : t('admin.engine.running')}</span>
-        <span className="sys-time">{t('admin.sys.generated', { when: rel(data.generatedAt, t) })}</span>
+        <span className="sys-time" title={abs(data.generatedAt)}>{t('admin.sys.generated', { when: rel(data.generatedAt, t) })}</span>
         <button type="button" className="btn btn-ghost" onClick={() => load()}>{t('admin.refresh')}</button>
       </div>
 
@@ -52,20 +53,7 @@ export default function AdminSystem() {
         <div className="sys-grid">{data.subsystems.map((s) => <SubsystemCard key={s.key} s={s} />)}</div>
       </div>
 
-      {data.sync && (
-        <div className="admin-section">
-          <h2>{t('admin.sync.title')}</h2>
-          <SyncCard sync={data.sync} />
-        </div>
-      )}
-
-      {data.canary && (
-        <div className="admin-section">
-          <h2>{t('admin.canary.title')}</h2>
-          <CanaryCard canary={data.canary} />
-        </div>
-      )}
-
+      <div className="sys-row3">
       <div className="admin-section">
         <h2>{t('admin.sys.numbers')}</h2>
         <div className="sys-numbers">
@@ -79,6 +67,19 @@ export default function AdminSystem() {
           <Num n={data.engine.reporterEmailEnabled ? t('admin.sys.on') : t('admin.sys.off')} label={t('admin.sys.reporterEmail')} />
         </div>
       </div>
+      {data.sync && (
+        <div className="admin-section">
+          <h2>{t('admin.sync.title')}</h2>
+          <SyncCard sync={data.sync} />
+        </div>
+      )}
+      {data.canary && (
+        <div className="admin-section">
+          <h2>{t('admin.canary.title')}</h2>
+          <CanaryCard canary={data.canary} />
+        </div>
+      )}
+      </div>
 
       <div className="admin-section">
         <h2>{t('admin.sys.events')} <span className="admin-count">{events.length}</span></h2>
@@ -86,9 +87,12 @@ export default function AdminSystem() {
           {FILTERS.map((f) => <button key={f} type="button" className="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{t(`admin.sys.filter.${f}`)}</button>)}
         </div>
         {events.length === 0 ? <p className="admin-empty">{t('admin.bucket.empty')}</p> : (
-          <ul className="sys-events">{events.map((e) => <EventRow key={e.id} e={e} />)}</ul>
+          <table className="admin-table sys-events-table">
+            <thead><tr><th scope="col">{t('admin.sys.col.time')}</th><th scope="col">{t('admin.sys.col.level')}</th><th scope="col">{t('admin.sys.col.kind')}</th><th scope="col">{t('admin.sys.col.message')}</th><th scope="col">{t('admin.sys.col.report')}</th></tr></thead>
+            <tbody>{events.slice(0, 200).map((e) => <EventRow key={e.id} e={e} />)}</tbody>
+          </table>
         )}
-        {data.events.length >= limit && limit < 300 && (
+        {(data.events.length >= limit && limit < 300) && (
           <button type="button" className="btn btn-ghost" onClick={() => { setLimit(300); void load(300); }}>{t('admin.sys.more')}</button>
         )}
       </div>
@@ -103,7 +107,7 @@ function SubsystemCard({ s }: { s: Subsystem }) {
       <div className="sys-card-head"><Dot status={s.status} /><strong>{s.label}</strong><span className="sys-light">{t(`admin.sys.light.${s.status}`)}</span></div>
       <p className="sys-what">{s.what}</p>
       <div className="sys-meta">
-        {s.status === 'unknown' && !s.lastOkAt ? <span>{t('admin.sys.neverRan')}</span> : <span>{t('admin.sys.lastOk', { when: rel(s.lastOkAt, t) })}</span>}
+        {s.status === 'unknown' && !s.lastOkAt ? <span>{t('admin.sys.neverRan')}</span> : <span title={abs(s.lastOkAt)}>{t('admin.sys.lastOk', { when: rel(s.lastOkAt, t) })}</span>}
         {s.expectedEvery && <span>{t('admin.sys.expected', { every: s.expectedEvery })}</span>}
         <span>{t('admin.sys.today', { ok: s.okToday, err: s.errToday })}</span>
       </div>
@@ -210,21 +214,16 @@ function CanaryRow({ c }: { c: AdminCanaryCategory }) {
 function EventRow({ e }: { e: AdminEvent }) {
   const t = useT();
   return (
-    <li className={`card sys-event sys-event--${e.level}`}>
-      <Dot status={e.level === 'info' ? 'ok' : e.level} />
-      <div>
-        <div className="sys-event-head">
-          <span className="sys-kind">{e.kind}</span>
-          <span className="sys-time">{rel(e.at, t)}</span>
-          {e.reportId && <Link to={`/r/${e.reportId}`} className="sys-time">{e.reportId.slice(0, 8)}…</Link>}
-        </div>
-        <p className="sys-msg">{e.msg}</p>
-      </div>
-    </li>
+    <tr className={`sys-event sys-event--${e.level}`}>
+      <td className="sys-time"><When iso={e.at} t={t} /></td>
+      <td><Dot status={e.level === 'info' ? 'ok' : e.level} /> <span className="visually-hidden">{e.level}</span></td>
+      <td><span className="sys-kind">{e.kind}</span></td>
+      <td className="sys-msg">{e.msg}</td>
+      <td>{e.reportId && <Link to={`/r/${e.reportId}`} className="sys-time" title={e.reportId}>{e.reportId.slice(0, 8)}…</Link>}</td>
+    </tr>
   );
 }
 
-const Dot = ({ status }: { status: Light | 'warn' | 'error' }) => <span className={`sys-dot sys-dot--${status}`} aria-hidden="true" />;
 const Num = ({ n, label }: { n: number | string; label: string }) => <div className="card sys-num"><b>{n}</b><span>{label}</span></div>;
 
 function matches(e: AdminEvent, f: Filter): boolean {
@@ -234,21 +233,4 @@ function matches(e: AdminEvent, f: Filter): boolean {
   return /^admin\./.test(e.kind);
 }
 
-/** Absolute local timestamp, e.g. "Aug 22, 2:14 PM". Empty for an unparseable value. */
-function abs(iso: string): string {
-  const d = new Date(iso);
-  return Number.isFinite(d.getTime())
-    ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-    : '';
-}
 
-/** Relative time: "2 min ago" / "3 h ago" / "never". */
-function rel(iso: string | null | undefined, t: (k: string, v?: Record<string, string | number>) => string): string {
-  if (!iso) return t('admin.sys.never');
-  const sec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(sec)) return t('admin.sys.never');
-  if (sec < 45) return t('admin.sys.justNow');
-  if (sec < 3600) return t('admin.sys.ago', { v: `${Math.round(sec / 60)} min` });
-  if (sec < 86_400) return t('admin.sys.ago', { v: `${Math.round(sec / 3600)} h` });
-  return t('admin.sys.ago', { v: `${Math.round(sec / 86_400)} d` });
-}

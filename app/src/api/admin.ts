@@ -24,7 +24,19 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const adminOverview = () => call<AdminOverview>('/api/admin/overview');
-export const adminAct = (id: string, action: AdminAction) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: '{}' });
+export const adminAct = (id: string, action: AdminAction, body: { reason?: string } = {}) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify(body) });
+export const adminReport = (id: string) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}`);
+export interface AdminProof { name: string; createdAt: string | null; contentType: string }
+export const adminProofs = (id: string) => call<AdminProof[]>(`/api/admin/reports/${encodeURIComponent(id)}/proofs`);
+/** Proof images need the bearer, so <img src> can't load them directly: fetch → object URL (caller revokes). */
+export async function adminProofBlobUrl(id: string, name: string): Promise<string> {
+  const resp = await apiFetch(`/api/admin/reports/${encodeURIComponent(id)}/proofs/${encodeURIComponent(name)}`, { headers: await authHeaders() });
+  if (!resp.ok) throw await parseError(resp);
+  return URL.createObjectURL(await resp.blob());
+}
+export interface AdminUser { uid: string; email: string | null; provider: string; trusted: boolean; submitted: number; rejected: number; createdAt: string | null }
+export const adminUser = (uid: string) => call<AdminUser>(`/api/admin/users/${encodeURIComponent(uid)}`);
+export const adminTrust = (uid: string, trusted: boolean) => call<AdminUser>(`/api/admin/users/${encodeURIComponent(uid)}/trust`, { method: 'POST', body: JSON.stringify({ trusted }) });
 export const adminEngine = (op: 'pause' | 'resume') => call<{ ok: boolean; paused: boolean }>(`/api/admin/engine/${op}`, { method: 'POST', body: '{}' });
 
 // ── System view (/api/admin/health) ──
