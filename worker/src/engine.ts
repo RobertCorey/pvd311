@@ -20,7 +20,8 @@ import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
-import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, type GoldenSnapshot } from './drift.js';
+import type { PortalControl } from './scout.js';
+import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 
 // Providence bounding box (same as Node engine).
@@ -190,6 +191,11 @@ async function submitOne(
     console.log(`[tick] submitted ${report.id}${result.caseId ? ` as ${result.caseId}` : ''}`);
     await markOk(store, 'submit', result.caseId ? `filed as ${result.caseId}` : 'filed (no case id captured)');
     await logEvent(store, { level: 'info', kind: 'submit.ok', msg: `Filed with the city${result.caseId ? ` as ${result.caseId}` : ''} (${report.category} @ ${report.address})`, reportId: report.id, data: { caseId: result.caseId ?? null } });
+    // Opportunistic drift check (flagged): this submit already dumped Step-3 controls — snapshot + diff vs golden.
+    if (isDriftCanaryEnabled(env) && result.controls?.length) {
+      await recordControls(store, mailer, report.category, result.controls, 'submit')
+        .catch((e) => console.error('[tick] control drift check failed:', e instanceof Error ? e.message : e));
+    }
     {
       const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
       await notifyReport(store, mailer, report, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
@@ -538,7 +544,7 @@ export async function runDaily(env: Env): Promise<void> {
       console.log(`[daily] canary OK (${canary.notes.join('; ')})`);
       await markOk(store, 'canary', canary.notes.join('; '));
     }
-    // Golden-controls drift canary (flagged): re-dump Step-3 controls for existing drafts and diff vs goldens.
+    // Golden-controls drift canary (flagged): resume the ONE designated record and re-dump Step-3, no submit.
     if (isDriftCanaryEnabled(env)) {
       await runDriftCanary(env, { store, mailer, portal })
         .catch((e) => console.error('[daily] drift canary failed:', e instanceof Error ? e.message : e));
@@ -554,21 +560,57 @@ export async function runDaily(env: Env): Promise<void> {
 
 // ── Golden-controls drift canary (P1, flagged DRIFT_CANARY_ENABLED) ────────────────────
 /**
- * Nightly Step-3 control drift check. For each category with a committed golden, re-dump the live
- * portal's Step-3 controls and diff field-by-field (added/removed/renamed, changed required/options)
- * so a drift is KNOWN before the next submit trusts a stale mapping. Emits `canary.drift` per drift.
+ * The canary NEVER creates a draft (drafts are permanent + undeletable). Two flagged paths:
  *
- * NON-MUTATING: it never runs the wizard or clicks Next/Submit. Reaching Step 3 live requires a
- * draft (permanent, undeletable), so it re-dumps ONLY through an EXISTING draft's saved Step-3 URL
- * (`portalDraft.url`) — never creating one. A category with no reusable draft is skipped, not filed.
- *
- * OPEN QUESTION for alice: `reusableDraftUrls` scans parked reports (awaiting_review / failed /
- * submitted-unconfirmed) for a Step-3 `portalDraft.url`. If the engine keeps an authoritative
- * per-category draft registry, inject `deps.draftUrls` to use it instead of this scan.
+ *  (a) Nightly (runDriftCanary, from runDaily): resume ONE designated EXISTING record via
+ *      Edit-Request and re-dump its Step-3 controls without submitting. Its GUID lives in
+ *      meta/canaryDraft (self-seeded with the rejected test report PVD2026-87687, a Pothole). This
+ *      validates the live Step-3 form on a real record with zero new drafts.
+ *  (b) Opportunistic (recordControls, from submitOne): every REAL submission already dumped its
+ *      Step-3 controls (SubmitResult.controls); we snapshot them to meta/controls_<category> and diff
+ *      against the committed golden right there, emitting canary.drift immediately on change. Case
+ *      types nobody has filed yet get no live check — their goldens stay sim/addendum until one lands.
  */
+
+/** Seed for meta/canaryDraft: rejected test report 3vaiQigIhKHykhxIA-Yp2g → PVD2026-87687 (Pothole). */
+const CANARY_DRAFT: CanaryDraftMeta = { entityId: '6892301e-939e-f111-a3d0-001dd8111525', category: 'pothole' };
+interface CanaryDraftMeta { entityId: string; category: string }
+
 export function isDriftCanaryEnabled(env: Env): boolean {
   const v = (env as unknown as { DRIFT_CANARY_ENABLED?: string }).DRIFT_CANARY_ENABLED;
   return v === '1' || v === 'true';
+}
+
+/**
+ * Snapshot a fresh Step-3 control dump for one category to meta/controls_<category> and diff it
+ * against the committed golden; emit canary.drift (+ alert + health) on any field-level change.
+ * Shared by the nightly designated-draft re-dump and the opportunistic per-submission check.
+ */
+export async function recordControls(
+  store: Store,
+  mailer: Mailer,
+  category: string,
+  rawControls: PortalControl[],
+  source: string,
+  goldens: Record<string, GoldenSnapshot> = GOLDEN_CONTROLS,
+): Promise<{ drift: boolean; delta?: DriftDelta }> {
+  const controls = normalizeControls(rawControls);
+  await store.setMeta(`controls_${category}`, { at: new Date().toISOString(), source, controls }).catch(() => {});
+
+  const golden = goldens[category];
+  if (!golden) {
+    // No golden to diff against yet — record the sighting so a golden can be minted from a real dump.
+    await logEvent(store, { level: 'info', kind: 'canary.controls_seen', msg: `Observed Step-3 controls for ${category} with no golden yet (${controls.length} controls)`, data: { category, source, controls } });
+    return { drift: false };
+  }
+  const delta = diffControls(golden.controls, controls);
+  if (!hasDrift(delta)) return { drift: false };
+
+  const summary = summarizeDrift(category, delta);
+  await logEvent(store, { level: 'error', kind: 'canary.drift', msg: `Step-3 controls drifted — ${summary}`, data: { category, source, goldenSource: golden.source, fieldCount: driftFieldCount(delta), delta } });
+  await mailer.alert('Portal control drift', `<p>Step-3 controls changed for <b>${escHtml(category)}</b> (${escHtml(source)}) since the golden was captured.</p><p>${escHtml(summary)}</p>`).catch(() => {});
+  await markError(store, 'canary', `control drift (${category}): ${summary}`);
+  return { drift: true, delta };
 }
 
 export interface DriftCanaryDeps {
@@ -576,94 +618,39 @@ export interface DriftCanaryDeps {
   mailer: Mailer;
   portal: Portal;               // reuse the already-open, logged-in portal from runDaily
   goldens?: Record<string, GoldenSnapshot>;
-  /** Existing reusable Step-3 draft URLs by category. Default: a Firestore scan of parked reports. */
-  draftUrls?: (categories: string[]) => Promise<Record<string, string>>;
 }
 
-/** Find one reusable Step-3 draft URL per category among parked reports (never creates a draft). */
-export async function reusableDraftUrls(store: Store, categories: string[]): Promise<Record<string, string>> {
-  const want = new Set(categories);
-  const out: Record<string, string> = {};
-  // Parked reports that may still hold a resumable Step-3 draft. 'processing'/'pending' are excluded:
-  // the tick owns those and the canary must not touch a draft mid-submit.
-  const pools = await Promise.all([
-    store.findByStatus('awaiting_review', 50).catch(() => []),
-    store.findByStatus('failed', 50).catch(() => []),
-    store.findSubmittedUnconfirmed(50).catch(() => []),
-  ]);
-  for (const pool of pools) {
-    for (const r of pool) {
-      const cat = r.category;
-      if (!want.has(cat) || out[cat]) continue;
-      const draft = r.portalDraft;
-      if (draft?.step === 3 && draft.url) out[cat] = draft.url;
-    }
-  }
-  return out;
-}
-
-export async function runDriftCanary(
-  env: Env,
-  deps: DriftCanaryDeps,
-): Promise<{ drifted: string[]; checked: string[]; skipped: string[] }> {
+/**
+ * Nightly path (a): resume the designated canary record (meta/canaryDraft, self-seeding) via
+ * Edit-Request, re-dump its Step-3 controls WITHOUT submitting, and diff vs its golden. Non-mutating:
+ * no new draft, no Submit. Skips (warn, not error) if the record can't be resumed to Step 3.
+ */
+export async function runDriftCanary(env: Env, deps: DriftCanaryDeps): Promise<{ checked: boolean; drift: boolean }> {
   const { store, mailer, portal } = deps;
   const goldens = deps.goldens ?? GOLDEN_CONTROLS;
-  const categories = Object.keys(goldens);
-  const draftUrls = await (deps.draftUrls ?? ((cats) => reusableDraftUrls(store, cats)))(categories);
 
-  const checked: string[] = [];
-  const skipped: string[] = [];
-  const drifted: string[] = [];
-  const summaries: string[] = [];
-
-  for (const category of categories) {
-    const url = draftUrls[category];
-    if (!url) { skipped.push(category); continue; } // no existing draft → can't reach Step 3 without creating one
-
-    let raw;
-    try {
-      raw = await portal.dumpControlsAt(url);
-    } catch (e) {
-      skipped.push(category);
-      await logEvent(store, { level: 'warn', kind: 'canary.drift_skipped', msg: `Drift re-dump failed for ${category}: ${e instanceof Error ? e.message : String(e)}`, data: { category } });
-      continue;
-    }
-    if (!raw) { // draft no longer resumes to Step 3 (converted/expired) — safe to skip
-      skipped.push(category);
-      await logEvent(store, { level: 'info', kind: 'canary.drift_skipped', msg: `No resumable Step-3 draft for ${category}`, data: { category } });
-      continue;
-    }
-
-    checked.push(category);
-    const delta = diffControls(goldens[category].controls, normalizeControls(raw));
-    if (hasDrift(delta)) {
-      drifted.push(category);
-      const summary = summarizeDrift(category, delta);
-      summaries.push(summary);
-      await logEvent(store, {
-        level: 'error',
-        kind: 'canary.drift',
-        msg: `Step-3 controls drifted — ${summary}`,
-        data: { category, goldenSource: goldens[category].source, fieldCount: driftFieldCount(delta), delta },
-      });
-    }
+  let meta = await store.getMeta<CanaryDraftMeta>('canaryDraft').catch(() => null);
+  if (!meta?.entityId) {
+    meta = { entityId: CANARY_DRAFT.entityId, category: CANARY_DRAFT.category };
+    await store.setMeta('canaryDraft', { ...meta, seededAt: new Date().toISOString() }).catch(() => {});
   }
 
-  if (drifted.length) {
-    await mailer.alert(
-      'Portal control drift',
-      `<p>Golden-controls drift on ${drifted.length} case type(s) — the Step-3 form changed since the goldens were captured.</p>`
-      + `<ul>${summaries.map((s) => `<li>${escHtml(s)}</li>`).join('')}</ul>`,
-    );
-    await markError(store, 'canary', `control drift: ${summaries.join(' | ')}`);
-  } else if (checked.length) {
-    await markOk(store, 'canary', `drift canary: ${checked.length} checked, ${skipped.length} skipped, no drift`);
-  } else {
-    // Nothing re-dumped (no reusable drafts yet) — not a failure; the selector canary still ran.
-    await logEvent(store, { level: 'info', kind: 'canary.drift_skipped', msg: `Drift canary had no reusable draft to re-dump (${skipped.length} categories skipped)`, data: { skipped } });
+  let raw: PortalControl[] | null;
+  try {
+    raw = await portal.resumeAndDumpControls(meta.entityId);
+  } catch (e) {
+    await logEvent(store, { level: 'warn', kind: 'canary.drift_skipped', msg: `Canary-draft re-dump failed: ${e instanceof Error ? e.message : String(e)}`, data: { entityId: meta.entityId } });
+    return { checked: false, drift: false };
   }
-  console.log(`[daily] drift canary: ${checked.length} checked, ${drifted.length} drifted, ${skipped.length} skipped`);
-  return { drifted, checked, skipped };
+  if (!raw) {
+    await logEvent(store, { level: 'warn', kind: 'canary.drift_skipped', msg: `Canary draft ${meta.entityId} could not be resumed to Step 3`, data: { entityId: meta.entityId } });
+    return { checked: false, drift: false };
+  }
+
+  const { drift } = await recordControls(store, mailer, meta.category, raw, 'canary-draft', goldens);
+  if (!drift) await markOk(store, 'canary', `drift canary: ${meta.category} draft re-dumped, no drift`);
+  console.log(`[daily] drift canary: ${meta.category} draft checked, drift=${drift}`);
+  return { checked: true, drift };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────

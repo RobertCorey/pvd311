@@ -137,8 +137,8 @@ export interface Portal {
   findMyRequestByEntityId(entityId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   findMyRequestByCaseId(caseId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;
-  /** Drift canary (read-only): re-dump Step-3 controls for an existing draft's Step-3 URL. Creates NO new draft; null if it no longer resumes to Step 3. */
-  dumpControlsAt(draftUrl: string): Promise<PortalControl[] | null>;
+  /** Drift canary (read-only): resume the designated existing record via Edit-Request and re-dump Step-3 controls WITHOUT submitting. Creates NO new draft; null if it can't resume to Step 3. */
+  resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null>;
 }
 
 /** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */

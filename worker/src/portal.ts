@@ -375,16 +375,34 @@ class WorkerPortal implements Portal {
   }
 
   /**
-   * Drift canary (read-only): re-dump the Step-3 controls for an EXISTING draft without running the
-   * wizard or clicking Next/Submit — so it creates NO new (permanent, undeletable) draft. `draftUrl`
-   * is a `portalDraft.url` saved at draft time (a Step-3 wizard URL); mirrors `tryResumeDraft`'s
-   * navigate-and-detect. Returns null if that draft no longer resumes to Step 3.
+   * Drift canary (read-only): resume ONE designated EXISTING record via its Edit-Request form and
+   * re-dump the Step-3 controls WITHOUT ever submitting — so it creates no new (permanent, undeletable)
+   * draft. Editing an existing record reuses its GUID; walking Step 1→3 re-posts steps 1–2 of that same
+   * record and stops at Step 3 (identified by #description, whose button is "Submit" — never clicked).
+   * Returns null if the record can't be resumed to Step 3 (session lost / form changed).
+   *
+   * NOTE (alice): the live Edit-Request→Step-3 walk is unverified here — the portal sim has no
+   * Edit-Request route. Confirm against the seeded canary record (PVD2026-87687) before trusting it.
    */
-  async dumpControlsAt(draftUrl: string): Promise<PortalControl[] | null> {
+  async resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null> {
     const page = this.getPage();
     await this.ensureLoggedIn();
-    await page.goto(draftUrl, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT }).catch(() => {});
-    // Step 3 is identified by the description textarea (same probe tryResumeDraft uses for step 3).
+    await page
+      .goto(`${this.portal}/my-requests/Edit-Request/?id=${encodeURIComponent(entityId)}`, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT })
+      .catch(() => {});
+    if (await this.sessionLost()) return null;
+    // Advance to Step 3 without submitting. Only click Next while on Step 1/2 (#casetypecode / #addressIn);
+    // Step 3 has #description and its button is Submit — never click there.
+    for (let i = 0; i < 3 && !(await page.$('#description')); i++) {
+      const onStep12 = (await page.$('#casetypecode')) || (await page.$('#addressIn'));
+      const next = onStep12 ? await page.$('#NextButton') : null;
+      if (!next) break;
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT }).catch(() => {}),
+        next.click().catch(() => {}),
+      ]);
+      await page.waitForTimeout(500); // let a partial postback settle
+    }
     if (!(await page.$('#description'))) return null;
     return this.dumpControls();
   }
