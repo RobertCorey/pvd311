@@ -73,7 +73,7 @@ export interface FeedItem {
 export interface NearbyItem extends FeedItem { distanceM: number; }
 export interface NearbyResponse { items: NearbyItem[]; }
 /** GET /api/stats — public counters for the home trust line. */
-export interface Stats { filed: number; resolved: number; }
+export interface Stats { filed: number; resolved: number; /** ISO date the counters start from (relaunch). */ since?: string }
 
 export class ApiError extends Error {
   status: number; code: string; field?: string; retryAfterSec?: number;

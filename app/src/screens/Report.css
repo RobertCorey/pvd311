@@ -31,7 +31,6 @@
 .chip:disabled { opacity: 0.6; }
 .detect-chip { margin-bottom: 12px; }
 .compose-title { font-size: 1.35rem; font-weight: 800; line-height: 1.15; margin: 0 0 6px; }
-.signin-disclosure { margin: 0 0 8px; font-size: 0.85rem; line-height: 1.4; color: var(--muted); text-wrap: pretty; }
 .human-check { display: flex; flex-direction: column; gap: 8px; }
 .human-check h2 { margin: 0; }
 .human-check .hint { margin: 0; }

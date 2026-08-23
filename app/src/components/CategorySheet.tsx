@@ -5,7 +5,7 @@ import CategoryIcon from './CategoryIcon';
 import './CategorySheet.css';
 
 /** "Other / something else" — a bottom sheet that reads like the city: Streets · Trash · Lights · Animals · Other,
- *  one neighborhood-flavored example per category, "I'm not sure" last. Picks feed the same `onPick` as the tiles. */
+ *  plain labels, "I'm not sure" last. Picks feed the same `onPick` as the tiles. */
 export default function CategorySheet({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (key: string) => void }) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -46,7 +46,7 @@ export default function CategorySheet({ open, onClose, onPick }: { open: boolean
                     <li key={c.key}>
                       <button ref={g.key === 'streets' && i === 0 ? firstRef : undefined} type="button" className="sheet-row" data-category={c.key} onClick={() => onPick(c.key)}>
                         <span className="sheet-icon" aria-hidden="true"><CategoryIcon k={c.key} size={36} /></span>
-                        <span className="sheet-text"><span className="sheet-label">{shortLabel(c.key, t)}</span><span className="sheet-example">{t(`sheet.example.${c.key}`)}</span></span>
+                        <span className="sheet-text"><span className="sheet-label">{shortLabel(c.key, t)}</span></span>
                       </button>
                     </li>
                   ))}
@@ -57,7 +57,7 @@ export default function CategorySheet({ open, onClose, onPick }: { open: boolean
           {unsure && ALL_CATEGORIES.includes(unsure) && (
             <button type="button" className="sheet-row sheet-row--unsure" data-category="unsure" onClick={() => onPick('unsure')}>
               <span className="sheet-icon" aria-hidden="true"><CategoryIcon k="unsure" size={36} /></span>
-              <span className="sheet-text"><span className="sheet-label">{shortLabel('unsure', t)}</span><span className="sheet-example">{t('sheet.example.unsure')}</span></span>
+              <span className="sheet-text"><span className="sheet-label">{shortLabel('unsure', t)}</span></span>
             </button>
           )}
         </div>

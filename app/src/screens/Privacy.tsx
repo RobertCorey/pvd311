@@ -3,7 +3,7 @@ import { useT } from '../i18n';
 import './Prose.css';
 
 const COLLECT = ['report', 'contact', 'device', 'offline'] as const;
-const WHO = ['city', 'infra', 'team', 'sold'] as const;
+const WHO = ['city', 'infra', 'team'] as const;
 const RETENTION = ['photo', 'record', 'city'] as const;
 const CHOICES = ['anon', 'delete'] as const;
 

@@ -445,7 +445,6 @@ export default function Report() {
           <CategoryIcon k={cat.key} size={24} />{shortLabel(cat.key, t)}<span className="chip-change">{t('report.change')}</span>
         </button>
       </div>
-      {!session && <p className="signin-disclosure">{t('report.signInDisclosure')}</p>}
       {restored && (
         <div className="notice notice-ok restored-notice" role="status">
           <span>{t('report.restored')}</span>

@@ -257,15 +257,12 @@ test('disabled Send explains what is missing, in order', async ({ page }) => {
 // A valid 1x1 PNG (green pixel), and a non-image, for the photo-validation tests.
 const PNG_1x1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
 
-test('sign-in disclosure shows only when signed out', async ({ page }) => {
+test('no sign-in disclosure on compose — the gate appears only at Send', async ({ page }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
   await page.click('[data-category="missed_trash"]');
-  await expect(page.locator('.signin-disclosure')).toHaveText('Sending takes a quick email or Google sign-in — no password.');
-  // Signed in: the line is gone.
-  await mockApi(page);
-  await page.goto('/?c=missed_trash');
   await expect(page.locator('.signin-disclosure')).toHaveCount(0);
+  await expect(page.getByText(/sign-in — no password/i)).toHaveCount(0);
 });
 
 test('human check is a labelled step; trouble help appears if the token never arrives', async ({ page }) => {
