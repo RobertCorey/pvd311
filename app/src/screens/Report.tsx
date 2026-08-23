@@ -14,6 +14,7 @@ import { useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
 import CategorySheet from '../components/CategorySheet';
+import TrustLine from '../components/TrustLine';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
 
@@ -342,6 +343,7 @@ export default function Report() {
         <div className="home-hero">
           <h2>{t('report.whatsWrong')}</h2>
           <p className="hero-sub">{t('report.heroSub')}</p>
+          <TrustLine />
         </div>
         <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
           {featured.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}

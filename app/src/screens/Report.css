@@ -2,6 +2,10 @@
 .home-hero { margin: 8px 0 14px; }
 .home-hero h2 { font-size: 1.9rem; line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 6px; }
 .home-hero .hero-sub { margin: 0; color: var(--muted); font-size: 0.95rem; max-width: 34ch; text-wrap: pretty; }
+.trust-line { margin: 10px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--muted); text-wrap: pretty; }
+.trust-link { font-weight: 700; color: var(--link); white-space: nowrap; }
+.trust-stat { display: inline-flex; align-items: center; margin-top: 8px; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 2px solid var(--ember); color: var(--ember-text); font-family: var(--font-display); font-weight: 800; font-size: 0.75rem; letter-spacing: 0.02em; }
+.trust-line .trust-stat { display: table; }
 
 .cat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .cat-tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 122px; padding: 14px 14px 13px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius-lg); color: var(--ink); font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; letter-spacing: -0.015em; line-height: 1.15; text-align: left; cursor: pointer; box-shadow: var(--shadow); -webkit-tap-highlight-color: transparent; transition: transform 0.12s var(--ease-out), border-color 0.15s, background-color 0.15s, box-shadow 0.15s; animation: rise 0.3s var(--ease-out) both; }

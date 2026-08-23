@@ -18,11 +18,12 @@ img { max-width: 100%; display: block; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 
 .app { max-width: 520px; margin: 0 auto; padding: 0 16px env(safe-area-inset-bottom); min-height: 100dvh; display: flex; flex-direction: column; }
-.app.has-tabs { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+.app.has-tabs { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0 8px; }
 .wordmark { font-family: var(--font-display); font-weight: 800; font-size: 1.45rem; letter-spacing: -0.03em; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 8px; line-height: 1; }
 .wordmark em { font-style: normal; color: var(--ember-text); }
-.microtag { font-family: var(--font-display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.microtag { font-family: var(--font-display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px 9px; white-space: nowrap; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; }
+.microtag:hover { background: var(--ink-soft); }
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .header-btn { background: none; border: none; cursor: pointer; }
 .header-link { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; color: var(--ink); text-decoration: none; min-height: var(--tap); display: inline-flex; align-items: center; padding: 0 6px; white-space: nowrap; }

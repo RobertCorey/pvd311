@@ -1,4 +1,4 @@
-.track { display: flex; flex-direction: column; }
+.track { display: flex; flex-direction: column; padding-bottom: 16px; }
 .track-h1 { font-family: var(--font-display); font-size: 1.7rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; color: var(--ink); margin: 0 0 6px; }
 .track-block-btn { width: 100%; margin-top: 14px; text-decoration: none; }
 

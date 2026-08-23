@@ -1,5 +1,5 @@
 import { APP_VERSION } from '../brand';
-import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView } from './types';
+import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView, Stats } from './types';
 import { ApiError } from './types';
 import { authHeaders } from '../lib/auth';
 
@@ -134,6 +134,17 @@ export async function getFeed(bbox: [number, number, number, number], limit = 10
 }
 
 /** Dedupe check: reports (ours + city) within radiusM of a point, last 14 days, nearest-first. Never throws. */
+/** Public counters (cached 5 min server-side). Null on any failure — the trust line just omits the number. */
+export async function getStats(): Promise<Stats | null> {
+  const t = withTimeout(6_000);
+  try {
+    const resp = await apiFetch('/api/stats', { signal: t.signal });
+    if (!resp.ok) return null;
+    const d = (await resp.json()) as Partial<Stats>;
+    return Number.isFinite(d.filed) ? { filed: Number(d.filed), resolved: Number(d.resolved ?? 0) } : null;
+  } catch { return null; } finally { t.done(); }
+}
+
 export async function getNearby(lat: number, lng: number, category?: string | null, radiusM = 75): Promise<NearbyResponse> {
   const t = withTimeout(8_000);
   try {
