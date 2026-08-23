@@ -48,7 +48,9 @@ export interface Report {
   extra?: Record<string, string> | null;
 
   /** Portal draft bookkeeping so retries resume the same draft instead of orphaning a new one */
-  portalDraft?: { url: string; entityId: string | null; step: 2 | 3; savedAt: string } | null;
+  portalDraft?: { url: string; entityId: string | null; step: 2 | 3; savedAt: string; caseId?: string | null } | null; // caseId: the PVD number the portal assigns at draft creation (input#title)
+  /** PVD number read from the draft before Submit; used to confirm/reconcile when the post-submit read fails */
+  portalCaseIdCandidate?: string | null;
 
   /** Automatic retry bookkeeping */
   retries?: number;

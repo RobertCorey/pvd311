@@ -173,7 +173,7 @@ async function submitOne(
       ? `Already filed by an earlier attempt${result.caseId ? ` as ${result.caseId}` : ''} (found by draft GUID)`
       : result.caseId ? `Auto-submitted as ${result.caseId}` : 'Auto-submitted — case number pending (watcher reconciles by GUID)';
     await store.updateReportStatus(report.id, 'submitted', detail, result.caseId);
-    await store.patchReport(report.id, { caseIdPending: !result.caseId, portalEntityId: result.entityId ?? report.portalDraft?.entityId ?? null });
+    await store.patchReport(report.id, { caseIdPending: !result.caseId, portalEntityId: result.entityId ?? report.portalDraft?.entityId ?? null, portalCaseIdCandidate: result.caseIdCandidate ?? report.portalDraft?.caseId ?? null });
     if (result.alreadyFiled) await logEvent(store, { level: 'warn', kind: 'submit.already_filed', msg: detail, reportId: report.id });
     if (!result.caseId) await logEvent(store, { level: 'warn', kind: 'submit.unconfirmed', msg: 'Portal accepted the submission but no case number was read; watcher will reconcile', reportId: report.id });
     await store.setMeta('engine', {
@@ -248,9 +248,10 @@ export async function runWatcher(env: Env): Promise<void> {
         const byId = new Map(rows.filter((r) => r.caseId).map((r) => [r.caseId as string, r]));
         const byEntity = new Map(rows.filter((r) => r.entityId).map((r) => [r.entityId as string, r]));
         for (const u of unconfirmed) {
+          const cand = u.portalCaseIdCandidate ?? u.portalDraft?.caseId ?? null;
           const eid = ((u as unknown as { portalEntityId?: string | null }).portalEntityId ?? u.portalDraft?.entityId ?? '').toLowerCase();
-          const row = eid ? byEntity.get(eid) : undefined;
-          if (row?.caseId) {
+          const row = (cand ? byId.get(cand) : undefined) ?? (eid ? byEntity.get(eid) : undefined);
+          if (row?.caseId && !/^draft$/i.test(row.status)) {
             await store.updateReportStatus(u.id, 'submitted', `Case number confirmed by watcher: ${row.caseId}`, row.caseId);
             await store.patchReport(u.id, { caseIdPending: false });
             await logEvent(store, { level: 'info', kind: 'watcher.case_confirmed', msg: `Case number ${row.caseId} confirmed by GUID`, reportId: u.id, data: { caseId: row.caseId } });

@@ -161,11 +161,11 @@ class WorkerPortal implements Portal {
     // Check-before-create: a previous attempt may have SUBMITTED the draft and died before we recorded it
     // (timeout after the final click, reaper, retry). The draft's GUID is the record's GUID, so if My
     // Requests shows it with a real status, it's already filed — never run the wizard again for it.
-    if (report.portalDraft?.entityId && mode === 'live') {
-      const row = await this.findMyRequestByEntityId(report.portalDraft.entityId, 3).catch(() => null);
+    if (report.portalDraft?.caseId && mode === 'live') {
+      const row = await this.findMyRequestByCaseId(report.portalDraft.caseId, 3).catch(() => null);
       if (row && row.status && !/^draft$/i.test(row.status)) {
         const proofPath = await this.saveProof(opts, report.id, row.caseId ?? 'already-filed');
-        return { mode, caseId: row.caseId ?? undefined, proofPath, entityId: report.portalDraft.entityId, caseIdConfirmed: !!row.caseId, alreadyFiled: true };
+        return { mode, caseId: row.caseId ?? undefined, proofPath, entityId: report.portalDraft.entityId ?? undefined, caseIdConfirmed: true, alreadyFiled: true, caseIdCandidate: report.portalDraft.caseId };
       }
     }
 
@@ -194,8 +194,22 @@ class WorkerPortal implements Portal {
     const entityId = await page
       .$eval('#EntityFormView_EntityID', (el: any) => el.value as string)
       .catch(() => null);
-    const draft: PortalDraft = { url: page.url(), entityId: entityId || null, step, savedAt: new Date().toISOString() };
+    const caseId = await this.readDraftCaseId();
+    const draft: PortalDraft = { url: page.url(), entityId: entityId || null, step, savedAt: new Date().toISOString(), caseId };
     await opts.onDraft(draft).catch(() => {});
+  }
+
+  /** The portal assigns the PVD number when the draft is created; the wizard keeps it in input#title. */
+  private async readDraftCaseId(): Promise<string | null> {
+    const page = this.getPage();
+    const v = await page.evaluate(() => {
+      for (const i of Array.from(document.querySelectorAll('input'))) {
+        const m = /PVD\d{4}-\d+/.exec((i as any).value || '');
+        if (m) return m[0];
+      }
+      return null;
+    }).catch(() => null);
+    return v;
   }
 
   private async tryResumeDraft(draft: PortalDraft): Promise<2 | 3 | null> {
@@ -479,6 +493,15 @@ class WorkerPortal implements Portal {
       return { mode, controls, proofPath, scouted };
     }
 
+    // Capture the PVD number from the wizard BEFORE submitting (input#title carries it once the draft exists).
+    if (!report.portalDraft?.caseId) {
+      const fromPage = await this.readDraftCaseId();
+      if (fromPage) {
+        report.portalDraft = { ...(report.portalDraft ?? { url: page.url(), entityId: null, step: 3, savedAt: new Date().toISOString() }), caseId: fromPage };
+        if (opts.onDraft) await opts.onDraft(report.portalDraft).catch(() => {});
+      }
+    }
+
     // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
     const before = page.url();
     const navPromise = page.waitForFunction((u) => location.href !== u, before, { timeout: 60_000 }).then(() => undefined);
@@ -500,10 +523,11 @@ class WorkerPortal implements Portal {
       }),
     ]);
 
-    const entityId = (await page.$eval('#EntityFormView_EntityID', (el: any) => el.value as string).catch(() => null)) || report.portalDraft?.entityId || null;
-    const caseId = await this.extractCaseId(entityId);
+    const entityId = report.portalDraft?.entityId ?? null;
+    const candidate = report.portalDraft?.caseId ?? null;
+    const caseId = await this.extractCaseId(candidate);
     const proofPath = await this.saveProof(opts, report.id, caseId ?? 'submitted');
-    return { mode, caseId, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId };
+    return { mode, caseId, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };
   }
 
   // ── Proof ──────────────────────────────────────────────────
@@ -564,18 +588,18 @@ class WorkerPortal implements Portal {
    * never "the first row" (another submission, or a grid re-sort, makes that wrong); (3) nothing → the
    * engine records the submission as unconfirmed and the watcher resolves it later by GUID.
    */
-  private async extractCaseId(entityId: string | null): Promise<string | undefined> {
+  private async extractCaseId(candidate: string | null): Promise<string | undefined> {
     const page = this.getPage();
     try {
+      if (candidate) {
+        // We know the number; confirm the record left Draft. Exact row match — never "the first row".
+        const row = await this.findMyRequestByCaseId(candidate, 3);
+        if (row && row.status && !/^draft$/i.test(row.status)) return candidate;
+        return undefined; // still Draft (or not visible yet) → engine records unconfirmed; watcher reconciles
+      }
       const landing = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
       const onPage = landing.match(/PVD\d{4}-\d+/g) ?? [];
-      if (onPage.length === 1) return onPage[0];
-      if (entityId) {
-        const row = await this.findMyRequestByEntityId(entityId, 3);
-        if (row?.caseId) return row.caseId;
-        return undefined;
-      }
-      // Legacy path (no GUID known): only accept a single unambiguous id on the landing page.
+      if (onPage.length === 1) return onPage[0]; // legacy path: a single unambiguous id on the landing page
     } catch {
       /* non-fatal */
     }
@@ -614,7 +638,13 @@ class WorkerPortal implements Portal {
     return [...byId.values()];
   }
 
-  /** Find one record in My Requests by its entity GUID (first N pages). Null if absent. */
+  /** Find one record in My Requests by its PVD number (first N pages). Null if absent. */
+  async findMyRequestByCaseId(caseId: string, maxPages = 3): Promise<MyRequestRow | null> {
+    const rows = await this.readMyRequests({ maxPages });
+    return rows.find((r) => r.caseId === caseId) ?? null;
+  }
+
+  /** Find one record in My Requests by its entity GUID (first N pages). Null if absent. (The current grid does not expose GUIDs; kept for when it does.) */
   async findMyRequestByEntityId(entityId: string, maxPages = 3): Promise<MyRequestRow | null> {
     const want = entityId.toLowerCase();
     const rows = await this.readMyRequests({ maxPages });
