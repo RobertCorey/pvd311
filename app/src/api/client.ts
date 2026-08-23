@@ -1,5 +1,5 @@
 import { APP_VERSION } from '../brand';
-import type { FeedResponse, IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView, Stats } from './types';
+import type { IntakeRequest, IntakeResult, NearbyResponse, ReportCreated, ReportSubmission, ReportView, Stats } from './types';
 import { ApiError } from './types';
 import { authHeaders } from '../lib/auth';
 
@@ -101,35 +101,6 @@ export async function getReport(id: string): Promise<ReportView> {
     const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}`, { signal: t.signal, headers: await authHeaders() });
     if (!resp.ok) throw await parseError(resp);
     return (await resp.json()) as ReportView;
-  } finally { t.done(); }
-}
-
-/** Attach a reporter email after submit (confirmation screen). 204 on success. */
-export async function attachEmail(id: string, email: string, turnstileToken?: string | null): Promise<void> {
-  const t = withTimeout(15_000);
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
-    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}/email`, { method: 'POST', headers, signal: t.signal, body: JSON.stringify({ email }) });
-    if (!resp.ok) throw await parseError(resp);
-  } finally { t.done(); }
-}
-
-/** Follow someone else's report (dedupe path): same city-status emails as the reporter. 204. */
-export async function followReport(id: string, email: string): Promise<void> {
-  const t = withTimeout(15_000);
-  try {
-    const resp = await apiFetch(`/api/reports/${encodeURIComponent(id)}/follow`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: t.signal, body: JSON.stringify({ email }) });
-    if (!resp.ok) throw await parseError(resp);
-  } finally { t.done(); }
-}
-
-export async function getFeed(bbox: [number, number, number, number], limit = 100): Promise<FeedResponse> {
-  const t = withTimeout(15_000);
-  try {
-    const resp = await apiFetch(`/api/public-feed?bbox=${bbox.join(',')}&limit=${limit}`, { signal: t.signal });
-    if (!resp.ok) throw await parseError(resp);
-    return (await resp.json()) as FeedResponse;
   } finally { t.done(); }
 }
 
