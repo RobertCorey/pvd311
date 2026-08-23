@@ -7,6 +7,8 @@ export interface SavedAddress { id: string; label: string; address: string; lat:
 export interface Me {
   uid: string; email: string | null; emailVerified: boolean; displayName: string | null; provider: string;
   prefs: { emailUpdates: boolean }; addresses: SavedAddress[]; following: string[]; createdAt: string;
+  /** True for an allow-listed Google-verified email (docs/api.md Admin). */
+  admin?: boolean;
 }
 /** ReportView plus the signed-in extras the Worker adds. */
 export interface MyReportView extends ReportView { mine?: boolean; following?: boolean; editable?: boolean; description?: string | null; owned?: boolean }

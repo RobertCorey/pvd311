@@ -1,0 +1,26 @@
+/* Admin — one mobile-first screen on the global primitives. */
+.admin .admin-h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+.admin-engine { display: grid; gap: .5rem; }
+.admin-engine-row { display: flex; flex-wrap: wrap; gap: .4rem .9rem; align-items: baseline; font-size: .95rem; }
+.admin-engine-row .label { margin: 0; }
+.admin-engine.is-paused { border-color: var(--danger); }
+.admin-section { margin-top: 1.25rem; }
+.admin-section h2 { display: flex; align-items: baseline; gap: .5rem; }
+.admin-count { font-size: .9rem; color: var(--muted); font-weight: 500; }
+.admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem; }
+.admin-row { display: grid; gap: .5rem; }
+.admin-row-head { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.admin-row-head strong { font-family: var(--font-display); }
+.admin-meta { color: var(--muted); font-size: .85rem; }
+.admin-flags { display: flex; flex-wrap: wrap; gap: .3rem; }
+.admin-flag { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 700; background: var(--danger-soft); color: var(--ink); border: 1.5px solid var(--danger); }
+.admin-desc { margin: 0; white-space: pre-wrap; }
+.admin-orig { margin: 0; color: var(--muted); font-size: .85rem; }
+.admin-body { display: grid; grid-template-columns: 1fr; gap: .5rem; }
+.admin-body.has-photo { grid-template-columns: 1fr 88px; }
+.admin-thumb { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); justify-self: end; }
+.admin-detail { font-size: .85rem; color: var(--muted); margin: 0; word-break: break-word; }
+.admin-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.admin-actions .btn { min-height: 40px; padding: 6px 14px; }
+.admin-toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 5.5rem); transform: translateX(-50%); z-index: 20; max-width: min(92vw, 28rem); }
+.admin-empty { color: var(--muted); margin: .25rem 0; }
