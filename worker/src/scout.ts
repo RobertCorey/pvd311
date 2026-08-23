@@ -10,7 +10,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Report } from '../../shared/types.js';
 
 export interface PortalControl {
+  /** Stable id for mapping/diffing: per-session GUIDs in DOM ids are normalized to `{guid}`. */
   id: string;
+  /** Raw DOM id (for selectors); absent on goldens/older snapshots. */
+  domId?: string;
   label: string;
   tag: 'select' | 'input' | 'textarea';
   type: string | null;

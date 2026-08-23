@@ -412,7 +412,7 @@ class WorkerPortal implements Portal {
 
   private async setControl(c: PortalControl, value: string): Promise<void> {
     const page = this.getPage();
-    const sel = `#${c.id}`;
+    const sel = `#${c.domId ?? c.id}`;
     if (c.tag === 'select') {
       await page.selectOption(sel, { label: value }).catch(async () => {
         await page.selectOption(sel, value);
@@ -760,6 +760,10 @@ class WorkerPortal implements Portal {
 export function collectStep3Controls(): PortalControl[] {
   const SKIP = new Set(['cop_casetype_name', 'cop_address', 'description', 'PreviousButton', 'NextButton', 'AttachFile']);
   const out: any[] = [];
+  // Ids that embed a per-session GUID (e.g. lookup-modal "filter-<uuid>" selects) would show as "renamed" on
+  // every canary run. Normalize the GUID part so the dump is stable across sessions.
+  const GUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+  const stableId = (id: string) => id.replace(GUID, '{guid}');
   document.querySelectorAll('select, input, textarea').forEach((el: any) => {
     if (!el.id || SKIP.has(el.id)) return;
     if (el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
@@ -787,7 +791,8 @@ export function collectStep3Controls(): PortalControl[] {
       return;
     }
     const c: any = {
-      id: el.id,
+      id: stableId(el.id),
+      domId: el.id,
       label,
       tag: el.tagName.toLowerCase(),
       type: el.type || null,
