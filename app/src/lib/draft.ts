@@ -1,5 +1,6 @@
 // One composed-but-unsent report, persisted across the sign-in round trip
-// (email-link opens a new page). Photo is stored as a Blob; IndexedDB handles it.
+// (email-link opens a new page) and across an accidental reload. Photo is stored
+// as a Blob for the sign-in park; autosave omits it (a reload just re-asks).
 import { idbTx, type StoreSpec } from './idb';
 
 const SPEC: StoreSpec = { db: 'fixmypvd-draft', store: 'draft' };
@@ -15,8 +16,11 @@ export interface Draft {
   description: string;
   descriptionOriginal: string | null;
   photo: Blob | null;
-  /** Why it was parked — lets the Report screen resume the right step. */
-  reason: 'sign_in';
+  /**
+   * Why it was parked. 'sign_in' = the send round trip (photo kept);
+   * 'autosave' = debounced while composing, restored on reload (photo dropped).
+   */
+  reason: 'sign_in' | 'autosave';
 }
 
 const tx = <T,>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>) => idbTx<T>(SPEC, mode, fn);

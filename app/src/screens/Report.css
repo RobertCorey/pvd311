@@ -57,6 +57,15 @@
 .intake-quote { color: var(--ink); font-style: italic; margin: 0 0 10px; line-height: 1.45; }
 .btn-ghost.applied { background: var(--ember-soft); border-color: var(--ember); }
 .public-record { font-size: 0.8rem; color: var(--muted); line-height: 1.45; margin: 0 0 10px; }
+/* Restored-draft notice (#11): text + a small dismiss control. */
+.restored-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.notice-dismiss { flex: none; background: none; border: 0; padding: 0 4px; font-size: 1.25rem; line-height: 1; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* Live character counter (#12). */
+.char-count { margin: 4px 0 0; text-align: right; font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Emergency banner (#13) — client-side keyword check, above the description. */
+.emergency-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.emergency-banner span { flex: 1 1 12ch; line-height: 1.4; }
+.btn-emergency { flex: none; min-height: var(--tap); padding: 8px 16px; background: var(--danger, #b3261e); color: #fff; border: 0; border-radius: var(--radius); font-weight: 700; text-decoration: none; white-space: nowrap; }
 .turnstile { margin: 10px 0; }
 .notice { margin-bottom: 12px; }
 .hint.center { text-align: center; }

@@ -10,7 +10,7 @@ import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
 import { rememberReport } from '../lib/myReports';
 import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
 import { BRAND } from '../brand';
-import { useT } from '../i18n';
+import { useI18n, useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
 import CategorySheet from '../components/CategorySheet';
@@ -24,10 +24,25 @@ const SignInGate = lazy(() => import('../components/SignInGate'));
 
 type Loc = { lat: number; lng: number } | null;
 
+// Description cap (#12): hard max, plus the point where the live counter appears.
+const DESC_MAX = 2000;
+const DESC_COUNTER_AT = 1800;
+
+// Client-side emergency keyword check (#13) — independent of the AI intake result.
+// Short and precise: whole-word matches (so "firehouse"/"armario" don't hit), and
+// "fire" is excluded before the common civic non-emergencies (hydrant, lane, …).
+const EMERGENCY_RE = /\b(fuego|incendio|injured|herid[oa]s?|unconscious|inconsciente|bleeding|sangrando|gunshot|guns?|armas?)\b|\bgas leak\b|\bfuga de gas\b|\bescape de gas\b|someone('?s| is) hurt|alguien (est[aá] )?herid[oa]|hay un herid[oa]/i;
+const FIRE_RE = /\bfire\b(?!\s+(hydrant|lane|escape|station|department|dept|truck|alarm|extinguisher))/i;
+function isEmergencyText(text: string): boolean {
+  const s = text.toLowerCase();
+  return FIRE_RE.test(s) || EMERGENCY_RE.test(s);
+}
+
 export default function Report() {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
+  const { lang } = useI18n();
   const session = useSession();
 
   // --- Phase A: category ---
@@ -108,13 +123,20 @@ export default function Report() {
   const [gated, setGated] = useState(false);
   const [resumeSend, setResumeSend] = useState(false);
   const [draftUnsaved, setDraftUnsaved] = useState(false);
+  const [restored, setRestored] = useState(false); // reload restored an autosaved draft (#11)
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
-    // Only the sign-in round trip (email link → /account → '/?resume=1') resumes a
-    // parked draft; a plain visit to '/' starts fresh (and drops any stale draft).
-    if (!new URLSearchParams(location.search).has('resume')) { void draftStore.clear(); return; }
+    const q = new URLSearchParams(location.search);
+    const resume = q.has('resume');
+    const composing = !!q.get('c');
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    const isReload = nav?.type === 'reload';
+    // Restore only on the sign-in round trip (email link → /account → '/?resume=1')
+    // or an accidental reload mid-compose (?c= still in the URL). Any other entry —
+    // a fresh visit, or a reload of the bare grid — starts clean and drops the draft.
+    if (!resume && !(isReload && composing)) { void draftStore.clear(); return; }
     draftStore.load().then((d) => {
       if (!d) return;
       setCategory(d.category, { replace: true }); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
@@ -122,9 +144,27 @@ export default function Report() {
       if (d.descriptionOriginal != null) setWordingApplied(d.descriptionOriginal);
       if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
       geocodedFor.current = d.address;
-      setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: Turnstile + intent)
+      if (resume) setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: Turnstile + intent)
+      else setRestored(true); // reload: tell the user we brought their draft back (photo re-asked)
     });
   }, []);
+  // Autosave the in-progress report while composing, so an accidental reload doesn't
+  // lose it (#11). The photo is intentionally dropped — it can't survive a reload
+  // cheaply, so we re-ask. Stops while gated/queued so it can't clobber the sign-in
+  // park (which keeps the photo) or resurrect an already-queued report.
+  useEffect(() => {
+    if (!cat || gated || queued) return;
+    const hasContent = address.trim() !== '' || description.trim() !== '' || Object.keys(extra).length > 0;
+    if (!hasContent) return;
+    const delay = (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ ?? 800;
+    const id = window.setTimeout(() => {
+      void draftStore.save({
+        category: cat.key, address: address.trim(), lat: loc?.lat ?? null, lng: loc?.lng ?? null,
+        extra, description, descriptionOriginal: wordingApplied, photo: null, reason: 'autosave',
+      });
+    }, delay);
+    return () => window.clearTimeout(id);
+  }, [cat, gated, queued, address, loc, extra, description, wordingApplied]);
   useEffect(() => { if (session && gated) setGated(false); }, [session, gated]);
   const closeGate = useCallback(() => { setGated(false); void draftStore.clear(); }, []);
 
@@ -272,6 +312,8 @@ export default function Report() {
   };
 
   const emergency = !!intakeRes?.flags.includes('emergency');
+  // Independent of the AI check: a client-side keyword scan (#13).
+  const emergencyKeyword = useMemo(() => isEmergencyText(description), [description]);
   const photoRequired = cat ? cat.photoRequired : true;
   const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside;
   // First unmet requirement, shown under the disabled Send so nobody sits on a grey button.
@@ -404,6 +446,12 @@ export default function Report() {
         </button>
       </div>
       {!session && <p className="signin-disclosure">{t('report.signInDisclosure')}</p>}
+      {restored && (
+        <div className="notice notice-ok restored-notice" role="status">
+          <span>{t('report.restored')}</span>
+          <button type="button" className="notice-dismiss" onClick={() => setRestored(false)} aria-label={t('report.restored.dismiss')}>×</button>
+        </div>
+      )}
 
       {/* Photo */}
       <section className="section">
@@ -479,10 +527,19 @@ export default function Report() {
             </div>
           );
         })}
+        {emergencyKeyword && (
+          <div className="notice notice-error emergency-banner" role="alert">
+            <span>{t('report.emergency.text')}</span>
+            <a href="tel:911" className="btn btn-emergency">{t('report.emergency.call')}</a>
+          </div>
+        )}
         <div className="field">
           <label className="label" htmlFor="description">{t('report.description.label')}</label>
-          <textarea id="description" className="textarea" rows={3} placeholder={t('report.description.placeholder')} value={description}
+          <textarea id="description" className="textarea" rows={3} maxLength={DESC_MAX} placeholder={t('report.description.placeholder')} value={description}
             onChange={(e) => { setDescription(e.target.value); if (wordingApplied !== null && e.target.value !== intakeRes?.polishedDescription) setWordingApplied(null); }} />
+          {description.length >= DESC_COUNTER_AT && (
+            <p className="char-count" aria-live="polite">{t('report.description.counter', { count: new Intl.NumberFormat(lang).format(description.length), max: new Intl.NumberFormat(lang).format(DESC_MAX) })}</p>
+          )}
         </div>
         {intakeBusy && <p className="hint" aria-live="polite">{t('report.intake.checking')}</p>}
         {intakeRes && (

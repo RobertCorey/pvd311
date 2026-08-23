@@ -354,3 +354,67 @@ test('offline queued screen tells you to sign in online to send it', async ({ pa
   await expect(page.locator('.queued')).toContainText('Saved on your phone');
   await expect(page.locator('.queued')).toContainText('sign in to send it to 311');
 });
+
+// ---- P2 #11: draft autosave across reload ----
+test('reload restores an autosaved draft with a dismissible notice; the photo is re-asked', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => { (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ = 30; });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.fill('#description', 'bins not collected on my street');
+  await page.waitForTimeout(200); // let the debounced autosave persist to IndexedDB
+  await page.reload();
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
+  await expect(page.locator('#description')).toHaveValue('bins not collected on my street');
+  const notice = page.locator('.restored-notice');
+  await expect(notice).toContainText('Restored your draft');
+  await notice.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(page.locator('.restored-notice')).toHaveCount(0);
+});
+
+test('a fresh navigation (not a reload) starts clean — no autosave resurrection', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => { (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ = 30; });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await page.waitForTimeout(200); // autosave persists
+  // A deep-link to the same compose URL is a 'navigate', not a 'reload' → clean start.
+  await page.goto('/?c=missed_trash');
+  await expect(page.locator('#address')).toHaveValue('');
+  await expect(page.locator('.restored-notice')).toHaveCount(0);
+});
+
+// ---- P2 #12: description maxlength 2000 with a counter ----
+test('description shows a counter past 1,800 chars and is capped at 2,000', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  const ta = page.locator('#description');
+  await expect(ta).toHaveAttribute('maxlength', '2000');
+  await expect(page.locator('.char-count')).toHaveCount(0); // hidden while short
+  await ta.fill('a'.repeat(1850));
+  await expect(page.locator('.char-count')).toHaveText('1,850 / 2,000');
+  // Real typing is stopped at the 2,000-char cap by maxlength.
+  await ta.fill('b'.repeat(1998));
+  await ta.pressSequentially('cccc');
+  expect(await ta.evaluate((el: HTMLTextAreaElement) => el.value.length)).toBe(2000);
+  await expect(page.locator('.char-count')).toHaveText('2,000 / 2,000');
+});
+
+// ---- P2 #13: emergency keyword banner, independent of the AI intake ----
+test('emergency banner shows on a danger keyword (AI check silent), not on "firehouse"', async ({ page }) => {
+  await mockApi(page); // intake mock returns no flags → banner must be purely client-side
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  const ta = page.locator('#description');
+  await ta.fill('there is a gas leak on the corner');
+  const banner = page.locator('.emergency-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('call 911');
+  await expect(banner.getByRole('link', { name: 'Call 911' })).toHaveAttribute('href', 'tel:911');
+  // "firehouse" is not an emergency — no false positive.
+  await ta.fill('graffiti on the firehouse wall');
+  await expect(page.locator('.emergency-banner')).toHaveCount(0);
+});
