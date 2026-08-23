@@ -10,14 +10,16 @@
  */
 import type { Page } from '@cloudflare/playwright';
 import { TERMINAL_PORTAL_STATUS, type Env, type Portal, type ReportDoc, type Store } from './contracts.js';
+import type { ReportStatus } from '../../shared/types.js';
 import { createStore, createAuthStore } from './firestore.js';
-import { createPortal } from './portal.js';
+import { createPortal, type MyRequestRow } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
 import { notifyReport } from './notify.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
+import type { Mailer } from './contracts.js';
 
 // Providence bounding box (same as Node engine).
 const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
@@ -32,6 +34,7 @@ const DUP_WINDOW_HOURS = 24;
 const DUP_DISTANCE_M = 50;
 const BREAKER_THRESHOLD = 3;
 const LOCK_MS = 12 * 60_000; // must exceed the longest submission (login + wizard + scout + photo); ticks skip while locked
+const STRANDED_DRAFT_AGE_MS = 24 * 60 * 60_000; // a Draft older than this whose report is dead is "stranded" (undeletable)
 
 export interface EngineState {
   paused?: boolean;
@@ -291,6 +294,18 @@ export async function runWatcher(env: Env): Promise<void> {
       console.log('[watcher] nothing to watch');
     }
 
+    // Reconcile pass (flagged): full My Requests scan → adopt ref-marked rows we don't know as submitted,
+    // list stranded Drafts, flag missing case numbers. Non-fatal; reuses this logged-in page.
+    if (reconcileEnabled(env)) {
+      try {
+        const rec = await runReconcile(store, portal);
+        console.log(`[reconcile] ${rec.adopted.length} adopted, ${rec.stranded.length} stranded, ${rec.missing.length} missing (${rec.scanned} rows)`);
+      } catch (e) {
+        console.error('[reconcile] failed:', e instanceof Error ? e.message : e);
+        await logEvent(store, { level: 'error', kind: 'reconcile.failed', msg: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
     // City-wide public feed (anonymous PCF grid) → meta/cityFeed. Non-fatal; reuses this page.
     try {
       await fetchCityFeed(env, portalPage(portal), store);
@@ -307,6 +322,147 @@ export async function runWatcher(env: Env): Promise<void> {
   } finally {
     await portal.close().catch(() => {});
   }
+}
+
+// ── Reconcile pass (P1, flagged RECONCILE_ENABLED) ─────────────────────────────────────
+
+export interface ReconcileSummary {
+  at: string;          // ISO of this pass
+  adopted: string[];   // PVD case numbers we bound to a report and set 'submitted' this pass
+  stranded: string[];  // PVD case numbers (or GUID/report-id fallback) of stale Drafts tied to failed/rejected reports — undeletable
+  missing: string[];   // PVD case numbers of 'submitted' reports that no longer appear in My Requests
+  scanned: number;     // My Requests rows scanned this pass
+}
+
+function reconcileEnabled(env: Env): boolean {
+  const v = (env as unknown as { RECONCILE_ENABLED?: string }).RECONCILE_ENABLED;
+  return v === '1' || v === 'true';
+}
+
+const isDraftStatus = (s: string): boolean => /^draft$/i.test((s || '').trim());
+
+/**
+ * Reconcile the portal (source of truth) against our DB. Requires an already-launched, logged-in portal.
+ *
+ *   (a) ADOPT   — a report we don't know as submitted whose captured PVD number now shows as a live
+ *                 (non-Draft) case in My Requests: bind the number, set 'submitted', record a `review`.
+ *   (b) STRANDED — a Draft row > 24h old whose report is failed/rejected: list it (drafts are undeletable).
+ *   (c) MISSING  — a 'submitted' case whose number is no longer in the grid: flag it.
+ *
+ * Rows key on the PVD number, never a GUID (My Requests exposes none); the `ref:<report.id>` marker the
+ * wizard stamps into every description is the guarantee a numbered row is ours, and each candidate report
+ * already carries that number as `portalCaseIdCandidate`/`portalDraft.caseId`, so we join on it directly.
+ *
+ * NEVER writes `failed`. Idempotent across ticks: adopt leaves the candidate set once submitted; stranded/
+ * missing per-report events fire only when a case first enters the set (diffed against the prior summary).
+ */
+export async function runReconcile(store: Store, portal: Portal): Promise<ReconcileSummary> {
+  const at = new Date().toISOString();
+  const rows = await portal.readMyRequests();
+  const scanned = rows.length;
+
+  const prev = (await store.getMeta<ReconcileSummary>('reconcile').catch(() => null))
+    ?? { at: '', adopted: [], stranded: [], missing: [], scanned: 0 };
+  const prevStranded = new Set(prev.stranded ?? []);
+  const prevMissing = new Set(prev.missing ?? []);
+
+  // A 0-row scrape is indistinguishable from a transient portal error — never conclude "everything vanished".
+  if (scanned === 0) {
+    await logEvent(store, { level: 'warn', kind: 'reconcile.empty_scan', msg: 'My Requests returned 0 rows — reconcile skipped this tick' });
+    const summary: ReconcileSummary = { at, adopted: [], stranded: [...prevStranded], missing: [...prevMissing], scanned: 0 };
+    await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
+    return summary;
+  }
+
+  const byNumber = new Map<string, MyRequestRow>();
+  const byEntity = new Map<string, MyRequestRow>();
+  const numbersPresent = new Set<string>();
+  for (const r of rows) {
+    if (r.caseId) { byNumber.set(r.caseId, r); numbersPresent.add(r.caseId); }
+    if (r.entityId) byEntity.set(r.entityId.toLowerCase(), r);
+  }
+
+  const adopted: string[] = [];
+  const stranded: string[] = [];
+  const missing: string[] = [];
+  let newStranded = 0; let newMissing = 0;
+
+  // (a) + (b): reports our DB does not hold as submitted, matched to a row by the PVD number we captured.
+  // 'pending'/'processing' are deliberately excluded — the tick owns those and reconcile must not race a live submit.
+  const candidateStatuses: ReportStatus[] = ['failed', 'rejected', 'auto-rejected', 'awaiting_review'];
+  const seen = new Set<string>();
+  for (const status of candidateStatuses) {
+    for (const report of await store.findByStatus(status, 200).catch(() => [] as ReportDoc[])) {
+      if (seen.has(report.id)) continue;
+      seen.add(report.id);
+      const number = report.portalCaseIdCandidate ?? report.portalDraft?.caseId ?? null;
+      const entityId = report.portalDraft?.entityId ?? (report as unknown as { portalEntityId?: string | null }).portalEntityId ?? null;
+      const row = (number ? byNumber.get(number) : undefined) ?? (entityId ? byEntity.get(entityId.toLowerCase()) : undefined);
+      if (!row) continue;
+      const bound = row.caseId ?? number;
+
+      if (!isDraftStatus(row.status)) {
+        // (a) ADOPT — live on the portal (left Draft) but our DB never recorded it submitted.
+        if (report.cancelledByReporter) continue; // never resurrect a report the reporter explicitly cancelled
+        if (!bound) continue;                      // nothing to bind → leave for a human
+        await store.updateReportStatus(report.id, 'submitted',
+          `Adopted by reconcile: found filed in My Requests as ${bound} (portal status ${row.status || 'unknown'})`, bound);
+        await store.patchReport(report.id, {
+          caseIdPending: false,
+          portalStatus: row.status || null,
+          portalStatusUpdatedAt: new Date(),
+          review: { requestedAt: at, telegramMessageId: null, mode: 'reconcile', decision: 'approved', by: 'reconcile', reason: `Adopted an already-filed city case (${bound}); local status was ${status}`, decidedAt: at },
+        });
+        await logEvent(store, { level: 'warn', kind: 'reconcile.adopted', msg: `Adopted ${bound} — was ${status} locally but live on the portal (${row.status})`, reportId: report.id, data: { caseId: bound, was: status, portalStatus: row.status } });
+        adopted.push(bound);
+      } else if ((status === 'failed' || status === 'rejected') && draftAgeMs(report, row, at) > STRANDED_DRAFT_AGE_MS) {
+        // (b) STRANDED — an undeletable Draft, older than 24h, tied to a dead report. List only; no status write.
+        const key = bound ?? entityId ?? report.id;
+        stranded.push(key);
+        if (!prevStranded.has(key)) {
+          newStranded++;
+          await logEvent(store, { level: 'warn', kind: 'reconcile.stranded', msg: `Stranded Draft on the portal (${key}) for a ${status} report — undeletable`, reportId: report.id, data: { caseId: bound, was: status } });
+        }
+      }
+    }
+  }
+
+  // (c) MISSING: a case we hold as submitted that the grid no longer returns. Flag only; never write 'failed'.
+  for (const report of await store.listSubmittedWithCaseId().catch(() => [] as ReportDoc[])) {
+    const caseId = report.portalCaseId;
+    if (!caseId || numbersPresent.has(caseId)) continue;
+    missing.push(caseId);
+    if (!prevMissing.has(caseId)) {
+      newMissing++;
+      await logEvent(store, { level: 'warn', kind: 'reconcile.missing', msg: `${caseId} is no longer visible in My Requests (still 'submitted' locally)`, reportId: report.id, data: { caseId } });
+    }
+  }
+
+  // Reappearances: anything flagged missing last tick that is back → note it once (it drops out of the summary below).
+  for (const caseId of prevMissing) {
+    if (numbersPresent.has(caseId)) {
+      await logEvent(store, { level: 'info', kind: 'reconcile.reappeared', msg: `${caseId} is visible in My Requests again`, data: { caseId } });
+    }
+  }
+
+  const summary: ReconcileSummary = { at, adopted, stranded, missing, scanned };
+  await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
+  if (adopted.length || newStranded || newMissing) {
+    await logEvent(store, { level: 'info', kind: 'reconcile.summary', msg: `Reconcile: ${adopted.length} adopted, ${stranded.length} stranded (${newStranded} new), ${missing.length} missing (${newMissing} new); ${scanned} rows`, data: { adopted, stranded, missing, scanned } });
+  }
+  return summary;
+}
+
+/** Best available age of a Draft: the ISO we saved it at, else the grid's Created On, else the report's last update. */
+function draftAgeMs(report: ReportDoc, row: MyRequestRow, nowIso: string): number {
+  const now = Date.parse(nowIso);
+  const saved = report.portalDraft?.savedAt ? Date.parse(report.portalDraft.savedAt) : NaN;
+  if (!Number.isNaN(saved)) return now - saved;
+  const created = row.createdOn ? Date.parse(row.createdOn) : NaN;
+  if (!Number.isNaN(created)) return now - created;
+  const upd = report.statusUpdatedAt?.seconds ? report.statusUpdatedAt.seconds * 1000 : NaN;
+  if (!Number.isNaN(upd)) return now - upd;
+  return Infinity; // unknown age → treat as old (never falsely "fresh")
 }
 
 /**
