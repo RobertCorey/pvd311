@@ -1,4 +1,5 @@
 // axe (WCAG 2.1 AA) on the admin screens — queue + System tab — with the admin API mocked as in admin.spec.ts.
+import { mockAdmin, TABS as ADMIN_TABS } from './admin-mocks';
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -57,16 +58,15 @@ const health = (sync: Record<string, unknown> = syncBlock()) => ({
 
 const SESSION = { uid: 'u1', email: 'me@example.com', idToken: 'tok', refreshToken: 'rt', expiresAt: Date.now() + 3_600_000, provider: 'google' };
 test.use({ colorScheme: 'light' });
-for (const [name, path] of [['admin queue', '/admin'], ['admin system', '/admin?tab=system']] as const) {
-  test(`axe: ${name}`, async ({ page }) => {
-    await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
-    await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
-    await page.route(`${API}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me(true)) }));
-    await page.route(`${API}/api/admin/overview`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(overview()) }));
-    await page.route(`${API}/api/admin/health*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(health()) }));
-    await page.goto(path);
-    if (name === 'admin system') { await page.getByRole('tab', { name: 'System' }).click(); await expect(page.getByText(/reconcile/i).first()).toBeVisible({ timeout: 10000 }); }
-    await page.waitForTimeout(800);
+// Every /admin tab (desktop-only screens; axe runs at the 1512×982 target) — fixtures from admin-mocks.ts.
+test.use({ viewport: { width: 1512, height: 982 }, isMobile: false, hasTouch: false });
+for (const tab of ADMIN_TABS) {
+  test(`axe: admin ${tab}`, async ({ page }) => {
+    await mockAdmin(page);
+    await page.goto(`/admin#${tab}`);
+    await expect(page.locator('.admin-main')).toBeVisible();
+    await page.waitForTimeout(1000);
+    if (tab === 'queue') { await page.locator('.admin-table tbody tr').first().click(); await expect(page.locator('.admin-pane')).toBeVisible(); await page.waitForTimeout(300); }
     const v = await violations(page);
     expect(v, v.join('\n')).toEqual([]);
   });

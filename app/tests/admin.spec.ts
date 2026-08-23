@@ -43,7 +43,7 @@ test('admin → queue renders; approve moves the row; 409 resyncs', async ({ pag
   await page.route(`${API}/api/admin/reports/ffffffffffff/requeue`, (r) => r.fulfill({ status: 409, contentType: 'application/json', body: '{"error":"not_failed","status":"submitted"}' }));
   await page.route(`${API}/api/admin/reports/*/proofs`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(`${API}/api/admin/users/*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u9', email: 'r@example.com', provider: 'google.com', trusted: false, submitted: 2, rejected: 0, createdAt: new Date().toISOString() }) }));
-  await page.goto('/admin');
+  await page.goto('/admin#queue');
   const shell = page.locator('.admin-shell');
   await expect(shell).toContainText('Running');
   // Awaiting review is the default section: one row with its flag; open the detail pane by clicking it.
@@ -72,7 +72,7 @@ test('keyboard: j selects, r opens the reason box, reject sends the reason, Esc 
   await page.route(`${API}/api/admin/users/*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u9', email: 'r@example.com', provider: 'google.com', trusted: false, submitted: 0, rejected: 0, createdAt: null }) }));
   let sentReason: string | null = null;
   await page.route(`${API}/api/admin/reports/aaaaaaaaaaaa/reject`, (r) => { sentReason = (r.request().postDataJSON() as { reason?: string }).reason ?? null; r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(report('aaaaaaaaaaaa', 'rejected')) }); });
-  await page.goto('/admin');
+  await page.goto('/admin#queue');
   await expect(page.locator('.admin-table tbody tr')).toHaveCount(1);
   await page.locator('body').press('j');
   await expect(page.locator('.admin-pane')).toBeVisible();

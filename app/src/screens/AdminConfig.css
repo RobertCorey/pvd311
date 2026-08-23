@@ -1,0 +1,30 @@
+/* /admin → Config tab: dense settings table (reuses .admin-table from Admin.css) + filter + raw JSON. */
+.admin-config { display: grid; gap: 14px; min-width: 0; }
+
+.cfg-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cfg-filter { max-width: 320px; min-height: 36px; padding: 6px 10px; font-size: var(--admin-text); }
+.cfg-count { color: var(--muted); font-size: var(--admin-meta); font-variant-numeric: tabular-nums; }
+.cfg-raw-btn { margin-left: auto; min-height: 34px; padding: 6px 12px; font-size: .85rem; }
+.cfg-raw-btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.cfg-table td, .cfg-table th { vertical-align: top; height: auto; padding: 8px 10px; }
+.cfg-key { white-space: nowrap; width: 1%; }
+.cfg-key code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
+.cfg-val { width: 1%; white-space: nowrap; }
+.cfg-num { font-variant-numeric: tabular-nums; }
+.cfg-str { word-break: break-word; }
+.cfg-null { color: var(--muted); }
+.cfg-pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 700; border: 1.5px solid var(--line); }
+.cfg-pill--on { background: var(--success-soft); border-color: var(--success); color: var(--ink); }
+.cfg-pill--off { background: var(--bg); color: var(--muted); }
+.cfg-what { color: var(--muted); font-size: var(--admin-meta); line-height: 1.35; white-space: normal; }
+
+.cfg-help { width: 1%; text-align: center; }
+.cfg-help a { text-decoration: none; display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-weight: 700; font-size: .8rem; }
+.cfg-help a:hover { border-color: var(--ink); color: var(--ink); }
+.cfg-help a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.cfg-group th { background: var(--bg); font-family: var(--font-display); font-weight: 800; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink); height: 30px; padding: 4px 10px; }
+.cfg-group .admin-count { font-weight: 500; }
+
+.cfg-raw { margin: 0; padding: 12px; overflow: auto; max-height: 65vh; background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.5; }

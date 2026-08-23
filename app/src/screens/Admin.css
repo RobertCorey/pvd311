@@ -12,6 +12,7 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .admin .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .admin { --admin-text: 14px; --admin-meta: 13px; font-size: var(--admin-text); }
 .admin .admin-meta { font-size: var(--admin-meta); color: var(--muted); }
+.admin-td-status .admin-ellipsis { white-space: normal; }
 .admin-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
 .admin-gate { max-width: 520px; margin: 0 auto; padding: 24px 16px; }
 .admin .admin-h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
@@ -36,10 +37,10 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 
 /* Queue: pills + table, and the detail pane column when a row is selected */
 .admin-queue { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.admin-queue.has-pane { grid-template-columns: minmax(0, 1fr) 420px; }
+.admin-queue.has-pane { grid-template-columns: minmax(0, 1fr) 480px; }
 .admin-queue.has-pane .admin-td-flags { white-space: normal; }
 .admin-queue.has-pane .admin-td-addr { max-width: 200px; }
-.admin-table-wrap { min-width: 0; overflow-x: auto; }
+.admin-table-wrap { min-width: 0; overflow-x: clip; } /* clip, not auto: an auto wrapper becomes the scroll container and the sticky thead stops tracking the page */
 .admin-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .admin-pill { min-height: 32px; padding: 4px 12px; font-size: .85rem; border-width: 1.5px; }
 .admin-pill[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
@@ -59,12 +60,13 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .admin-table tbody tr:last-child td { border-bottom: 0; }
 .admin-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
 .admin-td-age { width: 56px; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
-.admin-td-cat { white-space: nowrap; font-weight: 600; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.admin-td-cat { white-space: nowrap; font-weight: 600; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .admin-td-cat svg { vertical-align: -3px; margin-right: 4px; }
 .admin-td-addr { max-width: 320px; min-width: 160px; }
 .admin-td-rep { max-width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .admin-td-flags { white-space: nowrap; }
-.admin-td-status { max-width: 220px; min-width: 120px; line-height: 1.25; padding-top: 4px; padding-bottom: 4px; }
+.admin-td-status { min-width: 160px; line-height: 1.25; padding-top: 4px; padding-bottom: 4px; }
+.admin-td-status .admin-meta { white-space: normal; }
 .admin-td-actions { width: 1%; white-space: nowrap; text-align: right; }
 .admin-tbl-btn { min-height: 30px; padding: 4px 10px; font-size: .82rem; }
 .admin-status { font-weight: 600; }
@@ -189,3 +191,35 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .canary-chip--sim { border-color: var(--warn); color: var(--ink); }
 .canary-pill { margin-left: auto; font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; background: var(--danger-soft); color: var(--ink); border: 1.5px solid var(--danger); }
 .canary-meta { display: flex; flex-wrap: wrap; gap: .2rem .8rem; font-size: .8rem; color: var(--muted); }
+
+/* Tab title, filters, overview, raw JSON */
+.admin-main-title { font-size: 1.35rem; margin: 0 0 12px; display: flex; align-items: baseline; gap: 12px; }
+.admin-main-sub { font-weight: 400; font-family: var(--font-body, inherit); letter-spacing: 0; }
+.admin-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 10px; }
+.admin-filter { display: grid; gap: 2px; min-width: 160px; }
+.admin-filter .label { margin: 0; }
+.admin-filter .input, .admin-filter .select { min-height: 34px; padding: 4px 8px; font-size: var(--admin-text); }
+.admin-filter--grow { flex: 1 1 260px; }
+.admin-filters .admin-refresh { margin-left: auto; }
+.admin-td-case { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.admin-raw { margin: 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; line-height: 1.4; overflow: auto; max-height: 360px; min-height: 200px; white-space: pre; } /* min-height: grid/flex parents with overflow would otherwise crush an overflow:auto <pre> to one line */
+.admin-raw-row td { padding: 6px 10px 10px; height: auto; }
+.admin-dl--mono dd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.sys-kind-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.admin-ov-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-top: 16px; }
+.admin-ov-needs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.admin-ov-needs li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.admin-ov-needs li span:not(.sys-dot) { flex: 1; }
+.admin-ov-needs li .sys-dot { flex: none; }
+.admin-ov-needs li.is-error { border-color: var(--danger); } .admin-ov-needs li.is-warn { border-color: var(--warn); }
+.admin-ov-calm { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; color: var(--muted); }
+.admin-num-btn { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.admin-num-btn:hover { border-color: var(--ink); }
+.admin-ov-lights { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-light { min-height: 30px; padding: 2px 10px; font-size: .82rem; border-width: 1.5px; border-color: var(--line); gap: 6px; }
+.admin-light--error { border-color: var(--danger); } .admin-light--warn { border-color: var(--warn); }
+.admin-section + .admin-section { margin-top: 16px; }
+.admin-overview .admin-section h2 { font-size: 1.05rem; margin: 16px 0 8px; display: flex; align-items: center; gap: 10px; }
+
+/* Reports table: the pane already shows case/city status/flags — hide those columns while it is open */
+.admin-queue.has-pane .admin-col-opt { display: none; }

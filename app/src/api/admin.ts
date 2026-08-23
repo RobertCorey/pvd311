@@ -60,3 +60,35 @@ export interface AdminHealth {
   events: AdminEvent[];
 }
 export const adminHealth = (events = 100) => call<AdminHealth>(`/api/admin/health?events=${events}`);
+
+// ── Learn/monitor endpoints (9-tab admin) ──
+export interface Paged<T> { items: T[]; next: string | null }
+export interface AdminReportsQuery { status?: string; category?: string; q?: string; before?: string | null; limit?: number }
+export const adminReports = (p: AdminReportsQuery = {}) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) if (v != null && v !== '') q.set(k, String(v));
+  return call<Paged<AdminReport>>(`/api/admin/reports?${q}`);
+};
+export interface AdminAccount {
+  uid: string; email: string | null; displayName: string | null; provider: string; emailVerified: boolean;
+  createdAt: string | null; lastSeenAt: string | null; trusted: boolean; emailUpdates: boolean; following: number; addresses: number;
+  submitted: number; rejected: number; awaitingReview: number; autoFiles: boolean;
+}
+export const adminUsers = (before?: string | null, limit = 50) => call<Paged<AdminAccount>>(`/api/admin/users?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`);
+export interface AdminEventsQuery { level?: string; kind?: string; reportId?: string; before?: string | null; limit?: number }
+export const adminEvents = (p: AdminEventsQuery = {}) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) if (v != null && v !== '') q.set(k, String(v));
+  return call<Paged<AdminEvent>>(`/api/admin/events?${q}`);
+};
+export interface AdminCategory {
+  key: string; label: string; portalCaseTypeName: string | null; portalCaseTypeGuid: string | null; portalSearchTerm: string | null; requestType: string | null;
+  photoRequired: boolean; seasonal: string | null; fields: Record<string, unknown> | null;
+  golden: { source: 'live' | 'sim' | null; at: string | null; lastLiveAt: string | null; drifted: boolean } | null;
+  counts: { submitted: number; rejected: number };
+}
+export const adminCategories = () => call<{ items: AdminCategory[] }>('/api/admin/categories');
+export interface AdminConfigItem { key: string; value: string | number | boolean | null; what: string }
+export const adminConfig = () => call<{ items: AdminConfigItem[] }>('/api/admin/config');
+export interface ExplainSection { key: string; title: string; summary: string; details: string[]; live?: Record<string, string | number | boolean | null>; links?: { label: string; href: string }[] }
+export const adminExplain = () => call<{ sections: ExplainSection[] }>('/api/admin/explain');

@@ -1,0 +1,38 @@
+/* /admin → Portal. Category mapping table + city-sync cards. Reuses .admin-table, .sync-*, .canary-* from Admin.css. */
+.admin-portal { display: grid; gap: 24px; min-width: 0; }
+.portal-section { min-width: 0; }
+.portal-section h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.portal-section h3 { font-size: .95rem; margin: 0 0 8px; }
+.portal-intro { margin: 0 0 12px; color: var(--muted); font-size: var(--admin-meta); line-height: 1.45; max-width: 78ch; }
+.portal-intro a { color: var(--accent); font-weight: 600; }
+
+/* Category rows stack multiple lines per cell — top-align and let them grow past the 44px queue height. */
+.portal-table td { height: auto; padding-top: 8px; padding-bottom: 8px; vertical-align: top; }
+.portal-cat { max-width: 220px; }
+.portal-cat > div:first-child { font-weight: 600; }
+.portal-cat > div, .portal-casetype > div { margin-bottom: 2px; }
+.portal-casetype { max-width: 340px; }
+.portal-num { text-align: right; font-variant-numeric: tabular-nums; width: 1%; white-space: nowrap; }
+
+.portal-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.portal-field { display: inline-flex; align-items: center; gap: 4px; }
+.portal-default { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+
+.portal-yn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.portal-golden { display: grid; gap: 2px; }
+.portal-golden .portal-yn { flex-wrap: wrap; white-space: normal; }
+.portal-golden .canary-pill { margin-left: 2px; }
+
+/* Raw-JSON expand row sits under a category, full width, monospace and scrollable. */
+.portal-json-row td { background: var(--bg) !important; padding: 0 !important; }
+.portal-json { margin: 0; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow: auto; max-height: 360px; }
+
+/* City side: sync + canary side by side on wide screens. */
+.portal-cards { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1280px) { .portal-cards { grid-template-columns: 1fr 1fr; } }
+.portal-card { min-width: 0; }
+.portal-id-group { display: grid; gap: 4px; }
+.portal-id-group .sync-count-label { font-size: .8rem; }
+
+.portal-expand { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }
+.portal-expand:hover { text-decoration: underline; }

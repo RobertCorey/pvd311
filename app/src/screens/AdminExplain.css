@@ -1,0 +1,39 @@
+/* /admin → How it works tab: desktop reading layout — sticky mini-TOC + long-form section panels. */
+.admin-explain { min-width: 0; }
+.explain-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: start; }
+
+.explain-toc { position: sticky; top: 64px; align-self: start; max-height: calc(100dvh - 80px); overflow: auto; }
+.explain-toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.explain-toc a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 600; }
+.explain-toc a:hover { color: var(--ink); background: var(--bg); }
+.explain-toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.explain-body { display: grid; gap: 16px; min-width: 0; }
+.explain-panel { scroll-margin-top: 64px; display: grid; gap: 10px; }
+.explain-panel h2 { font-size: 1.15rem; margin: 0; font-family: var(--font-display); letter-spacing: -0.01em; }
+.explain-lede { margin: 0; font-size: 1rem; line-height: 1.5; color: var(--ink); }
+
+.explain-live { display: flex; flex-wrap: wrap; gap: 6px; }
+.explain-chip { display: inline-flex; align-items: baseline; gap: .35rem; padding: .15rem .55rem; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.explain-chip b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; font-size: .72rem; color: var(--muted); }
+
+.explain-details { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; font-size: .95rem; line-height: 1.5; }
+.explain-details code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82em; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: .05rem .3rem; }
+
+.explain-links .label { margin: 0; }
+.explain-links ul { list-style: none; margin: .3rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
+.explain-links a { font-size: .9rem; font-weight: 600; }
+
+.explain-flash { animation: explain-flash 1.5s ease-out; }
+@keyframes explain-flash {
+  0% { background: var(--warn-soft); box-shadow: 0 0 0 3px var(--warn); }
+  100% { background: var(--surface); box-shadow: var(--shadow); }
+}
+
+.explain-raw { margin-top: 8px; }
+.explain-raw pre { margin: 8px 0 0; padding: 12px; overflow: auto; max-height: 65vh; background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; line-height: 1.5; }
+
+@media (max-width: 1023px) {
+  .explain-layout { grid-template-columns: 1fr; }
+  .explain-toc { position: static; max-height: none; }
+}

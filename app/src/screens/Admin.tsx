@@ -3,17 +3,31 @@ import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import { useSession } from '../lib/auth';
 import { getMe } from '../api/me';
-import { adminAct, adminEngine, adminOverview, type AdminAction, type AdminOverview, type AdminReport } from '../api/admin';
+import { adminAct, adminEngine, adminOverview, type AdminAction, type AdminOverview as OverviewData, type AdminReport } from '../api/admin';
 import { ApiError } from '../api/types';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import CategoryIcon from '../components/CategoryIcon';
 import AdminSystem from './AdminSystem';
 import AdminDetail from './AdminDetail';
+import AdminOverview from './AdminOverview';
+import AdminReports from './AdminReports';
+import AdminEvents from './AdminEvents';
+import AdminAccounts from './AdminAccounts';
+import AdminPortal from './AdminPortal';
+import AdminConfig from './AdminConfig';
+import AdminExplain from './AdminExplain';
 import { When } from './adminUtil';
 import './Admin.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-type Tab = 'queue' | 'system';
+const TABS = ['overview', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
+type Tab = typeof TABS[number];
+/** Parse the hash: `#reports?q=x`, `#explain:portal`, `#queue`. Unknown → overview. */
+function parseHash(h: string): { tab: Tab; params: URLSearchParams; anchor: string | null } {
+  const m = /^#([a-z]+)(?::([A-Za-z0-9_-]+))?(?:\?(.*))?$/.exec(h);
+  const tab = (m && (TABS as readonly string[]).includes(m[1]) ? m[1] : 'overview') as Tab;
+  return { tab, params: new URLSearchParams(m?.[3] ?? ''), anchor: m?.[2] ?? null };
+}
 export type Bucket = 'awaitingReview' | 'failed' | 'pending' | 'submitted7d';
 const BUCKETS: Bucket[] = ['awaitingReview', 'failed', 'pending', 'submitted7d'];
 export const ACTIONS: Record<string, AdminAction[]> = { awaiting_review: ['approve', 'reject'], failed: ['requeue', 'reject'], pending: ['reject'] };
@@ -30,8 +44,14 @@ export default function Admin() {
   const [adminFlag, setAdminFlag] = useState<boolean | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const gate: Gate = !session ? 'signedOut' : adminFlag == null ? 'checking' : adminFlag ? 'admin' : 'notAdmin';
-  const [tab, setTab] = useState<Tab>(() => (location.hash === '#system' ? 'system' : 'queue'));
-  const [data, setData] = useState<AdminOverview | null>(null);
+  const [route, setRoute] = useState(() => parseHash(location.hash));
+  const tab = route.tab;
+  useEffect(() => {
+    const onHash = () => setRoute(parseHash(location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const [data, setData] = useState<OverviewData | null>(null);
   const [err, setErr] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -121,13 +141,14 @@ export default function Admin() {
   if (gate === 'checking') return <section className="section admin admin-gate"><p className="muted" aria-busy="true">{t('account.loading')}</p></section>;
   if (gate === 'notAdmin') return <section className="section admin admin-gate"><h1 className="admin-h1">{t('admin.title')}</h1><p className="muted">{t('admin.notAdmin')}</p></section>;
 
-  const switchTab = (k: Tab) => { setTab(k); history.replaceState(null, '', k === 'system' ? '#system' : '#'); };
+  const go = (hash: string) => { if (location.hash === hash) setRoute(parseHash(hash)); else location.hash = hash; };
+  const switchTab = (k: Tab) => go(`#${k}`);
   return (
     <div className="admin admin-shell">
       <aside className="admin-rail" aria-label={t('admin.title')}>
         <div className="admin-rail-title">{t('admin.title')}</div>
         <nav className="admin-rail-nav" role="tablist" aria-label={t('admin.title')}>
-          {(['queue', 'system'] as const).map((k) => (
+          {TABS.map((k) => (
             <button key={k} type="button" role="tab" className="admin-rail-tab" aria-selected={tab === k} onClick={() => switchTab(k)}>
               {t(`admin.tab.${k}`)}
               {k === 'queue' && data && data.awaitingReview.length > 0 && <span className="admin-badge">{data.awaitingReview.length}</span>}
@@ -157,7 +178,16 @@ export default function Admin() {
       </aside>
 
       <section className="admin-main" aria-label={t(`admin.tab.${tab}`)}>
-        {tab === 'system' ? <AdminSystem /> : (
+        <h1 className="admin-main-title">{t(`admin.tab.${tab}`)}<span className="admin-meta admin-main-sub">{t(`admin.tabsub.${tab}`)}</span></h1>
+        {tab === 'overview' && <AdminOverview queue={data} go={go} />}
+        {tab === 'system' && <AdminSystem />}
+        {tab === 'reports' && <AdminReports initialQuery={route.params.get('q') ?? ''} initialStatus={route.params.get('status') ?? ''} say={say} />}
+        {tab === 'events' && <AdminEvents initialReportId={route.params.get('reportId') ?? ''} />}
+        {tab === 'accounts' && <AdminAccounts />}
+        {tab === 'portal' && <AdminPortal />}
+        {tab === 'config' && <AdminConfig />}
+        {tab === 'explain' && <AdminExplain />}
+        {tab === 'queue' && (
           <>
             {err && <div className="notice notice-error" role="alert">{t('admin.loadError')} <button type="button" className="btn btn-ghost" onClick={load}>{t('account.retry')}</button></div>}
             {!data ? <p className="muted" aria-busy="true">{t('account.loading')}</p> : (
@@ -218,9 +248,9 @@ export default function Admin() {
 }
 
 /** Move a report into the bucket its new status belongs to (or drop it). */
-function rebucket(d: AdminOverview, after: AdminReport): AdminOverview {
+function rebucket(d: OverviewData, after: AdminReport): OverviewData {
   const strip = (list: AdminReport[]) => list.filter((x) => x.id !== after.id);
-  const next: AdminOverview = { engine: d.engine, awaitingReview: strip(d.awaitingReview), failed: strip(d.failed), pending: strip(d.pending), submitted7d: strip(d.submitted7d) };
+  const next: OverviewData = { engine: d.engine, awaitingReview: strip(d.awaitingReview), failed: strip(d.failed), pending: strip(d.pending), submitted7d: strip(d.submitted7d) };
   const target: Bucket | null = after.status === 'awaiting_review' ? 'awaitingReview' : after.status === 'failed' ? 'failed' : after.status === 'pending' ? 'pending' : after.status === 'submitted' ? 'submitted7d' : null;
   if (target) next[target] = [after, ...next[target]];
   return next;

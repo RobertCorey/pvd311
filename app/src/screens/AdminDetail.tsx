@@ -19,6 +19,7 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
   const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
   const [user, setUser] = useState<AdminUser | null>(null);
   const [trustBusy, setTrustBusy] = useState(false);
+  const [raw, setRaw] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const actions = ACTIONS[r.status] ?? [];
 
@@ -94,6 +95,18 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
             </ul>
           </>
         )}
+
+        <h3 className="label">{t('admin.pane.ids')}</h3>
+        <dl className="admin-dl admin-dl--mono">
+          <dt>id</dt><dd>{r.id}</dd>
+          <dt>ownerUid</dt><dd>{r.ownerUid ?? '—'}</dd>
+          <dt>createdAt</dt><dd>{r.createdAt ?? '—'}</dd>
+          <dt>statusUpdatedAt</dt><dd>{r.statusUpdatedAt ?? '—'}</dd>
+          <dt>moderatedAt</dt><dd>{r.moderatedAt ?? '—'}</dd>
+          <dt>approvedAt</dt><dd>{r.approvedAt ?? '—'}</dd>
+        </dl>
+        <button type="button" className="btn btn-ghost admin-tbl-btn" aria-expanded={raw} onClick={() => setRaw((v) => !v)}>{raw ? t('admin.raw.hide') : t('admin.raw.show')}</button>
+        {raw && <pre className="admin-raw">{JSON.stringify(r, null, 2)}</pre>}
 
         <h3 className="label">{t('admin.pane.proofs')}</h3>
         {proofs == null ? <p className="admin-meta">{t('account.loading')}</p> : proofs.length === 0 ? <p className="admin-meta">{t('admin.pane.noProofs')}</p> : (

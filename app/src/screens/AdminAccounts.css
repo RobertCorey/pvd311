@@ -1,0 +1,19 @@
+/* /admin → Accounts. Dense roster table; reuses .admin-table from Admin.css. Desktop-only. */
+.admin-accounts { min-width: 0; }
+.acct-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.acct-filter { min-width: 260px; }
+.acct-filter .input { min-height: 34px; padding: 6px 10px; font-size: var(--admin-text); }
+.acct-totals { color: var(--muted); font-size: var(--admin-meta); }
+
+/* Rows stack email/name/uid, so cells top-align and grow past the 44px queue height. */
+.acct-table td { height: auto; padding-top: 8px; padding-bottom: 8px; vertical-align: top; }
+.acct-email { max-width: 280px; min-width: 200px; }
+.acct-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--muted); max-width: 100%; }
+.acct-num { text-align: right; font-variant-numeric: tabular-nums; width: 1%; white-space: nowrap; }
+.acct-yn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+.acct-trust { min-height: 28px; padding: 2px 12px; font-size: .8rem; border-width: 1.5px; }
+.acct-trust[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.acct-more { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+.acct-more .btn { min-height: 34px; }
