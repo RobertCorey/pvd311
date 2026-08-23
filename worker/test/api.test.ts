@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { handleApi, paceIdentity } from '../src/api';
+import { handleApi, paceIdentity, notFiledReason } from '../src/api';
 import { isAdmin } from '../src/adminapi';
 import type { Store, ReportDoc } from '../src/contracts';
 
@@ -93,5 +93,16 @@ describe('admin gate', () => {
   });
   it('/api/admin/* is 401 without a token', async () => {
     expect((await get('/api/admin/overview'))!.status).toBe(401);
+  });
+});
+
+describe('notFiledReason', () => {
+  it('maps internal auto-reject details to reporter-safe text and never leaks the reviewer', () => {
+    expect(notFiledReason(report({ status: 'auto-rejected', statusDetail: 'Duplicate: within 12m of submitted report abcdefghijkl' }))).toMatchObject({ code: 'duplicate', duplicateOf: 'abcdefghijkl' });
+    expect(notFiledReason(report({ status: 'auto-rejected', statusDetail: 'Outside Providence (42.3, -71.0)' }))!.code).toBe('outside');
+    expect(notFiledReason(report({ status: 'rejected', statusDetail: 'Rejected by admin:rob@x.y', review: { requestedAt: '', telegramMessageId: null, mode: 'ramp', reason: 'Private driveway — not a city street.' } as any }))!.text).toBe('Private driveway — not a city street.');
+    expect(JSON.stringify(notFiledReason(report({ status: 'rejected', statusDetail: 'Rejected by admin:rob@x.y' })))).not.toContain('rob@');
+    expect(notFiledReason(report({ status: 'rejected', cancelledByReporter: true }))!.code).toBe('cancelled');
+    expect(notFiledReason(report({ status: 'submitted' }))).toBeNull();
   });
 });
