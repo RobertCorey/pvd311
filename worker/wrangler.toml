@@ -22,6 +22,8 @@ APP_NAME = "PVD311 app"
 HITL_MODE = "ramp"                 # per-account trust ramp (first ACCOUNT_TRUST_N reports per account reviewed, then auto); "review" = panic switch
 ACCOUNT_TRUST_N = "3"
 ADMIN_EMAILS = "robertbcorey@gmail.com"
+RECONCILE_ENABLED = "1"          # watcher: adopt/stranded/missing pass against My Requests (docs/engine-sync.md rule 7)
+DRIFT_CANARY_ENABLED = "0"       # nightly Step-3 golden diff; on after live goldens land
 AUTH_FROM = "FixMyPVD <updates@fixmypvd.org>"   # sign-in link sender (Resend, domain verified 2026-08-22)
 FIREBASE_PROJECT_ID = "pvd-snow-report"
 STORAGE_BUCKET = "pvd-snow-report.firebasestorage.app"
