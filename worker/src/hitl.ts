@@ -123,14 +123,29 @@ export async function approve(store: Store, id: string, by: string): Promise<voi
   console.log(`[hitl] ${id} approved by ${by}`);
 }
 
-export async function reject(store: Store, id: string, by: string): Promise<void> {
+export interface RejectOpts { reason?: string | null; mailer?: Mailer; env?: Env }
+
+/** Reject → 'rejected'. With a mailer, the reporter gets one short, kind email (optional reason from the reviewer). */
+export async function reject(store: Store, id: string, by: string, opts: RejectOpts = {}): Promise<void> {
   const rep = await store.fetchReport(id);
   const now = new Date().toISOString();
-  await store.updateReportStatus(id, 'rejected', `Rejected by ${by}`);
+  const reason = (opts.reason ?? '').trim().slice(0, 400) || null;
+  await store.updateReportStatus(id, 'rejected', `Rejected by ${by}${reason ? `: ${reason}` : ''}`);
   await store.patchReport(id, {
-    review: { ...(rep?.review ?? {}), decision: 'rejected', by, decidedAt: now },
+    review: { ...(rep?.review ?? {}), decision: 'rejected', by, decidedAt: now, ...(reason ? { reason } : {}) },
   });
   console.log(`[hitl] ${id} rejected by ${by}`);
+  if (opts.mailer && rep?.reporterEmail) {
+    const cat = CATEGORIES[rep.category]?.label ?? rep.category;
+    const base = (opts.env?.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '');
+    const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:32rem;margin:0 auto;padding:1.5rem 1rem;color:#1b1b1b">`
+      + `<p style="font-size:1.05rem">We didn't send your <b>${esc(cat)}</b> report at <b>${esc(rep.address)}</b> to Providence 311.</p>`
+      + (reason ? `<p><b>Why:</b> ${esc(reason)}</p>` : `<p>Usually this means it didn't look like something the city's 311 handles, it was already reported, or it was missing the details the city needs (a photo and a specific address).</p>`)
+      + `<p>If we got this wrong, please report it again with a photo and the exact location — a person reviews these, and we'd rather see it twice than miss it.</p>`
+      + `<p><a href="${base}/r/${encodeURIComponent(id)}" style="color:#E8622C">Your report</a> · <a href="${base}/" style="color:#E8622C">Report again</a></p>`
+      + `<p style="color:#999;font-size:.8rem;margin-top:2rem">FixMyPVD is an independent community project, not affiliated with the City of Providence.</p></div>`;
+    await opts.mailer.sendTo(rep.reporterEmail, `[FixMyPVD] We didn't send your ${cat} report`, html).catch((e) => console.error('[hitl] reject email failed:', e));
+  }
 }
 
 function esc(s: string): string {

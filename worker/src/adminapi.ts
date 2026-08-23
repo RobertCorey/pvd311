@@ -4,7 +4,9 @@
  *   GET  /api/admin/overview               → engine state + queues (awaiting_review / failed / pending / submitted 7d)
  *   GET  /api/admin/reports/:id            → full report (admin projection incl. description, flags, reporter email, review)
  *   POST /api/admin/reports/:id/approve    → HITL approve
- *   POST /api/admin/reports/:id/reject     → HITL reject
+ *   POST /api/admin/reports/:id/reject     → HITL reject; JSON body { reason? } → emailed to the reporter
+ *   GET  /api/admin/users/:uid             → { uid, email, trusted, submitted, rejected }
+ *   POST /api/admin/users/:uid/trust       → JSON { trusted: boolean } (override the ramp)
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
@@ -13,6 +15,7 @@ import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
 import { approve, reject } from './hitl.js';
+import { createMailer } from './email.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -84,10 +87,31 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       const r = await store.fetchReport(id);
       if (!r) return json({ error: 'not_found' }, 404);
       if (action === 'approve') { if (r.status !== 'awaiting_review' && r.status !== 'pending') return json({ error: 'not_reviewable', status: r.status }, 409); await approve(store, id, `admin:${auth.email}`); }
-      else if (action === 'reject') { if (!['awaiting_review', 'pending', 'failed'].includes(r.status)) return json({ error: 'not_rejectable', status: r.status }, 409); await reject(store, id, `admin:${auth.email}`); }
+      else if (action === 'reject') {
+        if (!['awaiting_review', 'pending', 'failed'].includes(r.status)) return json({ error: 'not_rejectable', status: r.status }, 409);
+        const body = (await request.json().catch(() => null)) as { reason?: unknown } | null;
+        await reject(store, id, `admin:${auth.email}`, { reason: typeof body?.reason === 'string' ? body.reason : null, mailer: createMailer(env), env });
+      }
       else if (action === 'requeue') { if (r.status !== 'failed') return json({ error: 'not_failed', status: r.status }, 409); await store.requeueReport(id, 0, `Requeued by ${auth.email}`, new Date().toISOString()); }
       const after = await store.fetchReport(id);
       return json(after ? adminProjection(after) : { ok: true });
+    }
+  }
+
+  const usr = /^\/api\/admin\/users\/([A-Za-z0-9_-]{6,128})(?:\/(trust))?$/.exec(path);
+  if (usr) {
+    const [, uid, action] = usr;
+    const u = await store.getUser(uid);
+    if (!u) return json({ error: 'not_found' }, 404);
+    if (m === 'POST' && action === 'trust') {
+      const body = (await request.json().catch(() => null)) as { trusted?: unknown } | null;
+      if (!body || typeof body.trusted !== 'boolean') return json({ error: 'invalid_body' }, 400);
+      await store.patchUser(uid, { trusted: body.trusted, trustedBy: body.trusted ? auth.email : null, trustedAt: body.trusted ? new Date().toISOString() : null });
+    }
+    if (m === 'GET' || (m === 'POST' && action === 'trust')) {
+      const fresh = (await store.getUser(uid)) ?? u;
+      const [submitted, rejected] = await Promise.all([store.countOwnerByStatus(uid, 'submitted'), store.countOwnerByStatus(uid, 'rejected')]);
+      return json({ uid, email: fresh.email ?? null, provider: fresh.provider ?? null, trusted: !!fresh.trusted, submitted, rejected, createdAt: fresh.createdAt ?? null });
     }
   }
 

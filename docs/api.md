@@ -84,6 +84,7 @@ Review emails carry signed links `GET /hitl/approve/:id/:exp/:sig` and `/hitl/re
 Requires a Firebase ID token whose email is in the Worker var `ADMIN_EMAILS`, verified, **Google provider** (an email-link account for the same address is refused). `GET /api/me` returns `admin: true` for such a caller so the client can show the route.
 - `GET /api/admin/overview` → `{ engine: { paused, consecutiveFailures, submissionsThisHour, lastSubmissionTime, hitlMode, accountTrustN }, awaitingReview[], failed[], pending[], submitted7d[] }` — items are the admin projection (includes `description`, `descriptionOriginal`, `intakeFlags`, `reporterEmail`, `review`, `retries`, `statusDetail`).
 - `GET /api/admin/reports/:id` → admin projection.
-- `POST /api/admin/reports/:id/approve` (awaiting_review|pending) · `/reject` (awaiting_review|pending|failed) · `/requeue` (failed) → updated projection; 409 `{ error, status }` if the state doesn't allow it.
+- `POST /api/admin/reports/:id/approve` (awaiting_review|pending) · `/reject` (awaiting_review|pending|failed; JSON `{ reason? }` — the reporter gets a short email, with the reason if given) · `/requeue` (failed) → updated projection; 409 `{ error, status }` if the state doesn't allow it.
+- `GET /api/admin/users/:uid` → `{ uid, email, provider, trusted, submitted, rejected, createdAt }` · `POST /api/admin/users/:uid/trust` `{ trusted: boolean }` → same shape. `trusted` overrides the ramp (auto-approve) — flags still force review.
 - `POST /api/admin/engine/resume` · `/pause` → `{ ok, paused }`.
 The token-in-URL `/admin` page is retired once the app screen ships.

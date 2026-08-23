@@ -18,7 +18,7 @@ import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { handleApi } from './api.js';
-import { signAction, timingSafeEqualHex } from './email.js';
+import { signAction, timingSafeEqualHex, createMailer } from './email.js';
 import { approve, reject } from './hitl.js';
 
 export default {
@@ -150,7 +150,7 @@ export default {
           await approve(store, id, 'email');
           return htmlPage('Approved', 'Approved — will submit on the next tick.');
         }
-        await reject(store, id, 'email');
+        await reject(store, id, 'email', { mailer: createMailer(env), env });
         return htmlPage('Rejected', 'Rejected — this report will not be submitted.');
       } catch (e) {
         return htmlPage('Error', `Could not record the decision: ${e instanceof Error ? e.message : String(e)}`, 500);

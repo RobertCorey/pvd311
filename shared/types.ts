@@ -65,7 +65,7 @@ export interface Report {
   moderatedAt?: string | null;
 
   /** HITL bookkeeping */
-  review?: { requestedAt: string; telegramMessageId: number | null; emailed?: boolean; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string } | null;
+  review?: { requestedAt: string; telegramMessageId: number | null; emailed?: boolean; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string; reason?: string } | null;
 
   /** Anonymous Firebase Auth uid of the reporting device (rules require it; used for per-device pacing) */
   reporterUid?: string | null;
