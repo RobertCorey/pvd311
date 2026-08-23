@@ -10,8 +10,8 @@
  *   GET /healthz                         → { ok, paused, pending, awaiting }
  *   GET /canary            (x-canary-token) → portal.canary()  (read-only, zero-draft)
  *   GET /api/status        (x-canary-token) → engine state + status counts
- *   GET /hitl/approve?id&sig             → verify HMAC, approve, tiny HTML page
- *   GET /hitl/reject?id&sig              → verify HMAC, reject, tiny HTML page
+ *   GET /hitl/approve/:id/:sig           → verify HMAC, approve, tiny HTML page (legacy ?id=&sig= also accepted)
+ *   GET /hitl/reject/:id/:sig            → verify HMAC, reject, tiny HTML page
  */
 import type { Env } from './contracts.js';
 import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
@@ -141,10 +141,12 @@ export default {
       });
     }
 
-    if (url.pathname === '/hitl/approve' || url.pathname === '/hitl/reject') {
-      const action = url.pathname.endsWith('approve') ? 'approve' : 'reject';
-      const id = url.searchParams.get('id');
-      const sig = url.searchParams.get('sig');
+    const hitlPath = url.pathname.match(/^\/hitl\/(approve|reject)(?:\/([^/]+)\/([0-9a-f]+))?\/?$/);
+    if (hitlPath) {
+      const action = hitlPath[1] as 'approve' | 'reject';
+      // Path form (current emails) or legacy ?id=&sig= query form.
+      const id = hitlPath[2] ? decodeURIComponent(hitlPath[2]) : url.searchParams.get('id');
+      const sig = hitlPath[3] ?? url.searchParams.get('sig');
       if (!id || !sig) return htmlPage('Bad request', 'Missing id or signature.', 400);
       const expected = await signAction(env.HITL_SECRET, action, id);
       if (!timingSafeEqualHex(sig, expected)) return htmlPage('Invalid link', 'This approval link is invalid or has expired.', 401);

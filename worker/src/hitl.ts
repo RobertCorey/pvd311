@@ -59,6 +59,11 @@ export async function requestReview(
     `<p>${esc(report.address)}</p>`,
     report.description ? `<blockquote>${esc(report.description.slice(0, 600))}</blockquote>` : '<p><i>(no description)</i></p>',
     report.extra && Object.keys(report.extra).length ? `<p><code>${esc(JSON.stringify(report.extra))}</code></p>` : '',
+    report.intakeFlags && report.intakeFlags.length
+      ? `<p style="color:#B3261E"><b>Intake flags:</b> ${esc(report.intakeFlags.join(', '))}</p>` : '',
+    report.descriptionOriginal && report.descriptionOriginal !== report.description
+      ? `<p style="color:#666"><i>Original wording:</i> ${esc(report.descriptionOriginal.slice(0, 400))}</p>` : '',
+    `<p style="color:#666">Reporter: ${esc(report.reporterEmail ?? '(no email)')}${report.ownerUid ? '' : ' · no account'}</p>`,
     report.photo && /^https?:/.test(report.photo) ? `<p><a href="${report.photo}">photo</a></p>` : '',
     `<p><a href="${approveUrl}" style="padding:10px 16px;background:#1E7B45;color:#fff;border-radius:6px;text-decoration:none">Approve &amp; submit</a>`
       + `&nbsp;&nbsp;<a href="${rejectUrl}" style="padding:10px 16px;background:#B3261E;color:#fff;border-radius:6px;text-decoration:none">Reject</a></p>`,

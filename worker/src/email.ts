@@ -63,7 +63,9 @@ export async function signAction(secret: string, action: 'approve' | 'reject', i
 /** Signed approve/reject link the HITL email embeds; verified by the Worker's /hitl endpoints. */
 export async function actionUrl(baseUrl: string, secret: string, action: 'approve' | 'reject', id: string): Promise<string> {
   const sig = await signAction(secret, action, id);
-  return `${baseUrl.replace(/\/+$/, '')}/hitl/${action}?id=${encodeURIComponent(id)}&sig=${sig}`;
+  // Path form, not ?id=&sig=: a hex sig after "=" forms "=XX" pairs that a quoted-printable
+  // mis-decode on the mail path turns into garbage (seen via Cloudflare Email Routing → Gmail).
+  return `${baseUrl.replace(/\/+$/, '')}/hitl/${action}/${encodeURIComponent(id)}/${sig}`;
 }
 
 /** Constant-time string compare (both hex of equal length in normal use). */

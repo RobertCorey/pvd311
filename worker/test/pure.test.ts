@@ -36,6 +36,8 @@ describe('signed HITL links', () => {
     expect(await signAction('other', 'approve', 'abc')).not.toBe(a);
     expect(timingSafeEqualHex(a, b)).toBe(true);
     expect(timingSafeEqualHex(a, a.slice(0, -1) + (a.endsWith('0') ? '1' : '0'))).toBe(false);
-    expect(await actionUrl('https://api.fixmypvd.org', 'secret', 'approve', 'abc')).toBe(`https://api.fixmypvd.org/hitl/approve?id=abc&sig=${a}`);
+    expect(await actionUrl('https://api.fixmypvd.org', 'secret', 'approve', 'abc')).toBe(`https://api.fixmypvd.org/hitl/approve/abc/${a}`);
+    // No "=" anywhere: a hex sig after "=" forms "=XX" pairs that quoted-printable mis-decodes corrupt.
+    expect(await actionUrl('https://api.fixmypvd.org/', 'secret', 'reject', 'x-y_Z')).not.toMatch(/=/);
   });
 });
