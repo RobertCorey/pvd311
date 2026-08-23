@@ -34,25 +34,5 @@
   --accent-2: var(--ember);
   --accent-soft: var(--ink-soft);
   --accent-2-soft: var(--ember-soft);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0C1222; --surface: #161E33; --ink: #F3ECE0; --ember: #FF7A3A; --ember-ink: #0C1222; --ember-text: #FF8A4F;
-    --link: #8FC3FF; --muted: #A3ABBE; --line: #273050; --success: #4ADE96; --warn: #F5B65B; --danger: #FF7B70;
-    --ember-soft: rgba(255, 122, 58, 0.16); --ink-soft: rgba(243, 236, 224, 0.08); --danger-soft: rgba(255, 123, 112, 0.14);
-    --warn-soft: rgba(245, 182, 91, 0.14); --success-soft: rgba(74, 222, 150, 0.14);
-    --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
-    --grain-opacity: 0.05;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0C1222; --surface: #161E33; --ink: #F3ECE0; --ember: #FF7A3A; --ember-ink: #0C1222; --ember-text: #FF8A4F;
-  --link: #8FC3FF; --muted: #A3ABBE; --line: #273050; --success: #4ADE96; --warn: #F5B65B; --danger: #FF7B70;
-  --ember-soft: rgba(255, 122, 58, 0.16); --ink-soft: rgba(243, 236, 224, 0.08); --danger-soft: rgba(255, 123, 112, 0.14);
-  --warn-soft: rgba(245, 182, 91, 0.14); --success-soft: rgba(74, 222, 150, 0.14);
-  --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
-  --grain-opacity: 0.05;
-  color-scheme: dark;
+  color-scheme: light only; /* light mode only (Rob, 2026-08-23) — no dark palette */
 }

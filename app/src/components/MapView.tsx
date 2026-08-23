@@ -38,12 +38,7 @@ const DEFAULT_ZOOM = 13;
  *  Swap back to OSM in one line: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' (attribution: OSM only). */
 const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}{r}.png';
 const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-const isDark = () => {
-  const forced = document.documentElement.getAttribute('data-theme');
-  if (forced) return forced === 'dark';
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-};
-const tileStyle = () => (isDark() ? 'dark_all' : 'voyager');
+const TILE_STYLE = 'voyager'; // light mode only (Rob, 2026-08-23)
 
 const fill = (color: string) => (color.startsWith('--') ? `var(${color})` : color);
 
@@ -113,13 +108,7 @@ export default function MapView({
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', ariaLabel);
 
-    const tiles = L.tileLayer(TILE_URL.replace('{style}', tileStyle()), { maxZoom: 19, subdomains: 'abcd', attribution: TILE_ATTRIBUTION }).addTo(map);
-    // Follow the theme live (system switch or manual toggle).
-    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
-    const retheme = () => tiles.setUrl(TILE_URL.replace('{style}', tileStyle()));
-    mq?.addEventListener?.('change', retheme);
-    const mo = new MutationObserver(retheme);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    L.tileLayer(TILE_URL.replace('{style}', TILE_STYLE), { maxZoom: 19, subdomains: 'abcd', attribution: TILE_ATTRIBUTION }).addTo(map);
 
     markerLayerRef.current = L.layerGroup().addTo(map);
 
@@ -134,8 +123,6 @@ export default function MapView({
 
     return () => {
       window.clearTimeout(t);
-      mq?.removeEventListener?.('change', retheme);
-      mo.disconnect();
       map.remove();
       mapRef.current = null;
       markerLayerRef.current = null;

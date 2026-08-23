@@ -31,7 +31,7 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['my', (p) => p.goto('/my')],
 ];
 
-for (const scheme of ['light', 'dark'] as const) {
+for (const scheme of ['light'] as const) {
   test.describe(`a11y (${scheme})`, () => {
     test.use({ colorScheme: scheme });
     for (const [name, go] of SCREENS) {
