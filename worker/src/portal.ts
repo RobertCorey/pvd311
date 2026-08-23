@@ -194,22 +194,32 @@ class WorkerPortal implements Portal {
     const entityId = await page
       .$eval('#EntityFormView_EntityID', (el: any) => el.value as string)
       .catch(() => null);
-    const caseId = await this.readDraftCaseId();
+    const caseId = await this.readDraftCaseId(entityId || null);
     const draft: PortalDraft = { url: page.url(), entityId: entityId || null, step, savedAt: new Date().toISOString(), caseId };
     await opts.onDraft(draft).catch(() => {});
   }
 
-  /** The portal assigns the PVD number when the draft is created; the wizard keeps it in input#title. */
-  private async readDraftCaseId(): Promise<string | null> {
+  /**
+   * The portal assigns the PVD number when the draft is created. The running New-Request wizard does not
+   * show it, but Edit-Request/?id=<GUID> does (input#title = "PVD2026-87687 Pothole Report"). Read it from a
+   * side tab so the wizard page is untouched. Read-only; creates nothing.
+   */
+  private async readDraftCaseId(entityId: string | null): Promise<string | null> {
     const page = this.getPage();
-    const v = await page.evaluate(() => {
-      for (const i of Array.from(document.querySelectorAll('input'))) {
-        const m = /PVD\d{4}-\d+/.exec((i as any).value || '');
-        if (m) return m[0];
-      }
+    const fromInputs = () => Array.from(document.querySelectorAll('input')).map((i) => /PVD\d{4}-\d+/.exec((i as any).value || '')?.[0] ?? null).find(Boolean) ?? null;
+    const inPage = await page.evaluate(fromInputs).catch(() => null);
+    if (inPage) return inPage;
+    if (!entityId || !this.context) return null;
+    const side = await this.context.newPage();
+    try {
+      await side.goto(`${this.portal}/my-requests/Edit-Request/?id=${encodeURIComponent(entityId)}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await side.waitForSelector('input#title, input[name="title"]', { timeout: 15_000 }).catch(() => {});
+      return (await side.evaluate(fromInputs).catch(() => null)) ?? null;
+    } catch {
       return null;
-    }).catch(() => null);
-    return v;
+    } finally {
+      await side.close().catch(() => {});
+    }
   }
 
   private async tryResumeDraft(draft: PortalDraft): Promise<2 | 3 | null> {
@@ -486,20 +496,21 @@ class WorkerPortal implements Portal {
       }
     }
 
+    // Capture the PVD number from the wizard BEFORE submitting (also in inspect mode, so the capture path is exercised without a submit) (input#title carries it once the draft exists).
+    if (!report.portalDraft?.caseId) {
+      const eid = report.portalDraft?.entityId ?? (await page.$eval('#EntityFormView_EntityID', (el: any) => el.value as string).catch(() => null)) ?? null;
+      const fromPage = await this.readDraftCaseId(eid);
+      if (fromPage) {
+        report.portalDraft = { ...(report.portalDraft ?? { url: page.url(), entityId: null, step: 3, savedAt: new Date().toISOString() }), caseId: fromPage };
+        if (opts.onDraft) await opts.onDraft(report.portalDraft).catch(() => {});
+      }
+    }
+
     if (report.photo) await this.uploadPhoto(report.photo);
 
     if (mode === 'inspect') {
       const proofPath = await this.saveProof(opts, report.id, 'inspect');
       return { mode, controls, proofPath, scouted };
-    }
-
-    // Capture the PVD number from the wizard BEFORE submitting (input#title carries it once the draft exists).
-    if (!report.portalDraft?.caseId) {
-      const fromPage = await this.readDraftCaseId();
-      if (fromPage) {
-        report.portalDraft = { ...(report.portalDraft ?? { url: page.url(), entityId: null, step: 3, savedAt: new Date().toISOString() }), caseId: fromPage };
-        if (opts.onDraft) await opts.onDraft(report.portalDraft).catch(() => {});
-      }
     }
 
     // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
