@@ -18,7 +18,6 @@ import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { handleApi } from './api.js';
-import { adminPage, adminAction } from './admin.js';
 import { signAction, timingSafeEqualHex } from './email.js';
 import { approve, reject } from './hitl.js';
 
@@ -48,13 +47,8 @@ export default {
     const apiResp = await handleApi(request, env, { store: createStore(env) });
     if (apiResp) return apiResp;
 
-    // Ops page (pre-launch stopgap; token in URL)
-    if (url.pathname === '/admin' && request.method === 'GET') {
-      const token = url.searchParams.get('token') ?? '';
-      if (token !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
-      return adminPage(env, createStore(env), token);
-    }
-    if (url.pathname === '/admin/action' && request.method === 'POST') return adminAction(env, createStore(env), request);
+    // The token-in-URL ops page is retired (2026-08-23): admin lives in the app at /admin (see api/admin.ts + adminapi.ts).
+    if (url.pathname === '/admin' || url.pathname === '/admin/action') return Response.redirect(`${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/admin`, 302);
 
     // Admin: run the watcher / daily jobs on demand (token-gated)
     if ((url.pathname === '/admin/watch' || url.pathname === '/admin/daily') && request.method === 'POST') {
