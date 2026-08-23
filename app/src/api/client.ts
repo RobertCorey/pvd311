@@ -16,12 +16,13 @@ export const apiBase = () => activeBase;
 
 /** fetch() against the API with host fallback on a network-level failure of the primary host. */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const base = activeBase; // capture: a concurrent call may flip activeBase while this one is in flight
   try {
-    return await fetch(`${activeBase}${path}`, init);
+    return await fetch(`${base}${path}`, init);
   } catch (err) {
-    if ((err as Error)?.name === 'AbortError' || activeBase === FALLBACK_BASE) throw err;
+    if ((err as Error)?.name === 'AbortError' || base === FALLBACK_BASE) throw err;
     activeBase = FALLBACK_BASE;
-    return fetch(`${activeBase}${path}`, init);
+    return fetch(`${FALLBACK_BASE}${path}`, init);
   }
 }
 
