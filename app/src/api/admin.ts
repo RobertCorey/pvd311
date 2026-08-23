@@ -26,3 +26,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const adminOverview = () => call<AdminOverview>('/api/admin/overview');
 export const adminAct = (id: string, action: AdminAction) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: '{}' });
 export const adminEngine = (op: 'pause' | 'resume') => call<{ ok: boolean; paused: boolean }>(`/api/admin/engine/${op}`, { method: 'POST', body: '{}' });
+
+// ── System view (/api/admin/health) ──
+export type Light = 'ok' | 'warn' | 'error' | 'unknown';
+export interface Subsystem { key: string; label: string; what: string; status: Light; lastOkAt: string | null; lastErrorAt: string | null; lastError: string | null; lastDetail: string | null; okToday: number; errToday: number; expectedEvery: string | null }
+export interface AdminEvent { id: string; at: string; level: 'info' | 'warn' | 'error'; kind: string; msg: string; reportId: string | null; data: Record<string, unknown> | null }
+export interface AdminHealth {
+  generatedAt: string; overall: 'ok' | 'warn' | 'error';
+  engine: AdminEngine & { locked: boolean; reporterEmailEnabled: boolean };
+  subsystems: Subsystem[];
+  counts: Record<string, number>; users: number; ai: { intakeToday: number; dailyCap: number }; cityFeed: { fetchedAt: string | null; items: number };
+  events: AdminEvent[];
+}
+export const adminHealth = (events = 100) => call<AdminHealth>(`/api/admin/health?events=${events}`);

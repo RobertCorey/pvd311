@@ -6,6 +6,7 @@ import { adminAct, adminEngine, adminOverview, type AdminAction, type AdminOverv
 import { ApiError } from '../api/types';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import CategoryIcon from '../components/CategoryIcon';
+import AdminSystem from './AdminSystem';
 import './Admin.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
@@ -26,6 +27,7 @@ export default function Admin() {
   const [err, setErr] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // report id or 'engine'
+  const [tab, setTab] = useState<'queue' | 'system'>(() => (location.hash === '#system' ? 'system' : 'queue'));
 
   const say = useCallback((msg: string) => { setToast(msg); window.setTimeout(() => setToast(null), 3500); }, []);
 
@@ -79,9 +81,21 @@ export default function Admin() {
   if (gate === 'checking') return <section className="section admin"><p className="muted" aria-busy="true">{t('account.loading')}</p></section>;
   if (gate === 'notAdmin') return <section className="section admin"><h1 className="admin-h1">{t('admin.title')}</h1><p className="muted">{t('admin.notAdmin')}</p></section>;
 
+  const tabs = (
+    <div className="admin-tabs" role="tablist" aria-label={t('admin.title')}>
+      {(['queue', 'system'] as const).map((k) => (
+        <button key={k} type="button" role="tab" className="chip" aria-selected={tab === k} onClick={() => { setTab(k); history.replaceState(null, '', k === 'system' ? '#system' : '#'); }}>{t(`admin.tab.${k}`)}</button>
+      ))}
+    </div>
+  );
+  if (tab === 'system') {
+    return <section className="section admin"><h1 className="admin-h1">{t('admin.title')}</h1>{tabs}<AdminSystem /></section>;
+  }
+
   return (
     <section className="section admin" aria-live="polite">
       <h1 className="admin-h1">{t('admin.title')}</h1>
+      {tabs}
       {err && <div className="notice notice-error" role="alert">{t('admin.loadError')} <button type="button" className="btn btn-ghost" onClick={load}>{t('account.retry')}</button></div>}
       {!data ? <p className="muted" aria-busy="true">{t('account.loading')}</p> : (
         <>

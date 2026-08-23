@@ -62,3 +62,45 @@ test('account page links to /admin only for admins', async ({ page }) => {
   await page.goto('/account');
   await expect(page.getByRole('link', { name: 'Admin' })).toBeVisible();
 });
+
+// ── System tab ──
+const health = () => ({
+  generatedAt: new Date().toISOString(), overall: 'error',
+  engine: { paused: false, consecutiveFailures: 0, submissionsThisHour: 2, lastSubmissionTime: new Date(Date.now() - 120_000).toISOString(), locked: false, hitlMode: 'ramp', accountTrustN: '3', reporterEmailEnabled: true },
+  subsystems: [
+    { key: 'tick', label: 'Engine tick', what: 'Runs every minute and files one report.', status: 'ok', lastOkAt: new Date(Date.now() - 30_000).toISOString(), lastErrorAt: null, lastError: null, lastDetail: null, okToday: 900, errToday: 0, expectedEvery: '1 min' },
+    { key: 'watcher', label: 'Status watcher', what: 'Reads My Requests on the city portal.', status: 'error', lastOkAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastErrorAt: new Date(Date.now() - 600_000).toISOString(), lastError: 'portal login failed: selector #email not found', lastDetail: 'attempt 3', okToday: 10, errToday: 2, expectedEvery: '30 min' },
+    { key: 'canary', label: 'Selector canary', what: 'Daily check that the portal still looks the way we expect.', status: 'unknown', lastOkAt: null, lastErrorAt: null, lastError: null, lastDetail: null, okToday: 0, errToday: 0, expectedEvery: '1 d' },
+  ],
+  counts: { pending: 1, awaiting_review: 2, processing: 0, submitted: 40, failed: 1, rejected: 3, 'auto-rejected': 0 },
+  users: 12, ai: { intakeToday: 5, dailyCap: 200 }, cityFeed: { fetchedAt: new Date(Date.now() - 900_000).toISOString(), items: 230 },
+  events: [
+    { id: 'e1', at: new Date(Date.now() - 60_000).toISOString(), level: 'error', kind: 'watcher.status', msg: 'portal login failed', reportId: null, data: null },
+    { id: 'e2', at: new Date(Date.now() - 300_000).toISOString(), level: 'info', kind: 'submit.ok', msg: 'Filed as PVD2026-90001', reportId: 'rrrrrrrrrrrr', data: null },
+    { id: 'e3', at: new Date(Date.now() - 600_000).toISOString(), level: 'info', kind: 'admin.resume', msg: 'Engine resumed by admin', reportId: null, data: null },
+  ],
+});
+
+test('system tab: banner, traffic lights with error + unknown, numbers, filtered events', async ({ page }) => {
+  await setup(page, { admin: true });
+  await page.route(`${API}/api/admin/health*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(health()) }));
+  await page.goto('/admin');
+  await page.getByRole('tab', { name: 'System' }).click();
+  const main = page.locator('main');
+  await expect(main).toContainText('Something is broken');
+  await expect(main.locator('.sys-card--error')).toContainText('selector #email not found');
+  await expect(main.locator('.sys-card--unknown')).toContainText('Never ran yet');
+  await expect(main.locator('.sys-card--ok')).toContainText('Expected every 1 min');
+  await expect(main.locator('.sys-num', { hasText: 'Awaiting review' })).toContainText('2');
+  await expect(main.locator('.sys-event')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Errors' }).click();
+  await expect(main.locator('.sys-event')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Reports' }).click();
+  await expect(main.locator('.sys-event')).toHaveCount(1);
+  await expect(main.locator('.sys-event a')).toHaveAttribute('href', '/r/rrrrrrrrrrrr');
+  await page.getByRole('button', { name: 'Admin' }).click();
+  await expect(main.locator('.sys-event')).toContainText('admin.resume');
+  // Deep link keeps the tab
+  await page.goto('/admin#system');
+  await expect(main).toContainText('Subsystems');
+});
