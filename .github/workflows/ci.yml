@@ -12,6 +12,19 @@ jobs:
         with: { node-version: 24 }
       - name: worker typecheck + unit tests
         run: cd worker && npm ci && npm run typecheck && npm test
+  portal-sim:
+    # Real portal driver (worker/src/portal.ts) against the Power-Pages-shaped simulator, in real Chromium. Zero city traffic.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: app/package-lock.json }
+      - name: install app deps (provides the real Playwright build the sim resolves)
+        run: cd app && npm ci && npx playwright install --with-deps chromium
+      - name: worker deps
+        run: cd worker && npm ci
+      - name: simulator suites
+        run: cd worker && npm run test:sim
   app:
     runs-on: ubuntu-latest
     steps:
