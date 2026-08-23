@@ -520,5 +520,17 @@
   "admin.sync.strandedWhat": "Borradores en la ciudad que no podemos borrar, de reportes rechazados o fallidos.",
   "admin.sync.missing": "Faltantes",
   "admin.sync.missingWhat": "Reportes que enviamos y que ya no aparecen en el portal.",
-  "admin.sync.error": "Error de conciliación"
+  "admin.sync.error": "Error de conciliación",
+  "admin.canary.title": "Monitor de cambios en el formulario del portal",
+  "admin.canary.status.off": "Desactivado",
+  "admin.canary.status.ok": "El formulario de la ciudad coincide con lo que esperamos",
+  "admin.canary.status.warn": "Aún no hay línea base en vivo — la primera corrida la creará",
+  "admin.canary.status.error": "El formulario de la ciudad cambió — el envío puede fallar hasta actualizar el mapeo",
+  "admin.canary.none": "Aún no se vigilan categorías",
+  "admin.canary.source.live": "en vivo",
+  "admin.canary.source.sim": "sim",
+  "admin.canary.source.none": "ninguna",
+  "admin.canary.drifted": "Cambió",
+  "admin.canary.golden": "Referencia {when}",
+  "admin.canary.lastLive": "Última verificación en vivo {when}"
 }

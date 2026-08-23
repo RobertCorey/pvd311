@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
-import { adminHealth, type AdminEvent, type AdminHealth, type AdminSync, type Light, type Subsystem } from '../api/admin';
+import { adminHealth, type AdminCanary, type AdminCanaryCategory, type AdminEvent, type AdminHealth, type AdminSync, type Light, type Subsystem } from '../api/admin';
+import { shortLabel } from '../lib/categories';
 import './Admin.css';
 
 type Filter = 'all' | 'errors' | 'reports' | 'admin';
@@ -55,6 +56,13 @@ export default function AdminSystem() {
         <div className="admin-section">
           <h2>{t('admin.sync.title')}</h2>
           <SyncCard sync={data.sync} />
+        </div>
+      )}
+
+      {data.canary && (
+        <div className="admin-section">
+          <h2>{t('admin.canary.title')}</h2>
+          <CanaryCard canary={data.canary} />
         </div>
       )}
 
@@ -158,6 +166,46 @@ const SyncCount = ({ n, label, what, warn }: { n: number; label: string; what: s
     <span className="sync-count-what">{what}</span>
   </div>
 );
+
+/** Portal form-drift canary: the daily resume walk diffs the city's Step-3 controls against a golden per category.
+ *  Off = disabled; error = the city changed a form; warn = a category has no live baseline yet (first run mints it). */
+function CanaryCard({ canary }: { canary: AdminCanary }) {
+  const t = useT();
+  const cats = canary.categories;
+  const status: 'ok' | 'warn' | 'error' | 'off' = !canary.enabled ? 'off'
+    : cats.some((c) => c.drifted) ? 'error'
+    : cats.some((c) => c.goldenSource !== 'live') ? 'warn'
+    : 'ok';
+  return (
+    <div className="card canary-card">
+      <div className={`canary-banner is-${status}`} role="status">
+        <Dot status={status === 'off' ? 'unknown' : status} />
+        <strong>{t(`admin.canary.status.${status}`)}</strong>
+      </div>
+      {cats.length === 0
+        ? <p className="admin-empty">{t('admin.canary.none')}</p>
+        : <ul className="canary-rows">{cats.map((c) => <CanaryRow key={c.category} c={c} />)}</ul>}
+    </div>
+  );
+}
+
+function CanaryRow({ c }: { c: AdminCanaryCategory }) {
+  const t = useT();
+  const source = c.goldenSource ?? 'none';
+  return (
+    <li className={`canary-row${c.drifted ? ' is-drifted' : ''}`}>
+      <div className="canary-row-head">
+        <span className="canary-cat">{shortLabel(c.category, t)}</span>
+        <span className={`canary-chip canary-chip--${source}`}>{t(`admin.canary.source.${source}`)}</span>
+        {c.drifted && <span className="canary-pill">{t('admin.canary.drifted')}</span>}
+      </div>
+      <div className="canary-meta">
+        <span>{t('admin.canary.golden', { when: rel(c.goldenAt, t) })}</span>
+        <span>{t('admin.canary.lastLive', { when: rel(c.lastLiveAt, t) })}</span>
+      </div>
+    </li>
+  );
+}
 
 function EventRow({ e }: { e: AdminEvent }) {
   const t = useT();

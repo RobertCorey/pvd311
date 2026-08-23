@@ -66,7 +66,7 @@ test('account page links to /admin only for admins', async ({ page }) => {
 // ── System tab ──
 const reconcile = (over: Record<string, unknown> = {}) => ({ at: new Date(Date.now() - 8 * 3_600_000).toISOString(), scanned: 42, adopted: 3, stranded: 2, missing: 0, error: null, ...over });
 const syncBlock = (over: Record<string, unknown> = {}) => ({ status: 'warn', caseIdPending: 3, caseIdPendingOldestAt: new Date(Date.now() - 90 * 60_000).toISOString(), reconcile: reconcile(), ...over });
-const health = (sync: Record<string, unknown> = syncBlock()) => ({
+const health = (sync: Record<string, unknown> = syncBlock(), canary?: Record<string, unknown>) => ({
   generatedAt: new Date().toISOString(), overall: 'error',
   engine: { paused: false, consecutiveFailures: 0, submissionsThisHour: 2, lastSubmissionTime: new Date(Date.now() - 120_000).toISOString(), locked: false, hitlMode: 'ramp', accountTrustN: '3', reporterEmailEnabled: true },
   subsystems: [
@@ -77,6 +77,7 @@ const health = (sync: Record<string, unknown> = syncBlock()) => ({
   counts: { pending: 1, awaiting_review: 2, processing: 0, submitted: 40, failed: 1, rejected: 3, 'auto-rejected': 0 },
   users: 12, ai: { intakeToday: 5, dailyCap: 200 }, cityFeed: { fetchedAt: new Date(Date.now() - 900_000).toISOString(), items: 230 },
   sync,
+  canary,
   events: [
     { id: 'e1', at: new Date(Date.now() - 60_000).toISOString(), level: 'error', kind: 'watcher.status', msg: 'portal login failed', reportId: null, data: null },
     { id: 'e2', at: new Date(Date.now() - 300_000).toISOString(), level: 'info', kind: 'submit.ok', msg: 'Filed as PVD2026-90001', reportId: 'rrrrrrrrrrrr', data: null },
@@ -141,4 +142,45 @@ test('sync card: error banner, missing count highlighted + reconcile error', asy
   await expect(card.locator('.sync-banner.is-error')).toContainText('missing from the portal');
   await expect(card.locator('.sync-count.is-warn', { hasText: 'Missing' })).toContainText('4');
   await expect(card.locator('.sync-err')).toContainText('portal search timed out');
+});
+
+// ── Portal form drift canary card ──
+const canaryCat = (over: Record<string, unknown> = {}) => ({
+  category: 'pothole', goldenSource: 'live', goldenAt: new Date(Date.now() - 20 * 3_600_000).toISOString(),
+  lastLiveAt: new Date(Date.now() - 3_600_000).toISOString(), drifted: false, ...over,
+});
+const canaryBlock = (over: Record<string, unknown> = {}) => ({ enabled: true, categories: [canaryCat()], ...over });
+
+async function openCanary(page: Page, canary: Record<string, unknown>) {
+  await setup(page, { admin: true });
+  await page.route(`${API}/api/admin/health*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(health(syncBlock(), canary)) }));
+  await page.goto('/admin');
+  await page.getByRole('tab', { name: 'System' }).click();
+  return page.locator('main').locator('.canary-card');
+}
+
+test('canary card: ok banner, live golden, no drift', async ({ page }) => {
+  const card = await openCanary(page, canaryBlock());
+  await expect(card.locator('.canary-banner.is-ok')).toContainText('matches what we expect');
+  const row = card.locator('.canary-row', { hasText: 'Pothole' });
+  await expect(row.locator('.canary-chip--live')).toContainText('live');
+  await expect(row).toContainText('Last live check');
+  await expect(card.locator('.canary-pill')).toHaveCount(0);
+});
+
+test('canary card: drifted → error banner + drifted pill', async ({ page }) => {
+  const card = await openCanary(page, canaryBlock({ categories: [canaryCat(), canaryCat({ category: 'street_light', drifted: true })] }));
+  await expect(card.locator('.canary-banner.is-error')).toContainText('form changed');
+  await expect(card.locator('.canary-row.is-drifted', { hasText: 'Street light out' }).locator('.canary-pill')).toContainText('Drifted');
+});
+
+test('canary card: sim-only golden → warn banner, sim chip', async ({ page }) => {
+  const card = await openCanary(page, canaryBlock({ categories: [canaryCat({ goldenSource: 'sim' })] }));
+  await expect(card.locator('.canary-banner.is-warn')).toContainText('No live baseline yet');
+  await expect(card.locator('.canary-row', { hasText: 'Pothole' }).locator('.canary-chip--sim')).toContainText('sim');
+});
+
+test('canary card: disabled → neutral Off banner, no rows', async ({ page }) => {
+  const card = await openCanary(page, canaryBlock({ enabled: false }));
+  await expect(card.locator('.canary-banner.is-off')).toContainText('Off');
 });

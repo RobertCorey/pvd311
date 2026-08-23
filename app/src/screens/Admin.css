@@ -82,3 +82,21 @@
 .sync-count.is-warn b { color: var(--danger); }
 .sync-err { padding: .45rem .6rem; border-radius: 8px; background: var(--danger-soft); border: 1.5px solid var(--danger); font-size: .85rem; word-break: break-word; }
 .sync-err strong { font-family: var(--font-display); margin-right: .3rem; }
+
+/* Portal form-drift canary card */
+.canary-card { display: grid; gap: .7rem; }
+.canary-banner { display: flex; align-items: center; gap: .5rem; padding: .5rem .7rem; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); }
+.canary-banner strong { font-family: var(--font-display); }
+.canary-banner.is-ok { border-color: var(--success); background: var(--success-soft); }
+.canary-banner.is-warn { border-color: var(--warn); background: var(--warn-soft); }
+.canary-banner.is-error { border-color: var(--danger); background: var(--danger-soft); }
+.canary-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.canary-row { display: grid; gap: .2rem; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.canary-row.is-drifted { border-color: var(--danger); }
+.canary-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .5rem; }
+.canary-cat { font-weight: 600; }
+.canary-chip { font-size: .72rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.canary-chip--live { border-color: var(--success); color: var(--ink); }
+.canary-chip--sim { border-color: var(--warn); color: var(--ink); }
+.canary-pill { margin-left: auto; font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; background: var(--danger-soft); color: var(--ink); border: 1.5px solid var(--danger); }
+.canary-meta { display: flex; flex-wrap: wrap; gap: .2rem .8rem; font-size: .8rem; color: var(--muted); }

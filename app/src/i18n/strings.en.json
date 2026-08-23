@@ -520,5 +520,17 @@
   "admin.sync.strandedWhat": "City drafts we can't delete, from reports that were rejected or failed.",
   "admin.sync.missing": "Missing",
   "admin.sync.missingWhat": "Reports we sent that no longer appear on the portal.",
-  "admin.sync.error": "Reconcile error"
+  "admin.sync.error": "Reconcile error",
+  "admin.canary.title": "Portal form drift canary",
+  "admin.canary.status.off": "Off",
+  "admin.canary.status.ok": "The city's form matches what we expect",
+  "admin.canary.status.warn": "No live baseline yet — first run will mint it",
+  "admin.canary.status.error": "The city's form changed — filing may fail until the mapping is updated",
+  "admin.canary.none": "No categories watched yet",
+  "admin.canary.source.live": "live",
+  "admin.canary.source.sim": "sim",
+  "admin.canary.source.none": "none",
+  "admin.canary.drifted": "Drifted",
+  "admin.canary.golden": "Golden {when}",
+  "admin.canary.lastLive": "Last live check {when}"
 }
