@@ -323,6 +323,20 @@ function applyStep3Mutations(fixture: string, state: SimState): string {
   return html;
 }
 
+/**
+ * A Step-3 control the portal renders on EVERY case type but hides (display:none) unless applicable —
+ * a miniature of the ~43 shared inputs whose visibility toggles per case type on the real portal.
+ * collectStep3Controls captures it with visible:false; fillStep3 never fills a hidden control. It is
+ * unmapped by every category, so if it were ever shown it would be caught as unmapped — proof the
+ * canary watches the shared set, not just each case type's visible field.
+ */
+const SHARED_HIDDEN_STEP3_CONTROL = `
+      <div class="form-group" style="display:none" aria-hidden="true">
+        <label for="cop_priorcaseref">Related prior case reference</label>
+        <input type="text" id="cop_priorcaseref" name="ctl00$ContentContainer$cop_priorcaseref"
+               aria-label="Related prior case reference" style="display:none" />
+      </div>`;
+
 function step3Html(session: WizardSession, state: SimState): string {
   const category = GUID_TO_CATEGORY.get(session.caseTypeGuid) ?? null;
   const controls = applyStep3Mutations(readFixture(category), state);
@@ -341,6 +355,7 @@ function step3Html(session: WizardSession, state: SimState): string {
         <textarea id="description" name="ctl00$ContentContainer$description" aria-label="Description"></textarea>
       </div>
       ${controls}
+      ${SHARED_HIDDEN_STEP3_CONTROL}
       ${honeypot()}
       <div class="form-group">
         <label for="AttachFile">Attach a photo</label>

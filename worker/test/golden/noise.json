@@ -2,13 +2,15 @@
   "category": "noise",
   "caseTypeName": "Noise or Sound Disturbances",
   "source": "sim",
-  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "schema": 2,
+  "capturedAt": "2026-08-23T02:41:15.213Z",
   "controls": [
     {
       "id": "cop_noisesource",
       "label": "Where is the noise coming from?",
       "kind": "select",
       "required": false,
+      "visible": true,
       "options": [
         "Residence",
         "Business",
@@ -16,6 +18,13 @@
         "Construction",
         "Other"
       ]
+    },
+    {
+      "id": "cop_priorcaseref",
+      "label": "Related prior case reference",
+      "kind": "text",
+      "required": false,
+      "visible": false
     }
   ]
 }

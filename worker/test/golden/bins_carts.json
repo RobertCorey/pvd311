@@ -2,18 +2,27 @@
   "category": "bins_carts",
   "caseTypeName": "Trash or Recycling Bins or Carts",
   "source": "sim",
-  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "schema": 2,
+  "capturedAt": "2026-08-23T02:41:15.213Z",
   "controls": [
     {
       "id": "cop_cartrequesttype",
       "label": "I",
       "kind": "radio",
       "required": false,
+      "visible": true,
       "options": [
         "did not receive my new carts.",
         "My old carts were not removed",
         "Other"
       ]
+    },
+    {
+      "id": "cop_priorcaseref",
+      "label": "Related prior case reference",
+      "kind": "text",
+      "required": false,
+      "visible": false
     }
   ]
 }

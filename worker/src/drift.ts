@@ -14,6 +14,14 @@
  */
 import type { PortalControl } from './scout.js';
 
+/**
+ * Golden schema version. Bumped to 2 when the dump began including HIDDEN Step-3 controls (each with a
+ * `visible` flag). A stored golden at a lower schema (or with the field missing) is not comparable to a
+ * current dump — the shared control set it captured is a different shape — so the canary RE-MINTS the
+ * next live dump instead of diffing across schemas (see engine.recordControls / canary-golden).
+ */
+export const GOLDEN_SCHEMA = 2;
+
 /** A control's normalized kind. Collapses portal `tag`+`type` into one comparable dimension. */
 export type ControlKind = 'select' | 'radio' | 'checkbox' | 'textarea' | 'text';
 
@@ -23,6 +31,9 @@ export interface GoldenControl {
   label: string;
   kind: ControlKind;
   required: boolean;
+  /** Whether the portal is currently showing this control for the canary's case type. Hidden controls
+   * (visible:false) are kept in the golden so a visibility flip is detectable as drift. */
+  visible: boolean;
   /** Present for select/radio (the option/label list). Order is preserved for humans but compared as a set. */
   options?: string[];
 }
@@ -33,6 +44,8 @@ export interface GoldenSnapshot {
   caseTypeName: string;
   /** How this golden was produced. `addendum` = hand-authored from research; `sim` = dumped from the mock; `live` = a real portal dump. */
   source: 'sim' | 'addendum' | 'live';
+  /** Golden schema version (see GOLDEN_SCHEMA). Absent ⇒ pre-versioning (treat as 1). */
+  schema?: number;
   /** ISO capture time, or null for hand-authored goldens. */
   capturedAt: string | null;
   controls: GoldenControl[];
@@ -42,6 +55,7 @@ export interface RenameDelta { from: string; to: string; label: string; kind: Co
 export interface RequiredDelta { id: string; label: string; from: boolean; to: boolean }
 export interface LabelDelta { id: string; from: string; to: string }
 export interface OptionDelta { id: string; label: string; added: string[]; removed: string[] }
+export interface VisibilityDelta { id: string; label: string; from: boolean; to: boolean }
 
 /** The field-level difference between a golden and a fresh dump. Empty everywhere ⇒ no drift. */
 export interface DriftDelta {
@@ -51,6 +65,8 @@ export interface DriftDelta {
   requiredChanged: RequiredDelta[];
   labelChanged: LabelDelta[];
   optionsChanged: OptionDelta[];
+  /** A control that stayed but flipped shown⇄hidden — the shared set is unchanged, its wiring is not. */
+  visibilityChanged: VisibilityDelta[];
 }
 
 // ── Normalization ──────────────────────────────────────────────────────────────────────
@@ -86,6 +102,8 @@ export function normalizeControl(c: PortalControl): GoldenControl {
     label: (c.label ?? c.id).replace(/\s+/g, ' ').trim(),
     kind,
     required: !!c.required,
+    // Pre-`visible` dumps (and hand-authored goldens) predate hidden capture — treat a missing flag as visible.
+    visible: c.visible ?? true,
   };
   if (kind === 'select' || kind === 'radio') g.options = cleanOptions(c.options) ?? [];
   return g;
@@ -99,7 +117,7 @@ export function normalizeControls(controls: PortalControl[]): GoldenControl[] {
 // ── Diff ───────────────────────────────────────────────────────────────────────────────
 
 export function emptyDelta(): DriftDelta {
-  return { added: [], removed: [], renamed: [], requiredChanged: [], labelChanged: [], optionsChanged: [] };
+  return { added: [], removed: [], renamed: [], requiredChanged: [], labelChanged: [], optionsChanged: [], visibilityChanged: [] };
 }
 
 /** true iff `a` and `b` hold the same option strings, regardless of order. */
@@ -135,12 +153,13 @@ export function diffControls(golden: GoldenControl[], live: GoldenControl[]): Dr
   const goldenMap = new Map(golden.map((c) => [c.id, c]));
   const liveMap = new Map(live.map((c) => [c.id, c]));
 
-  // Same-id controls: compare label, required, options.
+  // Same-id controls: compare label, required, visibility, options.
   for (const [id, g] of goldenMap) {
     const l = liveMap.get(id);
     if (!l) continue;
     if (g.label !== l.label) delta.labelChanged.push({ id, from: g.label, to: l.label });
     if (g.required !== l.required) delta.requiredChanged.push({ id, label: l.label, from: g.required, to: l.required });
+    if (g.visible !== l.visible) delta.visibilityChanged.push({ id, label: l.label, from: g.visible, to: l.visible });
     if (!sameOptionSet(g.options, l.options)) {
       const { added, removed } = optionDiff(g.options, l.options);
       delta.optionsChanged.push({ id, label: l.label, added, removed });
@@ -172,6 +191,7 @@ export function diffControls(golden: GoldenControl[], live: GoldenControl[]): Dr
   delta.requiredChanged.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   delta.labelChanged.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   delta.optionsChanged.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  delta.visibilityChanged.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return delta;
 }
 
@@ -183,7 +203,8 @@ export function hasDrift(d: DriftDelta): boolean {
     d.renamed.length > 0 ||
     d.requiredChanged.length > 0 ||
     d.labelChanged.length > 0 ||
-    d.optionsChanged.length > 0
+    d.optionsChanged.length > 0 ||
+    d.visibilityChanged.length > 0
   );
 }
 
@@ -195,7 +216,8 @@ export function driftFieldCount(d: DriftDelta): number {
     d.renamed.length +
     d.requiredChanged.length +
     d.labelChanged.length +
-    d.optionsChanged.length
+    d.optionsChanged.length +
+    d.visibilityChanged.length
   );
 }
 
@@ -208,5 +230,6 @@ export function summarizeDrift(category: string, d: DriftDelta): string {
   if (d.requiredChanged.length) parts.push(`${d.requiredChanged.length} required-changed`);
   if (d.labelChanged.length) parts.push(`${d.labelChanged.length} relabeled`);
   if (d.optionsChanged.length) parts.push(`${d.optionsChanged.length} options-changed`);
+  if (d.visibilityChanged.length) parts.push(`${d.visibilityChanged.length} visibility-changed`);
   return `${category}: ${parts.join(', ') || 'no drift'}`;
 }

@@ -10,13 +10,22 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
     "category": "pothole",
     "caseTypeName": "Pothole Report",
     "source": "sim",
-    "capturedAt": "2026-08-23T01:50:44.554Z",
+    "schema": 2,
+    "capturedAt": "2026-08-23T02:41:15.213Z",
     "controls": [
+      {
+        "id": "cop_priorcaseref",
+        "label": "Related prior case reference",
+        "kind": "text",
+        "required": false,
+        "visible": false
+      },
       {
         "id": "cop_size",
         "label": "Approximate size of the pothole",
         "kind": "select",
         "required": false,
+        "visible": true,
         "options": [
           "Small (~4in)",
           "Medium (~28in)",
@@ -30,18 +39,27 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
     "category": "bins_carts",
     "caseTypeName": "Trash or Recycling Bins or Carts",
     "source": "sim",
-    "capturedAt": "2026-08-23T01:50:44.554Z",
+    "schema": 2,
+    "capturedAt": "2026-08-23T02:41:15.213Z",
     "controls": [
       {
         "id": "cop_cartrequesttype",
         "label": "I",
         "kind": "radio",
         "required": false,
+        "visible": true,
         "options": [
           "did not receive my new carts.",
           "My old carts were not removed",
           "Other"
         ]
+      },
+      {
+        "id": "cop_priorcaseref",
+        "label": "Related prior case reference",
+        "kind": "text",
+        "required": false,
+        "visible": false
       }
     ]
   },
@@ -49,13 +67,22 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
     "category": "abandoned_vehicle",
     "caseTypeName": "Abandoned Vehicle to Report",
     "source": "sim",
-    "capturedAt": "2026-08-23T01:50:44.554Z",
+    "schema": 2,
+    "capturedAt": "2026-08-23T02:41:15.213Z",
     "controls": [
+      {
+        "id": "cop_priorcaseref",
+        "label": "Related prior case reference",
+        "kind": "text",
+        "required": false,
+        "visible": false
+      },
       {
         "id": "cop_vehicledetails",
         "label": "Vehicle details (make, model, color, plate)",
         "kind": "text",
-        "required": false
+        "required": false,
+        "visible": true
       }
     ]
   },
@@ -63,13 +90,22 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
     "category": "animal_control",
     "caseTypeName": "Animal Control Concerns",
     "source": "sim",
-    "capturedAt": "2026-08-23T01:50:44.554Z",
+    "schema": 2,
+    "capturedAt": "2026-08-23T02:41:15.213Z",
     "controls": [
+      {
+        "id": "cop_priorcaseref",
+        "label": "Related prior case reference",
+        "kind": "text",
+        "required": false,
+        "visible": false
+      },
       {
         "id": "cop_typeofanimal",
         "label": "Type of animal",
         "kind": "select",
         "required": false,
+        "visible": true,
         "options": [
           "Domestic",
           "Wildlife"
@@ -81,13 +117,15 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
     "category": "noise",
     "caseTypeName": "Noise or Sound Disturbances",
     "source": "sim",
-    "capturedAt": "2026-08-23T01:50:44.554Z",
+    "schema": 2,
+    "capturedAt": "2026-08-23T02:41:15.213Z",
     "controls": [
       {
         "id": "cop_noisesource",
         "label": "Where is the noise coming from?",
         "kind": "select",
         "required": false,
+        "visible": true,
         "options": [
           "Residence",
           "Business",
@@ -95,6 +133,13 @@ export const GOLDEN_CONTROLS: Record<string, GoldenSnapshot> = {
           "Construction",
           "Other"
         ]
+      },
+      {
+        "id": "cop_priorcaseref",
+        "label": "Related prior case reference",
+        "kind": "text",
+        "required": false,
+        "visible": false
       }
     ]
   }

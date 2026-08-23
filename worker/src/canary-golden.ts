@@ -13,19 +13,19 @@
  * A doc with cleared:true (or no controls array) is treated as absent → the next live dump re-mints.
  */
 import type { Store } from './contracts.js';
-import type { GoldenControl, GoldenSnapshot } from './drift.js';
+import { GOLDEN_SCHEMA, type GoldenControl, type GoldenSnapshot } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 
-export interface LiveGoldenDoc { at?: string; source?: 'live'; controls?: GoldenControl[]; cleared?: boolean }
-export interface EffectiveGolden { controls: GoldenControl[]; source: 'live' | 'sim'; at: string | null }
+export interface LiveGoldenDoc { at?: string; source?: 'live'; schema?: number; controls?: GoldenControl[]; cleared?: boolean }
+export interface EffectiveGolden { controls: GoldenControl[]; source: 'live' | 'sim'; at: string | null; schema: number }
 
 const goldenKey = (category: string) => `golden_${category}`;
 
-/** The live baseline for a category, or null if none/cleared. */
+/** The live baseline for a category, or null if none/cleared. Schema defaults to 1 for pre-versioning docs. */
 export async function readLiveGolden(store: Store, category: string): Promise<EffectiveGolden | null> {
   const doc = await store.getMeta<LiveGoldenDoc>(goldenKey(category)).catch(() => null);
   if (!doc || doc.cleared || !Array.isArray(doc.controls)) return null;
-  return { controls: doc.controls, source: 'live', at: doc.at ?? null };
+  return { controls: doc.controls, source: 'live', at: doc.at ?? null, schema: doc.schema ?? 1 };
 }
 
 /** Effective golden: the live baseline first, then the committed sim golden, else null. */
@@ -37,13 +37,13 @@ export async function getEffectiveGolden(
   const live = await readLiveGolden(store, category);
   if (live) return live;
   const sim = goldens[category];
-  if (sim) return { controls: sim.controls, source: 'sim', at: sim.capturedAt };
+  if (sim) return { controls: sim.controls, source: 'sim', at: sim.capturedAt, schema: sim.schema ?? 1 };
   return null;
 }
 
-/** Write/replace the live baseline for a category from a fresh (already-normalized) dump. */
+/** Write/replace the live baseline for a category from a fresh (already-normalized) dump. Stamps the current schema. */
 export async function writeLiveGolden(store: Store, category: string, controls: GoldenControl[]): Promise<void> {
-  await store.setMeta(goldenKey(category), { at: new Date().toISOString(), source: 'live', controls, cleared: false });
+  await store.setMeta(goldenKey(category), { at: new Date().toISOString(), source: 'live', schema: GOLDEN_SCHEMA, controls, cleared: false });
 }
 
 /**
@@ -53,7 +53,7 @@ export async function writeLiveGolden(store: Store, category: string, controls: 
  */
 export async function rebaselineGolden(store: Store, category: string, controls?: GoldenControl[]): Promise<void> {
   if (controls !== undefined) {
-    await store.setMeta(goldenKey(category), { at: new Date().toISOString(), source: 'live', controls, cleared: false });
+    await store.setMeta(goldenKey(category), { at: new Date().toISOString(), source: 'live', schema: GOLDEN_SCHEMA, controls, cleared: false });
   } else {
     await store.setMeta(goldenKey(category), { at: new Date().toISOString(), cleared: true });
   }

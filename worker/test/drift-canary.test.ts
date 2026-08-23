@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { runDriftCanary, recordControls } from '../src/engine';
 import { GOLDEN_CONTROLS } from '../src/golden-controls';
-import type { GoldenSnapshot } from '../src/drift';
+import { GOLDEN_SCHEMA, type GoldenSnapshot } from '../src/drift';
 import type { Env, Mailer, Portal, Store } from '../src/contracts';
 import type { PortalControl } from '../src/scout';
 
@@ -22,12 +22,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const env = { DRIFT_CANARY_ENABLED: '1' } as unknown as Env;
 
 const pothole: GoldenSnapshot = {
-  category: 'pothole', caseTypeName: 'Pothole Report', source: 'sim', capturedAt: '2026-08-23T00:00:00.000Z',
-  controls: [{ id: 'cop_size', label: 'Approximate size of the pothole', kind: 'select', required: false, options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] }],
+  category: 'pothole', caseTypeName: 'Pothole Report', source: 'sim', schema: GOLDEN_SCHEMA, capturedAt: '2026-08-23T00:00:00.000Z',
+  controls: [{ id: 'cop_size', label: 'Approximate size of the pothole', kind: 'select', required: false, visible: true, options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] }],
 };
 const GOLDENS = { pothole };
 const rawMatch: PortalControl[] = [
-  { id: 'cop_size', label: 'Approximate size of the pothole', tag: 'select', type: 'select-one', required: false, options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
+  { id: 'cop_size', label: 'Approximate size of the pothole', tag: 'select', type: 'select-one', required: false, visible: true, options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
 ];
 
 interface Ev { level: string; kind: string; msg: string; data?: Record<string, unknown> | null }
@@ -45,8 +45,8 @@ function memMailer() {
   const alerts: string[] = [];
   return { mailer: { alert: vi.fn(async (s: string) => { alerts.push(s); }) } as unknown as Mailer, alerts };
 }
-/** A live baseline seed for meta/golden_<cat> from a sim snapshot's controls. */
-const liveGolden = (snap: GoldenSnapshot) => ({ at: '2026-08-23T00:00:00.000Z', source: 'live', controls: snap.controls, cleared: false });
+/** A live baseline seed for meta/golden_<cat> from a sim snapshot's controls (at the current schema). */
+const liveGolden = (snap: GoldenSnapshot) => ({ at: '2026-08-23T00:00:00.000Z', source: 'live', schema: GOLDEN_SCHEMA, controls: snap.controls, cleared: false });
 
 describe('recordControls (two-tier)', () => {
   it('sim baseline + first live dump → MINT (no drift, no alert); writes meta/golden_ as live', async () => {
@@ -65,7 +65,7 @@ describe('recordControls (two-tier)', () => {
   it('mints even when the first live dump DIFFERS from the sim golden (never a sim-vs-live drift)', async () => {
     const { store, events } = memStore();
     const { mailer, alerts } = memMailer();
-    const raw = [...rawMatch, { id: 'cop_extra', label: 'Extra', tag: 'input', type: 'text', required: true } as PortalControl];
+    const raw = [...rawMatch, { id: 'cop_extra', label: 'Extra', tag: 'input', type: 'text', required: true, visible: true } as PortalControl];
     const res = await recordControls(store, mailer, 'pothole', raw, 'submit', GOLDENS);
     expect(res.minted).toBe(true);
     expect(events.find((e) => e.kind === 'canary.golden_minted')?.data?.priorSource).toBe('sim');
@@ -75,7 +75,7 @@ describe('recordControls (two-tier)', () => {
   it('live baseline present + differing dump → live-vs-live DRIFT (canary.drift + alert)', async () => {
     const { store, events } = memStore({ golden_pothole: liveGolden(pothole) });
     const { mailer, alerts } = memMailer();
-    const raw = [...rawMatch, { id: 'cop_unexpected', label: 'Unexpected new required field', tag: 'select', type: 'select-one', required: true, options: ['Alpha', 'Beta'] } as PortalControl];
+    const raw = [...rawMatch, { id: 'cop_unexpected', label: 'Unexpected new required field', tag: 'select', type: 'select-one', required: true, visible: true, options: ['Alpha', 'Beta'] } as PortalControl];
     const res = await recordControls(store, mailer, 'pothole', raw, 'submit', GOLDENS);
     expect(res.drift).toBe(true);
     const drift = events.find((e) => e.kind === 'canary.drift');
@@ -92,6 +92,42 @@ describe('recordControls (two-tier)', () => {
     expect(res.drift).toBe(false);
     expect(events.some((e) => e.kind === 'canary.drift')).toBe(false);
     expect(alerts).toHaveLength(0);
+  });
+
+  it('a live baseline at an OLDER schema → RE-MINT (not drift) at the current schema', async () => {
+    // A schema-1 live golden predates hidden-control capture: it is not comparable to a schema-2 dump.
+    const stale = { at: 't', source: 'live', schema: 1, controls: pothole.controls, cleared: false };
+    const { store, meta, events } = memStore({ golden_pothole: stale });
+    const { mailer, alerts } = memMailer();
+    // This dump DIFFERS from the stale baseline (adds a hidden control) — would normally drift, but the
+    // schema mismatch forces a re-mint instead.
+    const raw = [...rawMatch, { id: 'cop_priorcaseref', label: 'Related prior case reference', tag: 'input', type: 'text', required: false, visible: false } as PortalControl];
+    const res = await recordControls(store, mailer, 'pothole', raw, 'submit', GOLDENS);
+    expect(res).toMatchObject({ minted: true, drift: false });
+    expect(events.some((e) => e.kind === 'canary.drift')).toBe(false);
+    const minted = events.find((e) => e.kind === 'canary.golden_minted');
+    expect(minted?.data?.remintReason).toBe('schema');
+    expect(minted?.data?.priorSchema).toBe(1);
+    expect(alerts).toHaveLength(0);
+    expect(meta['golden_pothole']).toMatchObject({ source: 'live', schema: GOLDEN_SCHEMA, cleared: false });
+  });
+
+  it('hidden control included: a shown⇄hidden flip against a current-schema live baseline → drift', async () => {
+    // Baseline: cop_size shown + cop_priorcaseref hidden.
+    const baseline = liveGolden({
+      ...pothole,
+      controls: [...pothole.controls, { id: 'cop_priorcaseref', label: 'Related prior case reference', kind: 'text', required: false, visible: false }],
+    });
+    const { store, events } = memStore({ golden_pothole: baseline });
+    const { mailer, alerts } = memMailer();
+    // Live dump: the hidden control is now SHOWN (visibility flip), same id/kind/label.
+    const raw = [...rawMatch, { id: 'cop_priorcaseref', label: 'Related prior case reference', tag: 'input', type: 'text', required: false, visible: true } as PortalControl];
+    const res = await recordControls(store, mailer, 'pothole', raw, 'submit', GOLDENS);
+    expect(res.drift).toBe(true);
+    const drift = events.find((e) => e.kind === 'canary.drift');
+    expect((drift?.data?.delta as any).visibilityChanged[0]).toMatchObject({ id: 'cop_priorcaseref', from: false, to: true });
+    expect((drift?.data?.delta as any).added).toHaveLength(0);
+    expect(alerts).toEqual(['Portal control drift']);
   });
 
   it('unmapped category (no sim golden) + first dump → mint', async () => {

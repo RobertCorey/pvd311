@@ -22,7 +22,7 @@ import { dirname, resolve } from 'node:path';
 import { startSim, type Sim } from '../sim/server';
 import { launchLocalChromium } from '../sim/browser';
 import { collectStep3Controls } from '../../src/portal';
-import { normalizeControls, type GoldenSnapshot } from '../../src/drift';
+import { normalizeControls, GOLDEN_SCHEMA, type GoldenSnapshot } from '../../src/drift';
 import { CATEGORIES } from '../../../shared/categories.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url)); // worker/test/golden
@@ -70,7 +70,7 @@ describe.runIf(process.env.GEN_GOLDENS === '1')('regenerate golden-controls snap
 
       const raw = await page.evaluate(collectStep3Controls);
       const controls = normalizeControls(raw);
-      const snap: GoldenSnapshot = { category, caseTypeName: cfg.portalCaseTypeName, source: 'sim', capturedAt, controls };
+      const snap: GoldenSnapshot = { category, caseTypeName: cfg.portalCaseTypeName, source: 'sim', schema: GOLDEN_SCHEMA, capturedAt, controls };
       snapshots[category] = snap;
       writeFileSync(resolve(HERE, `${category}.json`), JSON.stringify(snap, null, 2) + '\n');
     }

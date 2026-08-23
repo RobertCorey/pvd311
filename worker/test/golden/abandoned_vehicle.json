@@ -2,13 +2,22 @@
   "category": "abandoned_vehicle",
   "caseTypeName": "Abandoned Vehicle to Report",
   "source": "sim",
-  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "schema": 2,
+  "capturedAt": "2026-08-23T02:41:15.213Z",
   "controls": [
+    {
+      "id": "cop_priorcaseref",
+      "label": "Related prior case reference",
+      "kind": "text",
+      "required": false,
+      "visible": false
+    },
     {
       "id": "cop_vehicledetails",
       "label": "Vehicle details (make, model, color, plate)",
       "kind": "text",
-      "required": false
+      "required": false,
+      "visible": true
     }
   ]
 }

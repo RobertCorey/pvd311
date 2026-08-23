@@ -12,12 +12,12 @@ import type { Mailer, Store } from '../src/contracts';
 import type { PortalControl } from '../src/scout';
 
 const sim: GoldenSnapshot = {
-  category: 'pothole', caseTypeName: 'Pothole Report', source: 'sim', capturedAt: '2026-08-23T00:00:00.000Z',
-  controls: [{ id: 'cop_size', label: 'Size', kind: 'select', required: false, options: ['Small', 'Large'] }],
+  category: 'pothole', caseTypeName: 'Pothole Report', source: 'sim', schema: 2, capturedAt: '2026-08-23T00:00:00.000Z',
+  controls: [{ id: 'cop_size', label: 'Size', kind: 'select', required: false, visible: true, options: ['Small', 'Large'] }],
 };
 const GOLDENS = { pothole: sim };
-const controls = (over: Partial<GoldenControl> = {}): GoldenControl[] => [{ id: 'cop_size', label: 'Size', kind: 'select', required: false, options: ['Small', 'Large'], ...over }];
-const raw = (over: Partial<PortalControl> = {}): PortalControl[] => [{ id: 'cop_size', label: 'Size', tag: 'select', type: 'select-one', required: false, options: ['Small', 'Large'], ...over }];
+const controls = (over: Partial<GoldenControl> = {}): GoldenControl[] => [{ id: 'cop_size', label: 'Size', kind: 'select', required: false, visible: true, options: ['Small', 'Large'], ...over }];
+const raw = (over: Partial<PortalControl> = {}): PortalControl[] => [{ id: 'cop_size', label: 'Size', tag: 'select', type: 'select-one', required: false, visible: true, options: ['Small', 'Large'], ...over }];
 
 function memStore(seed: Record<string, any> = {}) {
   const meta: Record<string, any> = { ...seed };

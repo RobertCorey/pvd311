@@ -21,7 +21,7 @@ import { fetchCityFeed } from './cityfeed.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
-import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, type GoldenSnapshot, type DriftDelta } from './drift.js';
+import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, GOLDEN_SCHEMA, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 
@@ -625,13 +625,18 @@ export async function recordControls(
 ): Promise<{ drift: boolean; delta?: DriftDelta; minted?: boolean }> {
   const controls = normalizeControls(rawControls);
   const eff = await getEffectiveGolden(store, category, goldens);
+  // A stored live golden at an older schema captured a different control shape (e.g. no hidden controls
+  // before GOLDEN_SCHEMA 2) — it is not comparable to this dump, so re-mint rather than diff across schemas.
+  const staleSchema = !!eff && eff.source === 'live' && (eff.schema ?? 1) < GOLDEN_SCHEMA;
 
-  // Two-tier goldens: never diff a LIVE dump against a SIM snapshot. If the effective baseline is the
-  // committed sim golden (or nothing), MINT this dump as the live baseline — no drift, no alert.
-  if (!eff || eff.source === 'sim') {
+  // Two-tier goldens: never diff a LIVE dump against a SIM snapshot (or across schema versions). If the
+  // effective baseline is the committed sim golden, nothing, or an older schema, MINT this dump as the
+  // live baseline — no drift, no alert.
+  if (!eff || eff.source === 'sim' || staleSchema) {
     await writeLiveGolden(store, category, controls);
     await store.setMeta(`controls_${category}`, { at: new Date().toISOString(), source, controls, drifted: false }).catch(() => {});
-    await logEvent(store, { level: 'info', kind: 'canary.golden_minted', msg: `Minted live golden for ${category} from ${source} (${controls.length} controls; prior baseline: ${eff?.source ?? 'none'})`, data: { category, source, priorSource: eff?.source ?? null, controls } });
+    const priorNote = staleSchema ? `schema ${eff?.schema ?? 1}→${GOLDEN_SCHEMA}` : `prior baseline: ${eff?.source ?? 'none'}`;
+    await logEvent(store, { level: 'info', kind: 'canary.golden_minted', msg: `Minted live golden for ${category} from ${source} (${controls.length} controls; ${priorNote})`, data: { category, source, priorSource: eff?.source ?? null, priorSchema: eff?.schema ?? null, schema: GOLDEN_SCHEMA, remintReason: staleSchema ? 'schema' : 'baseline', controls } });
     return { drift: false, minted: true };
   }
 

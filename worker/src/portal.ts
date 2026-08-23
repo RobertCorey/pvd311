@@ -369,7 +369,9 @@ class WorkerPortal implements Portal {
 
   // ── Step 3 ─────────────────────────────────────────────────
 
-  /** Dump the visible, fillable Step-3 controls (excluding the always-present description/address/case-type). */
+  /** Dump the Step-3 conditional controls — visible AND hidden, each flagged `visible` (excluding the
+   * always-present description/address/case-type and the honeypot). The drift canary watches the whole
+   * set; only the visible ones are filled at submit time. */
   private async dumpControls(): Promise<PortalControl[]> {
     return this.getPage().evaluate(collectStep3Controls);
   }
@@ -455,10 +457,13 @@ class WorkerPortal implements Portal {
     await page.fill('#description', descParts.join('\n\n'));
 
     // Conditional fields: known mappings first, then the agent scout for anything left visible.
+    // dumpControls() now returns hidden controls too (for the drift canary); only fill the ones the
+    // portal is actually SHOWING for this case type — a hidden control is not applicable here.
     const controls = await this.dumpControls();
     const filled: Record<string, string> = {};
     const unmapped: PortalControl[] = [];
     for (const c of controls) {
+      if (!c.visible) continue;
       const src = cat.fields?.[c.id];
       const v = src ? resolveField(src, report as unknown as Record<string, unknown>) : undefined;
       if (v !== undefined) {
@@ -756,7 +761,6 @@ export function collectStep3Controls(): PortalControl[] {
   const SKIP = new Set(['cop_casetype_name', 'cop_address', 'description', 'PreviousButton', 'NextButton', 'AttachFile']);
   const out: any[] = [];
   document.querySelectorAll('select, input, textarea').forEach((el: any) => {
-    if (!el.offsetParent) return; // hidden
     if (!el.id || SKIP.has(el.id)) return;
     if (el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
     const label =
@@ -764,13 +768,20 @@ export function collectStep3Controls(): PortalControl[] {
       document.querySelector(`label[for="${el.id}"]`)?.textContent?.trim().replace(/\s+/g, ' ') ||
       el.id;
     if (/leave this field blank/i.test(label) || /^frm_pref_/.test(el.id)) return; // honeypot — never touch
+    // Step 3 renders the WHOLE conditional control set and toggles per case type via display:none;
+    // offsetParent is null when the element (or an ancestor) is display:none. We keep hidden controls too,
+    // flagged visible:false, so the drift canary watches the shared set — not just this case type's fields.
+    // (Only visible controls are filled/scouted at submit time — see fillStep3.)
+    const visible = !!el.offsetParent;
     if (el.type === 'radio') {
       // Collapse a radio group into one control keyed by its group name (e.g. cop_cartrequesttype).
       const key = el.name.split('$').pop() || el.name;
       let g = out.find((x) => x.type === 'radio' && x.name === el.name);
       if (!g) {
-        g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, options: [] };
+        g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, visible, options: [] };
         out.push(g);
+      } else if (visible) {
+        g.visible = true; // a radio group is shown if any of its members is shown
       }
       g.options.push(label.startsWith(g.label) ? label.slice(g.label.length).trim() || label : label);
       return;
@@ -781,6 +792,7 @@ export function collectStep3Controls(): PortalControl[] {
       tag: el.tagName.toLowerCase(),
       type: el.type || null,
       required: !!el.required || el.getAttribute('aria-required') === 'true',
+      visible,
     };
     if (el.tagName === 'SELECT')
       c.options = Array.from(el.options)

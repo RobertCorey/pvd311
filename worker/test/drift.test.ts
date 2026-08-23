@@ -17,6 +17,7 @@ const g = (over: Partial<GoldenControl> = {}): GoldenControl => ({
   label: 'Approximate size of the pothole',
   kind: 'select',
   required: false,
+  visible: true,
   options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'],
   ...over,
 });
@@ -30,13 +31,14 @@ describe('controlKind / normalizeControl', () => {
     expect(controlKind({ tag: 'input', type: 'text' })).toBe('text');
   });
 
-  it('normalizes label whitespace, drops the "Select" placeholder + dupes, keeps required', () => {
+  it('normalizes label whitespace, drops the "Select" placeholder + dupes, keeps required + visible', () => {
     const raw: PortalControl = {
       id: 'cop_size',
       label: '  Approximate   size ',
       tag: 'select',
       type: 'select-one',
       required: true,
+      visible: true,
       options: ['Select', 'Small', 'Small', '', ' Large '],
     };
     expect(normalizeControl(raw)).toEqual({
@@ -44,19 +46,30 @@ describe('controlKind / normalizeControl', () => {
       label: 'Approximate size',
       kind: 'select',
       required: true,
+      visible: true,
       options: ['Small', 'Large'],
     });
   });
 
+  it('carries the visible flag through — a hidden control keeps visible:false', () => {
+    const raw: PortalControl = { id: 'cop_hidden', label: 'Hidden field', tag: 'input', type: 'text', required: false, visible: false };
+    expect(normalizeControl(raw)).toMatchObject({ id: 'cop_hidden', visible: false });
+  });
+
+  it('defaults visible to true when a legacy dump omits the flag', () => {
+    const raw = { id: 'cop_x', label: 'X', tag: 'input', type: 'text', required: false } as unknown as PortalControl;
+    expect(normalizeControl(raw).visible).toBe(true);
+  });
+
   it('text/textarea controls carry no options array', () => {
-    const raw: PortalControl = { id: 'cop_vehicledetails', label: 'Vehicle details', tag: 'input', type: 'text', required: false };
+    const raw: PortalControl = { id: 'cop_vehicledetails', label: 'Vehicle details', tag: 'input', type: 'text', required: false, visible: true };
     expect(normalizeControl(raw).options).toBeUndefined();
   });
 
   it('sorts normalized controls by id (stable storage order)', () => {
     const raw: PortalControl[] = [
-      { id: 'cop_z', label: 'Z', tag: 'input', type: 'text', required: false },
-      { id: 'cop_a', label: 'A', tag: 'input', type: 'text', required: false },
+      { id: 'cop_z', label: 'Z', tag: 'input', type: 'text', required: false, visible: true },
+      { id: 'cop_a', label: 'A', tag: 'input', type: 'text', required: false, visible: true },
     ];
     expect(normalizeControls(raw).map((c) => c.id)).toEqual(['cop_a', 'cop_z']);
   });
@@ -69,7 +82,7 @@ describe('diffControls', () => {
     const d = diffControls(golden, live);
     expect(hasDrift(d)).toBe(false);
     expect(driftFieldCount(d)).toBe(0);
-    expect(d).toEqual({ added: [], removed: [], renamed: [], requiredChanged: [], labelChanged: [], optionsChanged: [] });
+    expect(d).toEqual({ added: [], removed: [], renamed: [], requiredChanged: [], labelChanged: [], optionsChanged: [], visibilityChanged: [] });
   });
 
   it('is ordering-insensitive: a reordered-but-identical list is not drift', () => {
@@ -147,6 +160,28 @@ describe('diffControls', () => {
     const live = [g({ label: 'Different' })];
     const d = diffControls(golden, live);
     expect(d.labelChanged).toEqual([{ id: 'cop_size', from: 'Other', to: 'Different' }]);
+  });
+
+  it('a hidden control (visible:false) is kept in the golden and matched by id, not treated as removed', () => {
+    const hidden = g({ id: 'cop_priorcaseref', label: 'Related prior case reference', kind: 'text', required: false, visible: false, options: undefined });
+    const golden = [g(), hidden];
+    const live = [g(), { ...hidden }]; // still present, still hidden
+    const d = diffControls(golden, live);
+    expect(hasDrift(d)).toBe(false);
+    expect(d.removed).toHaveLength(0);
+    expect(d.added).toHaveLength(0);
+  });
+
+  it('visibility flip on the same id → visibilityChanged (a shown⇄hidden toggle is drift)', () => {
+    const golden = [g({ id: 'cop_priorcaseref', kind: 'text', options: undefined, visible: false })];
+    const live = [g({ id: 'cop_priorcaseref', kind: 'text', options: undefined, visible: true })];
+    const d = diffControls(golden, live);
+    expect(hasDrift(d)).toBe(true);
+    expect(d.visibilityChanged).toEqual([{ id: 'cop_priorcaseref', label: g().label, from: false, to: true }]);
+    expect(d.added).toHaveLength(0);
+    expect(d.removed).toHaveLength(0);
+    expect(driftFieldCount(d)).toBe(1);
+    expect(summarizeDrift('pothole', d)).toContain('visibility-changed');
   });
 
   it('empty golden vs empty live (missed_trash: no extra controls) → no drift', () => {

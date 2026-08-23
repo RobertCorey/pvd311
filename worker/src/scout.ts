@@ -15,6 +15,10 @@ export interface PortalControl {
   tag: 'select' | 'input' | 'textarea';
   type: string | null;
   required: boolean;
+  /** Whether the portal is currently SHOWING this control. Step 3 renders the whole control set and
+   * toggles per case type via display:none; we dump hidden controls too (visible:false) so the drift
+   * canary watches the shared set. Only visible controls are filled/scouted at submit time. */
+  visible: boolean;
   options?: string[];
   name?: string; // radio group
 }
