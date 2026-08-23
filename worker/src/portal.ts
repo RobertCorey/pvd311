@@ -492,24 +492,25 @@ class WorkerPortal implements Portal {
 
     // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
     const before = page.url();
-    const navPromise = page.waitForFunction((u) => location.href !== u, before, { timeout: 60_000 }).then(() => undefined);
+    // Swallow the navigation waiter's own rejection: on the throw paths below the page gets closed and this
+    // promise would otherwise surface as an unhandled "Target closed" rejection.
+    const navPromise = page.waitForFunction((u) => location.href !== u, before, { timeout: 60_000 }).then(() => true, () => false);
     await page.click('#NextButton', { timeout: 10_000 });
-    await Promise.race([
-      navPromise.then(() => 'navigated' as const),
+    const outcome = await Promise.race([
+      navPromise.then((ok) => (ok ? 'navigated' : 'nav_timeout') as 'navigated' | 'nav_timeout'),
       page.waitForTimeout(5_000).then(async () => {
         const btnValue = await page.$eval('#NextButton', (el: any) => el.value).catch(() => '');
-        if (btnValue === 'Processing...') {
-          await navPromise;
-          return 'navigated' as const;
-        }
+        if (btnValue === 'Processing...') return (await navPromise) ? ('navigated' as const) : ('nav_timeout' as const);
         const errorText = await page
           .$eval('.validation-summary-errors', (el: any) => el.textContent?.trim())
           .catch(() => '');
-        throw new Error(
-          `Portal form validation failed${errorText ? ': ' + errorText : ' (button still shows "Submit")'}`,
-        );
+        return { validation: errorText || '' } as const;
       }),
     ]);
+    if (outcome === 'nav_timeout') throw new Error('Portal submit did not navigate within 60s (postback hung?)');
+    if (typeof outcome === 'object') {
+      throw new Error(`Portal form validation failed${outcome.validation ? ': ' + outcome.validation : ' (button still shows "Submit")'}`);
+    }
 
     const entityId = report.portalDraft?.entityId ?? null;
     const candidate = report.portalDraft?.caseId ?? null;
