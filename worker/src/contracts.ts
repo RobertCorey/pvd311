@@ -86,7 +86,8 @@ export interface Store {
   listReports(opts: { status?: ReportStatus | null; category?: string | null; before?: string | null; limit: number }): Promise<ReportDoc[]>;
   listUsers(opts: { before?: string | null; limit: number }): Promise<UserDoc[]>;
   listEvents(opts: { level?: string | null; kind?: string | null; reportId?: string | null; before?: string | null; limit: number }): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]>;
-  countResolved(): Promise<number>;                           // submitted AND portalStatus in the resolved set
+  countResolved(since?: Date): Promise<number>;               // submitted AND portalStatus in the resolved set (optionally filed since)
+  countFiledSince(since: Date): Promise<number>;              // submitted AND timestamp >= since
   /** Atomic engine lock: succeeds only if no live lock exists; CAS on the meta doc's updateTime. */
   tryAcquireEngineLock(untilMs: number): Promise<boolean>;
   releaseEngineLock(): Promise<void>;

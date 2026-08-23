@@ -39,7 +39,7 @@ Client label map: received → "Received"; sending → "Sending to the city"; se
 The report's photo bytes (immutable, cacheable).
 
 ## GET /api/stats
-`{ filed, resolved }` — public counters (reports we filed with the city; of those, ones the city marked Resolved/Closed/Completed). Cached 5 min. For the home-page trust line.
+`{ filed, resolved, since }` — public counters of reports filed with the city SINCE the FixMyPVD relaunch (2026-08-22; PVD Snow-era cases excluded so the number is honest); `resolved` = of those, ones the city marked Resolved/Closed/Completed. Cached 5 min. For the home-page trust line.
 
 ## ~~GET /api/public-feed~~ — removed 2026-08-22
 The /map page was cut, and the feed exposed every report's tracking id (the id is the read credential for `/api/reports/:id` and `/api/photos/:id`). Use `/api/nearby` for the dedupe signal.

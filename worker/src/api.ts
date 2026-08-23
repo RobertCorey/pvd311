@@ -334,9 +334,11 @@ function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
 
 // ── GET /api/stats — public social proof: how many reports we've filed / the city has resolved ──
 
+/** Only reports filed since the FixMyPVD relaunch count — the PVD Snow winter cases would make the number a lie. */
+const RELAUNCH_AT = new Date('2026-08-22T00:00:00Z');
 async function stats({ store }: ApiDeps): Promise<Response> {
-  const [filed, resolved] = await Promise.all([store.countByStatus('submitted').catch(() => 0), store.countResolved().catch(() => 0)]);
-  return json({ filed, resolved }, 200, { 'cache-control': 'public, max-age=300' });
+  const [filed, resolved] = await Promise.all([store.countFiledSince(RELAUNCH_AT).catch(() => 0), store.countResolved(RELAUNCH_AT).catch(() => 0)]);
+  return json({ filed, resolved, since: RELAUNCH_AT.toISOString().slice(0, 10) }, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── GET /api/nearby?lat=&lng=&category=&radiusM=75 (ours + city, last 14 days) ──
