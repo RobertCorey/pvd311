@@ -371,45 +371,22 @@ class WorkerPortal implements Portal {
 
   /** Dump the visible, fillable Step-3 controls (excluding the always-present description/address/case-type). */
   private async dumpControls(): Promise<PortalControl[]> {
+    return this.getPage().evaluate(collectStep3Controls);
+  }
+
+  /**
+   * Drift canary (read-only): re-dump the Step-3 controls for an EXISTING draft without running the
+   * wizard or clicking Next/Submit — so it creates NO new (permanent, undeletable) draft. `draftUrl`
+   * is a `portalDraft.url` saved at draft time (a Step-3 wizard URL); mirrors `tryResumeDraft`'s
+   * navigate-and-detect. Returns null if that draft no longer resumes to Step 3.
+   */
+  async dumpControlsAt(draftUrl: string): Promise<PortalControl[] | null> {
     const page = this.getPage();
-    return page.evaluate(() => {
-      const SKIP = new Set(['cop_casetype_name', 'cop_address', 'description', 'PreviousButton', 'NextButton', 'AttachFile']);
-      const out: any[] = [];
-      document.querySelectorAll('select, input, textarea').forEach((el: any) => {
-        if (!el.offsetParent) return; // hidden
-        if (!el.id || SKIP.has(el.id)) return;
-        if (el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
-        const label =
-          el.getAttribute('aria-label') ||
-          document.querySelector(`label[for="${el.id}"]`)?.textContent?.trim().replace(/\s+/g, ' ') ||
-          el.id;
-        if (/leave this field blank/i.test(label) || /^frm_pref_/.test(el.id)) return; // honeypot — never touch
-        if (el.type === 'radio') {
-          // Collapse a radio group into one control keyed by its group name (e.g. cop_cartrequesttype).
-          const key = el.name.split('$').pop() || el.name;
-          let g = out.find((x) => x.type === 'radio' && x.name === el.name);
-          if (!g) {
-            g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, options: [] };
-            out.push(g);
-          }
-          g.options.push(label.startsWith(g.label) ? label.slice(g.label.length).trim() || label : label);
-          return;
-        }
-        const c: any = {
-          id: el.id,
-          label,
-          tag: el.tagName.toLowerCase(),
-          type: el.type || null,
-          required: !!el.required || el.getAttribute('aria-required') === 'true',
-        };
-        if (el.tagName === 'SELECT')
-          c.options = Array.from(el.options)
-            .map((o: any) => o.textContent.trim())
-            .filter((t: string) => t && t !== 'Select');
-        out.push(c);
-      });
-      return out as PortalControl[];
-    });
+    await this.ensureLoggedIn();
+    await page.goto(draftUrl, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT }).catch(() => {});
+    // Step 3 is identified by the description textarea (same probe tryResumeDraft uses for step 3).
+    if (!(await page.$('#description'))) return null;
+    return this.dumpControls();
   }
 
   private async setControl(c: PortalControl, value: string): Promise<void> {
@@ -737,6 +714,51 @@ class WorkerPortal implements Portal {
 
     return { ok: missing.length === 0, missing, notes };
   }
+}
+
+/**
+ * In-page Step-3 control collector. Runs inside the browser via page.evaluate (Playwright
+ * serializes it), so it is a top-level, self-contained function referencing only browser globals —
+ * no closure over module scope. Exported so the golden generator (worker/test/golden) dumps controls
+ * with the EXACT logic production uses, keeping goldens faithful to the live `dumpControls`.
+ */
+export function collectStep3Controls(): PortalControl[] {
+  const SKIP = new Set(['cop_casetype_name', 'cop_address', 'description', 'PreviousButton', 'NextButton', 'AttachFile']);
+  const out: any[] = [];
+  document.querySelectorAll('select, input, textarea').forEach((el: any) => {
+    if (!el.offsetParent) return; // hidden
+    if (!el.id || SKIP.has(el.id)) return;
+    if (el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.type === 'file') return;
+    const label =
+      el.getAttribute('aria-label') ||
+      document.querySelector(`label[for="${el.id}"]`)?.textContent?.trim().replace(/\s+/g, ' ') ||
+      el.id;
+    if (/leave this field blank/i.test(label) || /^frm_pref_/.test(el.id)) return; // honeypot — never touch
+    if (el.type === 'radio') {
+      // Collapse a radio group into one control keyed by its group name (e.g. cop_cartrequesttype).
+      const key = el.name.split('$').pop() || el.name;
+      let g = out.find((x) => x.type === 'radio' && x.name === el.name);
+      if (!g) {
+        g = { id: key, label: label.replace(/\s+.*$/, '') || key, tag: 'input', type: 'radio', name: el.name, required: !!el.required, options: [] };
+        out.push(g);
+      }
+      g.options.push(label.startsWith(g.label) ? label.slice(g.label.length).trim() || label : label);
+      return;
+    }
+    const c: any = {
+      id: el.id,
+      label,
+      tag: el.tagName.toLowerCase(),
+      type: el.type || null,
+      required: !!el.required || el.getAttribute('aria-required') === 'true',
+    };
+    if (el.tagName === 'SELECT')
+      c.options = Array.from(el.options)
+        .map((o: any) => o.textContent.trim())
+        .filter((t: string) => t && t !== 'Select');
+    out.push(c);
+  });
+  return out as PortalControl[];
 }
 
 // ── Pure grid parsers (ported from automation/src/watcher.ts) ──────────────────────────────────

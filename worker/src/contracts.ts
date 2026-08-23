@@ -31,6 +31,7 @@ export interface Env {
   ADMIN_EMAILS?: string;              // var: comma-separated admin emails for /api/admin/* + in-app /admin (Google sign-in required)
   AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
   RECONCILE_ENABLED?: string;         // var: '1'|'true' enables the watcher's reconcile pass (adopt/stranded/missing); default off
+  DRIFT_CANARY_ENABLED?: string;      // var: '1'|'true' arms the golden-controls Step-3 drift canary in runDaily; default off
 }
 
 export type ReportDoc = Report & { id: string };
@@ -136,6 +137,8 @@ export interface Portal {
   findMyRequestByEntityId(entityId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   findMyRequestByCaseId(caseId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;
+  /** Drift canary (read-only): re-dump Step-3 controls for an existing draft's Step-3 URL. Creates NO new draft; null if it no longer resumes to Step 3. */
+  dumpControlsAt(draftUrl: string): Promise<PortalControl[] | null>;
 }
 
 /** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */

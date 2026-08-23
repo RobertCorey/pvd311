@@ -1,0 +1,20 @@
+{
+  "category": "pothole",
+  "caseTypeName": "Pothole Report",
+  "source": "sim",
+  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "controls": [
+    {
+      "id": "cop_size",
+      "label": "Approximate size of the pothole",
+      "kind": "select",
+      "required": false,
+      "options": [
+        "Small (~4in)",
+        "Medium (~28in)",
+        "Large (~36in)",
+        "Unknown"
+      ]
+    }
+  ]
+}

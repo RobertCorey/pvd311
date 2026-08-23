@@ -1,0 +1,21 @@
+{
+  "category": "noise",
+  "caseTypeName": "Noise or Sound Disturbances",
+  "source": "sim",
+  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "controls": [
+    {
+      "id": "cop_noisesource",
+      "label": "Where is the noise coming from?",
+      "kind": "select",
+      "required": false,
+      "options": [
+        "Residence",
+        "Business",
+        "Street or Public Space",
+        "Construction",
+        "Other"
+      ]
+    }
+  ]
+}

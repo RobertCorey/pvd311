@@ -1,0 +1,18 @@
+{
+  "category": "animal_control",
+  "caseTypeName": "Animal Control Concerns",
+  "source": "sim",
+  "capturedAt": "2026-08-23T01:50:44.554Z",
+  "controls": [
+    {
+      "id": "cop_typeofanimal",
+      "label": "Type of animal",
+      "kind": "select",
+      "required": false,
+      "options": [
+        "Domestic",
+        "Wildlife"
+      ]
+    }
+  ]
+}
