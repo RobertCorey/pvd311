@@ -381,8 +381,9 @@ class WorkerPortal implements Portal {
    * record and stops at Step 3 (identified by #description, whose button is "Submit" — never clicked).
    * Returns null if the record can't be resumed to Step 3 (session lost / form changed).
    *
-   * NOTE (alice): the live Edit-Request→Step-3 walk is unverified here — the portal sim has no
-   * Edit-Request route. Confirm against the seeded canary record (PVD2026-87687) before trusting it.
+   * Verified live 2026-08 against PVD2026-87687: Edit-Request opens at Step 1 with fields set; each
+   * Next is a FULL navigation (URL gains &stepid=…) so waitForNavigation resolves; two Next hops reach
+   * Step 3 (43 controls, #NextButton value "Submit"); My Requests row count unchanged — no draft created.
    */
   async resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null> {
     const page = this.getPage();
@@ -401,7 +402,7 @@ class WorkerPortal implements Portal {
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT }).catch(() => {}),
         next.click().catch(() => {}),
       ]);
-      await page.waitForTimeout(500); // let a partial postback settle
+      await page.waitForTimeout(800); // settle after the full-nav postback (800ms verified sufficient live)
     }
     if (!(await page.$('#description'))) return null;
     return this.dumpControls();
