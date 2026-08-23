@@ -68,9 +68,9 @@ const health = () => ({
   generatedAt: new Date().toISOString(), overall: 'error',
   engine: { paused: false, consecutiveFailures: 0, submissionsThisHour: 2, lastSubmissionTime: new Date(Date.now() - 120_000).toISOString(), locked: false, hitlMode: 'ramp', accountTrustN: '3', reporterEmailEnabled: true },
   subsystems: [
-    { key: 'tick', label: 'Engine tick', what: 'Runs every minute and files one report.', status: 'ok', lastOkAt: new Date(Date.now() - 30_000).toISOString(), lastErrorAt: null, lastError: null, lastDetail: null, okToday: 900, errToday: 0, expectedEvery: '1 min' },
-    { key: 'watcher', label: 'Status watcher', what: 'Reads My Requests on the city portal.', status: 'error', lastOkAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastErrorAt: new Date(Date.now() - 600_000).toISOString(), lastError: 'portal login failed: selector #email not found', lastDetail: 'attempt 3', okToday: 10, errToday: 2, expectedEvery: '30 min' },
-    { key: 'canary', label: 'Selector canary', what: 'Daily check that the portal still looks the way we expect.', status: 'unknown', lastOkAt: null, lastErrorAt: null, lastError: null, lastDetail: null, okToday: 0, errToday: 0, expectedEvery: '1 d' },
+    { key: 'tick', label: 'Engine tick', what: 'Runs every minute and files one report.', status: 'ok', lastOkAt: new Date(Date.now() - 30_000).toISOString(), lastErrorAt: null, lastError: null, lastDetail: null, okToday: 900, errToday: 0, expectedEvery: 'every minute' },
+    { key: 'watcher', label: 'Status watcher', what: 'Reads My Requests on the city portal.', status: 'error', lastOkAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastErrorAt: new Date(Date.now() - 600_000).toISOString(), lastError: 'portal login failed: selector #email not found', lastDetail: 'attempt 3', okToday: 10, errToday: 2, expectedEvery: 'every 30 min' },
+    { key: 'canary', label: 'Selector canary', what: 'Daily check that the portal still looks the way we expect.', status: 'unknown', lastOkAt: null, lastErrorAt: null, lastError: null, lastDetail: null, okToday: 0, errToday: 0, expectedEvery: 'daily, 7 am' },
   ],
   counts: { pending: 1, awaiting_review: 2, processing: 0, submitted: 40, failed: 1, rejected: 3, 'auto-rejected': 0 },
   users: 12, ai: { intakeToday: 5, dailyCap: 200 }, cityFeed: { fetchedAt: new Date(Date.now() - 900_000).toISOString(), items: 230 },
@@ -90,7 +90,7 @@ test('system tab: banner, traffic lights with error + unknown, numbers, filtered
   await expect(main).toContainText('Something is broken');
   await expect(main.locator('.sys-card--error')).toContainText('selector #email not found');
   await expect(main.locator('.sys-card--unknown')).toContainText('Never ran yet');
-  await expect(main.locator('.sys-card--ok')).toContainText('Expected every 1 min');
+  await expect(main.locator('.sys-card--ok')).toContainText('Expected every minute');
   await expect(main.locator('.sys-num', { hasText: 'Awaiting review' })).toContainText('2');
   await expect(main.locator('.sys-event')).toHaveCount(3);
   await page.getByRole('button', { name: 'Errors' }).click();

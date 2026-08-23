@@ -433,7 +433,7 @@
   "admin.sys.light.unknown": "Desconocido",
   "admin.sys.neverRan": "Aún no ha corrido",
   "admin.sys.lastOk": "Último OK {when}",
-  "admin.sys.expected": "Esperado cada {every}",
+  "admin.sys.expected": "Esperado {every}",
   "admin.sys.today": "Hoy: {ok} OK · {err} errores",
   "admin.sys.count.pending": "Pendientes",
   "admin.sys.count.awaiting_review": "En revisión",
