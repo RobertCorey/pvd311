@@ -20,7 +20,7 @@ Quiet launch. Go when every **Gate** is green. Rob-only items are marked **[Rob]
 - [x] Privacy page (app /privacy) + data retention job (worker 7fe7404).
 
 ## Launch day (from docs/product-spec.md §5)
-1. ~~Flip hosting to app/~~ done 2026-08-22 (tracking links + Turnstile confirmed on pvdsnow.org). On domain day: repeat from fixmypvd.org (docs/cutover.md).
+1. ~~Flip hosting to app/~~ done 2026-08-22 (tracking links + Turnstile confirmed on pvdsnow.org). Domain cutover to fixmypvd.org done 2026-08-23.
 2. Post in r/providence + Nextdoor with 3 screenshots (marketing/ refreshed for FixMyPVD — see marketing/README.md); no press.
 3. Watch /admin for the first 48h; HITL stays on review mode until 20 clean submissions, then `ramp`.
 4. ~~pvdsnow.org → 301~~ DONE 2026-08-22 (7bac989): client-side forward (inline script, path/query/hash preserved) — Firebase Hosting can't do host-based 301s. Upgrade to a real 301 later via a Cloudflare Redirect Rule if pvdsnow.org's NS ever move (not needed; domain was never public). Deprecation: keep the redirect ≥ 6 months (old tracking links/QRs), remove pvdsnow.org from Turnstile/CORS/Auth authorized domains after that, then let it lapse at Namecheap (Rob; never cancel at the registrar on his behalf).

@@ -36,8 +36,7 @@ app/               FixMyPVD client (React)
   tests/           Playwright (mobile emulation, API mocked)
 worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
 shared/            category registry (single source of truth)
-docs/              product-spec.md (FixMyPVD), provisioning-task.md
-automation/        legacy laptop engine (reference)
+docs/              product-spec.md, api.md, engine-sync.md, launch-checklist.md
 scripts/           portal research, case-type census
 firebase.json      hosting → app/dist
 ```

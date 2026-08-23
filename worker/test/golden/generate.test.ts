@@ -1,8 +1,8 @@
 /**
  * generate.test.ts — regenerates the committed golden-controls snapshots from the portal SIM.
  *
- * SKIPPED by default. Run explicitly, with a real local Chromium available (app/ or
- * legacy/automation/ node_modules), to (re)produce worker/test/golden/<category>.json and the
+ * SKIPPED by default. Run explicitly, with a real local Chromium available (app/
+ * node_modules), to (re)produce worker/test/golden/<category>.json and the
  * runtime barrel worker/src/golden-controls.ts:
  *
  *     cd worker && GEN_GOLDENS=1 npx vitest run test/golden/generate.test.ts

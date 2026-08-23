@@ -43,4 +43,4 @@ Only widen once city acceptance is clean and submit success is steady.
 
 ## Historical (do not reuse)
 
-- `mediakit-pvdsnow/` and `screenshots/` are from the winter-only PVD Snow launch. Left in place for reference; not part of this kit.
+- The winter-only PVD Snow media kit and screenshots were removed 2026-08-23 (in git history before that date if ever needed).

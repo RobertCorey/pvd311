@@ -27,8 +27,8 @@ So the tests:
 
 1. `vi.mock('@cloudflare/playwright')` and route the driver's `launch()` to a **real** Playwright
    Chromium (`test/sim/browser.ts`). We do **not** add a dependency to `worker/package.json`; we
-   resolve a Playwright build that already exists in the repo (`worker/` → `app/` →
-   `legacy/automation/` node_modules, first found wins). If none exists the tests throw a clear error.
+   resolve a Playwright build that already exists in the repo (`worker/` → `app/`
+   node_modules, first found wins). If none exists the tests throw a clear error.
 2. Point `PORTAL_BASE_URL` at the local sim (`http://127.0.0.1:<port>`). The real Chromium then speaks
    plain HTTP to localhost. Everything between login and `parseRow` is the **unchanged production code
    path**; only the browser transport is swapped.
