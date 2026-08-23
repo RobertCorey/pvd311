@@ -482,6 +482,13 @@ export function createStore(env: Env): Store {
       return { bytes: out, contentType: d.fields?.contentType?.stringValue ?? 'image/jpeg' };
     },
 
+    async countResolved(): Promise<number> {
+      return runCount(env, {
+        from: [{ collectionId: 'reports' }],
+        where: andFilter(fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }), fieldFilter('portalStatus', 'IN', { arrayValue: { values: ['Resolved', 'Closed', 'Completed'].map((s) => ({ stringValue: s })) } })),
+      });
+    },
+
     async countUsers(): Promise<number> {
       return runCount(env, { from: [{ collectionId: 'users' }] });
     },

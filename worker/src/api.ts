@@ -5,6 +5,7 @@
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
  *   GET  /api/nearby      → dedupe signal (ours + city, last 14 days)
+ *   GET  /api/stats       → { filed, resolved } public counters
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
@@ -65,6 +66,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env, deps);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps, auth);
     else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
+    else if (request.method === 'GET' && url.pathname === '/api/stats') resp = await stats(deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
     for (const [k, v] of Object.entries(cors)) resp.headers.set(k, v);
@@ -247,6 +249,27 @@ function toIso(t: unknown): string | null {
   return null;
 }
 
+/** Reporter-safe explanation for a report that will not be filed. Never leaks internal ids or the reviewer. */
+export function notFiledReason(r: ReportDoc): { code: string; text: string; duplicateOf: string | null } | null {
+  if (r.cancelledByReporter) return { code: 'cancelled', text: 'You cancelled this report before it was sent.', duplicateOf: null };
+  if (r.status === 'rejected') {
+    const reason = r.review?.reason?.trim();
+    return { code: 'reviewed', text: reason ? reason : 'A person reviewed this and decided not to send it to the city — usually because it was a duplicate, outside Providence, not something 311 handles, or missing the details the city needs.', duplicateOf: null };
+  }
+  if (r.status === 'auto-rejected') {
+    const d = r.statusDetail ?? '';
+    const dup = /Duplicate: within \d+m of submitted report ([A-Za-z0-9_-]+)/.exec(d);
+    if (dup) return { code: 'duplicate', text: 'Someone already reported this problem at this spot recently, so we did not file it twice.', duplicateOf: dup[1] };
+    if (/^Outside Providence/.test(d)) return { code: 'outside', text: 'The location is outside Providence city limits, which the city\'s 311 does not cover.', duplicateOf: null };
+    if (/^No photo/.test(d)) return { code: 'no_photo', text: 'This category needs a photo and none was attached.', duplicateOf: null };
+    if (/^No address/.test(d)) return { code: 'no_address', text: 'No address or intersection was given.', duplicateOf: null };
+    if (/^Blocked address/.test(d)) return { code: 'blocked', text: 'We could not file a report for that address.', duplicateOf: null };
+    return { code: 'other', text: 'We could not file this report with the city.', duplicateOf: null };
+  }
+  if (r.status === 'failed') return { code: 'failed', text: 'Filing hit a problem on the city\'s side. A person is looking at it; you do not need to do anything.', duplicateOf: null };
+  return null;
+}
+
 /** Tracking projection (no PII). With a viewer (signed-in caller) adds mine/following/editable + the description for owners. */
 function projectReport(r: ReportDoc, viewer?: Viewer) {
   const cat = CATEGORIES[r.category];
@@ -262,6 +285,7 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
     portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline, hasEmail: !!r.reporterEmail,
     owned: !!r.ownerUid, cancelledByReporter: r.cancelledByReporter === true,
+    notFiled: notFiledReason(r),
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
@@ -306,6 +330,13 @@ function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
     lat: it.lat, lng: it.lng, address: it.street, createdAt: parseCityDate(it.createdOn),
     status: 'city', portalStatus: it.status || null,
   };
+}
+
+// ── GET /api/stats — public social proof: how many reports we've filed / the city has resolved ──
+
+async function stats({ store }: ApiDeps): Promise<Response> {
+  const [filed, resolved] = await Promise.all([store.countByStatus('submitted').catch(() => 0), store.countResolved().catch(() => 0)]);
+  return json({ filed, resolved }, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── GET /api/nearby?lat=&lng=&category=&radiusM=75 (ours + city, last 14 days) ──

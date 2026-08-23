@@ -80,6 +80,7 @@ export interface Store {
   getUser(uid: string): Promise<UserDoc | null>;
   patchUser(uid: string, fields: Record<string, unknown>): Promise<void>;
   countUsers(): Promise<number>;
+  countResolved(): Promise<number>;                           // submitted AND portalStatus in the resolved set
   // System visibility (health.ts)
   addEvent(ev: { at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null }): Promise<void>;
   recentEvents(limit: number): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]>;
