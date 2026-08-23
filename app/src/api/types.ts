@@ -58,6 +58,8 @@ export interface ReportView {
   timeline: TimelineEntry[];
   nextUpdateHint: string | null;
   hasEmail?: boolean;
+  /** Set whenever the report will not / did not reach the city (docs/api.md GET /api/reports/:id). */
+  notFiled?: { code: string; text: string; duplicateOf?: string | null } | null;
   /** Present when the caller is signed in (see docs/api.md Accounts). */
   owned?: boolean; cancelledByReporter?: boolean; mine?: boolean; following?: boolean; editable?: boolean; description?: string | null;
 }

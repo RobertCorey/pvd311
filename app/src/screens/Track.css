@@ -36,6 +36,9 @@
 .track-case-label { font-family: var(--font-display); font-weight: 700; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .track-status-explainer { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
 .track-portal-link { display: inline-block; margin-top: 8px; font-size: 0.9rem; font-weight: 600; }
+.track-notfiled-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.track-notfiled-actions .btn { width: auto; text-decoration: none; }
+.track-notfiled-note { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
 .ticket-eta { margin: 12px 0 0; font-size: 0.85rem; color: var(--muted); }
 
 /* rail: 4 steps, horizontal, connectors fill as steps complete */

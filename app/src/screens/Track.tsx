@@ -6,6 +6,7 @@ import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import { neighborhoodAt } from '../lib/neighborhoods';
+import { shortLabel } from '../lib/categories';
 import OwnerActions from '../components/OwnerActions';
 import './Track.css';
 
@@ -40,21 +41,41 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
   }
 }
 
+type RailKind = 'cancelled' | 'notfiled' | 'normal';
+
 /** Parcel-style rail: Received → Sent to city → City working → Resolved. `done` = steps completed;
- *  `branch` marks a warn ending (city closed it / never sent). */
-function railState(v: ReportView): { done: number; branch: 'closed' | 'notSent' | null } {
-  switch (v.status) {
-    case 'rejected': case 'failed': case 'needs_attention': return { done: 1, branch: 'notSent' };
-    case 'received': case 'awaiting_review': case 'sending': return { done: 1, branch: null };
-    case 'sent':
-      switch (v.portalStatus) {
-        case 'Assigned': return { done: 3, branch: null };
-        case 'Resolved': return { done: 4, branch: null };
-        case 'Cancelled': return { done: 3, branch: 'closed' };
-        default: return { done: 2, branch: null };
-      }
-    default: return { done: 1, branch: null };
+ *  `branch` marks a warn ending. Not-filed / cancelled rails end at the failure — no steps ahead. */
+function buildRail(v: ReportView, t: (k: string) => string, kind: RailKind): { labels: string[]; done: number; branch: 'closed' | 'warn' | null } {
+  if (kind === 'cancelled') return { labels: [t('track.rail.received'), t('track.rail.cancelled')], done: 1, branch: 'warn' };
+  if (kind === 'notfiled') return { labels: [t('track.rail.received'), t('track.rail.notFiled')], done: 1, branch: 'warn' };
+  const labels = [t('track.rail.received'), t('track.rail.sent'), t('track.rail.working'), t('track.rail.resolved')];
+  if (v.status === 'sent') {
+    switch (v.portalStatus) {
+      case 'Assigned': return { labels, done: 3, branch: null };
+      case 'Resolved': return { labels, done: 4, branch: null };
+      case 'Cancelled': labels[3] = t('track.rail.closed'); return { labels, done: 3, branch: 'closed' };
+      default: return { labels, done: 2, branch: null };
+    }
   }
+  return { labels, done: 1, branch: null };
+}
+
+/** Server timeline labels arrive in English; render them in the active language, raw label as fallback. */
+function localizeTimelineLabel(label: string, t: (k: string, vars?: Record<string, string | number>) => string): string {
+  const exact: Record<string, string> = {
+    'Received': 'track.timeline.received',
+    'Not filed': 'track.timeline.notFiled',
+    'Needs attention — we are looking at it': 'track.timeline.needsAttention',
+  };
+  if (exact[label]) return t(exact[label]);
+  const filed = label.match(/^Filed with the city as (.+)$/);
+  if (filed) return t('track.timeline.filedAs', { case: filed[1] });
+  const city = label.match(/^City status: (.+)$/);
+  if (city) {
+    const localized = t(`track.portalStatus.${city[1]}`);
+    return t('track.timeline.cityStatus', { status: localized.startsWith('track.') ? city[1] : localized });
+  }
+  return label;
 }
 
 const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -153,35 +174,46 @@ export default function Track() {
     );
   }
 
+  const cancelled = view.cancelledByReporter === true || view.notFiled?.code === 'cancelled';
+  const nf = !cancelled
+    ? (view.notFiled ?? (view.status === 'rejected' ? { code: 'other', text: '', duplicateOf: null } : null))
+    : null;
+  const notFiled = nf !== null;
+  const kind: RailKind = cancelled ? 'cancelled' : notFiled ? 'notfiled' : 'normal';
   const info = statusInfo(view, t);
-  const rail = railState(view);
+  const headline = cancelled ? t('track.state.cancelledByYou') : notFiled ? t('track.notfiled.heading') : info.headline;
+  const tone: Tone = cancelled || notFiled ? 'warn' : info.tone;
+  const rail = buildRail(view, t, kind);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
   const ts = (iso: string | null) => (iso ? new Date(iso).getTime() || 0 : 0);
   const entries = [...view.timeline].sort((a, b) => ts(b.at) - ts(a.at));
-  const railLabels = [t('track.rail.received'), t('track.rail.sent'), t('track.rail.working'), t('track.rail.resolved')];
-  if (rail.branch === 'closed') railLabels[3] = t('track.rail.closed');
-  if (rail.branch === 'notSent') railLabels[1] = t('track.rail.notSent');
 
   return (
     <section className="track section">
       {justSubmitted && view.status !== 'rejected' && <ConfirmHeader trackUrl={trackUrl} />}
 
-      <div className={`track-status ticket track-status--${info.tone}`} aria-live="polite">
+      <div className={`track-status ticket track-status--${tone}`} aria-live="polite">
         <div className="ticket-head">
           <span className="label">{t('track.status.label')}</span>
-          {view.portalCaseId && (
+          {view.portalCaseId && !cancelled && !notFiled && (
             <span className="track-case" aria-label={`${t('track.caseId.label')} ${view.portalCaseId}`}>
               <span className="track-case-label">{t('track.caseId.label')}</span>{view.portalCaseId}
             </span>
           )}
         </div>
-        <h2 className="track-status-headline">{info.headline}</h2>
-        {info.explainer && <p className="track-status-explainer">{info.explainer}</p>}
-        {info.portalLink && (
-          <a className="track-portal-link" href={BRAND.portalUrl} target="_blank" rel="noopener">{t('track.portalLink')}</a>
+        <h2 className="track-status-headline">{headline}</h2>
+        {notFiled && nf ? (
+          <NotFiledBody nf={nf} t={t} />
+        ) : cancelled ? null : (
+          <>
+            {info.explainer && <p className="track-status-explainer">{info.explainer}</p>}
+            {info.portalLink && (
+              <a className="track-portal-link" href={BRAND.portalUrl} target="_blank" rel="noopener">{t('track.portalLink')}</a>
+            )}
+          </>
         )}
-        <ol className={`rail rail--${rail.branch ?? 'ok'}`} aria-label={t('track.timeline.title')}>
-          {railLabels.map((label, i) => {
+        <ol className={`rail rail--${rail.branch ?? 'ok'}`} style={{ gridTemplateColumns: `repeat(${rail.labels.length}, 1fr)` }} aria-label={t('track.timeline.title')}>
+          {rail.labels.map((label, i) => {
             const state = i < rail.done ? 'done' : i === rail.done && rail.branch ? 'warn' : i === rail.done ? 'active' : 'todo';
             return (
               <li key={i} className={`rail-step rail-step--${state}`} style={{ animationDelay: `${i * 60}ms` }} aria-current={state === 'active' ? 'step' : undefined}>
@@ -194,7 +226,7 @@ export default function Track() {
             );
           })}
         </ol>
-        {view.nextUpdateHint && <p className="ticket-eta">{view.nextUpdateHint}</p>}
+        {view.nextUpdateHint && !notFiled && !cancelled && <p className="ticket-eta">{view.nextUpdateHint}</p>}
       </div>
 
       <div className="section">
@@ -204,7 +236,7 @@ export default function Track() {
             <li key={`${e.at}-${i}`} className={`track-tl-row${i === 0 ? ' is-current' : ''}`}>
               <span className="track-tl-dot" aria-hidden="true" />
               <div className="track-tl-body">
-                <span className="track-tl-label">{e.label}</span>
+                <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>
                 <span className="track-tl-time">
                   <time dateTime={e.at ?? undefined}>{relTime(e.at, t('track.time.justNow'))}</time>
                   <span className="track-tl-abs"> · {absTime(e.at)}</span>
@@ -221,7 +253,7 @@ export default function Track() {
           {view.photoUrl && <div className="track-photo-frame"><img className="track-photo" src={view.photoUrl} alt={t('track.details.photoAlt')} /></div>}
           <div className="track-cat">
             <span className="track-cat-icon"><CategoryIcon k={view.category} size={40} /></span>
-            <span className="track-cat-label">{view.categoryLabel}</span>
+            <span className="track-cat-label">{shortLabel(view.category, t)}</span>
           </div>
           <div className="track-map" data-map data-lat={view.lat ?? undefined} data-lng={view.lng ?? undefined}>
             <span className="label">{t('track.map.label')}</span>
@@ -234,14 +266,24 @@ export default function Track() {
         </div>
       </div>
 
-      <div className="section">
-        <h2>{t('track.expect.title')}</h2>
-        <ul className="track-expect">
-          <li>{t('track.expect.body1')}</li>
-          <li>{t('track.expect.body2')}</li>
-          <li>{t('track.expect.body3')}</li>
-        </ul>
-      </div>
+      {notFiled || cancelled ? (
+        <div className="section">
+          <h2>{t('track.notfiled.expect.title')}</h2>
+          <ul className="track-expect">
+            <li>{t('track.notfiled.noCaseNumber')}</li>
+            <li>{t('track.notfiled.notPublic')}</li>
+          </ul>
+        </div>
+      ) : (
+        <div className="section">
+          <h2>{t('track.expect.title')}</h2>
+          <ul className="track-expect">
+            <li>{t('track.expect.body1')}</li>
+            <li>{t('track.expect.body2')}</li>
+            <li>{t('track.expect.body3')}</li>
+          </ul>
+        </div>
+      )}
 
       <OwnerActions id={id!} view={view} onChange={() => load({ silent: true })} />
     </section>
@@ -297,6 +339,32 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
       </div>
       <p className="hint">{t('track.confirm.a2hs')}</p>
     </div>
+  );
+}
+
+/** Not-filed reason + next step. Bucket the code: duplicate (view + report anyway),
+ *  failed (a person is looking at it), everything else (report again with photo + location). */
+function NotFiledBody({ nf, t }: { nf: { code: string; text: string; duplicateOf?: string | null }; t: (k: string, vars?: Record<string, string | number>) => string }) {
+  const bucket = nf.code === 'duplicate' ? 'duplicate' : nf.code === 'failed' ? 'failed' : 'again';
+  const reason = nf.text?.trim()
+    ? nf.text.trim()
+    : bucket === 'duplicate' ? t('track.notfiled.reason.duplicate')
+    : bucket === 'again' ? t('track.notfiled.reason.again')
+    : '';
+  return (
+    <>
+      {reason && <p className="track-status-explainer">{reason}</p>}
+      <div className="track-notfiled-actions">
+        {bucket === 'duplicate' && (
+          <>
+            {nf.duplicateOf && <Link className="btn btn-secondary" to={`/r/${nf.duplicateOf}`}>{t('track.notfiled.duplicate.view')}</Link>}
+            <Link className="btn btn-ghost" to="/">{t('track.notfiled.duplicate.again')}</Link>
+          </>
+        )}
+        {bucket === 'again' && <Link className="btn btn-secondary" to="/">{t('track.notfiled.reportAgain')}</Link>}
+        {bucket === 'failed' && <p className="track-notfiled-note">{t('track.notfiled.failed')}</p>}
+      </div>
+    </>
   );
 }
 
