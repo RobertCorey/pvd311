@@ -303,8 +303,11 @@ export async function runWatcher(env: Env): Promise<void> {
         const rec = await runReconcile(store, portal);
         console.log(`[reconcile] ${rec.adopted.length} adopted, ${rec.stranded.length} stranded, ${rec.missing.length} missing (${rec.scanned} rows)`);
       } catch (e) {
-        console.error('[reconcile] failed:', e instanceof Error ? e.message : e);
-        await logEvent(store, { level: 'error', kind: 'reconcile.failed', msg: e instanceof Error ? e.message : String(e) });
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[reconcile] failed:', msg);
+        await logEvent(store, { level: 'error', kind: 'reconcile.failed', msg });
+        // Surface into the health sync block (merges over the last-good counts/ids; cleared on the next clean pass).
+        await store.setMeta('reconcile', { at: new Date().toISOString(), error: msg }).catch(() => {});
       }
     }
 
@@ -328,12 +331,19 @@ export async function runWatcher(env: Env): Promise<void> {
 
 // ── Reconcile pass (P1, flagged RECONCILE_ENABLED) ─────────────────────────────────────
 
+/**
+ * Written to `meta/reconcile`; read by /api/admin/health's sync block (adminapi.ts). That consumer is
+ * shape-agnostic: `n(v)` derives a count from either an array or a number, and `ids(v)` surfaces the
+ * PVD numbers only when the value is an array (capped at 50). So adopted/stranded/missing are ARRAYS
+ * of PVD case numbers here — they feed BOTH the health block's counts and its `ids: {…}` output.
+ */
 export interface ReconcileSummary {
-  at: string;          // ISO of this pass
-  adopted: string[];   // PVD case numbers we bound to a report and set 'submitted' this pass
-  stranded: string[];  // PVD case numbers (or GUID/report-id fallback) of stale Drafts tied to failed/rejected reports — undeletable
-  missing: string[];   // PVD case numbers of 'submitted' reports that no longer appear in My Requests
-  scanned: number;     // My Requests rows scanned this pass
+  at: string;              // ISO of this pass
+  adopted: string[];       // PVD case numbers we bound to a report and set 'submitted' this pass
+  stranded: string[];      // PVD case numbers (or GUID/report-id fallback) of stale Drafts tied to failed/rejected reports — undeletable
+  missing: string[];       // PVD case numbers of 'submitted' reports that no longer appear in My Requests
+  scanned: number;         // My Requests rows scanned this pass
+  error: string | null;    // set when the pass threw (health shows it); null on a clean pass
 }
 
 function reconcileEnabled(env: Env): boolean {
@@ -371,7 +381,7 @@ export async function runReconcile(store: Store, portal: Portal): Promise<Reconc
   // A 0-row scrape is indistinguishable from a transient portal error — never conclude "everything vanished".
   if (scanned === 0) {
     await logEvent(store, { level: 'warn', kind: 'reconcile.empty_scan', msg: 'My Requests returned 0 rows — reconcile skipped this tick' });
-    const summary: ReconcileSummary = { at, adopted: [], stranded: [...prevStranded], missing: [...prevMissing], scanned: 0 };
+    const summary: ReconcileSummary = { at, adopted: [], stranded: [...prevStranded], missing: [...prevMissing], scanned: 0, error: null };
     await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
     return summary;
   }
@@ -447,7 +457,7 @@ export async function runReconcile(store: Store, portal: Portal): Promise<Reconc
     }
   }
 
-  const summary: ReconcileSummary = { at, adopted, stranded, missing, scanned };
+  const summary: ReconcileSummary = { at, adopted, stranded, missing, scanned, error: null };
   await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
   if (adopted.length || newStranded || newMissing) {
     await logEvent(store, { level: 'info', kind: 'reconcile.summary', msg: `Reconcile: ${adopted.length} adopted, ${stranded.length} stranded (${newStranded} new), ${missing.length} missing (${newMissing} new); ${scanned} rows`, data: { adopted, stranded, missing, scanned } });

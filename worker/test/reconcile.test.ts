@@ -66,7 +66,8 @@ describe('reconcile: adopt', () => {
     expect(r.caseIdPending).toBe(false);
     expect((r as any).portalStatus).toBe('Assigned');
     expect((r as any).review?.by).toBe('reconcile');
-    expect(s.adopted).toEqual(['PVD2026-100']);
+    expect(s.adopted).toEqual(['PVD2026-100']); // arrays of PVD numbers; health block derives counts + ids from these
+    expect(s.error).toBeNull();
     expect(events.some((e) => e.kind === 'reconcile.adopted' && e.reportId === 'rep-adopt')).toBe(true);
   });
 
@@ -132,6 +133,7 @@ describe('reconcile: missing', () => {
     const s = await runReconcile(store, makePortal([]));
     expect(s.scanned).toBe(0);
     expect(s.missing).toEqual([]);
+    expect(s.error).toBeNull();
     expect(events.some((e) => e.kind === 'reconcile.empty_scan')).toBe(true);
     expect(events.some((e) => e.kind === 'reconcile.missing')).toBe(false);
   });
