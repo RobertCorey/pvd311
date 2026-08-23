@@ -22,6 +22,30 @@ export async function forwardGeocode(text: string, signal?: AbortSignal): Promis
   return { lat: c.location.y, lng: c.location.x, label: c.attributes?.Match_addr ?? c.address ?? text, score: c.score };
 }
 
+/**
+ * Confirm a picked file is a real image by decoding it (not just trusting the
+ * extension/type). Uses createImageBitmap where available, falling back to an
+ * <img> load and naturalWidth > 0. Resolves false for non-images.
+ */
+export async function decodeImage(file: Blob): Promise<boolean> {
+  if (file.type && !file.type.startsWith('image/')) return false;
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(file);
+      const ok = bmp.width > 0 && bmp.height > 0;
+      bmp.close();
+      return ok;
+    } catch { /* fall back to <img> */ }
+  }
+  return await new Promise<boolean>((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { const ok = img.naturalWidth > 0; URL.revokeObjectURL(url); resolve(ok); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
+    img.src = url;
+  });
+}
+
 /** Read GPS from JPEG EXIF (browser-side, no deps). Returns null when absent. */
 export async function readExifGps(file: Blob): Promise<{ lat: number; lng: number } | null> {
   const buf = await file.slice(0, 256 * 1024).arrayBuffer();

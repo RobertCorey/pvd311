@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
-import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
+import { compressImage, decodeImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { signOut, useSession } from '../lib/auth';
 import { useLocation } from 'react-router-dom';
@@ -55,6 +55,8 @@ export default function Report() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoHasGps, setPhotoHasGps] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +65,9 @@ export default function Report() {
   const [loc, setLoc] = useState<Loc>(null);
   const [locMsg, setLocMsg] = useState<string>('');
   const [outside, setOutside] = useState(false);
+  // Inline feedback for the typed-address path (geocode missed / landed outside),
+  // re-evaluated on every blur against the current address.
+  const [addrFeedback, setAddrFeedback] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
   const geocodedFor = useRef<string | null>(null);
 
@@ -91,6 +96,7 @@ export default function Report() {
   // --- submit ---
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileNonce, setTurnstileNonce] = useState(0);
+  const [turnstileSlow, setTurnstileSlow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
@@ -157,19 +163,33 @@ export default function Report() {
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
+  // If the human-check widget hasn't produced a token after ~10s, surface a way out.
+  useEffect(() => {
+    setTurnstileSlow(false);
+    if (turnstileToken || !online) return;
+    const delay = (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ ?? 10_000;
+    const id = window.setTimeout(() => setTurnstileSlow(true), delay);
+    return () => window.clearTimeout(id);
+  }, [turnstileToken, online, turnstileNonce]);
+
   const pick = (key: string) => { setCategory(key); setExtra({}); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
   const onPhoto = useCallback(async (file: File | null) => {
-    setPhoto(file);
+    setPhotoError(null);
     setPhotoHasGps(false);
     if (photoUrl) URL.revokeObjectURL(photoUrl);
-    setPhotoUrl(file ? URL.createObjectURL(file) : null);
-    if (!file) return;
+    if (!file) { setPhoto(null); setPhotoUrl(null); return; }
+    // Confirm it's a real image before accepting it (a renamed/other file is rejected).
+    if (!(await decodeImage(file))) {
+      setPhoto(null); setPhotoUrl(null); setPhotoError(t('report.photo.notImage'));
+      return;
+    }
+    // Pull GPS from the ORIGINAL (compression strips EXIF) before re-encoding.
     try {
       const gps = await readExifGps(file);
       if (gps && inProvidence(gps.lat, gps.lng)) {
         setPhotoHasGps(true);
-        setLoc(gps); setOutside(false);
+        setLoc(gps); setOutside(false); setAddrFeedback(null);
         setLocMsg(t('report.location.foundInPhoto'));
         const label = await reverseGeocode(gps.lat, gps.lng).catch(() => null);
         if (label) { setAddress(label); geocodedFor.current = label; }
@@ -179,6 +199,17 @@ export default function Report() {
         setLocMsg(t('report.photo.noExif'));
       }
     } catch { /* no EXIF */ }
+    // Compress large files now, with a visible state, so the upload stays ≤300 KB
+    // and EXIF rotation is baked into the pixels (the Worker stores the blob as-is).
+    let out: Blob = file;
+    if (file.size > 300 * 1024) {
+      setCompressing(true);
+      out = await compressImage(file).catch(() => file);
+      setCompressing(false);
+    }
+    const finalFile = out instanceof File ? out : new File([out], 'photo.jpg', { type: 'image/jpeg' });
+    setPhoto(finalFile);
+    setPhotoUrl(URL.createObjectURL(finalFile));
   }, [photoUrl, loc, t]);
 
   const detect = useCallback(() => {
@@ -186,7 +217,7 @@ export default function Report() {
     setDetecting(true); setLocMsg(t('report.location.finding'));
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
-      setDetecting(false);
+      setDetecting(false); setAddrFeedback(null);
       if (!inProvidence(lat, lng)) { setOutside(true); setLoc(null); setLocMsg(t('report.location.youOutside')); return; }
       setLoc({ lat, lng }); setOutside(false); setLocMsg(t('report.location.found'));
       const label = await reverseGeocode(lat, lng).catch(() => null);
@@ -200,15 +231,16 @@ export default function Report() {
     geocodedFor.current = text;
     try {
       const hit = await forwardGeocode(text);
-      if (!hit) return;
-      if (!inProvidence(hit.lat, hit.lng)) { setOutside(true); setLoc(null); return; }
-      setOutside(false); setLoc({ lat: hit.lat, lng: hit.lng });
+      if (!hit) { setAddrFeedback(t('report.location.notFound')); setOutside(false); setLoc(null); return; }
+      if (!inProvidence(hit.lat, hit.lng)) { setOutside(true); setLoc(null); setAddrFeedback(t('report.location.youOutside')); return; }
+      setOutside(false); setLoc({ lat: hit.lat, lng: hit.lng }); setAddrFeedback(null);
     } catch { /* ignore */ }
-  }, [address, photoHasGps]);
+  }, [address, photoHasGps, t]);
 
   // Draggable pin: the reporter corrects the spot; address follows (reverse geocode).
   const pinTimer = useRef<number | null>(null);
   const onPinMove = useCallback((lat: number, lng: number) => {
+    setAddrFeedback(null);
     if (!inProvidence(lat, lng)) { setOutside(true); setLoc({ lat, lng }); setLocMsg(t('report.location.pinOutside')); return; }
     setOutside(false); setLoc({ lat, lng }); setLocMsg(t('report.location.pinMoved'));
     if (pinTimer.current) window.clearTimeout(pinTimer.current);
@@ -266,7 +298,9 @@ export default function Report() {
     }
     setSubmitting(true); setError(null);
     try {
-      const blob = photo ? await compressImage(photo).catch(() => photo) : null;
+      // Photos are decoded + compressed at selection, so the stored File is already
+      // ≤300 KB and upright — send it as-is.
+      const blob: Blob | null = photo;
       if (offline) {
         await outbox.add({
           category: cat.key, description: description.trim(), address: address.trim(),
@@ -337,11 +371,16 @@ export default function Report() {
           <div className="card outbox-card" role="status">
             <p className="hint">{t(pending === 1 ? 'report.outbox.pending' : 'report.outbox.pendingPlural', { count: pending })}</p>
             {session ? <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
-              : <Link className="btn btn-ghost" to="/account?returnTo=%2F">{t('report.outbox.signIn')}</Link>}
+              : (
+                <>
+                  <p className="hint">{t('report.outbox.signInPending')}</p>
+                  <Link className="btn btn-ghost" to="/account?returnTo=%2F">{t('report.outbox.signIn')}</Link>
+                </>
+              )}
           </div>
         )}
         <div className="home-hero">
-          <h2>{t('report.whatsWrong')}</h2>
+          <h1>{t('report.whatsWrong')}</h1>
           <p className="hero-sub">{t('report.heroSub')}</p>
           <TrustLine />
         </div>
@@ -364,14 +403,17 @@ export default function Report() {
           <CategoryIcon k={cat.key} size={24} />{shortLabel(cat.key, t)}<span className="chip-change">{t('report.change')}</span>
         </button>
       </div>
+      {!session && <p className="signin-disclosure">{t('report.signInDisclosure')}</p>}
 
       {/* Photo */}
       <section className="section">
-        <h2>{photoRequired ? t('report.photo.titleRequired') : t('report.photo.titleOptional')}</h2>
+        <h1 className="compose-title">{photoRequired ? t('report.photo.titleRequired') : t('report.photo.titleOptional')}</h1>
         <p className="hint">{photoRequired ? t('report.photo.hintRequired') : t('report.photo.hintOptional')}</p>
         <input ref={cameraRef} id="photo" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => onPhoto(e.target.files?.[0] ?? null)} />
         <input ref={libraryRef} id="photoLibrary" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onPhoto(e.target.files?.[0] ?? null)} />
-        {!photoUrl ? (
+        {compressing ? (
+          <div className="photo-card photo-compressing" aria-live="polite"><p className="hint">{t('report.photo.compressing')}</p></div>
+        ) : !photoUrl ? (
           <div className="photo-hero">
             <button type="button" className="btn btn-primary" onClick={() => cameraRef.current?.click()}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" /></svg>
@@ -388,6 +430,7 @@ export default function Report() {
             </div>
           </div>
         )}
+        {photoError && <div className="notice notice-error" role="alert">{photoError}</div>}
       </section>
 
       {/* Location */}
@@ -401,10 +444,10 @@ export default function Report() {
           </button>
         )}
         <label className="label" htmlFor="address">{t('report.location.label')}</label>
-        <SavedAddresses onPick={(a) => { setAddress(a.address); geocodedFor.current = a.address; setOutside(false); if (a.lat != null && a.lng != null) setLoc({ lat: a.lat, lng: a.lng }); }} />
+        <SavedAddresses onPick={(a) => { setAddress(a.address); geocodedFor.current = a.address; setOutside(false); setAddrFeedback(null); if (a.lat != null && a.lng != null) setLoc({ lat: a.lat, lng: a.lng }); }} />
         <input id="address" className="input" value={address} placeholder={t('report.location.placeholder')}
-          autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
-        {outside && <div className="notice notice-warn" role="alert">{t('report.location.outside')}</div>}
+          autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); setAddrFeedback(null); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
+        {addrFeedback && <div className="notice notice-warn" role="alert">{addrFeedback}</div>}
         {nearby.length > 0 && !nearbyDismissed && <NearbyCard items={nearby} onDismiss={() => setNearbyDismissed(true)} />}
         {loc && (
           <div className="mini-map">
@@ -457,10 +500,16 @@ export default function Report() {
         )}
       </section>
 
-      {/* Submit */}
+      {/* Human check — a labelled form step above Send, not a post-tap failure */}
       <section className="section">
         <p className="public-record">{t('report.publicRecord')}</p>
-        <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
+        <div className="human-check" role="group" aria-labelledby="human-check-label">
+          <span className="label" id="human-check-label">{t('report.humanCheck.label')}</span>
+          <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
+          {turnstileSlow && !turnstileToken && online && (
+            <p className="hint">{t('report.humanCheck.trouble', { email: BRAND.contactEmail })}</p>
+          )}
+        </div>
         {error && <div className="notice notice-error" role="alert">{error}</div>}
       </section>
       {gated && !session ? (
@@ -473,8 +522,9 @@ export default function Report() {
       ) : null}
       <div className="submit-bar" hidden={gated && !session}>
         {resumeSend && session && <p className="hint center">{t('report.gate.resumed')}</p>}
-        <button type="submit" className="btn btn-primary" disabled={!canSubmit}>{submitting ? t('report.sending') : t('report.submit')}</button>
-        {!submitting && blockReason && <p className="hint center" aria-live="polite">{blockReason}</p>}
+        <button type="submit" className="btn btn-primary" aria-disabled={!canSubmit}
+          aria-describedby={!submitting && blockReason ? 'submit-hint' : undefined}>{submitting ? t('report.sending') : t('report.submit')}</button>
+        {!submitting && blockReason && <p id="submit-hint" className="hint center" aria-live="polite">{blockReason}</p>}
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
     </form>

@@ -1,6 +1,6 @@
 /* --- Phase A: the category grid IS the home screen --- */
 .home-hero { margin: 8px 0 14px; }
-.home-hero h2 { font-size: 1.9rem; line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 6px; }
+.home-hero h1 { font-size: 1.9rem; font-weight: 800; line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 6px; }
 .home-hero .hero-sub { margin: 0; color: var(--muted); font-size: 0.95rem; max-width: 34ch; text-wrap: pretty; }
 .trust-line { margin: 10px 0 0; font-size: 0.82rem; line-height: 1.45; color: var(--muted); text-wrap: pretty; }
 .trust-link { font-weight: 700; color: var(--link); white-space: nowrap; }
@@ -30,6 +30,13 @@
 .chip-change { font-weight: 600; color: var(--ember-ink); font-size: 0.8rem; margin-left: 2px; text-decoration: underline; text-underline-offset: 3px; }
 .chip:disabled { opacity: 0.6; }
 .detect-chip { margin-bottom: 12px; }
+.compose-title { font-size: 1.35rem; font-weight: 800; line-height: 1.15; margin: 0 0 6px; }
+.signin-disclosure { margin: 0 0 8px; font-size: 0.85rem; line-height: 1.4; color: var(--muted); text-wrap: pretty; }
+.human-check { display: flex; flex-direction: column; gap: 8px; }
+.human-check .label { margin: 0; }
+.human-check .hint { margin: 0; }
+.photo-card { border: 2px dashed var(--line); border-radius: var(--radius); padding: 20px; text-align: center; }
+.photo-compressing .hint { margin: 0; }
 
 .photo-hero { display: flex; flex-direction: column; gap: 10px; }
 .photo-hero .btn-primary { min-height: 64px; font-size: 1.15rem; }

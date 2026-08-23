@@ -253,3 +253,104 @@ test('disabled Send explains what is missing, in order', async ({ page }) => {
   await expect(page.locator('.submit-bar .hint')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeEnabled();
 });
+
+// A valid 1x1 PNG (green pixel), and a non-image, for the photo-validation tests.
+const PNG_1x1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
+
+test('sign-in disclosure shows only when signed out', async ({ page }) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await expect(page.locator('.signin-disclosure')).toHaveText('Sending takes a quick email or Google sign-in — no password.');
+  // Signed in: the line is gone.
+  await mockApi(page);
+  await page.goto('/?c=missed_trash');
+  await expect(page.locator('.signin-disclosure')).toHaveCount(0);
+});
+
+test('human check is a labelled step; trouble help appears if the token never arrives', async ({ page }) => {
+  await mockApi(page);
+  // Remove the injected test token and block the widget script so no token ever arrives.
+  await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ = 300; });
+  await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await expect(page.getByText("Quick check that you're a person")).toBeVisible();
+  await page.fill('#address', '25 Dorrance St');
+  await expect(page.locator('.submit-bar .hint')).toHaveText("Checking you're a real person…");
+  await expect(page.locator('.human-check .hint')).toContainText('Trouble loading the check?', { timeout: 4000 });
+  await expect(page.locator('.human-check .hint')).toContainText('rob@fixmypvd.org');
+});
+
+test('typed address that geocodes to nothing shows an inline check-the-street message', async ({ page }) => {
+  await mockApi(page);
+  await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [] }) }));
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', 'zzz not a real street');
+  await page.locator('#address').blur();
+  await expect(page.locator('.notice-warn')).toContainText("We couldn't find that address in Providence");
+});
+
+test('typed address outside Providence warns and clears once a city address geocodes', async ({ page }) => {
+  await mockApi(page);
+  await page.route('https://geocode.arcgis.com/**', (route) => {
+    const outside = /Elsewhere/i.test(decodeURIComponent(route.request().url()));
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{
+      location: outside ? { x: -71.30, y: 41.90 } : { x: -71.4129, y: 41.8241 }, score: 100,
+      attributes: { Match_addr: outside ? 'Somewhere, RI' : '25 Dorrance St, Providence, RI' },
+    }] }) });
+  });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '100 Elsewhere Rd');
+  await page.locator('#address').blur();
+  await expect(page.locator('.notice-warn')).toContainText('You appear to be outside Providence');
+  await expect(page.locator('.submit-bar .hint')).toHaveText('That location is outside Providence.');
+  // Re-evaluates against the current address: a Providence address clears it.
+  await page.fill('#address', '25 Dorrance St');
+  await page.locator('#address').blur();
+  await expect(page.locator('.notice-warn')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeEnabled();
+});
+
+test('photo validation: a non-image is rejected, a real image is accepted', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.setInputFiles('#photoLibrary', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('this is not a photo') });
+  await expect(page.locator('.notice-error')).toContainText("That file isn't a photo.");
+  await expect(page.locator('.photo-preview')).toHaveCount(0);
+  await page.setInputFiles('#photoLibrary', { name: 'photo.png', mimeType: 'image/png', buffer: PNG_1x1 });
+  await expect(page.locator('.photo-preview')).toBeVisible();
+  await expect(page.locator('.notice-error')).toHaveCount(0);
+});
+
+test('Send is aria-disabled (not natively disabled) and does not submit while blocked', async ({ page }) => {
+  await mockApi(page);
+  let reported = false;
+  await page.route(`${API}/api/report`, (r) => { reported = true; r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'x', trackingUrl: '/r/x', category: 'missed_trash', createdAt: new Date().toISOString() }) }); });
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  const submit = page.getByRole('button', { name: 'Send to Providence 311' });
+  await expect(submit).toHaveAttribute('aria-disabled', 'true');
+  await expect(submit).toHaveAttribute('aria-describedby', 'submit-hint');
+  await expect(submit).not.toHaveAttribute('disabled', /.*/);
+  // Force past the actionability guard: the onSubmit guard must still refuse.
+  await submit.click({ force: true });
+  await page.waitForTimeout(300);
+  expect(reported).toBe(false);
+  await page.fill('#address', '25 Dorrance St');
+  await expect(submit).toHaveAttribute('aria-disabled', 'false');
+});
+
+test('offline queued screen tells you to sign in online to send it', async ({ page, context }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await page.fill('#address', '25 Dorrance St');
+  await context.setOffline(true);
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.queued')).toContainText('Saved on your phone');
+  await expect(page.locator('.queued')).toContainText('sign in to send it to 311');
+});

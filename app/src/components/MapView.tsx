@@ -173,9 +173,13 @@ export default function MapView({
     }
     const pos: L.LatLngExpression = [draggablePin.lat, draggablePin.lng];
     if (!pinRef.current) {
-      const pin = L.marker(pos, { icon: markerIcon('--ember', { pulse: true }), draggable: true, keyboard: true, alt: 'Report location' });
+      // The address field is the accessible input for the location; the pin is a
+      // pointer-only convenience, so keep it out of the tab order and the a11y tree.
+      const pin = L.marker(pos, { icon: markerIcon('--ember', { pulse: true }), draggable: true, keyboard: false, alt: 'Report location' });
       pin.on('dragend', () => { const ll = pin.getLatLng(); onPinMoveRef.current?.(ll.lat, ll.lng); });
       pin.addTo(map);
+      const pinEl = pin.getElement();
+      if (pinEl) { pinEl.setAttribute('aria-hidden', 'true'); pinEl.setAttribute('tabindex', '-1'); }
       pinRef.current = pin;
     } else {
       pinRef.current.setLatLng(pos);
