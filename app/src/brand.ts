@@ -9,7 +9,7 @@ export const BRAND = {
   domain: 'fixmypvd.org',
   /** Canonical site URL once the domain exists; until then links use the current origin. */
   siteUrl: typeof location !== 'undefined' && /fixmypvd\.org$/.test(location.hostname) ? 'https://fixmypvd.org' : (typeof location !== 'undefined' ? location.origin : 'https://fixmypvd.org'),
-  contactEmail: 'pvdsnow@proton.me',  // TODO → hello@fixmypvd.org once the domain + inbox exist
+  contactEmail: 'rob@fixmypvd.org',  // routed via Cloudflare Email Routing (alice); switch to hello@ once that alias routes
   disclaimer: 'FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.',
   portalUrl: 'https://311.providenceri.gov',
   themeColor: '#F7F1E6',

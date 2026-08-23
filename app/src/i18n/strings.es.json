@@ -372,5 +372,9 @@
   "report.outbox.signIn": "Inicia sesión para enviar tus reportes guardados",
   "track.state.cancelledByYou": "Cancelado por ti — este reporte no se envió a la ciudad.",
   "report.error.sessionExpired": "Tu sesión expiró — inicia sesión de nuevo para enviar. Tu reporte está guardado.",
-  "report.gate.unsaved": "No pudimos guardar una copia de este reporte en tu teléfono (¿navegación privada?). Inicia sesión con Google aquí mismo — el enlace por correo abriría una página nueva y lo perdería."
+  "report.gate.unsaved": "No pudimos guardar una copia de este reporte en tu teléfono (¿navegación privada?). Inicia sesión con Google aquí mismo — el enlace por correo abriría una página nueva y lo perdería.",
+  "report.photo.titleRequired": "Agrega una foto (obligatoria)",
+  "report.block.photo": "Agrega una foto para enviar.",
+  "report.block.address": "Agrega la dirección para enviar.",
+  "report.block.outside": "Esa ubicación está fuera de Providence."
 }

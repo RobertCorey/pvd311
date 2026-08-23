@@ -80,7 +80,7 @@ test('rate limited → friendly message, stays on page', async ({ page }) => {
   await page.fill('#address', '25 Dorrance St');
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('[role="alert"]')).toContainText('One report at a time');
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/\?c=missed_trash$/); // still on the report page, draft intact
 });
 
 test('offline: submit queues to outbox, shows saved screen; back online it flushes and lands in My reports', async ({ page, context }) => {
@@ -224,4 +224,32 @@ test('signed out + offline: Send queues to the outbox instead of gating', async 
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('.queued')).toContainText('Saved on your phone');
+});
+
+test('phone Back from the compose step returns to the tile grid (category lives in the URL)', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="missed_trash"]');
+  await expect(page).toHaveURL(/\?c=missed_trash$/);
+  await page.fill('#address', '25 Dorrance St');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator('.cat-tile[data-category="missed_trash"]')).toBeVisible();
+  await page.goForward();
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St'); // draft kept in memory
+});
+
+test('disabled Send explains what is missing, in order', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('[data-category="pothole"]');
+  await expect(page.getByRole('heading', { name: 'Add a photo (required)' })).toBeVisible();
+  await expect(page.locator('.submit-bar .hint')).toHaveText('Add a photo to send.');
+  await page.evaluate(() => { /* no file chooser in headless: fall back to a photo-optional category check below */ });
+  await page.getByRole('button', { name: /Change/ }).click();
+  await page.click('[data-category="missed_trash"]');
+  await expect(page.locator('.submit-bar .hint')).toHaveText('Add the address to send.');
+  await page.fill('#address', '25 Dorrance St');
+  await expect(page.locator('.submit-bar .hint')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeEnabled();
 });

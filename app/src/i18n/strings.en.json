@@ -372,5 +372,9 @@
   "report.outbox.signIn": "Sign in to send your saved reports",
   "track.state.cancelledByYou": "Cancelled by you — this report wasn't sent to the city.",
   "report.error.sessionExpired": "Your sign-in expired — sign in again to send. Your report is saved.",
-  "report.gate.unsaved": "We couldn't save a copy of this report on your phone (private browsing?). Use Google to sign in here — the email link would open a new page and lose it."
+  "report.gate.unsaved": "We couldn't save a copy of this report on your phone (private browsing?). Use Google to sign in here — the email link would open a new page and lose it.",
+  "report.photo.titleRequired": "Add a photo (required)",
+  "report.block.photo": "Add a photo to send.",
+  "report.block.address": "Add the address to send.",
+  "report.block.outside": "That location is outside Providence."
 }

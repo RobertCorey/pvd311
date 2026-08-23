@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
 import { compressImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
@@ -30,8 +30,17 @@ export default function Report() {
   const session = useSession();
 
   // --- Phase A: category ---
-  const [category, setCategory] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  // Category and the "Other" sheet live in the URL (?c=<key>, ?sheet=1) so the phone's
+  // Back button returns to the grid instead of leaving the app; compose state stays in memory.
+  const [params, setParams] = useSearchParams();
+  const category = params.get('c');
+  const showAll = params.get('sheet') === '1';
+  const setCategory = useCallback((key: string | null, opts?: { replace?: boolean }) => {
+    setParams((prev) => { const n = new URLSearchParams(prev); if (key) n.set('c', key); else n.delete('c'); n.delete('sheet'); return n; }, { replace: opts?.replace });
+  }, [setParams]);
+  const setShowAll = useCallback((open: boolean) => {
+    setParams((prev) => { const n = new URLSearchParams(prev); if (open) n.set('sheet', '1'); else n.delete('sheet'); return n; }, { replace: !open });
+  }, [setParams]);
   const visible = useMemo(() => ALL_CATEGORIES.filter((c) => inSeason(c)), []);
   const featured = useMemo(() => {
     const f = FEATURED.map(byKey).filter((c): c is UiCategory => !!c && inSeason(c));
@@ -101,7 +110,7 @@ export default function Report() {
     if (!new URLSearchParams(location.search).has('resume')) { void draftStore.clear(); return; }
     draftStore.load().then((d) => {
       if (!d) return;
-      setCategory(d.category); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
+      setCategory(d.category, { replace: true }); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
       setExtra(d.extra); setDescription(d.description);
       if (d.descriptionOriginal != null) setWordingApplied(d.descriptionOriginal);
       if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
@@ -232,6 +241,13 @@ export default function Report() {
   const emergency = !!intakeRes?.flags.includes('emergency');
   const photoRequired = cat ? cat.photoRequired : true;
   const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside;
+  // First unmet requirement, shown under the disabled Send so nobody sits on a grey button.
+  const blockReason = !cat ? null
+    : photoRequired && !photo ? t('report.block.photo')
+    : address.trim().length < 3 ? t('report.block.address')
+    : outside ? t('report.block.outside')
+    : !turnstileToken && online ? t('report.waitingSpamCheck')
+    : null;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -349,7 +365,7 @@ export default function Report() {
 
       {/* Photo */}
       <section className="section">
-        <h2>{photoRequired ? t('report.photo.title') : t('report.photo.titleOptional')}</h2>
+        <h2>{photoRequired ? t('report.photo.titleRequired') : t('report.photo.titleOptional')}</h2>
         <p className="hint">{photoRequired ? t('report.photo.hintRequired') : t('report.photo.hintOptional')}</p>
         <input ref={cameraRef} id="photo" type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => onPhoto(e.target.files?.[0] ?? null)} />
         <input ref={libraryRef} id="photoLibrary" type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => onPhoto(e.target.files?.[0] ?? null)} />
@@ -456,7 +472,7 @@ export default function Report() {
       <div className="submit-bar" hidden={gated && !session}>
         {resumeSend && session && <p className="hint center">{t('report.gate.resumed')}</p>}
         <button type="submit" className="btn btn-primary" disabled={!canSubmit}>{submitting ? t('report.sending') : t('report.submit')}</button>
-        {!turnstileToken && !submitting && online && <p className="hint center">{t('report.waitingSpamCheck')}</p>}
+        {!submitting && blockReason && <p className="hint center" aria-live="polite">{blockReason}</p>}
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
     </form>
