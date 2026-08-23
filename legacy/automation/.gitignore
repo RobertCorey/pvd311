@@ -2,3 +2,4 @@ proofs/
 .test-draft.json
 firebase-service-account.json
 service-account.json
+.e2e/
