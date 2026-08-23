@@ -30,7 +30,8 @@ JSON `{ category|null, description, address, extra?, hasPhoto, appVersion }` →
 Rate-limited 10/min per IP and 1,500/day globally (durable, Firestore meta). The flags are advisory for the client; the Worker re-runs moderation itself before any auto-approval (see HITL). Never suggests a category (the reporter picks). Client shows: `emergency` → 911 notice; `not_311` → notice; others are passed back as `intakeFlags` and force human review server-side.
 
 ## GET /api/reports/:id — tracking (no PII)
-`{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, timeline: [{at, label}], nextUpdateHint|null, hasEmail }`
+`{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, timeline: [{at, label}], nextUpdateHint|null, hasEmail, owned, cancelledByReporter, notFiled: { code: 'cancelled'|'reviewed'|'duplicate'|'outside'|'no_photo'|'no_address'|'blocked'|'other'|'failed', text, duplicateOf } | null }`
+`notFiled` is set whenever the report will not / did not reach the city: reporter-safe text (admin-entered reason when there is one; never the reviewer's identity), and `duplicateOf` = the other report's id for the duplicate case (link "View that report").
 `status`: `received` | `sending` | `sent` | `needs_attention` | `rejected`. `portalStatus` (from the city): `Submitted` | `Assigned` | `Resolved` | `Cancelled`.
 Client label map: received → "Received"; sending → "Sending to the city"; sent → "Sent" + case id; needs_attention → "Needs attention — we're looking at it"; rejected → "Not filed".
 
