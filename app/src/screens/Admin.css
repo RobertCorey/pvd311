@@ -58,3 +58,27 @@
 .sys-time { color: var(--muted); font-size: .78rem; }
 .sys-msg { margin: 0; word-break: break-word; }
 .sys-event--error { border-color: var(--danger); } .sys-event--warn { border-color: var(--warn); }
+
+/* Sync-with-the-city-portal card */
+.sync-card { display: grid; gap: .7rem; }
+.sync-banner { display: flex; align-items: center; gap: .5rem; padding: .5rem .7rem; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); }
+.sync-banner strong { font-family: var(--font-display); }
+.sync-banner.is-ok { border-color: var(--success); background: var(--success-soft); }
+.sync-banner.is-warn { border-color: var(--warn); background: var(--warn-soft); }
+.sync-banner.is-error { border-color: var(--danger); background: var(--danger-soft); }
+.sync-rows { display: grid; gap: .7rem; }
+.sync-row { display: grid; gap: .1rem; }
+.sync-row-head { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.sync-label { font-weight: 600; }
+.sync-val { font-family: var(--font-display); }
+.sync-oldest { font-family: inherit; font-weight: 400; color: var(--muted); font-size: .82rem; }
+.sync-what { margin: 0; color: var(--muted); font-size: .8rem; }
+.sync-counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .5rem; }
+.sync-count { display: grid; gap: .1rem; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.sync-count b { font-family: var(--font-display); font-size: 1.25rem; line-height: 1.1; }
+.sync-count-label { font-size: .8rem; font-weight: 600; }
+.sync-count-what { font-size: .72rem; color: var(--muted); }
+.sync-count.is-warn { border-color: var(--danger); }
+.sync-count.is-warn b { color: var(--danger); }
+.sync-err { padding: .45rem .6rem; border-radius: 8px; background: var(--danger-soft); border: 1.5px solid var(--danger); font-size: .85rem; word-break: break-word; }
+.sync-err strong { font-family: var(--font-display); margin-right: .3rem; }

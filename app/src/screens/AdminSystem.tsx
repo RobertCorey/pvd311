@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
-import { adminHealth, type AdminEvent, type AdminHealth, type Light, type Subsystem } from '../api/admin';
+import { adminHealth, type AdminEvent, type AdminHealth, type AdminSync, type Light, type Subsystem } from '../api/admin';
 import './Admin.css';
 
 type Filter = 'all' | 'errors' | 'reports' | 'admin';
@@ -51,6 +51,13 @@ export default function AdminSystem() {
         <div className="sys-grid">{data.subsystems.map((s) => <SubsystemCard key={s.key} s={s} />)}</div>
       </div>
 
+      {data.sync && (
+        <div className="admin-section">
+          <h2>{t('admin.sync.title')}</h2>
+          <SyncCard sync={data.sync} />
+        </div>
+      )}
+
       <div className="admin-section">
         <h2>{t('admin.sys.numbers')}</h2>
         <div className="sys-numbers">
@@ -99,6 +106,59 @@ function SubsystemCard({ s }: { s: Subsystem }) {
   );
 }
 
+/** DB ↔ portal agreement: how many reports still await a case number, and what the nightly reconcile last found. */
+function SyncCard({ sync }: { sync: AdminSync }) {
+  const t = useT();
+  const r = sync.reconcile;
+  return (
+    <div className="card sync-card">
+      <div className={`sync-banner is-${sync.status}`} role="status">
+        <Dot status={sync.status} />
+        <strong>{t(`admin.sync.status.${sync.status}`)}</strong>
+      </div>
+      <div className="sync-rows">
+        <div className="sync-row">
+          <div className="sync-row-head">
+            <span className="sync-label">{t('admin.sync.pending')}</span>
+            <b className="sync-val">
+              {sync.caseIdPending}
+              {sync.caseIdPendingOldestAt && <span className="sync-oldest"> · {t('admin.sync.pendingOldest', { when: rel(sync.caseIdPendingOldestAt, t) })}</span>}
+            </b>
+          </div>
+          <p className="sync-what">{t('admin.sync.pendingWhat')}</p>
+        </div>
+        <div className="sync-row">
+          <div className="sync-row-head">
+            <span className="sync-label">{t('admin.sync.lastReconcile')}</span>
+            <b className="sync-val">
+              {r?.at ? rel(r.at, t) : t('admin.sync.never')}
+              {r?.at && <span className="sync-oldest"> · {abs(r.at)}</span>}
+            </b>
+          </div>
+          <p className="sync-what">{t('admin.sync.reconcileWhat')}</p>
+        </div>
+        {r && (
+          <div className="sync-counts">
+            <SyncCount n={r.scanned} label={t('admin.sync.scanned')} what={t('admin.sync.scannedWhat')} />
+            <SyncCount n={r.adopted} label={t('admin.sync.adopted')} what={t('admin.sync.adoptedWhat')} />
+            <SyncCount n={r.stranded} label={t('admin.sync.stranded')} what={t('admin.sync.strandedWhat')} />
+            <SyncCount n={r.missing} label={t('admin.sync.missing')} what={t('admin.sync.missingWhat')} warn={r.missing > 0} />
+          </div>
+        )}
+        {r?.error && <div className="sync-err" role="alert"><strong>{t('admin.sync.error')}</strong> {r.error}</div>}
+      </div>
+    </div>
+  );
+}
+
+const SyncCount = ({ n, label, what, warn }: { n: number; label: string; what: string; warn?: boolean }) => (
+  <div className={`sync-count${warn ? ' is-warn' : ''}`}>
+    <b>{n}</b>
+    <span className="sync-count-label">{label}</span>
+    <span className="sync-count-what">{what}</span>
+  </div>
+);
+
 function EventRow({ e }: { e: AdminEvent }) {
   const t = useT();
   return (
@@ -124,6 +184,14 @@ function matches(e: AdminEvent, f: Filter): boolean {
   if (f === 'errors') return e.level === 'error' || e.level === 'warn';
   if (f === 'reports') return /^(report|hitl|submit)\./.test(e.kind) || !!e.reportId;
   return /^admin\./.test(e.kind);
+}
+
+/** Absolute local timestamp, e.g. "Aug 22, 2:14 PM". Empty for an unparseable value. */
+function abs(iso: string): string {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
 }
 
 /** Relative time: "2 min ago" / "3 h ago" / "never". */

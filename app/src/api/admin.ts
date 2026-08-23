@@ -31,11 +31,15 @@ export const adminEngine = (op: 'pause' | 'resume') => call<{ ok: boolean; pause
 export type Light = 'ok' | 'warn' | 'error' | 'unknown';
 export interface Subsystem { key: string; label: string; what: string; status: Light; lastOkAt: string | null; lastErrorAt: string | null; lastError: string | null; lastDetail: string | null; okToday: number; errToday: number; expectedEvery: string | null }
 export interface AdminEvent { id: string; at: string; level: 'info' | 'warn' | 'error'; kind: string; msg: string; reportId: string | null; data: Record<string, unknown> | null }
+// DB ↔ city-portal agreement. reconcile = the nightly job that matches our DB against the portal (null before it first runs).
+export interface AdminReconcile { at: string | null; scanned: number; adopted: number; stranded: number; missing: number; error: string | null }
+export interface AdminSync { status: 'ok' | 'warn' | 'error'; caseIdPending: number; caseIdPendingOldestAt: string | null; reconcile: AdminReconcile | null }
 export interface AdminHealth {
   generatedAt: string; overall: 'ok' | 'warn' | 'error';
   engine: AdminEngine & { locked: boolean; reporterEmailEnabled: boolean };
   subsystems: Subsystem[];
   counts: Record<string, number>; users: number; ai: { intakeToday: number; dailyCap: number }; cityFeed: { fetchedAt: string | null; items: number };
+  sync: AdminSync;
   events: AdminEvent[];
 }
 export const adminHealth = (events = 100) => call<AdminHealth>(`/api/admin/health?events=${events}`);

@@ -64,7 +64,9 @@ test('account page links to /admin only for admins', async ({ page }) => {
 });
 
 // ── System tab ──
-const health = () => ({
+const reconcile = (over: Record<string, unknown> = {}) => ({ at: new Date(Date.now() - 8 * 3_600_000).toISOString(), scanned: 42, adopted: 3, stranded: 2, missing: 0, error: null, ...over });
+const syncBlock = (over: Record<string, unknown> = {}) => ({ status: 'warn', caseIdPending: 3, caseIdPendingOldestAt: new Date(Date.now() - 90 * 60_000).toISOString(), reconcile: reconcile(), ...over });
+const health = (sync: Record<string, unknown> = syncBlock()) => ({
   generatedAt: new Date().toISOString(), overall: 'error',
   engine: { paused: false, consecutiveFailures: 0, submissionsThisHour: 2, lastSubmissionTime: new Date(Date.now() - 120_000).toISOString(), locked: false, hitlMode: 'ramp', accountTrustN: '3', reporterEmailEnabled: true },
   subsystems: [
@@ -74,6 +76,7 @@ const health = () => ({
   ],
   counts: { pending: 1, awaiting_review: 2, processing: 0, submitted: 40, failed: 1, rejected: 3, 'auto-rejected': 0 },
   users: 12, ai: { intakeToday: 5, dailyCap: 200 }, cityFeed: { fetchedAt: new Date(Date.now() - 900_000).toISOString(), items: 230 },
+  sync,
   events: [
     { id: 'e1', at: new Date(Date.now() - 60_000).toISOString(), level: 'error', kind: 'watcher.status', msg: 'portal login failed', reportId: null, data: null },
     { id: 'e2', at: new Date(Date.now() - 300_000).toISOString(), level: 'info', kind: 'submit.ok', msg: 'Filed as PVD2026-90001', reportId: 'rrrrrrrrrrrr', data: null },
@@ -103,4 +106,39 @@ test('system tab: banner, traffic lights with error + unknown, numbers, filtered
   // Deep link keeps the tab
   await page.goto('/admin#system');
   await expect(main).toContainText('Subsystems');
+});
+
+// ── Sync-with-the-city-portal card ──
+async function openSystem(page: Page, sync: Record<string, unknown>) {
+  await setup(page, { admin: true });
+  await page.route(`${API}/api/admin/health*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(health(sync)) }));
+  await page.goto('/admin');
+  await page.getByRole('tab', { name: 'System' }).click();
+  return page.locator('main').locator('.sync-card');
+}
+
+test('sync card: warn banner, reconcile counts + plain-English explainers, pending oldest', async ({ page }) => {
+  const card = await openSystem(page, syncBlock());
+  await expect(card.locator('.sync-banner.is-warn')).toContainText('waiting to reconcile');
+  await expect(card.locator('.sync-row', { hasText: 'Awaiting case number' })).toContainText('3');
+  await expect(card.locator('.sync-row', { hasText: 'Awaiting case number' })).toContainText('oldest');
+  await expect(card.locator('.sync-count', { hasText: 'Scanned' })).toContainText('42');
+  await expect(card.locator('.sync-count', { hasText: 'Adopted' })).toContainText('3');
+  await expect(card.locator('.sync-count', { hasText: 'Stranded drafts' })).toContainText('2');
+  await expect(card).toContainText("City drafts we can't delete");
+  await expect(card.locator('.sync-err')).toHaveCount(0);
+});
+
+test('sync card: ok banner, never reconciled → no counts', async ({ page }) => {
+  const card = await openSystem(page, syncBlock({ status: 'ok', caseIdPending: 0, caseIdPendingOldestAt: null, reconcile: null }));
+  await expect(card.locator('.sync-banner.is-ok')).toContainText('in sync');
+  await expect(card.locator('.sync-row', { hasText: 'Last reconcile' })).toContainText('never');
+  await expect(card.locator('.sync-count')).toHaveCount(0);
+});
+
+test('sync card: error banner, missing count highlighted + reconcile error', async ({ page }) => {
+  const card = await openSystem(page, syncBlock({ status: 'error', reconcile: reconcile({ missing: 4, error: 'portal search timed out' }) }));
+  await expect(card.locator('.sync-banner.is-error')).toContainText('missing from the portal');
+  await expect(card.locator('.sync-count.is-warn', { hasText: 'Missing' })).toContainText('4');
+  await expect(card.locator('.sync-err')).toContainText('portal search timed out');
 });
