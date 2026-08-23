@@ -9,6 +9,7 @@
  *   POST /api/admin/users/:uid/trust       → JSON { trusted: boolean } (override the ramp)
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
  *   GET  /api/admin/health                 → system visibility: subsystem traffic lights, counters, event stream
+ *   GET  /api/admin/reports/:id/proofs     → [{ name, createdAt, contentType }]  ·  GET …/proofs/:name → image bytes
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
  */
@@ -51,6 +52,7 @@ function adminProjection(r: ReportDoc) {
     reporterEmail: r.reporterEmail ?? null, ownerUid: r.ownerUid ?? null,
     portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null,
     retries: r.retries ?? 0, retryAfter: r.retryAfter ?? null, review: r.review ?? null, approvedAt: r.approvedAt ?? null,
+    caseIdPending: r.caseIdPending === true, portalEntityId: (r as unknown as { portalEntityId?: string | null }).portalEntityId ?? r.portalDraft?.entityId ?? null,
   };
 }
 
@@ -119,6 +121,15 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       cityFeed: { fetchedAt: cityFeed?.fetchedAt ?? null, items: cityFeed?.items?.length ?? 0 },
       events,
     });
+  }
+
+  const proof = /^\/api\/admin\/reports\/([A-Za-z0-9_-]{10,64})\/proofs(?:\/([A-Za-z0-9_-]{1,120}))?$/.exec(path);
+  if (proof && m === 'GET') {
+    const [, id, name] = proof;
+    if (!name) return json(await store.listProofs(id));
+    const p = await store.getProof(id, name);
+    if (!p) return json({ error: 'not_found' }, 404);
+    return new Response(p.bytes, { headers: { 'content-type': p.contentType, 'cache-control': 'private, max-age=3600' } });
   }
 
   const one = /^\/api\/admin\/reports\/([A-Za-z0-9_-]{10,64})(?:\/(approve|reject|requeue))?$/.exec(path);

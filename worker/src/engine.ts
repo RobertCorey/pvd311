@@ -9,7 +9,7 @@
  *   runDaily(env)      — daily: digest counts + selector canary (drift alert)
  */
 import type { Page } from '@cloudflare/playwright';
-import type { Env, Portal, ReportDoc, Store } from './contracts.js';
+import { TERMINAL_PORTAL_STATUS, type Env, type Portal, type ReportDoc, type Store } from './contracts.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { createMailer } from './email.js';
@@ -59,13 +59,12 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
   const mailer = createMailer(env);
   const now = Date.now();
 
-  // In-invocation guard so two overlapping ticks don't double-submit.
-  const state = (await store.getMeta<EngineState>('engine')) ?? {};
-  if (state.lock && state.lock.until > now) {
+  // Atomic lock (compare-and-set on meta/engine) so two overlapping ticks can never both submit.
+  if (!(await store.tryAcquireEngineLock(now + LOCK_MS))) {
     console.log('[tick] locked by a running tick, skipping');
     return;
   }
-  await store.setMeta('engine', { lock: { until: now + LOCK_MS } });
+  const state = (await store.getMeta<EngineState>('engine')) ?? {};
 
   try {
     // Reaper — reports the engine abandoned mid-submit (crash/timeout). Draft bookkeeping is kept for resume.
@@ -117,8 +116,7 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
     console.error('[tick] error:', err);
     await markError(store, 'tick', err);
   } finally {
-    // Merge-clear the lock (submitOne persisted the rest of the state via merge).
-    await store.setMeta('engine', { lock: null }).catch(() => {});
+    await store.releaseEngineLock().catch(() => {});
   }
 }
 
@@ -165,15 +163,19 @@ async function submitOne(
     const result = await portal.submitReport(report, {
       mode: 'live',
       onDraft: (draft) => store.saveReportDraft(report.id, draft),
-      saveProof: (name, png) => store.uploadFile(`proofs/${report.id}/${name}.png`, png, 'image/png'),
+      saveProof: async (name, bytes) => {
+        try { return await store.putProof(report.id, name, bytes, 'image/jpeg'); }
+        catch (e) { await logEvent(store, { level: 'warn', kind: 'proof.failed', msg: `Proof screenshot not saved: ${e instanceof Error ? e.message : String(e)}`, reportId: report.id }); throw e; }
+      },
     });
 
-    await store.updateReportStatus(
-      report.id,
-      'submitted',
-      result.caseId ? `Auto-submitted as ${result.caseId}` : 'Auto-submitted successfully',
-      result.caseId,
-    );
+    const detail = result.alreadyFiled
+      ? `Already filed by an earlier attempt${result.caseId ? ` as ${result.caseId}` : ''} (found by draft GUID)`
+      : result.caseId ? `Auto-submitted as ${result.caseId}` : 'Auto-submitted — case number pending (watcher reconciles by GUID)';
+    await store.updateReportStatus(report.id, 'submitted', detail, result.caseId);
+    await store.patchReport(report.id, { caseIdPending: !result.caseId, portalEntityId: result.entityId ?? report.portalDraft?.entityId ?? null });
+    if (result.alreadyFiled) await logEvent(store, { level: 'warn', kind: 'submit.already_filed', msg: detail, reportId: report.id });
+    if (!result.caseId) await logEvent(store, { level: 'warn', kind: 'submit.unconfirmed', msg: 'Portal accepted the submission but no case number was read; watcher will reconcile', reportId: report.id });
     await store.setMeta('engine', {
       submissionTimestamps: [...stamps, Date.now()].slice(-50),
       lastSubmissionTime: Date.now(),
@@ -233,14 +235,33 @@ export async function runWatcher(env: Env): Promise<void> {
     await portal.launch();
     await portal.ensureLoggedIn();
 
+    // Reconcile: submissions we could not read a case number for — resolve by the record GUID.
+    const unconfirmed = await store.findSubmittedUnconfirmed(20).catch(() => [] as ReportDoc[]);
+
     // My Requests status diff (skipped when we have nothing to watch, but the city feed below still runs).
-    if (tracked.length) {
+    if (tracked.length || unconfirmed.length) {
       const rows = await portal.readMyRequests();
       rowCount = rows.length;
       if (!rows.length) {
         console.warn('[watcher] My Requests returned 0 rows — skipping diff');
       } else {
-        const byId = new Map(rows.map((r) => [r.caseId, r]));
+        const byId = new Map(rows.filter((r) => r.caseId).map((r) => [r.caseId as string, r]));
+        const byEntity = new Map(rows.filter((r) => r.entityId).map((r) => [r.entityId as string, r]));
+        for (const u of unconfirmed) {
+          const eid = ((u as unknown as { portalEntityId?: string | null }).portalEntityId ?? u.portalDraft?.entityId ?? '').toLowerCase();
+          const row = eid ? byEntity.get(eid) : undefined;
+          if (row?.caseId) {
+            await store.updateReportStatus(u.id, 'submitted', `Case number confirmed by watcher: ${row.caseId}`, row.caseId);
+            await store.patchReport(u.id, { caseIdPending: false });
+            await logEvent(store, { level: 'info', kind: 'watcher.case_confirmed', msg: `Case number ${row.caseId} confirmed by GUID`, reportId: u.id, data: { caseId: row.caseId } });
+            tracked.push({ ...u, portalCaseId: row.caseId });
+          } else if (row && /^draft$/i.test(row.status)) {
+            // The portal still shows it as a Draft: the submit did NOT take. Put it back in the queue to resume the draft.
+            await store.requeueReport(u.id, u.retries ?? 0, 'Watcher: portal still shows Draft — re-submitting', new Date().toISOString());
+            await store.patchReport(u.id, { caseIdPending: false });
+            await logEvent(store, { level: 'warn', kind: 'watcher.draft_not_submitted', msg: 'Portal still shows this as a Draft; re-queued', reportId: u.id });
+          }
+        }
         for (const report of tracked) {
           const caseId = report.portalCaseId;
           if (!caseId) continue;
@@ -256,11 +277,11 @@ export async function runWatcher(env: Env): Promise<void> {
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           {
             const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
-            const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', Resolved: 'is marked resolved by the city', Cancelled: 'was cancelled by the city' };
+            const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', 'In Progress': 'is being worked on by the city', Resolved: 'is marked resolved by the city', Closed: 'was closed by the city', Completed: 'was completed by the city', Cancelled: 'was cancelled by the city', Canceled: 'was cancelled by the city' };
             await notifyReport(store, mailer, report, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
               `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
           }
-          if (/resolved|cancel/i.test(to)) {
+          if (TERMINAL_PORTAL_STATUS.test(to)) {
             await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
           }
         }

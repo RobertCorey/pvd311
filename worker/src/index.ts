@@ -74,7 +74,7 @@ export default {
         const result = await portal.submitReport(report, {
           mode: 'inspect',
           onDraft: (d) => store.saveReportDraft(id, d),
-          saveProof: (name, png) => store.uploadFile(`proofs/${id}/${name}.png`, png, 'image/png'),
+          saveProof: (name, bytes) => store.putProof(id, name, bytes, 'image/jpeg'),
         });
         return Response.json({ ok: true, ...result });
       } catch (e) {

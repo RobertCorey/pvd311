@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseCityRow, mapCategory, cityItemId, parseCityDate } from '../src/cityfeed';
 import { signAction, actionUrl, timingSafeEqualHex, HITL_LINK_TTL_MS } from '../src/email';
+import { TERMINAL_PORTAL_STATUS } from '../src/contracts';
 
 describe('cityfeed parsing', () => {
   const headers = ['Case Type', 'Street', 'Status Reason', 'Created On'];
@@ -41,5 +42,12 @@ describe('signed HITL links', () => {
     expect(await actionUrl('https://api.fixmypvd.org', 'secret', 'approve', 'abc', now)).toBe(`https://api.fixmypvd.org/hitl/approve/abc/2000000000/${a}`);
     // No "=" anywhere: a hex sig after "=" forms "=XX" pairs that quoted-printable mis-decodes corrupt.
     expect(await actionUrl('https://api.fixmypvd.org/', 'secret', 'reject', 'x-y_Z')).not.toMatch(/=/);
+  });
+});
+
+describe('terminal portal statuses', () => {
+  it('treats Resolved/Closed/Completed/Cancelled as terminal, not Assigned/In Progress/Submitted', () => {
+    for (const t of ['Resolved', 'Closed', 'Completed', 'Cancelled', 'Canceled', 'Closed - Duplicate']) expect(TERMINAL_PORTAL_STATUS.test(t)).toBe(true);
+    for (const t of ['Assigned', 'In Progress', 'Submitted', 'Draft', 'Open']) expect(TERMINAL_PORTAL_STATUS.test(t)).toBe(false);
   });
 });

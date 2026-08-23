@@ -81,6 +81,15 @@ export interface Store {
   patchUser(uid: string, fields: Record<string, unknown>): Promise<void>;
   countUsers(): Promise<number>;
   countResolved(): Promise<number>;                           // submitted AND portalStatus in the resolved set
+  /** Atomic engine lock: succeeds only if no live lock exists; CAS on the meta doc's updateTime. */
+  tryAcquireEngineLock(untilMs: number): Promise<boolean>;
+  releaseEngineLock(): Promise<void>;
+  /** Proof screenshots (JPEG) live in Firestore proofs/{reportId}_{name}; admin-only read. */
+  putProof(reportId: string, name: string, bytes: Uint8Array, contentType: string): Promise<string>;
+  listProofs(reportId: string): Promise<{ name: string; createdAt: string | null; contentType: string }[]>;
+  getProof(reportId: string, name: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  /** Submitted without a confirmed case id (watcher reconciles by entity GUID). */
+  findSubmittedUnconfirmed(limit: number): Promise<ReportDoc[]>;
   // System visibility (health.ts)
   addEvent(ev: { at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null }): Promise<void>;
   recentEvents(limit: number): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]>;
@@ -101,7 +110,7 @@ export type SubmitMode = 'live' | 'inspect';
 export interface SubmitOptions {
   mode?: SubmitMode;
   onDraft?: (draft: PortalDraft) => Promise<void>;
-  saveProof?: (name: string, png: Uint8Array) => Promise<string | void>;
+  saveProof?: (name: string, bytes: Uint8Array) => Promise<string | void>;
 }
 export interface SubmitResult {
   mode: SubmitMode;
@@ -109,6 +118,9 @@ export interface SubmitResult {
   proofPath?: string;
   controls?: PortalControl[];
   scouted?: Record<string, string>;
+  entityId?: string;          // the portal record GUID (== draft GUID); lets the watcher resolve a missing case id later
+  caseIdConfirmed?: boolean;  // false → recorded as submitted-unconfirmed; watcher reconciles by GUID
+  alreadyFiled?: boolean;     // check-before-create found the draft already converted; no wizard run
 }
 
 /** portal.ts — the wizard driver on @cloudflare/playwright. One instance per cron tick; always close(). */
@@ -118,9 +130,13 @@ export interface Portal {
   ensureLoggedIn(force?: boolean): Promise<void>;
   submitReport(report: ReportDoc, opts?: SubmitOptions): Promise<SubmitResult>;
   /** Read-only checks (canary/watcher). Never clicks Next/Submit. */
-  readMyRequests(): Promise<{ caseId: string; status: string; street: string; createdOn: string }[]>;
+  readMyRequests(opts?: { maxPages?: number }): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string }[]>;
+  findMyRequestByEntityId(entityId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;
 }
+
+/** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */
+export const TERMINAL_PORTAL_STATUS = /\b(resolved|closed|completed|cancel+ed|rejected|withdrawn)\b/i;
 
 /** email.ts */
 export interface Mailer {

@@ -7,6 +7,7 @@
  * (one service account). Firestore's typed value model is encoded/decoded here so callers see plain JS
  * objects, with timestamps decoded to the {seconds, nanoseconds, toDate()} shape shared/types.ts expects.
  */
+import { TERMINAL_PORTAL_STATUS } from './contracts.js';
 import type { Report, ReportStatus } from '../../shared/types.js';
 import type { Store, AuthStore, Env, ReportDoc, PortalDraft, UserDoc } from './contracts.js';
 
@@ -489,6 +490,74 @@ export function createStore(env: Env): Store {
       });
     },
 
+    async tryAcquireEngineLock(untilMs): Promise<boolean> {
+      const doc = await getDoc(env, 'meta/engine');
+      const cur = doc ? (decodeFields(doc.fields ?? {}) as { lock?: { until?: number } | null }) : null;
+      if (cur?.lock?.until && cur.lock.until > Date.now()) return false;
+      // Precondition: the doc must not have changed since we read it (or must not exist). Firestore returns 412 otherwise.
+      const params = new URLSearchParams();
+      params.append('updateMask.fieldPaths', 'lock');
+      if (doc?.updateTime) params.append('currentDocument.updateTime', doc.updateTime); else params.append('currentDocument.exists', 'false');
+      const resp = await authedFetch(env, `${docBase(env)}/meta/engine?${params.toString()}`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fields: { lock: encodeValue({ until: untilMs }) } }),
+      });
+      if (resp.status === 412 || resp.status === 409) return false;
+      if (!resp.ok) throw new Error(`engine lock PATCH: ${resp.status} ${await resp.text()}`);
+      return true;
+    },
+
+    async releaseEngineLock(): Promise<void> {
+      await patchDoc(env, 'meta/engine', { lock: null });
+    },
+
+    async putProof(reportId, name, bytes, contentType): Promise<string> {
+      let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const id = `${reportId}_${name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 200);
+      const token = await getAccessToken(env);
+      const resp = await fetch(`${docBase(env)}/proofs/${id}`, {
+        method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ fields: { reportId: { stringValue: reportId }, name: { stringValue: name }, data: { bytesValue: btoa(bin) }, contentType: { stringValue: contentType }, createdAt: { timestampValue: new Date().toISOString() } } }),
+      });
+      if (!resp.ok) throw new Error(`putProof ${id}: ${resp.status} ${(await resp.text()).slice(0, 200)}`);
+      return id;
+    },
+
+    async listProofs(reportId): Promise<{ name: string; createdAt: string | null; contentType: string }[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'proofs' }],
+        where: fieldFilter('reportId', 'EQUAL', { stringValue: reportId }),
+        select: { fields: [{ fieldPath: 'name' }, { fieldPath: 'createdAt' }, { fieldPath: 'contentType' }] },
+        limit: 20,
+      });
+      return docs.map((d) => {
+        const f = decodeFields(d.fields ?? {}) as { name?: string; createdAt?: { toDate?: () => Date } | string; contentType?: string };
+        const c = f.createdAt; const createdAt = !c ? null : typeof c === 'string' ? c : typeof c.toDate === 'function' ? c.toDate().toISOString() : null;
+        return { name: String(f.name ?? ''), createdAt, contentType: String(f.contentType ?? 'image/jpeg') };
+      });
+    },
+
+    async getProof(reportId, name): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+      const id = `${reportId}_${name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 200);
+      const token = await getAccessToken(env);
+      const resp = await fetch(`${docBase(env)}/proofs/${id}`, { headers: { authorization: `Bearer ${token}` } });
+      if (resp.status === 404) return null;
+      if (!resp.ok) throw new Error(`getProof ${id}: ${resp.status}`);
+      const doc = (await resp.json()) as FsDocument;
+      const b64 = (doc.fields?.data as { bytesValue?: string } | undefined)?.bytesValue ?? '';
+      const bin = atob(b64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return { bytes, contentType: (doc.fields?.contentType as { stringValue?: string } | undefined)?.stringValue ?? 'image/jpeg' };
+    },
+
+    async findSubmittedUnconfirmed(limit): Promise<ReportDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: andFilter(fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }), fieldFilter('caseIdPending', 'EQUAL', { booleanValue: true })),
+        limit,
+      });
+      return docs.map(docToReport);
+    },
+
     async countUsers(): Promise<number> {
       return runCount(env, { from: [{ collectionId: 'users' }] });
     },
@@ -544,7 +613,7 @@ export function createStore(env: Env): Store {
         ),
         limit,
       });
-      return docs.map(docToReport).filter((r) => /resolved|cancel/i.test(r.portalStatus ?? '') && !!r.photo);
+      return docs.map(docToReport).filter((r) => TERMINAL_PORTAL_STATUS.test(r.portalStatus ?? '') && !!r.photo);
     },
 
     // ── Accounts ──

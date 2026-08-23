@@ -63,6 +63,8 @@ export interface Report {
   approvedAt?: string | null;
   /** ISO when the Worker ran its own moderation pass (server-side; independent of client intake) */
   moderatedAt?: string | null;
+  /** true when the portal accepted the submission but we could not read the PVD case number yet (watcher reconciles by GUID) */
+  caseIdPending?: boolean | null;
 
   /** HITL bookkeeping */
   review?: { requestedAt: string; telegramMessageId: number | null; emailed?: boolean; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string; reason?: string } | null;

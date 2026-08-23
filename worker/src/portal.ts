@@ -158,6 +158,17 @@ class WorkerPortal implements Portal {
     const cat = CATEGORIES[report.category];
     if (!cat) throw new Error(`Unknown category: ${report.category}`);
 
+    // Check-before-create: a previous attempt may have SUBMITTED the draft and died before we recorded it
+    // (timeout after the final click, reaper, retry). The draft's GUID is the record's GUID, so if My
+    // Requests shows it with a real status, it's already filed — never run the wizard again for it.
+    if (report.portalDraft?.entityId && mode === 'live') {
+      const row = await this.findMyRequestByEntityId(report.portalDraft.entityId, 3).catch(() => null);
+      if (row && row.status && !/^draft$/i.test(row.status)) {
+        const proofPath = await this.saveProof(opts, report.id, row.caseId ?? 'already-filed');
+        return { mode, caseId: row.caseId ?? undefined, proofPath, entityId: report.portalDraft.entityId, caseIdConfirmed: !!row.caseId, alreadyFiled: true };
+      }
+    }
+
     // Draft-resume: if a previous attempt already created the draft, jump back into it.
     let resumedAt: 2 | 3 | null = null;
     if (report.portalDraft?.url) {
@@ -489,9 +500,10 @@ class WorkerPortal implements Portal {
       }),
     ]);
 
-    const caseId = await this.extractCaseId();
+    const entityId = (await page.$eval('#EntityFormView_EntityID', (el: any) => el.value as string).catch(() => null)) || report.portalDraft?.entityId || null;
+    const caseId = await this.extractCaseId(entityId);
     const proofPath = await this.saveProof(opts, report.id, caseId ?? 'submitted');
-    return { mode, caseId, proofPath, controls, scouted };
+    return { mode, caseId, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId };
   }
 
   // ── Proof ──────────────────────────────────────────────────
@@ -499,11 +511,13 @@ class WorkerPortal implements Portal {
   private async saveProof(opts: SubmitOptions, reportId: string, tag: string): Promise<string | undefined> {
     if (!opts.saveProof) return undefined;
     try {
-      const png = await this.getPage().screenshot({ fullPage: true });
-      const name = `${reportId}-${tag}-${Date.now()}.png`;
-      const res = await opts.saveProof(name, png);
+      // JPEG of the viewport (not full page): Firestore docs cap at 1 MiB and the receipt is what matters.
+      const jpg = await this.getPage().screenshot({ type: 'jpeg', quality: 60 });
+      const name = `${tag}-${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, '_');
+      const res = await opts.saveProof(name, jpg);
       return typeof res === 'string' ? res : undefined;
-    } catch {
+    } catch (e) {
+      console.error(`[portal] proof save failed for ${reportId} (${tag}):`, e instanceof Error ? e.message : e);
       return undefined;
     }
   }
@@ -544,16 +558,24 @@ class WorkerPortal implements Portal {
 
   // ── Case ID extraction ─────────────────────────────────────
 
-  private async extractCaseId(): Promise<string | undefined> {
+  /**
+   * Case number after submit. Order of trust: (1) the page the wizard landed on (confirmation / record view
+   * often prints "PVD2026-12345"); (2) the My Requests row whose data-id equals OUR draft's entity GUID —
+   * never "the first row" (another submission, or a grid re-sort, makes that wrong); (3) nothing → the
+   * engine records the submission as unconfirmed and the watcher resolves it later by GUID.
+   */
+  private async extractCaseId(entityId: string | null): Promise<string | undefined> {
     const page = this.getPage();
     try {
-      await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForSelector('[role="grid"] [role="row"]', { timeout: 30_000 });
-      await page.waitForTimeout(3_000); // lazy grid
-      // Newest case is the first data row; its title cell reads "PVD2026-12345 <Case Type Name>".
-      const text = await page.locator('[role="grid"] [role="row"]').nth(1).textContent();
-      const m = text?.match(/PVD\d{4}-\d+/);
-      if (m) return m[0];
+      const landing = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+      const onPage = landing.match(/PVD\d{4}-\d+/g) ?? [];
+      if (onPage.length === 1) return onPage[0];
+      if (entityId) {
+        const row = await this.findMyRequestByEntityId(entityId, 3);
+        if (row?.caseId) return row.caseId;
+        return undefined;
+      }
+      // Legacy path (no GUID known): only accept a single unambiguous id on the landing page.
     } catch {
       /* non-fatal */
     }
@@ -562,49 +584,63 @@ class WorkerPortal implements Portal {
 
   // ── Read-only: My Requests grid (watcher / canary) ─────────
 
-  async readMyRequests(): Promise<{ caseId: string; status: string; street: string; createdOn: string }[]> {
+  async readMyRequests(opts: { maxPages?: number } = {}): Promise<MyRequestRow[]> {
     const page = this.getPage();
     await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForSelector('[role="grid"] [role="row"], table tbody tr', { timeout: 30_000 }).catch(() => {});
     await page.waitForTimeout(3_000); // lazy grid render
 
-    const byId = new Map<string, { caseId: string; status: string; street: string; createdOn: string }>();
-    const MAX_PAGES = 20;
+    const byId = new Map<string, MyRequestRow>();
+    const MAX_PAGES = opts.maxPages ?? 20;
     for (let p = 0; p < MAX_PAGES; p++) {
-      const { headers, rows } = await this.dumpGrid();
-      for (const row of rows) {
+      const { headers, rows, ids } = await this.dumpGrid();
+      rows.forEach((row, i) => {
         const parsed = parseRow(headers, row);
-        if (parsed && !byId.has(parsed.caseId)) {
-          byId.set(parsed.caseId, {
-            caseId: parsed.caseId,
-            status: parsed.status,
-            street: parsed.street,
-            createdOn: parsed.createdOn,
-          });
-        }
-      }
+        const entityId = ids[i];
+        // Drafts have no PVD number yet: key them by GUID so check-before-create can still see them.
+        const key = parsed?.caseId ?? (entityId ? `draft:${entityId}` : null);
+        if (!key || byId.has(key)) return;
+        byId.set(key, {
+          caseId: parsed?.caseId ?? null,
+          entityId,
+          status: parsed?.status ?? (/\bdraft\b/i.test(row.join(' ')) ? 'Draft' : ''),
+          street: parsed?.street ?? '',
+          createdOn: parsed?.createdOn ?? '',
+        });
+      });
       if (!(await this.gotoNextGridPage())) break;
       await page.waitForTimeout(1_500);
     }
     return [...byId.values()];
   }
 
+  /** Find one record in My Requests by its entity GUID (first N pages). Null if absent. */
+  async findMyRequestByEntityId(entityId: string, maxPages = 3): Promise<MyRequestRow | null> {
+    const want = entityId.toLowerCase();
+    const rows = await this.readMyRequests({ maxPages });
+    return rows.find((r) => r.entityId === want) ?? null;
+  }
+
   /** Read the grid's header labels and every data row's cell text in-page. */
-  private async dumpGrid(): Promise<{ headers: string[]; rows: string[][] }> {
+  private async dumpGrid(): Promise<{ headers: string[]; rows: string[][]; ids: (string | null)[] }> {
     return this.getPage().evaluate(() => {
       const norm = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim();
       const grid = document.querySelector('[role="grid"]') || document.querySelector('table');
-      if (!grid) return { headers: [] as string[], rows: [] as string[][] };
+      if (!grid) return { headers: [] as string[], rows: [] as string[][], ids: [] as (string | null)[] };
       const headers = Array.from(grid.querySelectorAll('[role="columnheader"], thead th')).map((h: any) =>
         norm(h.textContent),
       );
       const rows: string[][] = [];
+      const ids: (string | null)[] = [];
       for (const r of Array.from(grid.querySelectorAll('[role="row"], tbody tr')) as any[]) {
         const cellEls = r.querySelectorAll('[role="gridcell"], td');
         if (!cellEls.length) continue; // header / empty row
         rows.push(Array.from(cellEls).map((c: any) => norm(c.textContent)));
+        // Power Pages entity lists stamp the record GUID on the row — the only positional-independent key we have.
+        const id = (r.getAttribute('data-id') || r.dataset?.id || r.querySelector('[data-id]')?.getAttribute('data-id') || '').toLowerCase();
+        ids.push(id || null);
       }
-      return { headers, rows };
+      return { headers, rows, ids };
     });
   }
 
@@ -665,6 +701,8 @@ class WorkerPortal implements Portal {
 // ── Pure grid parsers (ported from automation/src/watcher.ts) ──────────────────────────────────
 
 const CASE_ID_RE = /PVD\d{4}-\d+/;
+
+export interface MyRequestRow { caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string }
 
 /** Known Status Reason values the My Requests grid renders, used as a fallback column heuristic. */
 const KNOWN_STATUSES = [
