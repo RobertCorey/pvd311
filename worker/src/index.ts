@@ -10,8 +10,8 @@
  *   GET /healthz                         → { ok, paused, pending, awaiting }
  *   GET /canary            (x-canary-token) → portal.canary()  (read-only, zero-draft)
  *   GET /api/status        (x-canary-token) → engine state + status counts
- *   GET /hitl/approve/:id/:sig           → verify HMAC, approve, tiny HTML page (legacy ?id=&sig= also accepted)
- *   GET /hitl/reject/:id/:sig            → verify HMAC, reject, tiny HTML page
+ *   GET /hitl/approve/:id/:exp/:sig      → verify HMAC + expiry, approve, tiny HTML page
+ *   GET /hitl/reject/:id/:exp/:sig       → verify HMAC + expiry, reject, tiny HTML page
  */
 import type { Env } from './contracts.js';
 import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
@@ -141,15 +141,15 @@ export default {
       });
     }
 
-    const hitlPath = url.pathname.match(/^\/hitl\/(approve|reject)(?:\/([^/]+)\/([0-9a-f]+))?\/?$/);
+    const hitlPath = url.pathname.match(/^\/hitl\/(approve|reject)\/([^/]+)\/(\d{1,12})\/([0-9a-f]{64})\/?$/);
     if (hitlPath) {
       const action = hitlPath[1] as 'approve' | 'reject';
-      // Path form (current emails) or legacy ?id=&sig= query form.
-      const id = hitlPath[2] ? decodeURIComponent(hitlPath[2]) : url.searchParams.get('id');
-      const sig = hitlPath[3] ?? url.searchParams.get('sig');
-      if (!id || !sig) return htmlPage('Bad request', 'Missing id or signature.', 400);
-      const expected = await signAction(env.HITL_SECRET, action, id);
-      if (!timingSafeEqualHex(sig, expected)) return htmlPage('Invalid link', 'This approval link is invalid or has expired.', 401);
+      const id = decodeURIComponent(hitlPath[2]);
+      const exp = Number(hitlPath[3]);
+      const sig = hitlPath[4];
+      if (exp * 1000 < Date.now()) return htmlPage('Link expired', 'This approval link has expired. Use the admin page instead.', 410);
+      const expected = await signAction(env.HITL_SECRET, action, id, exp);
+      if (!timingSafeEqualHex(sig, expected)) return htmlPage('Invalid link', 'This approval link is invalid.', 401);
       const store = createStore(env);
       try {
         if (action === 'approve') {

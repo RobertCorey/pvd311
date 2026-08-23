@@ -53,19 +53,22 @@ export function createMailer(env: Env): Mailer {
 
 const enc = new TextEncoder();
 
-/** Sign `${action}:${id}` with HMAC-SHA256, returned as lowercase hex. */
-export async function signAction(secret: string, action: 'approve' | 'reject', id: string): Promise<string> {
+export const HITL_LINK_TTL_MS = 30 * 24 * 3_600_000;
+
+/** Sign `${action}:${id}:${exp}` with HMAC-SHA256, returned as lowercase hex. `exp` = unix seconds the link stops working. */
+export async function signAction(secret: string, action: 'approve' | 'reject', id: string, exp: number): Promise<string> {
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${action}:${id}`));
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${action}:${id}:${exp}`));
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Signed approve/reject link the HITL email embeds; verified by the Worker's /hitl endpoints. */
-export async function actionUrl(baseUrl: string, secret: string, action: 'approve' | 'reject', id: string): Promise<string> {
-  const sig = await signAction(secret, action, id);
-  // Path form, not ?id=&sig=: a hex sig after "=" forms "=XX" pairs that a quoted-printable
-  // mis-decode on the mail path turns into garbage (seen via Cloudflare Email Routing → Gmail).
-  return `${baseUrl.replace(/\/+$/, '')}/hitl/${action}/${encodeURIComponent(id)}/${sig}`;
+/** Signed approve/reject link the HITL email embeds; verified by the Worker's /hitl endpoints.
+ *  Path form, not ?id=&sig=: a hex sig after "=" forms "=XX" pairs that a quoted-printable mis-decode on the
+ *  mail path turns into garbage (seen via Cloudflare Email Routing → Gmail). Expires after HITL_LINK_TTL_MS. */
+export async function actionUrl(baseUrl: string, secret: string, action: 'approve' | 'reject', id: string, now = Date.now()): Promise<string> {
+  const exp = Math.floor((now + HITL_LINK_TTL_MS) / 1000);
+  const sig = await signAction(secret, action, id, exp);
+  return `${baseUrl.replace(/\/+$/, '')}/hitl/${action}/${encodeURIComponent(id)}/${exp}/${sig}`;
 }
 
 /** Constant-time string compare (both hex of equal length in normal use). */

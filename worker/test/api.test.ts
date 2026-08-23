@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { handleApi } from '../src/api';
+import { handleApi, paceIdentity } from '../src/api';
 import type { Store, ReportDoc } from '../src/contracts';
 
 const ts = (iso: string) => ({ seconds: Math.floor(Date.parse(iso) / 1000), nanoseconds: 0, toDate: () => new Date(iso) });
@@ -21,7 +21,7 @@ function mockStore(over: Partial<Store> = {}): Store {
   };
   return { ...base, ...over } as Store;
 }
-const env = { TURNSTILE_SECRET: '', ANTHROPIC_API_KEY: '' } as any;
+const env = { TURNSTILE_SECRET: '', ANTHROPIC_API_KEY: '', ALLOW_NO_TURNSTILE: '1' } as any;
 const get = (path: string) => handleApi(new Request(`https://api.test${path}`, { headers: { origin: 'https://fixmypvd.org' } }), env, { store: mockStore() });
 
 describe('tracking projection', () => {
@@ -45,15 +45,11 @@ describe('tracking projection', () => {
   });
 });
 
-describe('public feed + nearby', () => {
-  it('merges ours and city, excludes city Draft rows, honors limit, NaN-safe', async () => {
-    const j = await (await get('/api/public-feed?limit=abc'))!.json() as any;
-    const sources = j.items.map((i: any) => i.source);
-    expect(sources).toContain('snappvd');
-    expect(sources).toContain('city');
-    expect(j.items.filter((i: any) => i.source === 'city')).toHaveLength(1);
-    const small = await (await get('/api/public-feed?limit=2'))!.json() as any;
-    expect(small.items).toHaveLength(2);
+describe('feed + nearby', () => {
+  it('public-feed and anonymous follow are gone (they leaked tracking ids / allowed email spam)', async () => {
+    expect((await get('/api/public-feed'))!.status).toBe(404);
+    const r = await handleApi(new Request('https://api.test/api/reports/abc123456789/follow', { method: 'POST', body: '{"email":"x@y.z"}', headers: { 'content-type': 'application/json' } }), env, { store: mockStore() });
+    expect(r!.status).toBe(404);
   });
   it('nearby filters by radius and ignores NaN radius', async () => {
     const near = await (await get('/api/nearby?lat=41.8236&lng=-71.4128&radiusM=50'))!.json() as any;
@@ -67,5 +63,19 @@ describe('public feed + nearby', () => {
     expect(ok!.headers.get('access-control-allow-origin')).toBe('https://fixmypvd.org');
     const bad = await handleApi(new Request('https://api.test/api/public-feed', { headers: { origin: 'https://evil.example' } }), env, { store: mockStore() });
     expect(bad!.headers.get('access-control-allow-origin')).not.toBe('https://evil.example');
+  });
+});
+
+describe('hardening', () => {
+  it('paceIdentity collapses plus-tags and gmail dots so one mailbox = one budget', () => {
+    expect(paceIdentity('uid1', 'Me+tag@Example.com')).toBe('me@example.com');
+    expect(paceIdentity('uid1', 'r.o.b+x@gmail.com')).toBe('rob@gmail.com');
+    expect(paceIdentity('uid1', null)).toBe('uid1');
+  });
+  it('report creation fails closed when Turnstile is not configured', async () => {
+    const fd = new FormData(); fd.set('category', 'pothole'); fd.set('address', '25 Dorrance St');
+    const closed = { ...env, ALLOW_NO_TURNSTILE: undefined };
+    const r = await handleApi(new Request('https://api.test/api/report', { method: 'POST', body: fd, headers: { authorization: 'Bearer nope' } }), closed, { store: mockStore() });
+    expect([401, 403]).toContain(r!.status); // 401 from the (unverifiable) token, never 201
   });
 });

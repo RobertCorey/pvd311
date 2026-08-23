@@ -27,7 +27,7 @@ Errors: `auth_required` (401), `invalid_category`, `invalid_address`, `too_long`
 ## POST /api/intake — moderation + optional wording cleanup (AI)
 JSON `{ category|null, description, address, extra?, hasPhoto, appVersion }` →
 `{ polishedDescription: string|null, flags: ('spam'|'abuse'|'personal_info'|'not_311'|'emergency')[], note: string|null, model: string|null }`.
-Rate-limited ~10/min per IP. Never suggests a category (the reporter picks). Client shows: `emergency` → 911 notice; `not_311` → notice; others are passed back as `intakeFlags` and force human review server-side.
+Rate-limited 10/min per IP and 1,500/day globally (durable, Firestore meta). The flags are advisory for the client; the Worker re-runs moderation itself before any auto-approval (see HITL). Never suggests a category (the reporter picks). Client shows: `emergency` → 911 notice; `not_311` → notice; others are passed back as `intakeFlags` and force human review server-side.
 
 ## GET /api/reports/:id — tracking (no PII)
 `{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, timeline: [{at, label}], nextUpdateHint|null, hasEmail }`
@@ -37,33 +37,14 @@ Client label map: received → "Received"; sending → "Sending to the city"; se
 ## GET /api/photos/:id
 The report's photo bytes (immutable, cacheable).
 
-## GET /api/public-feed?bbox=minLng,minLat,maxLng,maxLat&limit=100
-`{ items: [{ id, source, category, categoryLabel, lat, lng, address, createdAt, status, portalStatus }] }`.
-Two sources merged (bbox + limit apply to the combined set; limit ≤ 200):
-- `source: 'snappvd'` — our reports, last 30 days. `status`: received/sending/sent/rejected; `id` = tracking token.
-- `source: 'city'` — the city's own anonymous feed (`/public-requests/`, refreshed by the 30-min watcher into `meta/cityFeed`). `id` = `city:<hash>`, `address` = street only, `createdAt` parsed from the grid's "Created On" (may be null), `status` = `'city'`, and the city's Status Reason (Draft/Submitted/Assigned/Resolved/Cancelled/…) is in `portalStatus`. City items have no case id and are geocoded street-level via ArcGIS, so `lat`/`lng` are approximate; un-geocodable rows are omitted from the feed.
+## ~~GET /api/public-feed~~ — removed 2026-08-22
+The /map page was cut, and the feed exposed every report's tracking id (the id is the read credential for `/api/reports/:id` and `/api/photos/:id`). Use `/api/nearby` for the dedupe signal.
 
 ## GET /api/nearby?lat=&lng=&category=&radiusM=75
-`{ items: [{ ...same fields as public-feed..., distanceM }] }` — reports within `radiusM` metres (default 75, max 2000) of `lat,lng`, from the last 14 days, both sources, sorted nearest-first. `category` (a `shared/categories.ts` key) optionally filters. City items with an unparseable date are kept (a fresh dedupe signal is not dropped). Used by the client's "already reported nearby?" dedupe prompt. Errors: `invalid_coords` (400).
+`{ items: [{ id, source: 'snappvd'|'city', category, categoryLabel, lat, lng, address, createdAt, status, portalStatus, distanceM }] }` — reports within `radiusM` metres (default 75, max 2000) of `lat,lng`, from the last 14 days, both sources, sorted nearest-first. `category` (a `shared/categories.ts` key) optionally filters. City items with an unparseable date are kept (a fresh dedupe signal is not dropped). Used by the client's "already reported nearby?" dedupe prompt. Errors: `invalid_coords` (400).
 
-## POST /api/reports/:id/follow — follow someone else's report
-JSON `{ email }` → 204. Followers receive the same city-status emails as the reporter (gated until the sending domain is verified). Use from the "already reported nearby" prompt for `source:'snappvd'` items (city items can't be followed).
-
----
-
-# Accounts (required to report) — v1
-
-Identity provider: **Firebase Auth** (project `pvd-snow-report`), driven from the client over its REST API (no SDK). Providers: **email link** (link minted by the Worker and sent via Resend — Firebase's own sender is dropped by Gmail) and **Google** (GIS button, Web client ID `224841506687-4jjb…`). Anonymous-provider tokens are rejected. Reading (tracking pages, map, nearby, intake) needs no account; **creating a report does**.
-
-**Transport:** `Authorization: Bearer <Firebase ID token>`. The Worker verifies RS256 against Google's securetoken JWKS, `aud`/`iss` = the project, `exp`/`iat` ±60 s. `/api/me/*`, `PATCH /api/reports/:id` and `POST /api/reports/:id/cancel` require it → 401 `unauthenticated` otherwise. Any other endpoint accepts it optionally. `ownerUid` is set **only** from a verified token, never from a client field.
-
-Client-side flow (`K` = the Firebase Web API key from `firebase apps:sdkconfig web` — a public, referrer-restricted identifier that ships in the client bundle; kept out of docs only to quiet GitHub secret scanning):
-1. `POST /api/auth/link` (Worker) JSON `{ email, returnTo?: "/…", lang?: "en"|"es" }` → `{ sent: true }`. Mints the Firebase email-link (Identity Toolkit admin, `returnOobLink`) and emails it from `AUTH_FROM` via Resend. `returnTo` (same-origin path) is embedded in the link's continueUrl. Rate limits: 3 / 15 min per email, 12 / h per IP → 429 `rate_limited`. Errors: `invalid_email` (400). Remember `email` locally.
-2. The link lands on `<origin>/account?returnTo=…&mode=signIn&oobCode=…` → `POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithEmailLink?key=K` `{ oobCode, email }` → `{ idToken, refreshToken, expiresIn, localId, email }`; the client then navigates to `returnTo`.
-3. Refresh: `POST https://securetoken.googleapis.com/v1/token?key=K` `grant_type=refresh_token&refresh_token=…` → `{ id_token, refresh_token, expires_in }`. ID tokens live 1 h.
-4. Google: GIS credential → `accounts:signInWithIdp?key=K` `{ postBody: "id_token=…&providerId=google.com", requestUri: origin, returnSecureToken: true }`.
-
-Data: `users/{uid}` `{ email, emailVerified, displayName, provider, createdAt, lastSeenAt, prefs: { emailUpdates }, addresses: [≤10], following: [reportId ≤200], trusted? }`. Reports gain `ownerUid`, `claimedAt`, `followerUids`, `cancelledByReporter`.
+## ~~POST /api/reports/:id/follow~~ — removed 2026-08-22
+Anonymous follow let anyone subscribe any email to any report. Use `PUT /api/me/following/:id` (account required).
 
 ## GET /api/me
 `{ uid, email, emailVerified, displayName, provider, prefs: { emailUpdates }, addresses: [{ id, label, address, lat, lng }], following: [id], createdAt }`. Creates the user doc on first call.
@@ -95,3 +76,6 @@ JSON `{ description }` (≤2000) → `{ ok, description }`. 403 `not_owner`, 409
 ## Changes to existing endpoints
 - `POST /api/report`: account required (above). `GET /api/reports/:id` with a bearer adds `mine`, `following`, `editable`, and `description` (owners only); always adds `owned` and `cancelledByReporter` (status `rejected` + this flag = the reporter withdrew it).
 - HITL trust ramp (`HITL_MODE=ramp`, the launch mode): the first `ACCOUNT_TRUST_N` (3) reports of each account are human-reviewed; after that, an account with 0 rejected reports — or `users/{uid}.trusted=true` — auto-approves. `HITL_MODE=review` = every report tapped (panic switch).
+
+## HITL (ops, not app-facing)
+Review emails carry signed links `GET /hitl/approve/:id/:exp/:sig` and `/hitl/reject/:id/:exp/:sig` (HMAC-SHA256 over `action:id:exp`, 30-day expiry; path form so a quoted-printable mis-decode in transit can't corrupt them). Any intake flag — client-reported or from the Worker's own moderation pass, which runs once per report before auto-approval — forces human review regardless of account trust. Report creation fails closed if `TURNSTILE_SECRET` is unset (set `ALLOW_NO_TURNSTILE=1` only in tests/dev). Pacing is per mailbox (plus-tags and gmail dots collapsed) and per IP.

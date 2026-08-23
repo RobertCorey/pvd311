@@ -61,6 +61,8 @@ export interface Report {
 
   /** Set when a human (or the trust ramp) approved this report for submission */
   approvedAt?: string | null;
+  /** ISO when the Worker ran its own moderation pass (server-side; independent of client intake) */
+  moderatedAt?: string | null;
 
   /** HITL bookkeeping */
   review?: { requestedAt: string; telegramMessageId: number | null; emailed?: boolean; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string } | null;

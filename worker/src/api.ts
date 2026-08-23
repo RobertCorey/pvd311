@@ -4,22 +4,24 @@
  *   POST /api/auth/link   JSON → Worker-minted sign-in link by email (authmail.ts)
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
- *   GET  /api/public-feed → recent reports for the map (no PII)
+ *   GET  /api/nearby      → dedupe signal (ours + city, last 14 days)
+ *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  */
-import Anthropic from '@anthropic-ai/sdk';
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 import { userFromRequest, type AuthUser } from './auth.js';
 import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './me.js';
 import { sendSignInLink } from './authmail.js';
+import { moderate } from './moderation.js';
 
-const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
+const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
 const PACE_MS = 3 * 60_000;       // one report per device per 3 min
 const DAILY_CAP = 5;              // per device per day
-const INTAKE_PER_MIN = 10;        // per IP, best-effort (isolate memory)
+const INTAKE_PER_MIN = 10;        // per IP per minute (durable, Firestore meta)
+const INTAKE_PER_DAY_GLOBAL = 1500; // hard cap on AI spend per UTC day, all callers
 
 export interface ApiDeps { store: Store }
 
@@ -56,10 +58,8 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'POST' && reportId?.[2]) resp = await cancelReport(reportId[1], deps.store, auth!);
     else if (isCreate) resp = await createReport(request, env, deps, auth!);
     else if (request.method === 'POST' && url.pathname === '/api/auth/link') resp = await sendSignInLink(request, env, deps.store);
-    else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env);
+    else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env, deps);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps, auth);
-    else if (request.method === 'POST' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}\/follow$/.test(url.pathname)) resp = await followReport(url.pathname.split('/')[3], request, deps);
-    else if (request.method === 'GET' && url.pathname === '/api/public-feed') resp = await publicFeed(url, deps);
     else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
@@ -82,7 +82,7 @@ function newId(): string {
 const clientIp = (r: Request) => r.headers.get('cf-connecting-ip') ?? '0.0.0.0';
 
 async function verifyTurnstile(env: Env, token: string | null, ip: string): Promise<boolean> {
-  if (!env.TURNSTILE_SECRET) return true; // not configured → open (dev)
+  if (!env.TURNSTILE_SECRET) return env.ALLOW_NO_TURNSTILE === '1'; // fail CLOSED unless explicitly opened (tests/dev)
   if (!token) return false;
   const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -112,12 +112,35 @@ async function checkPace(store: Store, keys: string[]): Promise<{ ok: boolean; r
   return { ok: true, retryAfterSec: 0 };
 }
 
+/** One budget per mailbox, not per uid: strip +tags, lowercase, and collapse gmail dots. */
+export function paceIdentity(uid: string, email: string | null | undefined): string {
+  if (!email) return uid;
+  const m = /^([^@]+)@(.+)$/.exec(email.trim().toLowerCase());
+  if (!m) return uid;
+  let local = m[1].replace(/\+.*$/, '');
+  const domain = m[2];
+  if (domain === 'gmail.com' || domain === 'googlemail.com') local = local.replace(/\./g, '');
+  return `${local}@${domain}`;
+}
+
 const intakeHits = new Map<string, number[]>();
-function intakeAllowed(ip: string): boolean {
+/** Fast in-isolate check, then a durable per-IP-per-minute + global-per-day check in Firestore meta
+ *  (isolate memory alone is per-PoP and resets, so it can't bound AI spend). */
+async function intakeAllowed(store: Store, ip: string): Promise<boolean> {
   const now = Date.now();
   const arr = (intakeHits.get(ip) ?? []).filter((t) => now - t < 60_000);
   if (arr.length >= INTAKE_PER_MIN) return false;
-  arr.push(now); intakeHits.set(ip, arr); return true;
+  arr.push(now); intakeHits.set(ip, arr);
+  const minute = Math.floor(now / 60_000);
+  const day = new Date(now).toISOString().slice(0, 10);
+  const ipId = `intake_ip_${ip.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100)}`;
+  const dayId = `intake_day_${day}`;
+  const [ipRec, dayRec] = await Promise.all([store.getMeta<{ minute: number; count: number }>(ipId), store.getMeta<{ count: number }>(dayId)]);
+  const ipCount = ipRec?.minute === minute ? ipRec.count : 0;
+  const dayCount = dayRec?.count ?? 0;
+  if (ipCount >= INTAKE_PER_MIN || dayCount >= INTAKE_PER_DAY_GLOBAL) return false;
+  await Promise.all([store.setMeta(ipId, { minute, count: ipCount + 1 }), store.setMeta(dayId, { count: dayCount + 1 })]);
+  return true;
 }
 
 // ── POST /api/report ────────────────────────────────────────
@@ -135,7 +158,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   const clientId = f('clientId').slice(0, 64) || null;
   if (clientId) {
     const existing = await store.findByClientId(clientId);
-    if (existing) return json({ id: existing.id, trackingUrl: `/r/${existing.id}`, category: existing.category, createdAt: toIso(existing.timestamp), idempotent: true }, 200);
+    if (existing && existing.ownerUid === auth.uid) return json({ id: existing.id, trackingUrl: `/r/${existing.id}`, category: existing.category, createdAt: toIso(existing.timestamp), idempotent: true }, 200);
   }
 
   const category = f('category');
@@ -170,7 +193,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
 
   // Pace per account and per IP (IP is the backstop against many accounts from one box)
   {
-    const p = await checkPace(store, [`u_${account.uid}`, `ip_${ip}`]);
+    const p = await checkPace(store, [`u_${paceIdentity(account.uid, account.email)}`, `ip_${ip}`]);
     if (!p.ok) return json({ error: 'rate_limited', retryAfterSec: p.retryAfterSec }, 429, { 'retry-after': String(p.retryAfterSec) });
   }
 
@@ -194,37 +217,14 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
 
 // ── POST /api/intake (moderation + optional polish; never blocks submit) ──
 
-const INTAKE_TOOL: Anthropic.Tool = {
-  name: 'review_report', description: 'Moderate and optionally tidy a resident 311 report.', strict: true,
-  input_schema: {
-    type: 'object', additionalProperties: false, required: ['flags', 'polishedDescription', 'note'],
-    properties: {
-      flags: { type: 'array', items: { type: 'string', enum: ['spam', 'abuse', 'personal_info', 'not_311', 'emergency'] } },
-      polishedDescription: { type: ['string', 'null'], description: 'Cleaner wording with the SAME facts (≤600 chars), or null if already fine' },
-      note: { type: ['string', 'null'], description: 'One short reporter-facing sentence if a flag needs explaining, else null' },
-    },
-  },
-};
-const INTAKE_SYSTEM = `You review a resident's Providence, RI 311 service request before it is filed with the city.
-Flag: spam (nonsense/ads), abuse (harassment, threats, slurs, targeting a person), personal_info (names, phone numbers, plates of private individuals — except a plate on an ABANDONED vehicle, which the city needs), not_311 (not a city service issue), emergency (fire, injury, crime in progress, gas smell — should call 911).
-polishedDescription: only if the text is hard to read; keep every fact, add none, plain and brief. Otherwise null.
-note: one short sentence for the reporter only when a flag needs explaining (e.g. "This sounds like an emergency — please call 911."). Otherwise null.`;
-
-async function intake(request: Request, env: Env): Promise<Response> {
+async function intake(request: Request, env: Env, { store }: ApiDeps): Promise<Response> {
   const ip = clientIp(request);
-  if (!intakeAllowed(ip)) return json({ error: 'rate_limited', retryAfterSec: 60 }, 429);
+  if (!(await intakeAllowed(store, ip))) return json({ error: 'rate_limited', retryAfterSec: 60 }, 429);
   const body = (await request.json().catch(() => null)) as { category?: string | null; description?: string; address?: string; extra?: Record<string, string>; hasPhoto?: boolean } | null;
   if (!body || typeof body.description !== 'string') return json({ error: 'invalid_body' }, 400);
-  const description = body.description.slice(0, 2000);
-  if (!env.ANTHROPIC_API_KEY || description.trim().length < 3) return json({ polishedDescription: null, flags: [], note: null, model: null });
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const r = await client.messages.create({
-    model: 'claude-opus-5', max_tokens: 4096, output_config: { effort: 'low' }, system: INTAKE_SYSTEM, tools: [INTAKE_TOOL], tool_choice: { type: 'tool', name: 'review_report' },
-    messages: [{ role: 'user', content: JSON.stringify({ category: body.category ?? null, categoryLabel: body.category ? CATEGORIES[body.category]?.label : null, description, address: (body.address ?? '').slice(0, 300), extra: body.extra ?? {}, hasPhoto: !!body.hasPhoto }) }],
-  });
-  const block = r.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-  const out = (block?.input ?? { flags: [], polishedDescription: null, note: null }) as { flags: string[]; polishedDescription: string | null; note: string | null };
-  return json({ polishedDescription: out.polishedDescription ? out.polishedDescription.slice(0, 600) : null, flags: out.flags ?? [], note: out.note ?? null, model: r.model });
+  const extra = body.extra && typeof body.extra === 'object' ? Object.fromEntries(Object.entries(body.extra).slice(0, 8).map(([k, v]) => [k.slice(0, 40), String(v).slice(0, 200)])) : {};
+  const out = await moderate(env, { category: body.category ?? null, description: body.description, address: body.address ?? '', extra, hasPhoto: !!body.hasPhoto });
+  return json(out);
 }
 
 // ── GET /api/reports/:id ─────────────────────────────────────
@@ -260,18 +260,6 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
   };
 }
 
-/** POST /api/reports/:id/follow {email} — get updates on someone else's (FixMyPVD) report instead of filing a duplicate. */
-async function followReport(id: string, request: Request, { store }: ApiDeps): Promise<Response> {
-  const body = (await request.json().catch(() => null)) as { email?: string } | null;
-  const email = (body?.email ?? '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return json({ error: 'invalid_email', field: 'email' }, 400);
-  const r = await store.fetchReport(id);
-  if (!r) return json({ error: 'not_found' }, 404);
-  const followers = Array.from(new Set([...(((r as unknown as { followers?: string[] }).followers) ?? []), email])).slice(0, 50);
-  await store.patchReport(id, { followers });
-  return new Response(null, { status: 204 });
-}
-
 async function getReport(id: string, { store }: ApiDeps, auth: AuthUser | null): Promise<Response> {
   const r = await store.fetchReport(id);
   if (!r) return json({ error: 'not_found' }, 404);
@@ -288,7 +276,7 @@ async function getPhoto(id: string, { store }: ApiDeps): Promise<Response> {
   return new Response(p.bytes, { headers: { 'content-type': p.contentType, 'cache-control': 'public, max-age=31536000, immutable' } });
 }
 
-// ── GET /api/public-feed (ours + city) ──────────────────────
+// ── Feed items (nearby) ─────────────────────────────────────
 
 interface FeedItem {
   id: string; source: 'snappvd' | 'city'; category: string; categoryLabel: string;
@@ -311,26 +299,6 @@ function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
     lat: it.lat, lng: it.lng, address: it.street, createdAt: parseCityDate(it.createdOn),
     status: 'city', portalStatus: it.status || null,
   };
-}
-
-async function publicFeed(url: URL, { store }: ApiDeps): Promise<Response> {
-  const limit = Math.min(200, Math.max(1, Number.isFinite(Number(url.searchParams.get('limit'))) && url.searchParams.get('limit') ? Number(url.searchParams.get('limit')) : 100));
-  const bbox = (url.searchParams.get('bbox') ?? '').split(',').map(Number);
-  const inBbox = (lat: number, lng: number) =>
-    bbox.length !== 4 || bbox.some(Number.isNaN) || (lng >= bbox[0] && lat >= bbox[1] && lng <= bbox[2] && lat <= bbox[3]);
-
-  const ours = (await store.findReportsSince(24 * 30, limit))
-    .filter((r) => r.lat != null && r.lng != null && inBbox(r.lat!, r.lng!))
-    .map(ourFeedItem);
-
-  const feed = await store.getMeta<CityFeed>('cityFeed');
-  const city = (feed?.items ?? [])
-    .filter((it) => it.lat != null && it.lng != null && inBbox(it.lat!, it.lng!))
-    .filter((it) => !/^draft$/i.test(it.status || '')).map(cityFeedItem);
-
-  // Interleave by recency so a busy week of ours never starves the city rows (and vice versa).
-  const items = [...ours, ...city].sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? '')).slice(0, limit);
-  return json({ items }, 200, { 'cache-control': 'public, max-age=60' });
 }
 
 // ── GET /api/nearby?lat=&lng=&category=&radiusM=75 (ours + city, last 14 days) ──

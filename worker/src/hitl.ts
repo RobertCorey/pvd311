@@ -11,6 +11,7 @@
 import type { Env, Mailer, ReportDoc, Store } from './contracts.js';
 import { CATEGORIES } from '../../shared/categories.js';
 import { actionUrl } from './email.js';
+import { moderate } from './moderation.js';
 import { accountTrusted } from './me.js';
 
 /** Trust-ramp threshold (env override optional; matches Node config default). */
@@ -24,8 +25,12 @@ function trustRampN(env: Env): number {
 export async function needsHumanApproval(store: Store, env: Env, report: ReportDoc): Promise<boolean> {
   if (report.approvedAt) return false;
   const mode = env.HITL_MODE;
-  if (mode === 'auto') return false;
   if (mode === 'review') return true;
+  // Server-side moderation, once per report — the client's intake flags are advisory (a client can omit them).
+  // Any flag forces human review regardless of trust or mode.
+  const flags = await ensureModerated(store, env, report);
+  if (flags.length) return true;
+  if (mode === 'auto') return false;
   // ramp: per ACCOUNT — the first ACCOUNT_TRUST_N reports of an account are reviewed; after that, a clean
   // history (0 rejected — or admin `trusted`) auto-approves. Accounts are mandatory, so every report has an owner;
   // an ownerless legacy row falls back to the per-category ramp.
@@ -33,6 +38,23 @@ export async function needsHumanApproval(store: Store, env: Env, report: ReportD
   const n = trustRampN(env);
   const submitted = await store.countSubmittedByCategory(report.category, n);
   return submitted < n;
+}
+
+/** Run moderation server-side if it hasn't run yet; merge with client flags; persist. Fails SAFE: a model error → treat as flagged. */
+async function ensureModerated(store: Store, env: Env, report: ReportDoc): Promise<string[]> {
+  const client = report.intakeFlags ?? [];
+  if (report.moderatedAt) return client;
+  let merged: string[];
+  try {
+    const m = await moderate(env, { category: report.category, description: report.description ?? '', address: report.address, extra: report.extra ?? {}, hasPhoto: !!report.photo });
+    merged = [...new Set([...client, ...m.flags])];
+  } catch (e) {
+    console.error('[hitl] moderation failed; forcing review:', e);
+    merged = [...new Set([...client, 'spam'])]; // conservative: unknown → reviewed, not auto-filed
+  }
+  await store.patchReport(report.id, { intakeFlags: merged.length ? (merged as ReportDoc['intakeFlags']) : null, moderatedAt: new Date().toISOString() }).catch(() => {});
+  report.intakeFlags = merged.length ? (merged as ReportDoc['intakeFlags']) : null;
+  return merged;
 }
 
 /** Per-account trust threshold for HITL_MODE="ramp" (env ACCOUNT_TRUST_N, default 3). */
