@@ -79,6 +79,11 @@ export interface Store {
   // Accounts (users/{uid}) — see me.ts
   getUser(uid: string): Promise<UserDoc | null>;
   patchUser(uid: string, fields: Record<string, unknown>): Promise<void>;
+  countUsers(): Promise<number>;
+  // System visibility (health.ts)
+  addEvent(ev: { at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null }): Promise<void>;
+  recentEvents(limit: number): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]>;
+  deleteEventsBefore(date: Date, limit: number): Promise<number>;
   findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
   findReportsByEmail(email: string, limit: number): Promise<ReportDoc[]>;      // reporterEmail == email (any status)
   fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped

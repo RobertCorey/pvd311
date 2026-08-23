@@ -15,6 +15,7 @@ import { createPortal } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
 import { notifyReport } from './notify.js';
+import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 
@@ -70,24 +71,26 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
     // Reaper — reports the engine abandoned mid-submit (crash/timeout). Draft bookkeeping is kept for resume.
     for (const stuck of await store.findStuckProcessing(STUCK_MINUTES).catch(() => [] as ReportDoc[])) {
       await store.updateReportStatus(stuck.id, 'failed', `Reaped: stuck in processing > ${STUCK_MINUTES}m`).catch(() => {});
+      await logEvent(store, { level: 'warn', kind: 'tick.reaped', msg: `Stuck in processing > ${STUCK_MINUTES}m → failed`, reportId: stuck.id });
       await mailer.alert(`Reaped ${stuck.id}`, `<p>Report <b>${stuck.id}</b> was stuck in processing &gt; ${STUCK_MINUTES}m and was failed. Retry from the dashboard (draft will resume).</p>`);
     }
 
     if (state.paused) {
       console.log('[tick] engine paused (circuit breaker) — skipping submissions');
+      await markOk(store, 'tick', 'paused');
       return;
     }
 
     // Rate limits.
     const oneHourAgo = now - 60 * 60_000;
     const stamps = (state.submissionTimestamps ?? []).filter((t) => t > oneHourAgo);
-    if (stamps.length >= MAX_PER_HOUR) { console.log('[tick] hourly cap reached'); return; }
-    if (state.lastSubmissionTime && now - state.lastSubmissionTime < MIN_GAP_MS) { console.log('[tick] min gap not elapsed'); return; }
+    if (stamps.length >= MAX_PER_HOUR) { console.log('[tick] hourly cap reached'); await markOk(store, 'tick', 'hourly cap'); return; }
+    if (state.lastSubmissionTime && now - state.lastSubmissionTime < MIN_GAP_MS) { console.log('[tick] min gap not elapsed'); await markOk(store, 'tick', 'min gap'); return; }
 
     // Oldest pending whose retryAfter has passed.
     const pending = (await store.fetchPendingReports())
       .filter((r) => !r.retryAfter || new Date(r.retryAfter).getTime() <= now);
-    if (pending.length === 0) return;
+    if (pending.length === 0) { await markOk(store, 'tick', 'idle'); return; }
     const report = pending[0];
 
     // Verification gates.
@@ -95,18 +98,24 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
     if (rejection) {
       await store.updateReportStatus(report.id, 'auto-rejected', rejection);
       console.log(`[tick] auto-rejected ${report.id}: ${rejection}`);
+      await logEvent(store, { level: 'warn', kind: 'tick.auto_rejected', msg: rejection, reportId: report.id });
+      await markOk(store, 'tick', 'auto-rejected one');
       return;
     }
 
     // HITL gate.
     if (await needsHumanApproval(store, env, report)) {
       await requestReview(store, mailer, env, report, hitlBaseUrl(env));
+      await logEvent(store, { level: 'info', kind: 'hitl.requested', msg: `Sent for review (${report.category} @ ${report.address})${report.intakeFlags?.length ? ` flags: ${report.intakeFlags.join(',')}` : ''}`, reportId: report.id });
+      await markOk(store, 'tick', 'review requested');
       return;
     }
 
     await submitOne(store, env, mailer, report, stamps, state);
+    await markOk(store, 'tick', 'submitted one');
   } catch (err) {
     console.error('[tick] error:', err);
+    await markError(store, 'tick', err);
   } finally {
     // Merge-clear the lock (submitOne persisted the rest of the state via merge).
     await store.setMeta('engine', { lock: null }).catch(() => {});
@@ -172,6 +181,8 @@ async function submitOne(
       paused: false,
     });
     console.log(`[tick] submitted ${report.id}${result.caseId ? ` as ${result.caseId}` : ''}`);
+    await markOk(store, 'submit', result.caseId ? `filed as ${result.caseId}` : 'filed (no case id captured)');
+    await logEvent(store, { level: 'info', kind: 'submit.ok', msg: `Filed with the city${result.caseId ? ` as ${result.caseId}` : ''} (${report.category} @ ${report.address})`, reportId: report.id, data: { caseId: result.caseId ?? null } });
     {
       const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
       await notifyReport(store, mailer, report, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
@@ -180,6 +191,8 @@ async function submitOne(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[tick] failed ${report.id}:`, message);
+    await markError(store, 'submit', message);
+    await logEvent(store, { level: 'error', kind: 'submit.failed', msg: message, reportId: report.id });
     const humanNeeded = /^NEEDS_(REVIEW|MAPPING)/.test(message) || /validation failed/i.test(message);
     const retries = (report.retries ?? 0) + 1;
     if (!humanNeeded && retries <= MAX_RETRIES) {
@@ -198,6 +211,7 @@ async function submitOne(
     }
     if (paused) {
       console.error(`[tick] circuit breaker tripped after ${consecutiveFailures} failures`);
+      await logEvent(store, { level: 'error', kind: 'engine.breaker', msg: `Circuit breaker tripped after ${consecutiveFailures} consecutive failures — submissions paused` });
       await mailer.alert('Circuit breaker tripped', `<p>Paused after ${consecutiveFailures} consecutive failures.</p><p>Last: ${escHtml(message)}</p><p>Resume from the dashboard.</p>`);
     }
   } finally {
@@ -214,6 +228,7 @@ export async function runWatcher(env: Env): Promise<void> {
 
   const auth = createAuthStore(store);
   const portal = createPortal(env, { auth });
+  let changes = 0; let rowCount = 0;
   try {
     await portal.launch();
     await portal.ensureLoggedIn();
@@ -221,6 +236,7 @@ export async function runWatcher(env: Env): Promise<void> {
     // My Requests status diff (skipped when we have nothing to watch, but the city feed below still runs).
     if (tracked.length) {
       const rows = await portal.readMyRequests();
+      rowCount = rows.length;
       if (!rows.length) {
         console.warn('[watcher] My Requests returned 0 rows — skipping diff');
       } else {
@@ -236,6 +252,8 @@ export async function runWatcher(env: Env): Promise<void> {
 
           await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
           console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
+          changes++;
+          await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           {
             const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
             const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', Resolved: 'is marked resolved by the city', Cancelled: 'was cancelled by the city' };
@@ -254,9 +272,16 @@ export async function runWatcher(env: Env): Promise<void> {
     // City-wide public feed (anonymous PCF grid) → meta/cityFeed. Non-fatal; reuses this page.
     try {
       await fetchCityFeed(env, portalPage(portal), store);
+      const feed = await store.getMeta<{ items?: unknown[] }>('cityFeed').catch(() => null);
+      await markOk(store, 'cityfeed', `${feed?.items?.length ?? 0} items`);
     } catch (e) {
       console.error('[watcher] city feed failed:', e instanceof Error ? e.message : e);
+      await markError(store, 'cityfeed', e);
     }
+    await markOk(store, 'watcher', `${tracked.length} tracked, ${rowCount} rows, ${changes} change${changes === 1 ? '' : 's'}`);
+  } catch (e) {
+    await markError(store, 'watcher', e);
+    throw e;
   } finally {
     await portal.close().catch(() => {});
   }
@@ -287,8 +312,11 @@ export async function runDaily(env: Env): Promise<void> {
       await store.deletePhoto(id).catch(() => {});
       await store.patchReport(r.id, { photo: null, photoDeletedAt: new Date().toISOString() });
       console.log(`[retention] deleted photo for ${r.id}`);
+      await logEvent(store, { level: 'info', kind: 'retention.photo_deleted', msg: 'Photo deleted 30 days after the city closed the case', reportId: r.id });
     }
-  } catch (e) { console.error('[retention] failed:', e); }
+    const purged = await store.deleteEventsBefore(new Date(Date.now() - 14 * 24 * 3_600_000), 500).catch(() => 0);
+    if (purged) console.log(`[retention] purged ${purged} old events`);
+  } catch (e) { console.error('[retention] failed:', e); await markError(store, 'daily', e); }
 
   try {
     const [submitted, pending, awaiting, failed, processing] = await Promise.all([
@@ -314,11 +342,16 @@ export async function runDaily(env: Env): Promise<void> {
     const canary = await portal.canary();
     if (!canary.ok) {
       await mailer.alert('Portal drift', `<p>Selector canary failed.</p><p>Missing: ${escHtml(canary.missing.join(', '))}</p><p>Notes: ${escHtml(canary.notes.join('; '))}</p>`);
+      await markError(store, 'canary', `Missing: ${canary.missing.join(', ')}`);
+      await logEvent(store, { level: 'error', kind: 'canary.drift', msg: `Portal form changed — missing: ${canary.missing.join(', ')}`, data: { notes: canary.notes } });
     } else {
       console.log(`[daily] canary OK (${canary.notes.join('; ')})`);
+      await markOk(store, 'canary', canary.notes.join('; '));
     }
+    await markOk(store, 'daily');
   } catch (e) {
     await mailer.alert('Canary could not run', `<pre>${escHtml(e instanceof Error ? e.message : String(e))}</pre>`);
+    await markError(store, 'canary', e);
   } finally {
     await portal.close().catch(() => {});
   }

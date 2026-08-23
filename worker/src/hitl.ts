@@ -12,6 +12,7 @@ import type { Env, Mailer, ReportDoc, Store } from './contracts.js';
 import { CATEGORIES } from '../../shared/categories.js';
 import { actionUrl } from './email.js';
 import { moderate } from './moderation.js';
+import { logEvent } from './health.js';
 import { accountTrusted } from './me.js';
 
 /** Trust-ramp threshold (env override optional; matches Node config default). */
@@ -46,7 +47,7 @@ async function ensureModerated(store: Store, env: Env, report: ReportDoc): Promi
   if (report.moderatedAt) return client;
   let merged: string[];
   try {
-    const m = await moderate(env, { category: report.category, description: report.description ?? '', address: report.address, extra: report.extra ?? {}, hasPhoto: !!report.photo });
+    const m = await moderate(env, { category: report.category, description: report.description ?? '', address: report.address, extra: report.extra ?? {}, hasPhoto: !!report.photo }, store);
     merged = [...new Set([...client, ...m.flags])];
   } catch (e) {
     console.error('[hitl] moderation failed; forcing review:', e);
@@ -121,6 +122,7 @@ export async function approve(store: Store, id: string, by: string): Promise<voi
     review: { ...(rep?.review ?? {}), decision: 'approved', by, decidedAt: now },
   });
   console.log(`[hitl] ${id} approved by ${by}`);
+  await logEvent(store, { level: 'info', kind: 'hitl.approved', msg: `Approved by ${by}`, reportId: id });
 }
 
 export interface RejectOpts { reason?: string | null; mailer?: Mailer; env?: Env }
@@ -135,6 +137,7 @@ export async function reject(store: Store, id: string, by: string, opts: RejectO
     review: { ...(rep?.review ?? {}), decision: 'rejected', by, decidedAt: now, ...(reason ? { reason } : {}) },
   });
   console.log(`[hitl] ${id} rejected by ${by}`);
+  await logEvent(store, { level: 'warn', kind: 'hitl.rejected', msg: `Rejected by ${by}${reason ? `: ${reason}` : ''}`, reportId: id });
   if (opts.mailer && rep?.reporterEmail) {
     const cat = CATEGORIES[rep.category]?.label ?? rep.category;
     const base = (opts.env?.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '');

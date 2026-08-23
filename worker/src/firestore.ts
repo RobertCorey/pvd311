@@ -482,6 +482,46 @@ export function createStore(env: Env): Store {
       return { bytes: out, contentType: d.fields?.contentType?.stringValue ?? 'image/jpeg' };
     },
 
+    async countUsers(): Promise<number> {
+      return runCount(env, { from: [{ collectionId: 'users' }] });
+    },
+
+    async addEvent(ev): Promise<void> {
+      const rnd = Array.from(crypto.getRandomValues(new Uint8Array(4))).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const id = `${Date.parse(ev.at).toString(36).padStart(9, '0')}_${rnd}`; // time-sortable id
+      await patchDoc(env, `events/${id}`, { ...ev, at: new Date(ev.at) });
+    },
+
+    async recentEvents(limit): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'events' }],
+        orderBy: [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }],
+        limit,
+      });
+      return docs.map((d) => {
+        const data = decodeFields(d.fields ?? {}) as Record<string, unknown>;
+        const ts = data.at as { toDate?: () => Date; seconds?: number } | string | null;
+        const at = !ts ? '' : typeof ts === 'string' ? ts : typeof ts.toDate === 'function' ? ts.toDate().toISOString() : typeof ts.seconds === 'number' ? new Date(ts.seconds * 1000).toISOString() : '';
+        return { id: d.name.split('/').pop() as string, at, level: String(data.level ?? 'info'), kind: String(data.kind ?? ''), msg: String(data.msg ?? ''), reportId: (data.reportId as string | null) ?? null, data: (data.data as Record<string, unknown> | null) ?? null };
+      });
+    },
+
+    async deleteEventsBefore(date, limit): Promise<number> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'events' }],
+        where: fieldFilter('at', 'LESS_THAN', { timestampValue: date.toISOString() }),
+        select: { fields: [{ fieldPath: 'at' }] },
+        limit,
+      });
+      const token = await getAccessToken(env);
+      let n = 0;
+      for (const d of docs) {
+        const resp = await fetch(`${docBase(env)}/events/${d.name.split('/').pop()}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+        if (resp.ok || resp.status === 404) n++;
+      }
+      return n;
+    },
+
     async deletePhoto(id): Promise<void> {
       const token = await getAccessToken(env);
       const resp = await fetch(`${docBase(env)}/photos/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });

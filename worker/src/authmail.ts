@@ -7,6 +7,7 @@
  * Rate-limited per email (3 / 15 min) and per IP (12 / hour). Always answers 200 {sent:true} for a well-formed email
  * so the endpoint can't be used to enumerate accounts.
  */
+import { markOk, markError, logEvent } from './health.js';
 import type { Env, Store } from './contracts.js';
 import { getAccessToken } from './firestore.js';
 
@@ -81,6 +82,8 @@ export async function sendSignInLink(request: Request, env: Env, store: Store): 
     method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify({ from, to: [email], subject: copy.subject, html, text }),
   });
-  if (!m.ok) { console.error('[authmail] resend failed', m.status, await m.text().catch(() => '')); return Response.json({ error: 'internal' }, { status: 500 }); }
+  if (!m.ok) { console.error('[authmail] resend failed', m.status, await m.text().catch(() => '')); await markError(store, 'auth_mail', `Resend ${m.status}`); return Response.json({ error: 'internal' }, { status: 500 }); }
+  await markOk(store, 'auth_mail', `link sent (${email.split('@')[1]})`);
+  await logEvent(store, { level: 'info', kind: 'auth.link_sent', msg: `Sign-in link sent (@${email.split('@')[1]})` });
   return Response.json({ sent: true });
 }

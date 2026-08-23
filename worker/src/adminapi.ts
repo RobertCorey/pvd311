@@ -8,6 +8,7 @@
  *   GET  /api/admin/users/:uid             → { uid, email, trusted, submitted, rejected }
  *   POST /api/admin/users/:uid/trust       → JSON { trusted: boolean } (override the ramp)
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
+ *   GET  /api/admin/health                 → system visibility: subsystem traffic lights, counters, event stream
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
  */
@@ -16,6 +17,7 @@ import type { Env, Store, ReportDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
 import { approve, reject } from './hitl.js';
 import { createMailer } from './email.js';
+import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -76,6 +78,49 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     });
   }
 
+  if (m === 'GET' && path === '/api/admin/health') {
+    const now = Date.now();
+    const limit = Math.min(300, Math.max(1, Number(url.searchParams.get('events')) || 100));
+    const statuses = ['pending', 'awaiting_review', 'processing', 'submitted', 'failed', 'rejected', 'auto-rejected'] as const;
+    const day = new Date().toISOString().slice(0, 10);
+    const [engine, recs, counts, cityFeed, intakeDay, users, events] = await Promise.all([
+      store.getMeta<Record<string, unknown>>('engine').catch(() => null),
+      Promise.all(SUBSYSTEMS.map((d) => store.getMeta<HealthRec>(`health_${d.key}`).catch(() => null))),
+      Promise.all(statuses.map((st) => store.countByStatus(st).catch(() => -1))),
+      store.getMeta<{ fetchedAt?: string; items?: unknown[] }>('cityFeed').catch(() => null),
+      store.getMeta<{ count?: number }>(`intake_day_${day}`).catch(() => null),
+      store.countUsers().catch(() => -1),
+      store.recentEvents(limit).catch(() => []),
+    ]);
+    const subsystems = SUBSYSTEMS.map((d, i) => {
+      const rec = recs[i];
+      return {
+        key: d.key, label: d.label, what: d.what, status: deriveStatus(d, rec, now),
+        lastOkAt: rec?.lastOkAt ?? null, lastErrorAt: rec?.lastErrorAt ?? null, lastError: rec?.lastError ?? null, lastDetail: rec?.lastDetail ?? null,
+        okToday: rec?.day === day ? rec?.okToday ?? 0 : 0, errToday: rec?.day === day ? rec?.errToday ?? 0 : 0,
+        expectedEvery: d.freshMs ? `${Math.round(d.freshMs / 60_000)} min` : null,
+      };
+    });
+    const paused = !!engine?.['paused'];
+    const overall = paused ? 'warn' : subsystems.some((x) => x.status === 'error') ? 'error' : subsystems.some((x) => x.status === 'warn') ? 'warn' : 'ok';
+    const oneHourAgo = now - 3_600_000;
+    return json({
+      generatedAt: new Date(now).toISOString(), overall,
+      engine: {
+        paused, consecutiveFailures: Number(engine?.['consecutiveFailures'] ?? 0),
+        submissionsThisHour: ((engine?.['submissionTimestamps'] as number[] | undefined) ?? []).filter((t) => t > oneHourAgo).length,
+        lastSubmissionTime: engine?.['lastSubmissionTime'] ? new Date(Number(engine['lastSubmissionTime'])).toISOString() : null,
+        locked: !!(engine?.['lock'] && Number((engine['lock'] as { until?: number }).until ?? 0) > now),
+        hitlMode: env.HITL_MODE, accountTrustN: env.ACCOUNT_TRUST_N ?? '3', reporterEmailEnabled: env.REPORTER_EMAIL_ENABLED === 'true',
+      },
+      subsystems,
+      counts: Object.fromEntries(statuses.map((st, i) => [st, counts[i]])),
+      users, ai: { intakeToday: intakeDay?.count ?? 0, dailyCap: 1500 },
+      cityFeed: { fetchedAt: cityFeed?.fetchedAt ?? null, items: cityFeed?.items?.length ?? 0 },
+      events,
+    });
+  }
+
   const one = /^\/api\/admin\/reports\/([A-Za-z0-9_-]{10,64})(?:\/(approve|reject|requeue))?$/.exec(path);
   if (one) {
     const [, id, action] = one;
@@ -107,6 +152,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       const body = (await request.json().catch(() => null)) as { trusted?: unknown } | null;
       if (!body || typeof body.trusted !== 'boolean') return json({ error: 'invalid_body' }, 400);
       await store.patchUser(uid, { trusted: body.trusted, trustedBy: body.trusted ? auth.email : null, trustedAt: body.trusted ? new Date().toISOString() : null });
+      await logEvent(store, { level: 'info', kind: 'admin.trust', msg: `${body.trusted ? 'Trusted' : 'Untrusted'} account ${u.email ?? uid} (by ${auth.email})` });
     }
     if (m === 'GET' || (m === 'POST' && action === 'trust')) {
       const fresh = (await store.getUser(uid)) ?? u;
@@ -118,11 +164,13 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
   if (m === 'POST' && path === '/api/admin/engine/resume') {
     const engine = (await store.getMeta<Record<string, unknown>>('engine').catch(() => null)) ?? {};
     await store.setMeta('engine', { ...engine, paused: false, consecutiveFailures: 0 });
+    await logEvent(store, { level: 'info', kind: 'admin.resume', msg: `Engine resumed by ${auth.email}` });
     return json({ ok: true, paused: false });
   }
   if (m === 'POST' && path === '/api/admin/engine/pause') {
     const engine = (await store.getMeta<Record<string, unknown>>('engine').catch(() => null)) ?? {};
     await store.setMeta('engine', { ...engine, paused: true });
+    await logEvent(store, { level: 'warn', kind: 'admin.pause', msg: `Engine paused by ${auth.email}` });
     return json({ ok: true, paused: true });
   }
   return json({ error: 'not_found' }, 404);

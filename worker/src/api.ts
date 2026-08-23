@@ -17,6 +17,7 @@ import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './m
 import { sendSignInLink } from './authmail.js';
 import { moderate } from './moderation.js';
 import { handleAdmin, isAdmin } from './adminapi.js';
+import { logEvent, markOk } from './health.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -215,6 +216,8 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     deviceId, ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
     ownerUid: account.uid,
   });
+  await logEvent(store, { level: 'info', kind: 'report.created', msg: `${cat.label} @ ${address}${intakeFlags?.length ? ` (client flags: ${intakeFlags.join(',')})` : ''}`, reportId: id, data: { category, hasPhoto, appVersion: f('appVersion').slice(0, 40) || null } });
+  await markOk(store, 'api', `report ${category}`);
   return json({ id, trackingUrl: `/r/${id}`, category, createdAt: now.toISOString() }, 201);
 }
 
@@ -226,7 +229,7 @@ async function intake(request: Request, env: Env, { store }: ApiDeps): Promise<R
   const body = (await request.json().catch(() => null)) as { category?: string | null; description?: string; address?: string; extra?: Record<string, string>; hasPhoto?: boolean } | null;
   if (!body || typeof body.description !== 'string') return json({ error: 'invalid_body' }, 400);
   const extra = body.extra && typeof body.extra === 'object' ? Object.fromEntries(Object.entries(body.extra).slice(0, 8).map(([k, v]) => [k.slice(0, 40), String(v).slice(0, 200)])) : {};
-  const out = await moderate(env, { category: body.category ?? null, description: body.description, address: body.address ?? '', extra, hasPhoto: !!body.hasPhoto });
+  const out = await moderate(env, { category: body.category ?? null, description: body.description, address: body.address ?? '', extra, hasPhoto: !!body.hasPhoto }, store);
   return json(out);
 }
 

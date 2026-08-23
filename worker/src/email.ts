@@ -2,11 +2,17 @@
  * Rob-facing notifications by email (Resend REST). Inert when RESEND_API_KEY / NOTIFY_EMAIL are unset.
  * Also the HMAC signing used for HITL approve/reject links (WebCrypto — no node:crypto in Workers).
  */
-import type { Env, Mailer } from './contracts.js';
+import type { Env, Mailer, Store } from './contracts.js';
+import { createStore } from './firestore.js';
+import { markOk, markError } from './health.js';
 
 /** Build a Mailer bound to this Worker's env (from NOTIFY_FROM → NOTIFY_EMAIL). */
 export function createMailer(env: Env): Mailer {
   const enabled = !!env.RESEND_API_KEY && !!env.NOTIFY_EMAIL;
+  let store: Store | null = null;
+  const health = (ok: boolean, detail: unknown) => {
+    try { store ??= createStore(env); return ok ? markOk(store, 'email', String(detail)) : markError(store, 'email', detail); } catch { return Promise.resolve(); }
+  };
 
   async function send(subject: string, html: string): Promise<string | null> {
     if (!enabled) { console.log(`[email] (disabled) ${subject}`); return null; }
@@ -22,7 +28,8 @@ export function createMailer(env: Env): Mailer {
       }),
     });
     const data = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
-    if (!resp.ok) throw new Error(`Resend ${resp.status}: ${data.message ?? 'send failed'}`);
+    if (!resp.ok) { await health(false, `Resend ${resp.status}: ${data.message ?? 'send failed'} (${subject})`); throw new Error(`Resend ${resp.status}: ${data.message ?? 'send failed'}`); }
+    await health(true, `admin: ${subject}`);
     return data.id ?? null;
   }
 
@@ -36,8 +43,9 @@ export function createMailer(env: Env): Mailer {
         headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
         body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: html.replace(/<[^>]+>/g, '') }),
       });
-      if (!resp.ok) console.error(`[email] reporter mail failed ${resp.status}`);
-    } catch (e) { console.error('[email] reporter mail error', e); }
+      if (!resp.ok) { console.error(`[email] reporter mail failed ${resp.status}`); await health(false, `Resend ${resp.status} (reporter: ${subject})`); }
+      else await health(true, `reporter: ${subject}`);
+    } catch (e) { console.error('[email] reporter mail error', e); await health(false, e); }
   }
 
   /** Fire-and-forget alert; never throws. Subject is prefixed [FixMyPVD]. */

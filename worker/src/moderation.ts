@@ -5,7 +5,8 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { CATEGORIES } from '../../shared/categories.js';
-import type { Env } from './contracts.js';
+import type { Env, Store } from './contracts.js';
+import { markOk, markError } from './health.js';
 
 export type IntakeFlag = 'spam' | 'abuse' | 'personal_info' | 'not_311' | 'emergency';
 export interface ModerationResult { flags: IntakeFlag[]; polishedDescription: string | null; note: string | null; model: string | null }
@@ -30,20 +31,24 @@ note: one short sentence for the reporter only when a flag needs explaining (e.g
 const VALID: Set<string> = new Set(['spam', 'abuse', 'personal_info', 'not_311', 'emergency']);
 
 /** Returns an empty result (no flags) when the key is missing or the text is trivially short. Never throws on model quirks. */
-export async function moderate(env: Env, input: ModerationInput): Promise<ModerationResult> {
+export async function moderate(env: Env, input: ModerationInput, store?: Store): Promise<ModerationResult> {
   const description = input.description.slice(0, 2000);
   if (!env.ANTHROPIC_API_KEY || description.trim().length < 3) return { flags: [], polishedDescription: null, note: null, model: null };
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const r = await client.messages.create({
+  let r: Anthropic.Message;
+  try {
+    r = await client.messages.create({
     model: 'claude-opus-5', max_tokens: 4096, output_config: { effort: 'low' }, system: SYSTEM, tools: [TOOL], tool_choice: { type: 'tool', name: 'review_report' },
     messages: [{ role: 'user', content: JSON.stringify({
       category: input.category, categoryLabel: input.category ? CATEGORIES[input.category]?.label ?? null : null,
       description, address: input.address.slice(0, 300), extra: input.extra, hasPhoto: input.hasPhoto,
     }) }],
-  });
+    });
+  } catch (e) { if (store) await markError(store, 'ai', e); throw e; }
   const block = r.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
   const out = (block?.input ?? {}) as { flags?: unknown; polishedDescription?: unknown; note?: unknown };
   const flags = (Array.isArray(out.flags) ? out.flags : []).map(String).filter((f) => VALID.has(f)) as IntakeFlag[];
+  if (store) await markOk(store, 'ai', flags.length ? `flags: ${flags.join(',')}` : 'clean');
   return {
     flags: [...new Set(flags)],
     polishedDescription: typeof out.polishedDescription === 'string' && out.polishedDescription ? out.polishedDescription.slice(0, 600) : null,
