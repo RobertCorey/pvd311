@@ -409,5 +409,13 @@
   "admin.done.reject": "Rechazado.",
   "admin.done.requeue": "Reencolado.",
   "admin.conflict": "Ya cambió de estado ({status}) — lista actualizada.",
-  "admin.error": "No se pudo completar. Inténtalo de nuevo."
+  "admin.error": "No se pudo completar. Inténtalo de nuevo.",
+  "my.status.received": "Recibido",
+  "my.status.sending": "Enviando",
+  "my.status.sent": "Enviado",
+  "my.status.resolved": "Resuelto",
+  "my.status.cityCancelled": "Cerrado por la ciudad",
+  "my.status.cancelled": "Cancelado",
+  "my.status.notFiled": "No enviado",
+  "my.status.attention": "Requiere atención"
 }

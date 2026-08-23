@@ -409,5 +409,13 @@
   "admin.conflict": "Already moved on ({status}) — list refreshed.",
   "admin.error": "That didn't go through. Try again.",
   "admin.engine.resumed": "Engine resumed.",
-  "admin.engine.pausedToast": "Engine paused."
+  "admin.engine.pausedToast": "Engine paused.",
+  "my.status.received": "Received",
+  "my.status.sending": "Sending",
+  "my.status.sent": "Sent",
+  "my.status.resolved": "Resolved",
+  "my.status.cityCancelled": "Closed by city",
+  "my.status.cancelled": "Cancelled",
+  "my.status.notFiled": "Not filed",
+  "my.status.attention": "Needs attention"
 }

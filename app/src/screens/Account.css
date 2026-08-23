@@ -29,3 +29,12 @@
 .owner-actions form.card { display: grid; gap: .5rem; }
 .saved-addresses { display: flex; gap: .4rem; flex-wrap: wrap; margin: .25rem 0 .5rem; }
 .account-reports { display: grid; gap: .6rem; margin-bottom: .75rem; }
+
+/* Status pill on My reports rows (row grid gains a 'status' area under the date) */
+.my-row { grid-template-areas: 'icon cat date' 'icon addr status'; }
+.my-status-slot { grid-area: status; justify-self: end; }
+.my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.my-status--sent, .my-status--resolved { border-color: var(--success); color: var(--success); }
+.my-status--sending, .my-status--received { border-color: var(--accent); color: var(--accent); }
+.my-status--cancelled, .my-status--notFiled, .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
+.my-status--attention { border-color: var(--warn); color: var(--warn); }
