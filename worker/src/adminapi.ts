@@ -82,6 +82,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
 
   if (m === 'GET' && path === '/api/admin/health') {
     const now = Date.now();
+    const n = (v: unknown): number => Array.isArray(v) ? v.length : typeof v === 'number' ? v : 0;
+    const ids = (v: unknown): string[] => Array.isArray(v) ? v.map(String).slice(0, 50) : [];
     const limit = Math.min(300, Math.max(1, Number(url.searchParams.get('events')) || 100));
     const statuses = ['pending', 'awaiting_review', 'processing', 'submitted', 'failed', 'rejected', 'auto-rejected'] as const;
     const day = new Date().toISOString().slice(0, 10);
@@ -94,7 +96,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       store.countUsers().catch(() => -1),
       store.recentEvents(limit).catch(() => []),
       store.findSubmittedUnconfirmed(50).catch(() => []),
-      store.getMeta<{ at?: string; scanned?: number; adopted?: number; stranded?: number; missing?: number; error?: string | null }>('reconcile').catch(() => null),
+      store.getMeta<{ at?: string; scanned?: number; adopted?: string[] | number; stranded?: string[] | number; missing?: string[] | number; error?: string | null }>('reconcile').catch(() => null),
     ]);
     const subsystems = SUBSYSTEMS.map((d, i) => {
       const rec = recs[i];
@@ -125,8 +127,13 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
         // DB ↔ portal agreement. caseIdPending = portal accepted a submission but we have not confirmed its number yet.
         caseIdPending: unconfirmed.length,
         caseIdPendingOldestAt: unconfirmed.map((r) => toIso(r.statusUpdatedAt)).filter(Boolean).sort()[0] ?? null,
-        reconcile: reconcile ? { at: reconcile.at ?? null, scanned: reconcile.scanned ?? 0, adopted: reconcile.adopted ?? 0, stranded: reconcile.stranded ?? 0, missing: reconcile.missing ?? 0, error: reconcile.error ?? null } : null,
-        status: unconfirmed.length === 0 && !(reconcile?.missing) ? 'ok' : (reconcile?.missing ? 'error' : 'warn'),
+        reconcile: reconcile ? {
+          at: reconcile.at ?? null, scanned: reconcile.scanned ?? 0,
+          adopted: n(reconcile.adopted), stranded: n(reconcile.stranded), missing: n(reconcile.missing),
+          ids: { adopted: ids(reconcile.adopted), stranded: ids(reconcile.stranded), missing: ids(reconcile.missing) },
+          error: reconcile.error ?? null,
+        } : null,
+        status: n(reconcile?.missing) > 0 ? 'error' : unconfirmed.length === 0 ? 'ok' : 'warn',
       },
       events,
     });
