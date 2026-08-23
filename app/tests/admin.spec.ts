@@ -174,10 +174,16 @@ test('canary card: drifted → error banner + drifted pill', async ({ page }) =>
   await expect(card.locator('.canary-row.is-drifted', { hasText: 'Street light out' }).locator('.canary-pill')).toContainText('Drifted');
 });
 
-test('canary card: sim-only golden → warn banner, sim chip', async ({ page }) => {
+test('canary card: no live golden anywhere → warn banner, sim chip', async ({ page }) => {
   const card = await openCanary(page, canaryBlock({ categories: [canaryCat({ goldenSource: 'sim' })] }));
   await expect(card.locator('.canary-banner.is-warn')).toContainText('No live baseline yet');
-  await expect(card.locator('.canary-row', { hasText: 'Pothole' }).locator('.canary-chip--sim')).toContainText('sim');
+  await expect(card.locator('.canary-row', { hasText: 'Pothole' }).locator('.canary-chip--sim')).toContainText('waiting for a real report');
+});
+
+test('canary card: one live golden + sim rows → ok (sim rows are minted by the next real report)', async ({ page }) => {
+  const card = await openCanary(page, canaryBlock({ categories: [canaryCat(), canaryCat({ category: 'street_light', goldenSource: 'sim', lastLiveAt: null })] }));
+  await expect(card.locator('.canary-banner.is-ok')).toBeVisible();
+  await expect(card.locator('.canary-row', { hasText: 'Street light out' }).locator('.canary-chip--sim')).toBeVisible();
 });
 
 test('canary card: disabled → neutral Off banner, no rows', async ({ page }) => {

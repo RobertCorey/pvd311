@@ -174,7 +174,7 @@ function CanaryCard({ canary }: { canary: AdminCanary }) {
   const cats = canary.categories;
   const status: 'ok' | 'warn' | 'error' | 'off' = !canary.enabled ? 'off'
     : cats.some((c) => c.drifted) ? 'error'
-    : cats.some((c) => c.goldenSource !== 'live') ? 'warn'
+    : !cats.some((c) => c.goldenSource === 'live') ? 'warn' // sim-only rows are fine: they get a live golden from the next real report
     : 'ok';
   return (
     <div className="card canary-card">
