@@ -5,12 +5,13 @@
     "dev": "cd app && npm run dev",
     "test": "cd app && npx playwright test",
     "build": "cd app && npm run build",
-    "deploy": "cd app && npm run build && cd .. && firebase deploy --only hosting",
+    "deploy": "zsh scripts/deploy-clean.sh",
     "deploy:rules": "firebase deploy --only firestore:rules,storage",
     "deploy:all": "npm run deploy && firebase deploy --only firestore:rules,storage",
     "dashboard": "cd automation && npm start",
     "deploy:app": "npm run deploy",
-    "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --expires 7d"
+    "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --expires 7d",
+    "deploy:dirty": "cd app && npm run build && cd .. && firebase deploy --only hosting"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
