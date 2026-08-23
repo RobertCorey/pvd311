@@ -184,10 +184,13 @@ export async function cancelReport(id: string, store: Store, auth: AuthUser): Pr
   return json({ ok: true, status: 'rejected' });
 }
 
-/** Per-account trust: clean history (≥ n filed, 0 rejected) or an admin `trusted` flag. Used by hitl.ts. */
+/** Per-account trust: clean history (≥ n filed, 0 rejected by a human/auto gate) or an admin `trusted` flag.
+ *  A report the reporter cancelled themselves is NOT a rejection. Used by hitl.ts. */
 export async function accountTrusted(store: Store, uid: string, n: number): Promise<boolean> {
   const u = await store.getUser(uid);
   if (u?.trusted) return true;
-  const [sent, rejected] = await Promise.all([store.countOwnerByStatus(uid, 'submitted'), store.countOwnerByStatus(uid, 'rejected')]);
+  const mine = await store.findReportsByOwner(uid, 200);
+  const sent = mine.filter((r) => r.status === 'submitted').length;
+  const rejected = mine.filter((r) => (r.status === 'rejected' || r.status === 'auto-rejected') && !r.cancelledByReporter).length;
   return sent >= n && rejected === 0;
 }
