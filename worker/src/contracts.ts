@@ -134,6 +134,8 @@ export interface Portal {
   submitReport(report: ReportDoc, opts?: SubmitOptions): Promise<SubmitResult>;
   /** Read-only checks (canary/watcher). Never clicks Next/Submit. */
   readMyRequests(opts?: { maxPages?: number }): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string }[]>;
+  /** Like readMyRequests, plus whether the pager was exhausted (`complete: false` ⇒ truncated at the page cap). */
+  readMyRequestsPaged(opts?: { maxPages?: number }): Promise<{ rows: { caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string }[]; complete: boolean }>;
   findMyRequestByEntityId(entityId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   findMyRequestByCaseId(caseId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;

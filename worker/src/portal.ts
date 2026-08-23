@@ -616,6 +616,15 @@ class WorkerPortal implements Portal {
   // ── Read-only: My Requests grid (watcher / canary) ─────────
 
   async readMyRequests(opts: { maxPages?: number } = {}): Promise<MyRequestRow[]> {
+    return (await this.readMyRequestsPaged(opts)).rows;
+  }
+
+  /**
+   * Like readMyRequests, but also reports whether the pager was exhausted. `complete` is false when the
+   * scan stopped because it hit the page cap (MAX_PAGES) while more pages remained — the reconcile pass
+   * uses this so it never infers a case is "missing" just because it scrolled past the scanned window.
+   */
+  async readMyRequestsPaged(opts: { maxPages?: number } = {}): Promise<{ rows: MyRequestRow[]; complete: boolean }> {
     const page = this.getPage();
     await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForSelector('[role="grid"] [role="row"], table tbody tr', { timeout: 30_000 }).catch(() => {});
@@ -623,6 +632,7 @@ class WorkerPortal implements Portal {
 
     const byId = new Map<string, MyRequestRow>();
     const MAX_PAGES = opts.maxPages ?? 20;
+    let complete = false; // set true when the pager runs out; stays false if we stop at the cap with pages left
     for (let p = 0; p < MAX_PAGES; p++) {
       const { headers, rows, ids } = await this.dumpGrid();
       rows.forEach((row, i) => {
@@ -639,10 +649,10 @@ class WorkerPortal implements Portal {
           createdOn: parsed?.createdOn ?? '',
         });
       });
-      if (!(await this.gotoNextGridPage())) break;
+      if (!(await this.gotoNextGridPage())) { complete = true; break; }
       await page.waitForTimeout(1_500);
     }
-    return [...byId.values()];
+    return { rows: [...byId.values()], complete };
   }
 
   /** Find one record in My Requests by its PVD number (first N pages). Null if absent. */

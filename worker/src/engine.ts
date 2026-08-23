@@ -250,8 +250,11 @@ export async function runWatcher(env: Env): Promise<void> {
     const unconfirmed = await store.findSubmittedUnconfirmed(20).catch(() => [] as ReportDoc[]);
 
     // My Requests status diff (skipped when we have nothing to watch, but the city feed below still runs).
+    // Scan once and share with the reconcile pass below (avoids a second full scrape of the grid).
+    let scan: { rows: MyRequestRow[]; complete: boolean } | null = null;
     if (tracked.length || unconfirmed.length) {
-      const rows = await portal.readMyRequests();
+      scan = await portal.readMyRequestsPaged();
+      const rows = scan.rows;
       rowCount = rows.length;
       if (!rows.length) {
         console.warn('[watcher] My Requests returned 0 rows — skipping diff');
@@ -306,8 +309,8 @@ export async function runWatcher(env: Env): Promise<void> {
     // list stranded Drafts, flag missing case numbers. Non-fatal; reuses this logged-in page.
     if (reconcileEnabled(env)) {
       try {
-        const rec = await runReconcile(store, portal);
-        console.log(`[reconcile] ${rec.adopted.length} adopted, ${rec.stranded.length} stranded, ${rec.missing.length} missing (${rec.scanned} rows)`);
+        const rec = await runReconcile(store, portal, scan ?? undefined);
+        console.log(`[reconcile] ${rec.adopted.length} adopted, ${rec.stranded.length} stranded, ${rec.missing.length} missing (${rec.scanned} rows, ${rec.complete ? 'complete' : 'partial'} scan)`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error('[reconcile] failed:', msg);
@@ -349,6 +352,7 @@ export interface ReconcileSummary {
   stranded: string[];      // PVD case numbers (or GUID/report-id fallback) of stale Drafts tied to failed/rejected reports — undeletable
   missing: string[];       // PVD case numbers of 'submitted' reports that no longer appear in My Requests
   scanned: number;         // My Requests rows scanned this pass
+  complete: boolean;       // false when the grid pager hit the page cap — 'missing' is then only trusted within the scanned window
   error: string | null;    // set when the pass threw (health shows it); null on a clean pass
 }
 
@@ -373,10 +377,14 @@ const isDraftStatus = (s: string): boolean => /^draft$/i.test((s || '').trim());
  *
  * NEVER writes `failed`. Idempotent across ticks: adopt leaves the candidate set once submitted; stranded/
  * missing per-report events fire only when a case first enters the set (diffed against the prior summary).
+ *
+ * `scan` reuses the watcher's already-fetched grid (rows + whether the pager was exhausted); when omitted
+ * the pass fetches its own. When the scan is INCOMPLETE (grid truncated at the page cap) the 'missing'
+ * check is limited to cases within the scanned window — older cases may simply have scrolled past it.
  */
-export async function runReconcile(store: Store, portal: Portal): Promise<ReconcileSummary> {
+export async function runReconcile(store: Store, portal: Portal, scan?: { rows: MyRequestRow[]; complete: boolean }): Promise<ReconcileSummary> {
   const at = new Date().toISOString();
-  const rows = await portal.readMyRequests();
+  const { rows, complete } = scan ?? await portal.readMyRequestsPaged();
   const scanned = rows.length;
 
   const prev = (await store.getMeta<ReconcileSummary>('reconcile').catch(() => null))
@@ -387,7 +395,7 @@ export async function runReconcile(store: Store, portal: Portal): Promise<Reconc
   // A 0-row scrape is indistinguishable from a transient portal error — never conclude "everything vanished".
   if (scanned === 0) {
     await logEvent(store, { level: 'warn', kind: 'reconcile.empty_scan', msg: 'My Requests returned 0 rows — reconcile skipped this tick' });
-    const summary: ReconcileSummary = { at, adopted: [], stranded: [...prevStranded], missing: [...prevMissing], scanned: 0, error: null };
+    const summary: ReconcileSummary = { at, adopted: [], stranded: [...prevStranded], missing: [...prevMissing], scanned: 0, complete, error: null };
     await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
     return summary;
   }
@@ -446,14 +454,27 @@ export async function runReconcile(store: Store, portal: Portal): Promise<Reconc
   }
 
   // (c) MISSING: a case we hold as submitted that the grid no longer returns. Flag only; never write 'failed'.
+  // Truncation guard: readMyRequests caps at 20 pages. On an INCOMPLETE scan, a case absent from the grid may
+  // simply have scrolled past the horizon — so only trust "missing" for cases newer than the oldest row we saw.
+  const scannedTimes = rows.map((r) => Date.parse(r.createdOn)).filter((n) => !Number.isNaN(n));
+  const oldestScannedMs = scannedTimes.length ? Math.min(...scannedTimes) : null;
+  let partialSkipped = 0;
   for (const report of await store.listSubmittedWithCaseId().catch(() => [] as ReportDoc[])) {
     const caseId = report.portalCaseId;
     if (!caseId || numbersPresent.has(caseId)) continue;
+    if (!complete) {
+      // Beyond the scanned window (or we can't place it), absence is unreliable → skip, don't flag.
+      const repMs = reportFiledMs(report);
+      if (oldestScannedMs == null || repMs == null || repMs <= oldestScannedMs) { partialSkipped++; continue; }
+    }
     missing.push(caseId);
     if (!prevMissing.has(caseId)) {
       newMissing++;
       await logEvent(store, { level: 'warn', kind: 'reconcile.missing', msg: `${caseId} is no longer visible in My Requests (still 'submitted' locally)`, reportId: report.id, data: { caseId } });
     }
+  }
+  if (!complete && partialSkipped > 0) {
+    await logEvent(store, { level: 'warn', kind: 'reconcile.partial_scan', msg: `My Requests grid truncated at the ${scanned}-row page cap; skipped ${partialSkipped} older 'submitted' case(s) for the missing check`, data: { scanned, skipped: partialSkipped, oldestScannedMs } });
   }
 
   // Reappearances: anything flagged missing last tick that is back → note it once (it drops out of the summary below).
@@ -463,12 +484,19 @@ export async function runReconcile(store: Store, portal: Portal): Promise<Reconc
     }
   }
 
-  const summary: ReconcileSummary = { at, adopted, stranded, missing, scanned, error: null };
+  const summary: ReconcileSummary = { at, adopted, stranded, missing, scanned, complete, error: null };
   await store.setMeta('reconcile', summary as unknown as Record<string, unknown>);
   if (adopted.length || newStranded || newMissing) {
-    await logEvent(store, { level: 'info', kind: 'reconcile.summary', msg: `Reconcile: ${adopted.length} adopted, ${stranded.length} stranded (${newStranded} new), ${missing.length} missing (${newMissing} new); ${scanned} rows`, data: { adopted, stranded, missing, scanned } });
+    await logEvent(store, { level: 'info', kind: 'reconcile.summary', msg: `Reconcile: ${adopted.length} adopted, ${stranded.length} stranded (${newStranded} new), ${missing.length} missing (${newMissing} new); ${scanned} rows${complete ? '' : ', partial scan'}`, data: { adopted, stranded, missing, scanned, complete } });
   }
   return summary;
+}
+
+/** When the city filed the case, as ms — our creation timestamp (≈ portal Created On), else the last status update. */
+function reportFiledMs(report: ReportDoc): number | null {
+  if (report.timestamp?.seconds) return report.timestamp.seconds * 1000;
+  if (report.statusUpdatedAt?.seconds) return report.statusUpdatedAt.seconds * 1000;
+  return null;
 }
 
 /** Best available age of a Draft: the ISO we saved it at, else the grid's Created On, else the report's last update. */

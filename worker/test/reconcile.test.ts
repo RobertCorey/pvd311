@@ -53,7 +53,8 @@ function makeStore(reports: ReportDoc[]) {
   return { store: store as Store, events, meta };
 }
 
-const makePortal = (rows: MyRequestRow[]): Portal => ({ readMyRequests: vi.fn(async () => rows) } as unknown as Portal);
+const makePortal = (rows: MyRequestRow[], complete = true): Portal =>
+  ({ readMyRequests: vi.fn(async () => rows), readMyRequestsPaged: vi.fn(async () => ({ rows, complete })) } as unknown as Portal);
 
 describe('reconcile: adopt', () => {
   it('adopts a report whose captured number is live (non-Draft) in My Requests', async () => {
@@ -143,6 +144,43 @@ describe('reconcile: missing', () => {
     const { store } = makeStore([r]);
     const s = await runReconcile(store, makePortal([row({ caseId: 'PVD2026-301', status: 'Assigned' })]));
     expect(s.missing).toEqual([]);
+  });
+});
+
+describe('reconcile: truncated grid guard', () => {
+  it('on an INCOMPLETE scan, flags missing only for cases newer than the oldest scanned row', async () => {
+    // Horizon = the oldest row we actually saw (Aug 15). Older cases may have scrolled past the page cap.
+    const older = report({ id: 'old', status: 'submitted', portalCaseId: 'PVD2026-OLD', timestamp: ts('2026-08-10T00:00:00Z') as any });
+    const newer = report({ id: 'new', status: 'submitted', portalCaseId: 'PVD2026-NEW', timestamp: ts('2026-08-20T00:00:00Z') as any });
+    const { store, events } = makeStore([older, newer]);
+    const scan = { rows: [row({ caseId: 'PVD2026-HORIZON', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: false };
+    const s = await runReconcile(store, makePortal([]), scan);
+
+    expect(s.complete).toBe(false);
+    expect(s.missing).toEqual(['PVD2026-NEW']); // OLD is beyond the horizon → not flagged
+    expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(true);
+    expect(events.some((e) => e.kind === 'reconcile.missing' && (e.data as any)?.caseId === 'PVD2026-OLD')).toBe(false);
+  });
+
+  it('on a COMPLETE scan, flags every absent submitted case regardless of age', async () => {
+    const older = report({ id: 'old', status: 'submitted', portalCaseId: 'PVD2026-OLD', timestamp: ts('2026-08-10T00:00:00Z') as any });
+    const { store, events } = makeStore([older]);
+    const scan = { rows: [row({ caseId: 'PVD2026-HORIZON', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: true };
+    const s = await runReconcile(store, makePortal([]), scan);
+    expect(s.missing).toEqual(['PVD2026-OLD']);
+    expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(false);
+  });
+
+  it('reuses a provided scan and never scrapes the grid again', async () => {
+    const r = report({ id: 'p', status: 'submitted', portalCaseId: 'PVD2026-1' });
+    const { store } = makeStore([r]);
+    const portal = makePortal([row({ caseId: 'PVD2026-1', status: 'Assigned' })]); // if it scraped, PVD2026-1 would be present
+    const scan = { rows: [row({ caseId: 'PVD2026-OTHER', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: true };
+    const s = await runReconcile(store, portal, scan);
+
+    expect((portal.readMyRequestsPaged as any)).not.toHaveBeenCalled();
+    expect(s.scanned).toBe(1);
+    expect(s.missing).toEqual(['PVD2026-1']); // proves the provided scan (which lacks PVD2026-1) was used, not the portal's rows
   });
 });
 
