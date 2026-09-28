@@ -81,6 +81,11 @@ JSON `{ description }` (≤2000) → `{ ok, description }`. 403 `not_owner`, 409
 - `POST /api/report`: account required (above). `GET /api/reports/:id` with a bearer adds `mine`, `following`, `editable`, and `description` (owners only); always adds `owned` and `cancelledByReporter` (status `rejected` + this flag = the reporter withdrew it).
 - HITL trust ramp (`HITL_MODE=ramp`, the launch mode): the first `ACCOUNT_TRUST_N` (3) reports of each account are human-reviewed; after that, an account with 0 rejected reports — or `users/{uid}.trusted=true` — auto-approves. `HITL_MODE=review` = every report tapped (panic switch).
 
+## City email relay (ops, not app-facing) — added 2026-09-28
+The portal account's contact email is `cases@fixmypvd.org` (Cloudflare Email Routing rule → this Worker's `email()` handler, `worker/src/relay.ts`). A city email carrying a `PVDyyyy-nnnnn` case id we filed is forwarded to that report's reporter + followers from `updates@fixmypvd.org` with `Reply-To: cases@fixmypvd.org`, and appended to `report.cityMessages` (last 20; the tracking `timeline` shows the last 5 as "Message from the city: …"). City mail with no matching case, and anything a reporter writes back to the relay, goes to `NOTIFY_EMAIL` — nothing is ever sent to the city automatically. Auto-replies, bounces and our own domain are dropped. If handling throws, the raw mail is forwarded to `RELAY_FALLBACK_TO`.
+- `GET|POST /admin/portal/profile` (x-canary-token) — read the portal profile form, or `{ "email" }` to set the contact address.
+- `PORTAL_NOTIFY_METHOD` var — `#cop_methodofupdate` value used on Step 1 (`585680002` Email once the relay is the profile address; default `585680003` No Contact Necessary).
+
 ## HITL (ops, not app-facing)
 Review emails carry signed links `GET /hitl/approve/:id/:exp/:sig` and `/hitl/reject/:id/:exp/:sig` (HMAC-SHA256 over `action:id:exp`, 30-day expiry; path form so a quoted-printable mis-decode in transit can't corrupt them). Any intake flag — client-reported or from the Worker's own moderation pass, which runs once per report before auto-approval — forces human review regardless of account trust. Report creation fails closed if `TURNSTILE_SECRET` is unset (set `ALLOW_NO_TURNSTILE=1` only in tests/dev). Pacing is per mailbox (plus-tags and gmail dots collapsed) and per IP.
 
