@@ -10,7 +10,7 @@ Two variants below: one for neighborhood groups (East Side, West End, Federal Hi
 
 Got a pothole that's been sitting for weeks, or a trash pickup they skipped? I built a free tool called **FixMyPVD** that files a Providence 311 report for you in about 30 seconds from your phone.
 
-Pick the problem — pothole, missed trash or recycling, broken street light, illegal dumping, abandoned vehicle, parking, an animal issue, and more — snap a photo, confirm the address, and send. We relay it into the city's official 311 for you, and you get a link to track it. No account, and there's a Spanish version too.
+Pick the problem — pothole, missed trash or recycling, broken street light, illegal dumping, abandoned vehicle, parking, an animal issue, and more — snap a photo, confirm the address, and send. We relay it into the city's official 311 for you, and you get a link to track it. Sign in with Google or an email link, and there's a Spanish version too.
 
 To be upfront: this is a volunteer community project. FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence. A neighbor reviews each report before it's filed, so it's not instant, and it's **not for emergencies** — call 911 for those. Once filed, a report is a public record on the city's 311 feed.
 
@@ -20,7 +20,7 @@ If your block needs something fixed, give it a try: **FIXMYPVD_URL**
 
 ## Ward / neighborhood-association-group variant
 
-Sharing a free tool some neighbors have been using to report the small stuff around the ward — potholes, missed trash and recycling, broken street lights, illegal dumping, abandoned vehicles, parking, and more. It's called **FixMyPVD**: pick the problem, snap a photo, confirm the address, and it files a Providence 311 report for you in about 30 seconds. You get a tracking link, and there's a public map of recent reports across the city, so it's easy to see what's already been flagged nearby. Works in Spanish, no account needed.
+Sharing a free tool some neighbors have been using to report the small stuff around the ward — potholes, missed trash and recycling, broken street lights, illegal dumping, abandoned vehicles, parking, and more. It's called **FixMyPVD**: pick the problem, snap a photo, confirm the address, and it files a Providence 311 report for you in about 30 seconds. You get a tracking link and an email when the city updates it. Works in Spanish; sign in with Google or an email link.
 
 Full disclosure: it's a volunteer community project — FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence. A person reviews each report before filing, so it takes a little time, and it's **not for emergencies** — call 911 for anything urgent. Filed reports are public records on the city's 311 feed.
 

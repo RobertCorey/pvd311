@@ -14,4 +14,4 @@ That pothole that's been on your block for weeks? Report it to Providence 311 in
 
 ## Missed trash
 
-They skip your trash or recycling pickup? **FixMyPVD** files a Providence 311 report for you in about 30 seconds — photo optional for this one, no account. Volunteer project, not the city; you get a link to follow it. **FIXMYPVD_URL**
+They skip your trash or recycling pickup? **FixMyPVD** files a Providence 311 report for you in about 30 seconds — photo optional for this one. Volunteer project, not the city; you get a link to follow it. **FIXMYPVD_URL**

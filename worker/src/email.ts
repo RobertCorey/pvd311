@@ -24,7 +24,7 @@ export function createMailer(env: Env): Mailer {
         to: [env.NOTIFY_EMAIL],
         subject,
         html,
-        text: html.replace(/<[^>]+>/g, ''),
+        text: toText(html),
       }),
     });
     const data = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
@@ -41,7 +41,7 @@ export function createMailer(env: Env): Mailer {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: html.replace(/<[^>]+>/g, ''), ...(opts?.replyTo ? { reply_to: opts.replyTo } : {}) }),
+        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: toText(html), ...(opts?.replyTo ? { reply_to: opts.replyTo } : {}) }),
       });
       if (!resp.ok) { console.error(`[email] reporter mail failed ${resp.status}`); await health(false, `Resend ${resp.status} (reporter: ${subject})`); }
       else await health(true, `reporter: ${subject}`);
@@ -55,6 +55,13 @@ export function createMailer(env: Env): Mailer {
   }
 
   return { send, alert, sendTo };
+}
+
+/** Plain-text alternative for a small HTML mail: tags → newlines, entities decoded. */
+function toText(html: string): string {
+  return html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|blockquote|h[1-6]|tr)>/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // ── HITL link signing (HMAC-SHA256 hex via WebCrypto) ───────────────────────────────

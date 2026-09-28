@@ -38,7 +38,7 @@ Only widen once city acceptance is clean and submit success is steady.
 - Direct, neighborly, reassuring. Plain words, no hype.
 - Always upfront that it's a **volunteer relay** — it never speaks *as* the city.
 - Lead with everyday problems (**pothole, missed trash**), not edge cases. Winter categories (unshoveled sidewalks, unplowed streets) only surface in winter.
-- Always note: **not for emergencies (call 911)**, a person reviews before filing, filed reports are **public records** on the city's 311 feed, no account needed, Spanish available.
+- Always note: **not for emergencies (call 911)**, a person reviews before filing, filed reports are **public records** on the city's 311 feed, sign-in required (Google or email link), Spanish available.
 - Don't invent stats, quotes, dates, or endorsements.
 
 ## Historical (do not reuse)
