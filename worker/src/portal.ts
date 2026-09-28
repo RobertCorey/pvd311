@@ -715,6 +715,45 @@ class WorkerPortal implements Portal {
     return true;
   }
 
+  // ── Profile (contact email = where the city sends case notifications) ────────
+
+  async readProfile() {
+    const page = this.getPage();
+    await this.ensureLoggedIn();
+    await page.goto(`${this.portal}/profile/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForTimeout(2_000);
+    const controls = await page.evaluate(() => Array.from(document.querySelectorAll('input, select, textarea')).map((el) => {
+      const e = el as HTMLInputElement;
+      const lab = e.id ? document.querySelector(`label[for="${e.id}"]`)?.textContent : null;
+      return { id: e.id, name: e.name, type: e.type, value: e.type === 'password' ? '***' : String(e.value ?? '').slice(0, 200), label: (lab ?? '').trim().slice(0, 100), visible: !!(e.offsetWidth || e.offsetHeight) };
+    }).filter((c) => c.id || c.name));
+    const buttons = await page.evaluate(() => Array.from(document.querySelectorAll('button, input[type=submit]')).map((b) => ({ id: (b as HTMLElement).id, text: ((b as HTMLElement).textContent || (b as HTMLInputElement).value || '').trim().slice(0, 60) })));
+    return { url: page.url(), controls, buttons };
+  }
+
+  async setProfileEmail(email: string) {
+    const page = this.getPage();
+    const notes: string[] = [];
+    await this.ensureLoggedIn();
+    await page.goto(`${this.portal}/profile/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForTimeout(2_000);
+    const sel = '#emailaddress1';
+    const before = await page.inputValue(sel).catch(() => null);
+    if (before === null) return { ok: false, before, after: null, notes: ['#emailaddress1 not found on /profile/ — use readProfile() to see the form'] };
+    if (before.trim().toLowerCase() === email.toLowerCase()) return { ok: true, before, after: before, notes: ['already set'] };
+    await page.fill(sel, email);
+    const btn = page.locator('#UpdateButton, button[type=submit], input[type=submit]').first();
+    if (!(await btn.count())) return { ok: false, before, after: null, notes: ['no submit button found'] };
+    await btn.click();
+    await page.waitForTimeout(4_000);
+    const msg = await page.locator('.alert, .validation-summary-errors, .notification, [role=alert]').allTextContents().catch(() => [] as string[]);
+    for (const m of msg) if (m.trim()) notes.push(m.trim().replace(/\s+/g, ' ').slice(0, 300));
+    await page.goto(`${this.portal}/profile/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForTimeout(2_000);
+    const after = await page.inputValue(sel).catch(() => null);
+    return { ok: (after ?? '').trim().toLowerCase() === email.toLowerCase(), before, after, notes };
+  }
+
   // ── Canary ─────────────────────────────────────────────────
 
   async canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }> {

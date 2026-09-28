@@ -21,6 +21,7 @@ import { handleApi } from './api.js';
 import { signAction, timingSafeEqualHex, createMailer } from './email.js';
 import { approve, reject } from './hitl.js';
 import { relayEmail } from './relay.js';
+import { logEvent } from './health.js';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -85,6 +86,28 @@ export default {
           saveProof: (name, bytes) => store.putProof(id, name, bytes, 'image/jpeg'),
         });
         return Response.json({ ok: true, ...result });
+      } catch (e) {
+        return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      } finally {
+        await portal.close().catch(() => {});
+      }
+    }
+
+    // Admin: the portal account's profile — read the form, or set the contact email (token-gated; see relay.ts).
+    if (url.pathname === '/admin/portal/profile') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      const store = createStore(env);
+      const portal = createPortal(env, { auth: createAuthStore(store) });
+      try {
+        await portal.launch();
+        if (request.method === 'POST') {
+          const body = (await request.json().catch(() => ({}))) as { email?: string };
+          if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return Response.json({ error: 'email required' }, { status: 400 });
+          const result = await portal.setProfileEmail(body.email);
+          await logEvent(store, { level: result.ok ? 'info' : 'warn', kind: 'portal.profile_email', msg: `Portal contact email ${result.before ?? '?'} → ${result.after ?? '?'}${result.ok ? '' : ' (FAILED)'}`, data: result });
+          return Response.json(result, { status: result.ok ? 200 : 500 });
+        }
+        return Response.json(await portal.readProfile());
       } catch (e) {
         return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
       } finally {
