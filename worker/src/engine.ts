@@ -525,6 +525,19 @@ function portalPage(portal: Portal): Page {
 
 // ── Daily digest + selector canary ─────────────────────────────────────────────────────
 
+const DIGEST_KEYS = ['submitted', 'pending', 'awaiting_review', 'failed', 'processing'] as const;
+type DigestKey = (typeof DIGEST_KEYS)[number];
+const DIGEST_LABEL: Record<DigestKey, string> = {
+  submitted: 'submitted', pending: 'pending', awaiting_review: 'awaiting review', failed: 'failed', processing: 'processing',
+};
+/** meta/digest — last queue snapshot mailed; the digest only goes out when it changes. */
+interface DigestMeta { counts?: Record<DigestKey, number>; sentAt?: string; checkedAt?: string }
+
+async function snapshotCounts(store: Store): Promise<Record<DigestKey, number>> {
+  const vals = await Promise.all(DIGEST_KEYS.map((k) => store.countByStatus(k)));
+  return Object.fromEntries(DIGEST_KEYS.map((k, i) => [k, vals[i]])) as Record<DigestKey, number>;
+}
+
 export async function runDaily(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
@@ -543,20 +556,30 @@ export async function runDaily(env: Env): Promise<void> {
     if (purged) console.log(`[retention] purged ${purged} old events`);
   } catch (e) { console.error('[retention] failed:', e); await markError(store, 'daily', e); }
 
+  // Digest: only mail when the queue snapshot differs from the last one we sent (meta/digest).
+  // A month of identical "101 / 0 / 0 / 0 / 0" mails trains the inbox to ignore the real alerts.
+  // Job liveness is tracked separately by markOk('daily') → /admin System "Daily job" light.
   try {
-    const [submitted, pending, awaiting, failed, processing] = await Promise.all([
-      store.countByStatus('submitted'),
-      store.countByStatus('pending'),
-      store.countByStatus('awaiting_review'),
-      store.countByStatus('failed'),
-      store.countByStatus('processing'),
-    ]);
-    await mailer.alert(
-      'Daily digest',
-      `<p><b>Queue snapshot</b></p><ul>`
-      + `<li>submitted ${submitted}</li><li>pending ${pending}</li>`
-      + `<li>awaiting review ${awaiting}</li><li>failed ${failed}</li><li>processing ${processing}</li></ul>`,
-    );
+    const counts = await snapshotCounts(store);
+    const prev = await store.getMeta<DigestMeta>('digest').catch(() => null);
+    const now = new Date().toISOString();
+    const changed = !prev?.counts || DIGEST_KEYS.some((k) => prev.counts![k] !== counts[k]);
+    if (changed) {
+      const row = (k: DigestKey) => {
+        const delta = prev?.counts ? counts[k] - (prev.counts[k] ?? 0) : 0;
+        const d = delta === 0 ? '' : ` (${delta > 0 ? '+' : ''}${delta})`;
+        return `<li>${DIGEST_LABEL[k]} ${counts[k]}${d}</li>`;
+      };
+      await mailer.alert(
+        'Daily digest',
+        `<p><b>Queue snapshot</b>${prev?.sentAt ? ` — changed since ${escHtml(prev.sentAt.slice(0, 10))}` : ''}</p>`
+        + `<ul>${DIGEST_KEYS.map(row).join('')}</ul>`,
+      );
+      await store.setMeta('digest', { counts, sentAt: now, checkedAt: now }).catch(() => {});
+    } else {
+      console.log('[digest] queue unchanged since last digest — not mailing');
+      await store.setMeta('digest', { ...prev, counts, checkedAt: now }).catch(() => {});
+    }
   } catch (e) { console.error('[digest] failed:', e); } // never skip the canary because the digest failed
 
   // Selector canary (zero-draft): alert only on drift.

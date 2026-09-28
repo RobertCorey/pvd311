@@ -22,7 +22,7 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
         'Every minute the engine tick: reaps anything stuck in "processing" > 20 min, checks the circuit breaker and hourly cap, picks the oldest pending report, runs the gates (category, photo, address, blocked addresses, Providence bbox, duplicate within a few metres of a recent same-category case), runs server-side moderation, then either sends it to you for review or submits it.',
         'Submit = a Chromium on Cloudflare Browser Rendering logging into our portal account and walking the 3-step wizard. The PVD number is read from the draft before Submit and confirmed afterwards by exact match in My Requests.',
         'Every 30 minutes the watcher reads My Requests, diffs city statuses, emails reporters and followers on change, reconciles anything unconfirmed, and scrapes the city public feed for the nearby-dedupe check.',
-        'Daily at 7 am ET: digest email, photo retention (deleted 30 days after the city closes a case), event cleanup (14 days), portal canary + Step-3 drift check.',
+        'Daily at 7 am ET: digest email (only when the queue counts changed since the last one), photo retention (deleted 30 days after the city closes a case), event cleanup (14 days), portal canary + Step-3 drift check.',
       ],
       live,
       links: [{ label: 'API contract', href: 'https://github.com/robcorey/pvd311/blob/main/docs/api.md' }, { label: 'Sync rules', href: 'https://github.com/robcorey/pvd311/blob/main/docs/engine-sync.md' }],
@@ -70,7 +70,7 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
       summary: 'All mail goes out through Resend from updates@fixmypvd.org. Reporter mail is gated by REPORTER_EMAIL_ENABLED; admin mail goes to NOTIFY_EMAIL (rob@fixmypvd.org → your Gmail via Cloudflare Email Routing, auto-labelled FixMyPVD).',
       details: [
         'Reporters get: sign-in links (minted by the Worker through Firebase Identity Toolkit), "filed with the city" with the case number, each city status change, and a kind note if a report is not filed.',
-        'You get: review requests, reaper/breaker/canary alerts, and the daily digest.',
+        'You get: review requests, reaper/breaker/canary alerts, and the daily digest (sent only when queue counts change).',
       ],
       live: { reporterEmailEnabled: env.REPORTER_EMAIL_ENABLED === 'true', notifyEmail: env.NOTIFY_EMAIL ?? null, from: env.NOTIFY_FROM ?? null },
     },
