@@ -19,7 +19,7 @@ test('picker: quick picks + groups first; a group drills into its types incl. No
   await page.goto('/');
   await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
   await expect(page.locator('.quick-chip[data-category="pothole"]')).toBeVisible();
-  expect(await page.locator('.cat-tile[data-group]').count()).toBeGreaterThanOrEqual(6); // 7 with the snow group in season
+  expect(await page.locator('.cat-tile[data-group]').count()).toBeGreaterThanOrEqual(8); // 9 with the snow group in season
   await page.click('.cat-tile[data-group="trash"]');
   await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
   await expect(page.locator('.type-row[data-category="trash_private"]')).toBeVisible();

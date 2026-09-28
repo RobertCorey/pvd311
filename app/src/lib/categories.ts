@@ -47,15 +47,17 @@ export const EXTRA_QUESTIONS: Record<string, { label: string; type: 'choice' | '
 /** Group-first picker (2026-09-28, from the citywide public feed): the first screen is these groups in demand order;
  *  tapping one lists its types, demand-ordered. `icon` is the CategoryIcon key drawn on the group tile.
  *  Keys must exist in shared/categories.ts; `inSeason` still filters the snow types (the snow group hides when empty). */
-export type GroupKey = 'trash' | 'streets' | 'trees' | 'parking' | 'lights' | 'snow' | 'other';
+export type GroupKey = 'trash' | 'streets' | 'trees' | 'parking' | 'traffic' | 'lights' | 'animals' | 'snow' | 'other';
 export const GROUPS: { key: GroupKey; icon: string; keys: string[] }[] = [
   { key: 'trash', icon: 'bins_carts', keys: ['missed_trash', 'bins_carts', 'illegal_dumping', 'trash_private', 'trash_public'] },
   { key: 'streets', icon: 'pothole', keys: ['pothole', 'sidewalk_repair', 'storm_drain', 'street_flooding'] },
   { key: 'trees', icon: 'tree', keys: ['tree', 'overgrowth'] },
-  { key: 'parking', icon: 'parking', keys: ['parking', 'abandoned_vehicle', 'traffic_sign', 'traffic_control'] },
-  { key: 'lights', icon: 'street_light', keys: ['street_light', 'traffic_signal', 'downed_wire'] },
+  { key: 'parking', icon: 'parking', keys: ['parking', 'abandoned_vehicle'] },
+  { key: 'traffic', icon: 'traffic_signal', keys: ['traffic_signal', 'traffic_sign', 'traffic_control'] },
+  { key: 'lights', icon: 'street_light', keys: ['street_light', 'downed_wire'] },
+  { key: 'animals', icon: 'animal_control', keys: ['animal_control', 'dead_animal'] },
   { key: 'snow', icon: 'missed_plowing', keys: ['unshoveled_sidewalk', 'missed_plowing'] },
-  { key: 'other', icon: 'other', keys: ['animal_control', 'dead_animal', 'noise', 'graffiti', 'unsure'] },
+  { key: 'other', icon: 'other', keys: ['noise', 'graffiti', 'unsure'] },
 ];
 export const groupOf = (key: string): GroupKey | null => GROUPS.find((g) => g.keys.includes(key))?.key ?? null;
 

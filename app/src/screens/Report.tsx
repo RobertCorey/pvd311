@@ -456,8 +456,8 @@ export default function Report() {
             </div>
             <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
               {groups.map((g) => (
-                <button key={g.key} type="button" className={`cat-tile${g.key === 'other' ? ' cat-tile-other' : ''}`} data-group={g.key} onClick={() => setGroup(g.key)}>
-                  <span className="cat-icon"><CategoryIcon k={g.icon} size={g.key === 'other' ? 30 : 46} /></span>
+                <button key={g.key} type="button" className="cat-tile" data-group={g.key} onClick={() => setGroup(g.key)}>
+                  <span className="cat-icon"><CategoryIcon k={g.icon} size={46} /></span>
                   <span className="cat-text">{t(`group.${g.key}`)}<span className="cat-sub">{t(`group.${g.key}.sub`)}</span></span>
                 </button>
               ))}
