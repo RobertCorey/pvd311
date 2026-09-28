@@ -36,7 +36,7 @@ BLOCKED_ADDRESSES = "congdon st,congdon street"
 RELAY_ADDRESS = "cases@fixmypvd.org"
 CITY_SENDER_DOMAINS = "providenceri.gov"
 RELAY_FALLBACK_TO = "robertbcorey@gmail.com"   # verified Email Routing destination; gets the raw mail if relay handling throws
-# PORTAL_NOTIFY_METHOD = "585680002"           # Email — set once the portal profile's contact email is RELAY_ADDRESS (default: No Contact Necessary)
+PORTAL_NOTIFY_METHOD = "585680002"             # Email → the account's contact address = RELAY_ADDRESS (set 2026-09-28); "585680003" = No Contact Necessary
 # Where signed HITL approve/reject email links point. Update to the custom domain at launch.
 HITL_BASE_URL = "https://api.fixmypvd.org"
 # Legacy per-category ramp threshold (only used for ownerless rows now). Default 3.

@@ -758,6 +758,22 @@ class WorkerPortal implements Portal {
     return { ok: (after ?? '').trim().toLowerCase() === email.toLowerCase(), before, after, notes };
   }
 
+  async confirmProfileEmail() {
+    const page = this.getPage();
+    const notes: string[] = [];
+    await this.ensureLoggedIn();
+    await page.goto(`${this.portal}/profile/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForTimeout(2_000);
+    const link = page.locator('a:has-text("Confirm Email"), button:has-text("Confirm Email"), input[value="Confirm Email"]').first();
+    if (!(await link.count())) return { ok: false, notes: ['no Confirm Email control on /profile/ (already confirmed?)'] };
+    await link.click();
+    await page.waitForTimeout(4_000);
+    const msg = await page.locator('.alert, .notification, [role=alert], .message').allTextContents().catch(() => [] as string[]);
+    for (const m of msg) if (m.trim()) notes.push(m.trim().replace(/\s+/g, ' ').slice(0, 300));
+    notes.push(`url: ${page.url()}`);
+    return { ok: true, notes };
+  }
+
   // ── Canary ─────────────────────────────────────────────────
 
   async canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }> {
