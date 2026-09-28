@@ -723,11 +723,11 @@ class WorkerPortal implements Portal {
     await page.goto(`${this.portal}/profile/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     await page.waitForTimeout(2_000);
     const controls = await page.evaluate(() => Array.from(document.querySelectorAll('input, select, textarea')).map((el) => {
-      const e = el as HTMLInputElement;
+      const e = el as any;
       const lab = e.id ? document.querySelector(`label[for="${e.id}"]`)?.textContent : null;
       return { id: e.id, name: e.name, type: e.type, value: e.type === 'password' ? '***' : String(e.value ?? '').slice(0, 200), label: (lab ?? '').trim().slice(0, 100), visible: !!(e.offsetWidth || e.offsetHeight) };
     }).filter((c) => c.id || c.name));
-    const buttons = await page.evaluate(() => Array.from(document.querySelectorAll('button, input[type=submit]')).map((b) => ({ id: (b as HTMLElement).id, text: ((b as HTMLElement).textContent || (b as HTMLInputElement).value || '').trim().slice(0, 60) })));
+    const buttons = await page.evaluate(() => Array.from(document.querySelectorAll('button, input[type=submit]')).map((b) => ({ id: (b as any).id, text: ((b as any).textContent || (b as any).value || '').trim().slice(0, 60) })));
     return { url: page.url(), controls, buttons };
   }
 
