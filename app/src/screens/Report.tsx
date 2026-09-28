@@ -61,7 +61,7 @@ export default function Report() {
   const quick = useMemo(() => {
     const last = lastCategory();
     const keys = [...(last ? [last] : []), ...quickPicks()];
-    return [...new Set(keys)].map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)).slice(0, 3).map((c) => ({ c, last: c.key === last }));
+    return [...new Set(keys)].map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)).slice(0, 2).map((c) => ({ c, last: c.key === last }));
   }, []);
   const cat = byKey(category);
 

@@ -14,12 +14,17 @@ async function mockApi(page: Page, opts: { intake?: object; reportStatus?: numbe
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ address: '25 Dorrance St', location: { x: -71.4129, y: 41.8241 }, score: 100, attributes: { Match_addr: '25 Dorrance St, Providence, RI' } }] }) }));
 }
 
+/** Season-proof pick: through the group, never via a quick chip (chips change with the month). */
+async function pickType(page: import('@playwright/test').Page, group: string, key: string) {
+  await page.click(`.cat-tile[data-group="${group}"]`);
+  await page.click(`.type-row[data-category="${key}"]`);
+}
+
 test('picker: quick picks + groups first; a group drills into its types incl. Not sure under Something else', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
-  await expect(page.locator('.quick-chip[data-category="pothole"]')).toBeVisible();
-  expect(await page.locator('.cat-tile[data-group]').count()).toBeGreaterThanOrEqual(8); // 9 with the snow group in season
+  await expect(page.locator('.quick-chip')).toHaveCount(2); // even, like the grid
+  await expect(page.locator('.cat-tile[data-group]')).toHaveCount(8); // even year-round: snow types fold into Streets in season
   await page.click('.cat-tile[data-group="trash"]');
   await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
   await expect(page.locator('.type-row[data-category="trash_private"]')).toBeVisible();
@@ -45,7 +50,7 @@ test('picker remembers the last type as a quick pick', async ({ page }) => {
 test('photo-optional category: address + turnstile → submit → tracking page', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await expect(page.getByRole('heading', { name: /Add a photo \(optional\)/ })).toBeVisible();
   const submit = page.getByRole('button', { name: 'Send to Providence 311' });
   await expect(submit).toBeDisabled();
@@ -65,16 +70,16 @@ test('photo-optional category: address + turnstile → submit → tracking page'
 test('chip → Change returns to the grid and clears extras', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="pothole"]');
+  await pickType(page, 'streets', 'pothole');
   await expect(page.locator('#extra_size')).toBeVisible();
   await page.getByRole('button', { name: /Change/ }).click();
-  await expect(page.locator('.quick-chip[data-category="pothole"]')).toBeVisible();
+  await expect(page.locator('.cat-tile[data-group="streets"]')).toBeVisible();
 });
 
 test('photo-required category keeps submit disabled without a photo', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="pothole"]');
+  await pickType(page, 'streets', 'pothole');
   await page.fill('#address', '25 Dorrance St');
   await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeDisabled();
   await expect(page.locator('#extra_size')).toBeVisible();
@@ -83,7 +88,7 @@ test('photo-required category keeps submit disabled without a photo', async ({ p
 test('intake: emergency notice + wording apply/undo', async ({ page }) => {
   await mockApi(page, { intake: { polishedDescription: 'Trash not collected at 25 Dorrance St on Tuesday.', flags: ['emergency'], note: 'If someone is hurt, call 911.' } });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#description', 'trash not picked up tuesday');
   await expect(page.locator('.notice-error')).toContainText('call 911', { timeout: 6000 });
   await page.getByRole('button', { name: 'Use this wording' }).click();
@@ -95,7 +100,7 @@ test('intake: emergency notice + wording apply/undo', async ({ page }) => {
 test('rate limited → friendly message, stays on page', async ({ page }) => {
   await mockApi(page, { reportStatus: 429, reportBody: { error: 'rate_limited', retryAfterSec: 120 } });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('[role="alert"]')).toContainText('One report at a time');
@@ -105,7 +110,7 @@ test('rate limited → friendly message, stays on page', async ({ page }) => {
 test('offline: submit queues to outbox, shows saved screen; back online it flushes and lands in My reports', async ({ page, context }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
@@ -135,7 +140,7 @@ test('typed address geocodes → mini-map with draggable pin appears', async ({ 
   await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.locator('#address').blur();
   await expect(page.locator('.mini-map .leaflet-container')).toBeVisible({ timeout: 10_000 });
@@ -150,7 +155,7 @@ test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides 
   await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.locator('#address').blur();
   const card = page.locator('.nearby-card');
@@ -167,7 +172,7 @@ test('cold offline start: can queue without a Turnstile token', async ({ page, c
   await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; });
   await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
@@ -205,7 +210,7 @@ test('flush failure pauses retries instead of looping (no second request until a
 test('signed out: Send parks the draft and shows the sign-in gate; after sign-in the draft is restored', async ({ page }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.fill('#description', 'bins not collected');
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
@@ -225,19 +230,19 @@ test('signed out: Send parks the draft and shows the sign-in gate; after sign-in
 test('a plain visit to / does not resurrect an abandoned draft', async ({ page }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('.gate-slot')).toBeVisible();
   await page.goto('/');
-  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.cat-tile[data-group="trash"]')).toBeVisible();
   await expect(page.locator('#address')).toHaveCount(0);
 });
 
 test('signed out + offline: Send queues to the outbox instead of gating', async ({ page, context }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
@@ -245,15 +250,19 @@ test('signed out + offline: Send queues to the outbox instead of gating', async 
   await expect(page.locator('.queued')).toContainText('Saved on your phone');
 });
 
-test('phone Back from the compose step returns to the tile grid (category lives in the URL)', async ({ page }) => {
+test('phone Back from the compose step walks type list → groups (group + category live in the URL)', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await expect(page).toHaveURL(/\?c=missed_trash$/);
   await page.fill('#address', '25 Dorrance St');
-  await page.goBack();
+  await page.goBack(); // → the group's type list
+  await expect(page).toHaveURL(/g=trash/);
+  await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
+  await page.goBack(); // → the groups
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.cat-tile[data-group="trash"]')).toBeVisible();
+  await page.goForward();
   await page.goForward();
   await expect(page.locator('#address')).toHaveValue('25 Dorrance St'); // draft kept in memory
 });
@@ -261,12 +270,12 @@ test('phone Back from the compose step returns to the tile grid (category lives 
 test('disabled Send explains what is missing, in order', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="pothole"]');
+  await pickType(page, 'streets', 'pothole');
   await expect(page.getByRole('heading', { name: 'Add a photo (required)' })).toBeVisible();
   await expect(page.locator('.submit-bar .hint')).toHaveText('Add a photo to send.');
   await page.evaluate(() => { /* no file chooser in headless: fall back to a photo-optional category check below */ });
   await page.getByRole('button', { name: /Change/ }).click();
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await expect(page.locator('.submit-bar .hint')).toHaveText('Add the address to send.');
   await page.fill('#address', '25 Dorrance St');
   await expect(page.locator('.submit-bar .hint')).toHaveCount(0);
@@ -279,7 +288,7 @@ const PNG_1x1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADEl
 test('no sign-in disclosure on compose — the gate appears only at Send', async ({ page }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await expect(page.locator('.signin-disclosure')).toHaveCount(0);
   await expect(page.getByText(/sign-in — no password/i)).toHaveCount(0);
 });
@@ -290,7 +299,7 @@ test('human check is a labelled step; trouble help appears if the token never ar
   await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ = 300; });
   await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await expect(page.getByText("Quick check that you're a person")).toBeVisible();
   await page.fill('#address', '25 Dorrance St');
   await expect(page.locator('.submit-bar .hint')).toHaveText("Checking you're a real person…");
@@ -302,7 +311,7 @@ test('typed address that geocodes to nothing shows an inline check-the-street me
   await mockApi(page);
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [] }) }));
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', 'zzz not a real street');
   await page.locator('#address').blur();
   await expect(page.locator('.notice-warn')).toContainText("We couldn't find that address in Providence");
@@ -318,7 +327,7 @@ test('typed address outside Providence warns and clears once a city address geoc
     }] }) });
   });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '100 Elsewhere Rd');
   await page.locator('#address').blur();
   await expect(page.locator('.notice-warn')).toContainText('You appear to be outside Providence');
@@ -333,7 +342,7 @@ test('typed address outside Providence warns and clears once a city address geoc
 test('photo validation: a non-image is rejected, a real image is accepted', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.setInputFiles('#photoLibrary', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('this is not a photo') });
   await expect(page.locator('.notice-error')).toContainText("That file isn't a photo.");
   await expect(page.locator('.photo-preview')).toHaveCount(0);
@@ -347,7 +356,7 @@ test('Send is aria-disabled (not natively disabled) and does not submit while bl
   let reported = false;
   await page.route(`${API}/api/report`, (r) => { reported = true; r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'x', trackingUrl: '/r/x', category: 'missed_trash', createdAt: new Date().toISOString() }) }); });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   const submit = page.getByRole('button', { name: 'Send to Providence 311' });
   await expect(submit).toHaveAttribute('aria-disabled', 'true');
   await expect(submit).toHaveAttribute('aria-describedby', 'submit-hint');
@@ -363,7 +372,7 @@ test('Send is aria-disabled (not natively disabled) and does not submit while bl
 test('offline queued screen tells you to sign in online to send it', async ({ page, context }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
@@ -376,7 +385,7 @@ test('reload restores an autosaved draft with a dismissible notice; the photo is
   await mockApi(page);
   await page.addInitScript(() => { (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ = 30; });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.fill('#description', 'bins not collected on my street');
   await page.waitForTimeout(200); // let the debounced autosave persist to IndexedDB
@@ -393,7 +402,7 @@ test('a fresh navigation (not a reload) starts clean — no autosave resurrectio
   await mockApi(page);
   await page.addInitScript(() => { (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ = 30; });
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.waitForTimeout(200); // autosave persists
   // A deep-link to the same compose URL is a 'navigate', not a 'reload' → clean start.
@@ -406,7 +415,7 @@ test('a fresh navigation (not a reload) starts clean — no autosave resurrectio
 test('description shows a counter past 1,800 chars and is capped at 2,000', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   const ta = page.locator('#description');
   await expect(ta).toHaveAttribute('maxlength', '2000');
   await expect(page.locator('.char-count')).toHaveCount(0); // hidden while short
@@ -423,7 +432,7 @@ test('description shows a counter past 1,800 chars and is capped at 2,000', asyn
 test('emergency banner shows on a danger keyword (AI check silent), not on "firehouse"', async ({ page }) => {
   await mockApi(page); // intake mock returns no flags → banner must be purely client-side
   await page.goto('/');
-  await page.click('[data-category="missed_trash"]');
+  await pickType(page, 'trash', 'missed_trash');
   const ta = page.locator('#description');
   await ta.fill('there is a gas leak on the corner');
   const banner = page.locator('.emergency-banner');
