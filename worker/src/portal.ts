@@ -731,7 +731,8 @@ class WorkerPortal implements Portal {
     return { url: page.url(), controls, buttons };
   }
 
-  async setProfileEmail(email: string) {
+  async setProfile(fields: { email: string; firstname?: string; lastname?: string }) {
+    const email = fields.email;
     const page = this.getPage();
     const notes: string[] = [];
     await this.ensureLoggedIn();
@@ -740,9 +741,12 @@ class WorkerPortal implements Portal {
     const sel = '#emailaddress1';
     const before = await page.inputValue(sel).catch(() => null);
     if (before === null) return { ok: false, before, after: null, notes: ['#emailaddress1 not found on /profile/ — use readProfile() to see the form'] };
-    if (before.trim().toLowerCase() === email.toLowerCase()) return { ok: true, before, after: before, notes: ['already set'] };
+    if (fields.firstname) await page.fill('#firstname', fields.firstname);
+    if (fields.lastname) await page.fill('#lastname', fields.lastname);
+    if (before.trim().toLowerCase() === email.toLowerCase() && !fields.firstname && !fields.lastname) return { ok: true, before, after: before, notes: ['already set'] };
     await page.fill(sel, email);
-    const btn = page.locator('#UpdateButton, button[type=submit], input[type=submit]').first();
+    // Power Pages profile: the real submit is an input[type=button] labelled Update (NextButton is the form's own, not what a user clicks).
+    const btn = page.locator('#ContentContainer_MainContent_MainContent_ContentBottom_SubmitButton, input[value="Update"]').first();
     if (!(await btn.count())) return { ok: false, before, after: null, notes: ['no submit button found'] };
     await btn.click();
     await page.waitForTimeout(4_000);

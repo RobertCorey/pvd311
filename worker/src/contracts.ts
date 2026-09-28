@@ -151,7 +151,7 @@ export interface Portal {
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;
   /** Account profile page (/profile/): dump its form controls, or set the contact email (the address the city notifies). */
   readProfile(): Promise<{ url: string; controls: { id: string; name: string; type: string; value: string; label: string; visible: boolean }[]; buttons: { id: string; text: string }[] }>;
-  setProfileEmail(email: string): Promise<{ ok: boolean; before: string | null; after: string | null; notes: string[] }>;
+  setProfile(fields: { email: string; firstname?: string; lastname?: string }): Promise<{ ok: boolean; before: string | null; after: string | null; notes: string[] }>;
   /** Drift canary (read-only): resume the designated existing record via Edit-Request and re-dump Step-3 controls WITHOUT submitting. Creates NO new draft; null if it can't resume to Step 3. */
   resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null>;
 }

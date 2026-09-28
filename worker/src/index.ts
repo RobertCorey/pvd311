@@ -101,9 +101,9 @@ export default {
       try {
         await portal.launch();
         if (request.method === 'POST') {
-          const body = (await request.json().catch(() => ({}))) as { email?: string };
+          const body = (await request.json().catch(() => ({}))) as { email?: string; firstname?: string; lastname?: string };
           if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return Response.json({ error: 'email required' }, { status: 400 });
-          const result = await portal.setProfileEmail(body.email);
+          const result = await portal.setProfile({ email: body.email, firstname: body.firstname, lastname: body.lastname });
           await logEvent(store, { level: result.ok ? 'info' : 'warn', kind: 'portal.profile_email', msg: `Portal contact email ${result.before ?? '?'} → ${result.after ?? '?'}${result.ok ? '' : ' (FAILED)'}`, data: result });
           return Response.json(result, { status: result.ok ? 200 : 500 });
         }
