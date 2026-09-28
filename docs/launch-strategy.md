@@ -27,7 +27,7 @@ The only beat with no post. Everything here is about the pipeline having carried
 1. **Rob files 5 real reports on a walk** (pothole, broken sidewalk, street light, tree, graffiti — one of tree/noise/traffic-signal to exercise the AI scout on the city's conditional fields). First 3 land in Rob's inbox for approval; that is the review loop test.
 2. **Watch the relay on the first city email.** With notifications now set to Email and the portal contact address at `cases@fixmypvd.org`, the city's confirmation and status mails for those cases should arrive in Rob's Gmail as forwarded copies and on the tracking page timeline.
 3. **Seed 10 neighbours privately** (people who already report to 311). DM the link, watch their real reports, fix rough edges.
-4. **Rob-only clicks:** confirm Cloudflare Workers is on the Paid plan (docs disagree; Free would kill the browser after ~7 submissions); rotate the four tokens leaked in August (Anthropic, Resend, Cloudflare, DigitalOcean).
+4. **Rob-only click:** rotate the four tokens leaked in August (Anthropic, Resend, Cloudflare, DigitalOcean). (Workers Paid confirmed active 2026-09-28, renews Oct 22.)
 5. Exit: ≥10 filed cases, canary green 3 days, digest quiet, no reaper/breaker alerts.
 
 ### Beat 1 — "Dark at 5" (week of Nov 2)
@@ -80,7 +80,7 @@ Second general post on r/providence keyed to the freeze-thaw surge (March 2026 c
 | Beat | Work | Effort | Who |
 |---|---|---|---|
 | 0 | nothing new (relay live 2026-09-28; marketing copy fixed) | — | — |
-| 0 | verify Workers Paid; rotate tokens | 5 min + 45 min | Rob (agent sets the Worker secrets once Rob has values) |
+| 0 | rotate tokens (Workers Paid confirmed 2026-09-28) | 45 min | Rob (agent sets the Worker secrets once Rob has values) |
 | 1 | `ACCOUNT_TRUST_N=1` | 5 min | agent |
 | 1 | `MAX_PER_HOUR` → env var | 30 min | agent |
 | 1 | SignInGate funnel event (shown / signed-in / sent) in the events stream | 1 h | agent |
@@ -135,7 +135,7 @@ Adjacent tools to expect in comments: the official PVD311 app (~2/5 stars) and S
 ## 8. What Rob personally does (everything else is agent work)
 
 1. Beat 0: walk, file 5 real reports, tap the 3 approvals.
-2. Beat 0: confirm Workers Paid in the Cloudflare dashboard; rotate the four tokens.
+2. Beat 0: rotate the four tokens.
 3. Beat 1: paste the §5 post on r/providence Mon/Tue evening Nov 2–3; answer comments for 48 h.
 4. Beat 2: paste the storm post when the parking ban is announced; tap approvals for ~48 h.
 5. Beat 3: paste the pothole post; decide on the press tip.
