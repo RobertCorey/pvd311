@@ -14,13 +14,32 @@ async function mockApi(page: Page, opts: { intake?: object; reportStatus?: numbe
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ address: '25 Dorrance St', location: { x: -71.4129, y: 41.8241 }, score: 100, attributes: { Match_addr: '25 Dorrance St, Providence, RI' } }] }) }));
 }
 
-test('picker shows 8 featured + Other; Other expands the rest incl. Not sure', async ({ page }) => {
+test('picker: quick picks + groups first; a group drills into its types incl. Not sure under Something else', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await expect(page.locator('.cat-tile[data-category]')).toHaveCount(8);
-  await page.getByRole('button', { name: /Other/ }).click();
+  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.quick-chip[data-category="pothole"]')).toBeVisible();
+  expect(await page.locator('.cat-tile[data-group]').count()).toBeGreaterThanOrEqual(6); // 7 with the snow group in season
+  await page.click('.cat-tile[data-group="trash"]');
+  await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.type-row[data-category="trash_private"]')).toBeVisible();
+  await expect(page).toHaveURL(/g=trash/);
+  await page.goBack(); // phone Back returns to the groups, not out of the app
+  await expect(page.locator('.cat-tile[data-group="trash"]')).toBeVisible();
+  await page.click('.cat-tile[data-group="other"]');
   await expect(page.locator('[data-category="unsure"]')).toBeVisible();
-  expect(await page.locator('[data-category]').count()).toBeGreaterThan(8); // sheet lists every category
+  await page.click('[data-category="unsure"]');
+  await expect(page.locator('#address')).toBeVisible();
+});
+
+test('picker remembers the last type as a quick pick', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('.cat-tile[data-group="trees"]');
+  await page.click('.type-row[data-category="tree"]');
+  await expect(page.locator('#address')).toBeVisible();
+  await page.goto('/');
+  await expect(page.locator('.quick-chip--last[data-category="tree"]')).toBeVisible();
 });
 
 test('photo-optional category: address + turnstile → submit → tracking page', async ({ page }) => {
@@ -49,7 +68,7 @@ test('chip → Change returns to the grid and clears extras', async ({ page }) =
   await page.click('[data-category="pothole"]');
   await expect(page.locator('#extra_size')).toBeVisible();
   await page.getByRole('button', { name: /Change/ }).click();
-  await expect(page.locator('.cat-tile[data-category="pothole"]')).toBeVisible();
+  await expect(page.locator('.quick-chip[data-category="pothole"]')).toBeVisible();
 });
 
 test('photo-required category keeps submit disabled without a photo', async ({ page }) => {
@@ -211,7 +230,7 @@ test('a plain visit to / does not resurrect an abandoned draft', async ({ page }
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('.gate-slot')).toBeVisible();
   await page.goto('/');
-  await expect(page.locator('.cat-tile[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
   await expect(page.locator('#address')).toHaveCount(0);
 });
 
@@ -234,7 +253,7 @@ test('phone Back from the compose step returns to the tile grid (category lives 
   await page.fill('#address', '25 Dorrance St');
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.locator('.cat-tile[data-category="missed_trash"]')).toBeVisible();
+  await expect(page.locator('.quick-chip[data-category="missed_trash"]')).toBeVisible();
   await page.goForward();
   await expect(page.locator('#address')).toHaveValue('25 Dorrance St'); // draft kept in memory
 });

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ALL_CATEGORIES, EXTRA_QUESTIONS, FEATURED, byKey, inSeason, shortLabel, type UiCategory } from '../lib/categories';
+import { EXTRA_QUESTIONS, GROUPS, byKey, inSeason, lastCategory, quickPicks, rememberCategory, shortLabel, type GroupKey, type UiCategory } from '../lib/categories';
 import { compressImage, decodeImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { signOut, useSession } from '../lib/auth';
@@ -13,7 +13,6 @@ import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
-import CategorySheet from '../components/CategorySheet';
 import TrustLine from '../components/TrustLine';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
@@ -45,25 +44,25 @@ export default function Report() {
   const { lang } = useI18n();
   const session = useSession();
 
-  // --- Phase A: category ---
-  // Category and the "Other" sheet live in the URL (?c=<key>, ?sheet=1) so the phone's
-  // Back button returns to the grid instead of leaving the app; compose state stays in memory.
+  // --- Phase A: category (group first, then the type) ---
+  // Group and category live in the URL (?g=<group>, ?c=<key>) so the phone's Back button walks
+  // type list → groups instead of leaving the app; compose state stays in memory.
   const [params, setParams] = useSearchParams();
   const category = params.get('c');
-  const showAll = params.get('sheet') === '1';
+  const groupParam = params.get('g') as GroupKey | null;
   const setCategory = useCallback((key: string | null, opts?: { replace?: boolean }) => {
-    setParams((prev) => { const n = new URLSearchParams(prev); if (key) n.set('c', key); else n.delete('c'); n.delete('sheet'); return n; }, { replace: opts?.replace });
+    setParams((prev) => { const n = new URLSearchParams(prev); if (key) n.set('c', key); else n.delete('c'); n.delete('g'); return n; }, { replace: opts?.replace });
   }, [setParams]);
-  const setShowAll = useCallback((open: boolean) => {
-    setParams((prev) => { const n = new URLSearchParams(prev); if (open) n.set('sheet', '1'); else n.delete('sheet'); return n; }, { replace: !open });
+  const setGroup = useCallback((g: GroupKey | null) => {
+    setParams((prev) => { const n = new URLSearchParams(prev); if (g) n.set('g', g); else n.delete('g'); return n; }, { replace: !g });
   }, [setParams]);
-  const visible = useMemo(() => ALL_CATEGORIES.filter((c) => inSeason(c)), []);
-  const featured = useMemo(() => {
-    const f = FEATURED.map(byKey).filter((c): c is UiCategory => !!c && inSeason(c));
-    // In season, the snow tiles surface alongside the core eight.
-    const seasonal = visible.filter((c) => c.seasonal && !FEATURED.includes(c.key));
-    return [...f, ...seasonal];
-  }, [visible]);
+  const groups = useMemo(() => GROUPS.map((g) => ({ ...g, cats: g.keys.map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)) })).filter((g) => g.cats.length), []);
+  const openGroup = groups.find((g) => g.key === groupParam) ?? null;
+  const quick = useMemo(() => {
+    const last = lastCategory();
+    const keys = [...(last ? [last] : []), ...quickPicks()];
+    return [...new Set(keys)].map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)).slice(0, 3).map((c) => ({ c, last: c.key === last }));
+  }, []);
   const cat = byKey(category);
 
   // --- photo ---
@@ -212,7 +211,7 @@ export default function Report() {
     return () => window.clearTimeout(id);
   }, [turnstileToken, online, turnstileNonce]);
 
-  const pick = (key: string) => { setCategory(key); setExtra({}); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
+  const pick = (key: string) => { setCategory(key); rememberCategory(key); setExtra({}); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
   const onPhoto = useCallback(async (file: File | null) => {
     setPhotoError(null);
@@ -421,18 +420,50 @@ export default function Report() {
               )}
           </div>
         )}
-        <div className="home-hero">
-          <h1>{t('report.whatsWrong')}</h1>
-          <p className="hero-sub">{t('report.heroSub')}</p>
-          <TrustLine />
-        </div>
-        <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
-          {featured.map((c) => <CatTile key={c.key} c={c} onPick={pick} />)}
-          <button type="button" className="cat-tile cat-tile-other" onClick={() => setShowAll(true)} aria-expanded={showAll} aria-haspopup="dialog">
-            <span className="cat-icon"><CategoryIcon k="other" /></span><span className="cat-text">{t('report.other')}</span>
-          </button>
-        </div>
-        <CategorySheet open={showAll} onClose={() => setShowAll(false)} onPick={(k) => { setShowAll(false); pick(k); }} />
+        {openGroup ? (
+          <>
+            <div className="home-hero home-hero--group">
+              <button type="button" className="back-link" onClick={() => setGroup(null)}>‹ {t('report.backToGroups')}</button>
+              <h1>{t(`group.${openGroup.key}`)}</h1>
+              <p className="hero-sub">{t('report.pickIn')}</p>
+            </div>
+            <ul className="type-list" aria-label={t(`group.${openGroup.key}`)}>
+              {openGroup.cats.map((c) => (
+                <li key={c.key}>
+                  <button type="button" className={`type-row${c.key === 'unsure' ? ' type-row--unsure' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>
+                    <span className="type-icon" aria-hidden="true"><CategoryIcon k={c.key} size={36} /></span>
+                    <span className="type-label">{shortLabel(c.key, t)}</span>
+                    {c.seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <>
+            <div className="home-hero">
+              <h1>{t('report.whatsWrong')}</h1>
+              <p className="hero-sub">{t('report.heroSub')}</p>
+              <TrustLine />
+            </div>
+            <div className="quick-row" role="group" aria-label={t('report.quick')}>
+              {quick.map(({ c, last }) => (
+                <button key={c.key} type="button" className={`quick-chip${last ? ' quick-chip--last' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>
+                  <span className="quick-icon" aria-hidden="true"><CategoryIcon k={c.key} size={22} /></span>
+                  <span>{last ? `${t('report.lastUsed')}: ${shortLabel(c.key, t)}` : shortLabel(c.key, t)}</span>
+                </button>
+              ))}
+            </div>
+            <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
+              {groups.map((g) => (
+                <button key={g.key} type="button" className={`cat-tile${g.key === 'other' ? ' cat-tile-other' : ''}`} data-group={g.key} onClick={() => setGroup(g.key)}>
+                  <span className="cat-icon"><CategoryIcon k={g.icon} size={g.key === 'other' ? 30 : 46} /></span>
+                  <span className="cat-text">{t(`group.${g.key}`)}<span className="cat-sub">{t(`group.${g.key}.sub`)}</span></span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </section>
     );
   }
@@ -585,17 +616,6 @@ export default function Report() {
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
     </form>
-  );
-}
-
-function CatTile({ c, onPick }: { c: UiCategory; onPick: (k: string) => void }) {
-  const t = useT();
-  return (
-    <button type="button" className="cat-tile" onClick={() => onPick(c.key)} data-category={c.key}>
-      <span className="cat-icon"><CategoryIcon k={c.key} size={46} /></span>
-      {c.seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
-      <span className="cat-text">{shortLabel(c.key, t)}</span>
-    </button>
   );
 }
 

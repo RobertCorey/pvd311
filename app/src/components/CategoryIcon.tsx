@@ -252,6 +252,80 @@ const ICONS: Record<string, ReactNode> = {
     </>
   ),
 
+  // Trash bag at a fence line: ember bag plate, fence pickets.
+  trash_private: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M18 14 q6 0 7 7 v6 H12 v-6 q0 -7 6 -7z" />
+      </g>
+      <path d="M18 13 q6 0 7 7 v7 H12 v-7 q0 -7 6 -7z M16 13 l2 -4 l2 4" />
+      <path d="M3 27 V15 M7 27 V15 M3 19 h4" />
+    </>
+  ),
+  // Litter on the curb: ember can plate, scattered pieces, curb line.
+  trash_public: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M9 12 h8 l-1 12 H10z" />
+      </g>
+      <path d="M9 11 h8 l-1 13 H10z M8 11 h10 M12 8 h2" />
+      <path d="M21 20 l4 -2 M22 25 l5 1 M20 15 l3 -3" />
+      <path d="M3 28 h26" />
+    </>
+  ),
+  // Storm grate with water pooling: ember pool plate, grate bars.
+  storm_drain: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M3 18 q4 -3 8 0 t8 0 t8 0 v3 H3z" />
+      </g>
+      <rect x="6" y="20" width="20" height="8" rx="1.5" />
+      <path d="M10 20 v8 M14 20 v8 M18 20 v8 M22 20 v8" />
+      <path d="M3 16 q4 -3 8 0 t8 0 t8 0" />
+    </>
+  ),
+  // Bent stop sign on a post: ember octagon plate.
+  traffic_sign: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M12 4 h8 l5 5 v8 l-5 5 h-8 l-5 -5 V9z" />
+      </g>
+      <path d="M12 4 h8 l5 5 v8 l-5 5 h-8 l-5 -5 V9z" />
+      <path d="M16 22 v3 l-3 4" />
+      <path d="M11 13 h10" />
+    </>
+  ),
+  // Traffic cone with a speed streak: ember cone plate.
+  traffic_control: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M14 5 h4 l4 20 H10z" />
+      </g>
+      <path d="M14 4 h4 l4 21 H10z M12 14 h8 M7 25 h18" />
+      <path d="M26 9 h3 M25 13 h4" />
+    </>
+  ),
+  // Tall grass at a fence: ember tuft plate.
+  overgrowth: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M6 27 q2 -12 6 -14 q-1 8 2 14z M14 27 q1 -14 6 -18 q0 10 2 18z" />
+      </g>
+      <path d="M5 27 q2 -12 6 -14 q-1 8 2 14 M13 27 q1 -14 6 -18 q0 10 2 18 M21 27 q0 -8 5 -11 q-2 6 0 11" />
+      <path d="M3 28 h26" />
+    </>
+  ),
+  // Leaning pole with a dropped wire: ember spark plate at the wire end.
+  downed_wire: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <circle cx="24" cy="24" r="4" />
+      </g>
+      <path d="M9 28 L13 5 M9 10 h10 M10 14 h8" />
+      <path d="M17 9 q4 6 6 14" />
+      <path d="M22 20 l2 -3 M26 22 l3 -2 M25 27 l3 2" />
+    </>
+  ),
   other: (
     <>
       <g fill="var(--ember)" stroke="none" transform={PLATE}>

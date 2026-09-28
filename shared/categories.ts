@@ -148,6 +148,51 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalSearchTerm: '*plowing*',
     seasonal: 'winter',
   },
+  // ── Added 2026-09-28 from the citywide public feed (Sep 21–28: these were 4 of the top 14 city types, all absent here) ──
+  trash_private: {
+    label: 'Trash on private property or sidewalk',
+    portalCaseTypeName: 'Trash on Private Property or Sidewalk',
+    portalCaseTypeGuid: '68e8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Private Property or Sidewalk*',
+  },
+  trash_public: {
+    label: 'Trash on the street or public property',
+    portalCaseTypeName: 'Trash on Streets and Public Property',
+    portalCaseTypeGuid: '6d0efb0b-0454-ef11-a317-001dd8068673',
+    portalSearchTerm: '*Streets and Public*',
+  },
+  storm_drain: {
+    label: 'Blocked storm drain',
+    portalCaseTypeName: 'Blocked Storm Drain or Catch Basin',
+    portalCaseTypeGuid: 'c4e7b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Storm Drain*',
+  },
+  traffic_sign: {
+    label: 'Damaged or missing traffic sign',
+    portalCaseTypeName: 'Repair a Traffic Sign',
+    portalCaseTypeGuid: 'eee7b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Repair a Traffic Sign*',
+  },
+  traffic_control: {
+    label: 'Traffic control issue (speeding, signage, striping)',
+    portalCaseTypeName: 'Traffic Control Issues or Changes',
+    portalCaseTypeGuid: '9ce8b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Traffic Control*',
+    photoRequired: false,
+  },
+  overgrowth: {
+    label: 'Overgrowth or high grass on private property',
+    portalCaseTypeName: 'Overgrowth or High Grass on Private Property',
+    portalCaseTypeGuid: 'e8e7b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*High Grass on Private*',
+  },
+  downed_wire: {
+    label: 'Downed wire or leaning utility pole',
+    portalCaseTypeName: 'Downed Wire or Leaning Utility Pole',
+    portalCaseTypeGuid: 'dae7b671-7a2e-ef11-840a-001dd8039400',
+    portalSearchTerm: '*Downed Wire*',
+    photoRequired: false,
+  },
   unsure: {
     label: 'Something else',
     portalCaseTypeName: 'I am unsure or do not know how to classify my request.',
