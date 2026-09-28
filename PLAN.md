@@ -51,8 +51,8 @@ Research + decisions: see `scripts/PORTAL-RESEARCH-ADDENDUM-2026-08.md`, `.claud
 - [x] Sentry restore (front: app/index.html loader, 2026-08-22; back: Worker — alice)
 
 ## M6 — Domain, relay, launch
-- [ ] Pick name, buy domain, inbound routing → readable inbox; set as portal contact email
-- [ ] Relay: parse city emails (case ID keyed) → reporter; ESP for outbound
+- [x] Pick name, buy domain, inbound routing → readable inbox; set as portal contact email (cases@fixmypvd.org, 2026-09-28)
+- [x] Relay: parse city emails (case ID keyed) → reporter; ESP for outbound (worker/src/relay.ts, 2026-09-28)
 - [ ] AI intake call (category suggestion + polish + moderation), reporter approves
 - [ ] 1–2 real E2E reports; soft launch; marketing kit (already drafted in marketing/)
 
