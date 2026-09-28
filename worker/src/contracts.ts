@@ -32,6 +32,10 @@ export interface Env {
   AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
   RECONCILE_ENABLED?: string;         // var: '1'|'true' enables the watcher's reconcile pass (adopt/stranded/missing); default off
   DRIFT_CANARY_ENABLED?: string;      // var: '1'|'true' arms the golden-controls Step-3 drift canary in runDaily; default off
+  RELAY_ADDRESS?: string;             // var: the portal account's contact address, routed to email() (relay.ts); default cases@fixmypvd.org
+  CITY_SENDER_DOMAINS?: string;       // var: comma-separated sender domains treated as the city (default providenceri.gov)
+  RELAY_FALLBACK_TO?: string;         // var: verified Email Routing destination that receives the raw mail if relay handling throws
+  PORTAL_NOTIFY_METHOD?: string;      // var: #cop_methodofupdate value — '585680002' Email (relay live) | '585680003' No Contact Necessary (default)
 }
 
 export type ReportDoc = Report & { id: string };
@@ -68,6 +72,7 @@ export interface Store {
   countByStatus(status: ReportStatus): Promise<number>;
   findByStatus(status: ReportStatus, limit: number): Promise<ReportDoc[]>;
   findByClientId(clientId: string): Promise<ReportDoc | null>;   // idempotent create (outbox retries)
+  findByPortalCaseId(caseId: string): Promise<ReportDoc | null>; // relay: city email → our report
   getMeta<T>(docId: string): Promise<T | null>;                  // collection 'meta'
   setMeta(docId: string, data: Record<string, unknown>): Promise<void>; // merge
   /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */
@@ -155,5 +160,5 @@ export const TERMINAL_PORTAL_STATUS = /\b(resolved|closed|completed|cancel+ed|re
 export interface Mailer {
   send(subject: string, html: string): Promise<string | null>;
   alert(subject: string, html: string): Promise<void>;   // never throws
-  sendTo(to: string, subject: string, html: string): Promise<void>; // reporter-facing; gated; never throws
+  sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void>; // reporter-facing; gated; never throws
 }

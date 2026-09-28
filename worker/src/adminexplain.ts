@@ -70,6 +70,7 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
       summary: 'All mail goes out through Resend from updates@fixmypvd.org. Reporter mail is gated by REPORTER_EMAIL_ENABLED; admin mail goes to NOTIFY_EMAIL (rob@fixmypvd.org → your Gmail via Cloudflare Email Routing, auto-labelled FixMyPVD).',
       details: [
         'Reporters get: sign-in links (minted by the Worker through Firebase Identity Toolkit), "filed with the city" with the case number, each city status change, and a kind note if a report is not filed.',
+        'Relay: the portal account\'s contact address (RELAY_ADDRESS, cases@fixmypvd.org) is routed to this Worker. A city email whose subject or body carries a PVD case id we filed is forwarded to that report\'s reporter and followers (Reply-To = the relay address) and kept on the report as cityMessages. City mail with no matching case, and anything a reporter writes back, goes to you — nothing is ever sent to the city automatically.',
         'You get: review requests, reaper/breaker/canary alerts, and the daily digest (sent only when queue counts change).',
       ],
       live: { reporterEmailEnabled: env.REPORTER_EMAIL_ENABLED === 'true', notifyEmail: env.NOTIFY_EMAIL ?? null, from: env.NOTIFY_FROM ?? null },

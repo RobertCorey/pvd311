@@ -35,13 +35,13 @@ export function createMailer(env: Env): Mailer {
 
   /** Reporter-facing mail. Gated by REPORTER_EMAIL_ENABLED until the sending domain is verified on Resend
    *  (onboarding@resend.dev can only deliver to the account owner). Never throws. */
-  async function sendTo(to: string, subject: string, html: string): Promise<void> {
+  async function sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void> {
     if (!enabled || env.REPORTER_EMAIL_ENABLED !== 'true') { console.log(`[email] (reporter mail gated) to=${to} ${subject}`); return; }
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: html.replace(/<[^>]+>/g, '') }),
+        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: html.replace(/<[^>]+>/g, ''), ...(opts?.replyTo ? { reply_to: opts.replyTo } : {}) }),
       });
       if (!resp.ok) { console.error(`[email] reporter mail failed ${resp.status}`); await health(false, `Resend ${resp.status} (reporter: ${subject})`); }
       else await health(true, `reporter: ${subject}`);

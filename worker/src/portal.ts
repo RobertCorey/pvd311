@@ -37,8 +37,9 @@ declare const location: any;
 const STEP_TIMEOUT = 45_000; // Portal postbacks observed at 5–18s; wizard+modal measured ~37s in the spike.
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-/** How the city should send updates. '585680003' = No Contact Necessary (until the relay inbox exists). */
-const NOTIFICATION_METHOD = '585680003';
+/** How the city should send updates (#cop_methodofupdate). '585680002' Email → the account's contact address, which is the
+ *  relay inbox (relay.ts) once PORTAL_NOTIFY_METHOD is set; default '585680003' No Contact Necessary. */
+const DEFAULT_NOTIFICATION_METHOD = '585680003';
 /** Scout confidence below this parks the report for review (NEEDS_REVIEW). */
 const SCOUT_MIN_CONFIDENCE = 0.7;
 
@@ -282,7 +283,7 @@ class WorkerPortal implements Portal {
     await page.waitForSelector('.modal.in', { state: 'detached', timeout: 5_000 }).catch(() => {});
     await page.waitForTimeout(400);
 
-    await page.selectOption('#cop_methodofupdate', NOTIFICATION_METHOD);
+    await page.selectOption('#cop_methodofupdate', this.env.PORTAL_NOTIFY_METHOD || DEFAULT_NOTIFICATION_METHOD);
 
     await page.click('#NextButton');
     await page.waitForURL(/stepid/, { timeout: STEP_TIMEOUT });

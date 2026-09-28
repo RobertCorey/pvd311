@@ -7,7 +7,7 @@
  */
 import type { Store } from './contracts.js';
 
-export type Subsystem = 'tick' | 'submit' | 'watcher' | 'cityfeed' | 'canary' | 'daily' | 'email' | 'ai' | 'auth_mail' | 'api';
+export type Subsystem = 'tick' | 'submit' | 'watcher' | 'cityfeed' | 'canary' | 'daily' | 'email' | 'ai' | 'auth_mail' | 'api' | 'relay';
 export const SUBSYSTEMS: { key: Subsystem; label: string; freshMs: number | null; staleMs: number | null; what: string; expected: string | null }[] = [
   { key: 'tick', label: 'Engine tick', freshMs: 3 * 60_000, staleMs: 10 * 60_000, what: 'Cron every minute: reaper, gates, review, submit' , expected: 'every minute' },
   { key: 'submit', label: 'Portal submit', freshMs: null, staleMs: null, what: 'Headless browser filing reports on 311.providenceri.gov' , expected: null },
@@ -19,6 +19,7 @@ export const SUBSYSTEMS: { key: Subsystem; label: string; freshMs: number | null
   { key: 'ai', label: 'AI moderation', freshMs: null, staleMs: null, what: 'Anthropic intake / server-side moderation' , expected: null },
   { key: 'auth_mail', label: 'Sign-in links', freshMs: null, staleMs: null, what: 'Worker-minted email links' , expected: null },
   { key: 'api', label: 'Public API', freshMs: null, staleMs: null, what: 'Report creation' , expected: null },
+  { key: 'relay', label: 'City email relay', freshMs: null, staleMs: null, what: 'City 311 emails to cases@ forwarded to reporters' , expected: null },
 ];
 
 export interface HealthRec { lastOkAt?: string | null; lastErrorAt?: string | null; lastError?: string | null; lastDetail?: string | null; day?: string; okToday?: number; errToday?: number }

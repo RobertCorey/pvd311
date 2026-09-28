@@ -30,8 +30,8 @@ export async function recipientsFor(store: Store, report: ReportDoc): Promise<st
 }
 
 /** Send one reporter-facing email to everyone who should hear about this report. Gated inside mailer.sendTo. */
-export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string): Promise<number> {
+export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string }): Promise<number> {
   const to = await recipientsFor(store, report);
-  for (const addr of to) await mailer.sendTo(addr, subject, html);
+  for (const addr of to) await mailer.sendTo(addr, subject, html, opts);
   return to.length;
 }

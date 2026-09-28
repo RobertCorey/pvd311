@@ -20,6 +20,7 @@ import { createPortal } from './portal.js';
 import { handleApi } from './api.js';
 import { signAction, timingSafeEqualHex, createMailer } from './email.js';
 import { approve, reject } from './hitl.js';
+import { relayEmail } from './relay.js';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -38,6 +39,13 @@ export default {
         // Unknown schedule — run the submit tick as the safe default.
         await runTick(env, ctx);
     }
+  },
+
+  /** Cloudflare Email Routing → cases@fixmypvd.org (the portal account's contact address). See relay.ts. */
+  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const store = createStore(env);
+    const outcome = await relayEmail(message, env, { store, mailer: createMailer(env) });
+    console.log(`[email] ${message.from} → ${message.to}: ${outcome ? outcome.kind : 'failed'}`);
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

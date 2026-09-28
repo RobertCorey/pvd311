@@ -403,6 +403,15 @@ export function createStore(env: Env): Store {
       return docs.length ? docToReport(docs[0]) : null;
     },
 
+    async findByPortalCaseId(caseId): Promise<ReportDoc | null> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'reports' }],
+        where: fieldFilter('portalCaseId', 'EQUAL', { stringValue: caseId }),
+        limit: 1,
+      });
+      return docs.length ? docToReport(docs[0]) : null;
+    },
+
     async findByStatus(status, limit): Promise<ReportDoc[]> {
       const docs = await runQuery(env, {
         from: [{ collectionId: 'reports' }],

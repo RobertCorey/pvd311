@@ -60,6 +60,9 @@ export interface Report {
   portalStatus?: string | null;
   portalStatusUpdatedAt?: FirebaseFirestore.Timestamp | null;
   portalLastActivity?: { subject: string; createdOn: string | null; fetchedAt: string } | null;
+  /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20 */
+  cityMessages?: { at: string; from: string; subject: string; text: string; caseId: string | null }[] | null;
+  lastCityEmailAt?: string | null;
 
   /** Set when a human (or the trust ramp) approved this report for submission */
   approvedAt?: string | null;
