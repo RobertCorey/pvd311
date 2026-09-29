@@ -178,7 +178,6 @@
   "track.timeline.notFiled": "No presentado",
   "track.timeline.needsAttention": "Necesita atención — lo estamos revisando",
   "track.timeline.filedAs": "Presentado ante la ciudad como {case}",
-  "track.timeline.filedLink": "Búscalo en la lista pública de solicitudes de la ciudad",
   "track.timeline.cityStatus": "Estado de la ciudad: {status}",
   "track.portalStatus.Submitted": "Enviado",
   "track.portalStatus.Assigned": "Asignado",

@@ -33,10 +33,6 @@
 .track-status--warn .track-status-headline { color: var(--warn); }
 .track-status-headline { font-size: 1.35rem; margin: 0; line-height: 1.15; }
 .track-case { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--bg); font-family: var(--font-mono); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-.track-case:is(a) { text-decoration: none; }
-.track-case:is(a):hover, .track-case:is(a):focus-visible { text-decoration: underline; text-underline-offset: 2px; }
-.track-tl-link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
-.track-tl-link:hover { text-decoration-color: var(--ink); }
 .track-case-label { font-family: var(--font-display); font-weight: 700; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .track-status-explainer { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
 .track-portal-link { display: inline-block; margin-top: 8px; font-size: 0.9rem; font-weight: 600; }
