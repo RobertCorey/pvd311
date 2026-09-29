@@ -12,6 +12,9 @@ export const BRAND = {
   contactEmail: 'rob@fixmypvd.org',  // routed via Cloudflare Email Routing (alice); switch to hello@ once that alias routes
   // disclaimer copy lives in i18n (`brand.disclaimer`, en + es) so it localizes; rendered via t() in Layout.
   portalUrl: 'https://311.providenceri.gov',
+  /** The city's public, login-free list of every request (case type, street, status). The portal has no per-case
+   *  public URL — the row detail is a client-side modal — so a filed case links here. */
+  publicRequestsUrl: 'https://311.providenceri.gov/public-requests/',
   themeColor: '#F7F1E6',
 } as const;
 

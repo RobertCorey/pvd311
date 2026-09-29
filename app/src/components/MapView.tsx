@@ -33,12 +33,11 @@ export interface MapViewProps {
 const DEFAULT_CENTER: [number, number] = [41.824, -71.4128];
 const DEFAULT_ZOOM = 13;
 
-/** Basemap. CARTO's free raster basemaps (Voyager light / Dark Matter = 'dark_all' dark) carry the brand better than
- *  default OSM and are fine for our volume; both require the OSM + CARTO attribution below.
- *  Swap back to OSM in one line: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' (attribution: OSM only). */
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}{r}.png';
-const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-const TILE_STYLE = 'voyager'; // light mode only (Rob, 2026-08-23)
+/** Basemap: OpenStreetMap's standard tiles. CARTO's free raster basemaps started serving an "API KEY REQUIRED"
+ *  watermark tile instead of map imagery (seen live 2026-09-29 on the report screen's location picker at z17), so
+ *  we no longer use them. OSM's tile policy is fine for our volume; keep the attribution and never bulk-download. */
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 const fill = (color: string) => (color.startsWith('--') ? `var(${color})` : color);
 
@@ -108,7 +107,7 @@ export default function MapView({
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', ariaLabel);
 
-    L.tileLayer(TILE_URL.replace('{style}', TILE_STYLE), { maxZoom: 19, subdomains: 'abcd', attribution: TILE_ATTRIBUTION }).addTo(map);
+    L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
 
     markerLayerRef.current = L.layerGroup().addTo(map);
 

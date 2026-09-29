@@ -88,6 +88,19 @@ test('copy-link button writes the tracking url to the clipboard', async ({ page,
   expect(clip).toContain('/r/abc');
 });
 
+test('filed report links the case chip and the "Filed with the city" step to the public request list', async ({ page }) => {
+  const now = new Date().toISOString();
+  await mockReport(page, view({ timeline: [{ at: now, label: 'Received' }, { at: now, label: 'Filed with the city as PVD2026-87657' }] }));
+  await page.goto('/r/abc');
+  const chip = page.locator('a.track-case');
+  await expect(chip).toHaveText(/PVD2026-87657/);
+  await expect(chip).toHaveAttribute('href', 'https://311.providenceri.gov/public-requests/');
+  const step = page.locator('.track-timeline').getByRole('link', { name: /filed with the city as PVD2026-87657/i });
+  await expect(step).toHaveAttribute('href', 'https://311.providenceri.gov/public-requests/');
+  await expect(step).toHaveAttribute('target', '_blank');
+  await expect(page.getByText(/about half of requests are resolved within a week/i)).toBeVisible();
+});
+
 test('cancelled report explains and links to the official portal', async ({ page }) => {
   await mockReport(page, view({ portalStatus: 'Cancelled' }));
   await page.goto('/r/abc');

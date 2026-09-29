@@ -196,9 +196,9 @@ export default function Track() {
         <div className="ticket-head">
           <span className="label">{t('track.status.label')}</span>
           {view.portalCaseId && !cancelled && !notFiled && (
-            <span className="track-case" aria-label={`${t('track.caseId.label')} ${view.portalCaseId}`}>
+            <a className="track-case" href={BRAND.publicRequestsUrl} target="_blank" rel="noopener" aria-label={`${t('track.caseId.label')} ${view.portalCaseId} — ${t('track.timeline.filedLink')}`} title={t('track.timeline.filedLink')}>
               <span className="track-case-label">{t('track.caseId.label')}</span>{view.portalCaseId}
-            </span>
+            </a>
           )}
         </div>
         <h2 className="track-status-headline">{headline}</h2>
@@ -236,7 +236,9 @@ export default function Track() {
             <li key={`${e.at}-${i}`} className={`track-tl-row${i === 0 ? ' is-current' : ''}`}>
               <span className="track-tl-dot" aria-hidden="true" />
               <div className="track-tl-body">
-                <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>
+                {/^Filed with the city as /.test(e.label)
+                  ? <a className="track-tl-label track-tl-link" href={BRAND.publicRequestsUrl} target="_blank" rel="noopener" title={t('track.timeline.filedLink')}>{localizeTimelineLabel(e.label, t)}</a>
+                  : <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>}
                 <span className="track-tl-time">
                   <time dateTime={e.at ?? undefined}>{relTime(e.at, t('track.time.justNow'))}</time>
                   <span className="track-tl-abs"> · {absTime(e.at)}</span>
