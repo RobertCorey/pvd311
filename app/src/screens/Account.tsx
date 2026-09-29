@@ -111,7 +111,6 @@ function SignedIn() {
   const [err, setErr] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
-  const [recovered, setRecovered] = useState<number | null>(null);
   const [addr, setAddr] = useState({ label: '', address: '' });
 
   const load = useCallback(async () => {
@@ -145,10 +144,6 @@ function SignedIn() {
   async function removeAddress(id: string) {
     try { const r = await deleteAddress(id); setMe((m) => (m ? { ...m, addresses: r.addresses } : m)); } catch { setErr(true); }
   }
-  async function recover() {
-    setSaving(true);
-    try { setRecovered(await claimAndRecover(listMyReports().map((r) => r.id))); } finally { setSaving(false); }
-  }
 
   if (!me) {
     return err
@@ -165,10 +160,7 @@ function SignedIn() {
       <div className="account-actions">
         <Link className="btn btn-primary" to="/my">{t('account.myReports')}</Link>
         {me.admin && <Link className="btn btn-secondary" to="/admin">{t('admin.title')}</Link>}
-        <button type="button" className="btn btn-secondary" onClick={recover} disabled={saving}>{t('account.recover')}</button>
       </div>
-      {recovered != null && <div className="notice notice-ok" role="status">{recovered > 0 ? t('account.recovered', { n: recovered }) : t('account.recoveredNone')}</div>}
-      <p className="hint">{t('account.recover.hint')}</p>
 
       <h2>{t('account.prefs.title')}</h2>
       <div className="card account-prefs">

@@ -26,12 +26,12 @@ test('account reports only → cards with status pills, no empty state', async (
   await expect(main).not.toContainText('Attach these reports');
 });
 
-test('device-only report gets its status fetched and an attach button when signed in', async ({ page }) => {
+test('device-only report gets its status fetched; no attach button (device reports are claimed silently at sign-in)', async ({ page }) => {
   await setup(page, { account: [], local: [{ id: 'dev1', category: 'street_light', address: '25 Dorrance St', createdAt: new Date().toISOString() }] });
   await page.goto('/my');
   const main = page.locator('main');
   await expect(main.locator('.my-status')).toHaveText(['Resolved']);
-  await expect(main.getByRole('button', { name: /Attach these reports/ })).toBeVisible();
+  await expect(main.getByRole('button', { name: /Attach these reports/ })).toHaveCount(0);
   await expect(main).not.toContainText('Nothing here yet');
 });
 

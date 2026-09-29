@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '../lib/auth';
-import { claimAndRecover, myReports, type MyReportView } from '../api/me';
+import { myReports, type MyReportView } from '../api/me';
 import { getReport } from '../api/client';
 import type { ReportView } from '../api/types';
 import { listMyReports, type MyReport } from '../lib/myReports';
@@ -13,8 +13,8 @@ import '../screens/Account.css';
 
 /**
  * The whole "My reports" list: the account's reports (signed in) + this device's (tracking ids kept in
- * localStorage), each with a status pill so it reads like tracking. Device rows the account doesn't own yet get a
- * one-tap "attach" button. The empty state shows only when BOTH lists are empty.
+ * localStorage), each with a status pill so it reads like tracking. Device rows are attached to the account silently
+ * at sign-in (Account.tsx afterSignIn); there is no manual "attach" button. The empty state shows only when BOTH lists are empty.
  */
 export default function AccountReports() {
   const t = useT();
@@ -22,15 +22,13 @@ export default function AccountReports() {
   const local = listMyReports();
   const [account, setAccount] = useState<MyReportView[] | null>(null);   // null = not loaded (or signed out)
   const [localStatus, setLocalStatus] = useState<Record<string, ReportView>>({});
-  const [claimed, setClaimed] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!session) { setAccount(null); return; }
     let live = true;
     myReports().then((r) => { if (live) setAccount(r.items); }).catch(() => { if (live) setAccount([]); });
     return () => { live = false; };
-  }, [session, claimed]);
+  }, [session]);
 
   // Status for device rows not covered by the account list (public tracking read, ≤20 newest).
   const owned = new Set((account ?? []).map((r) => r.id));
@@ -43,11 +41,6 @@ export default function AccountReports() {
       .then((rows) => { if (live) setLocalStatus((m) => ({ ...m, ...Object.fromEntries(rows.filter((x): x is readonly [string, ReportView] => !!x)) })); });
     return () => { live = false; };
   }, [needIds]);
-
-  async function claim() {
-    setBusy(true);
-    try { setClaimed(await claimAndRecover(deviceOnly.map((r) => r.id))); } finally { setBusy(false); }
-  }
 
   const loading = !!session && account == null;
   if (!loading && (account ?? []).length === 0 && local.length === 0) {
@@ -73,10 +66,6 @@ export default function AccountReports() {
   return (
     <div className="account-reports">
       {!session && local.length > 0 && <p className="hint"><Link to="/account">{t('my.signIn')}</Link></p>}
-      {session && deviceOnly.length > 0 && claimed == null && account != null && (
-        <button type="button" className="btn btn-secondary" disabled={busy} onClick={claim}>{t('my.claim')}</button>
-      )}
-      {claimed != null && <div className="notice notice-ok" role="status">{t('my.claimed', { n: claimed })}</div>}
       {loading && <p className="muted" aria-busy="true">{t('account.loading')}</p>}
       {account && account.length > 0 && (
         <>
