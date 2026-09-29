@@ -7,7 +7,8 @@
  *   city sender (providenceri.gov, DMARC not failed) + PVD case id that matches a report
  *     → forward the body to the reporter + followers (notify.ts recipients, Reply-To = relay address),
  *       append to report.cityMessages, event relay.forwarded
- *   city sender, no case id / no matching report → Rob (NOTIFY_EMAIL), event relay.unmatched
+ *   city sender, no case id / no matching report (after a candidate-number lookup + one 20 s retry, since the
+ *       city's ack can beat the engine's portalCaseId write) → Rob (NOTIFY_EMAIL), event relay.unmatched
  *   anyone else (a reporter replying to a forwarded mail, or noise) → Rob, event relay.reply — nothing is
  *       ever sent to the city automatically; a person decides (HITL is launch mode)
  *   auto-replies / our own domain / bounces → dropped, event relay.dropped (loop guard)
@@ -113,7 +114,7 @@ export function cleanSubject(subject: string, caseId: string | null): string {
 export async function handleInbound(
   msg: InboundMessage,
   env: Env,
-  deps: { store: Store; mailer: Mailer },
+  deps: { store: Store; mailer: Mailer; sleep?: (ms: number) => Promise<void> },
 ): Promise<RelayOutcome> {
   const { store, mailer } = deps;
   const mail = await parseInbound(msg);
@@ -138,7 +139,7 @@ export async function handleInbound(
     return { kind: 'reply', caseId };
   }
 
-  const report = caseId ? await store.findByPortalCaseId(caseId).catch(() => null) : null;
+  const report = caseId ? await findReport(store, caseId, deps.sleep) : null;
   if (!report) {
     await mailer.alert(
       `City email${caseId ? ` for ${caseId}` : ''} — no matching report`,
@@ -152,6 +153,21 @@ export async function handleInbound(
 
   const recipients = await forwardToReporter(env, store, mailer, report, mail, caseId!);
   return { kind: 'forwarded', caseId: caseId!, reportId: report.id, recipients };
+}
+
+/** Match a city case id to our report. The city's confirmation mail is sent the moment the wizard's Submit lands,
+ *  often seconds before the engine reads the case number back and writes portalCaseId (Rob's first real report,
+ *  PVD2026-89374 on 2026-09-29, arrived 3 s early and went to Rob as unmatched). So: portalCaseId, then the
+ *  candidate number read from the draft, then one more round after a short wait. */
+export const MATCH_RETRY_MS = 20_000;
+async function findReport(store: Store, caseId: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ReportDoc | null> {
+  const lookup = async () =>
+    (await store.findByPortalCaseId(caseId).catch(() => null))
+    ?? (await store.findByPortalCaseIdCandidate(caseId).catch(() => null));
+  const first = await lookup();
+  if (first) return first;
+  await sleep(MATCH_RETRY_MS);
+  return lookup();
 }
 
 async function forwardToReporter(env: Env, store: Store, mailer: Mailer, report: ReportDoc, mail: InboundMail, caseId: string): Promise<number> {
@@ -181,7 +197,7 @@ async function forwardToReporter(env: Env, store: Store, mailer: Mailer, report:
 export async function relayEmail(
   message: InboundMessage & { forward?: (to: string) => Promise<unknown> },
   env: Env,
-  deps: { store: Store; mailer: Mailer },
+  deps: { store: Store; mailer: Mailer; sleep?: (ms: number) => Promise<void> },
 ): Promise<RelayOutcome | null> {
   try {
     return await handleInbound(message, env, deps);

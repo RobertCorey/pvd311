@@ -73,6 +73,7 @@ export interface Store {
   findByStatus(status: ReportStatus, limit: number): Promise<ReportDoc[]>;
   findByClientId(clientId: string): Promise<ReportDoc | null>;   // idempotent create (outbox retries)
   findByPortalCaseId(caseId: string): Promise<ReportDoc | null>; // relay: city email → our report
+  findByPortalCaseIdCandidate(caseId: string): Promise<ReportDoc | null>; // relay: a report still mid-submit (portalCaseIdCandidate / portalDraft.caseId), before portalCaseId is written
   getMeta<T>(docId: string): Promise<T | null>;                  // collection 'meta'
   setMeta(docId: string, data: Record<string, unknown>): Promise<void>; // merge
   /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */

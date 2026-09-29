@@ -412,6 +412,20 @@ export function createStore(env: Env): Store {
       return docs.length ? docToReport(docs[0]) : null;
     },
 
+    async findByPortalCaseIdCandidate(caseId): Promise<ReportDoc | null> {
+      // The city's confirmation mail can land seconds before the engine writes portalCaseId; the PVD number was
+      // already read from the draft (portalDraft.caseId while the wizard runs, portalCaseIdCandidate right after).
+      for (const field of ['portalCaseIdCandidate', 'portalDraft.caseId']) {
+        const docs = await runQuery(env, {
+          from: [{ collectionId: 'reports' }],
+          where: fieldFilter(field, 'EQUAL', { stringValue: caseId }),
+          limit: 1,
+        });
+        if (docs.length) return docToReport(docs[0]);
+      }
+      return null;
+    },
+
     async findByStatus(status, limit): Promise<ReportDoc[]> {
       const docs = await runQuery(env, {
         from: [{ collectionId: 'reports' }],

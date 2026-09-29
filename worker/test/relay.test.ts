@@ -23,10 +23,11 @@ function deps(over: Partial<Store> = {}) {
   const store = {
     findByPortalCaseId: vi.fn(async (id: string) => (id === 'PVD2026-71677' ? report() : null)),
     patchReport: vi.fn(async () => {}), addEvent: vi.fn(async () => {}), getMeta: vi.fn(async () => null), setMeta: vi.fn(async () => {}),
-    getUser: vi.fn(async () => null), ...over,
+    getUser: vi.fn(async () => null), findByPortalCaseIdCandidate: vi.fn(async () => null), ...over,
   } as unknown as Store;
   const mailer = { send: vi.fn(async () => null), alert: vi.fn(async () => {}), sendTo: vi.fn(async () => {}) } as unknown as Mailer;
-  return { store, mailer };
+  const sleep = vi.fn(async () => {});
+  return { store, mailer, sleep };
 }
 
 describe('relay parsing', () => {
@@ -90,12 +91,32 @@ describe('handleInbound', () => {
     expect(stored).toHaveLength(20);
     expect(stored[0].subject).toBe('s1');
   });
-  it('city email with no matching report goes to Rob', async () => {
+  it('city email with no matching report goes to Rob after a candidate lookup and one retry', async () => {
     const d = deps();
     const out = await handleInbound(msg(raw({ subject: 'PVD2026-99999 Something PVD311:1' })), env, d);
     expect(out).toEqual({ kind: 'unmatched', caseId: 'PVD2026-99999' });
     expect(d.mailer.sendTo).not.toHaveBeenCalled();
     expect((d.mailer.alert as any).mock.calls[0][0]).toContain('PVD2026-99999');
+    expect(d.store.findByPortalCaseId).toHaveBeenCalledTimes(2);
+    expect(d.store.findByPortalCaseIdCandidate).toHaveBeenCalledTimes(2);
+    expect(d.sleep).toHaveBeenCalledWith(20_000);
+  });
+  it('matches a report still mid-submit by its candidate case number (city ack beats the engine write)', async () => {
+    const d = deps({
+      findByPortalCaseId: vi.fn(async () => null),
+      findByPortalCaseIdCandidate: vi.fn(async (id: string) => (id === 'PVD2026-89374' ? report({ portalCaseId: undefined, status: 'processing', portalCaseIdCandidate: 'PVD2026-89374' }) : null)),
+    });
+    const out = await handleInbound(msg(raw({ subject: 'PVD2026-89374 Downed Wire or Leaning Utility Pole PVD311:0288001' })), env, d);
+    expect(out).toMatchObject({ kind: 'forwarded', caseId: 'PVD2026-89374', reportId: 'rep1' });
+    expect(d.sleep).not.toHaveBeenCalled();
+    expect(d.mailer.alert).not.toHaveBeenCalled();
+  });
+  it('retries once when the case number is written a moment after the mail arrives', async () => {
+    let calls = 0;
+    const d = deps({ findByPortalCaseId: vi.fn(async () => (++calls >= 2 ? report() : null)) });
+    const out = await handleInbound(msg(raw()), env, d);
+    expect(out).toMatchObject({ kind: 'forwarded', caseId: 'PVD2026-71677' });
+    expect(d.sleep).toHaveBeenCalledTimes(1);
   });
   it('city email with no case id goes to Rob', async () => {
     const d = deps();
