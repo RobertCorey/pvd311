@@ -71,6 +71,39 @@ describe('portal simulator — happy path', () => {
     expect(s.cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted' });
   });
 
+  it('pin whose reverse geocode is a bare street name → the typed house-number address goes to the city (PVD2026-89374 regression)', async () => {
+    const realFetch = globalThis.fetch;
+    const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: 'Dorrance St', LongLabel: 'Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'StreetName' } })));
+    globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
+    try {
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      await portal.launch();
+      const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
+      await portal.close();
+      expect(arcgis).toHaveBeenCalledTimes(1);
+      expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+      // The typed address was resolved through the portal's own autocomplete (street keeps the house number).
+      expect(sim.snapshot().cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted', street: '25 Dorrance St' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('pin whose reverse geocode has a house number → the pin address goes to the city', async () => {
+    const realFetch = globalThis.fetch;
+    const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: '30 Dorrance St', LongLabel: '30 Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'PointAddress' } })));
+    globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
+    try {
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      await portal.launch();
+      const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
+      await portal.close();
+      expect(sim.snapshot().cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted', street: '30 Dorrance St' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('check-before-create: a retry whose draft already converted returns alreadyFiled without re-running the wizard', async () => {
     // First: a clean submit produces a Submitted grid row with a real PVD number.
     const p1 = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });

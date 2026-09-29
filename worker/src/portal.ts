@@ -29,6 +29,7 @@ import type {
   SubmitResult,
 } from './contracts.js';
 import { scoutFields as defaultScoutFields, type PortalControl } from './scout.js';
+import { chooseStep2Source, buildDescription } from './address.js';
 
 declare const document: any;
 declare const window: any;
@@ -295,29 +296,44 @@ class WorkerPortal implements Portal {
     const page = this.getPage();
     await page.waitForSelector('#addressIn', { timeout: 20_000 });
 
-    if (lat && lng) {
-      const arcgisAddr = await this.arcgisReverseGeocode(lat, lng);
-      if (arcgisAddr) {
-        await page.fill('#addressIn', arcgisAddr.full);
-        await page.evaluate((a) => {
-          const set = (id: string, val: string) => {
-            const el = document.getElementById(id);
-            if (el) el.value = val;
-          };
-          set('cop_address', JSON.stringify(a.full));
-          set('cop_street1', a.street);
-          set('cop_city', a.city);
-          set('cop_stateorprovidence', a.state);
-          set('cop_zipofpostalcode', a.zip);
-          set('cop_countryorregion', a.country);
-          set('cop_latitude', a.lat);
-          set('cop_longitude', a.lng);
-        }, arcgisAddr);
-      } else {
+    const arcgisAddr = lat && lng ? await this.arcgisReverseGeocode(lat, lng) : null;
+    const fillFromPin = async () => {
+      if (!arcgisAddr) return false;
+      await page.fill('#addressIn', arcgisAddr.full);
+      await page.evaluate((a) => {
+        const set = (id: string, val: string) => {
+          const el = document.getElementById(id);
+          if (el) el.value = val;
+        };
+        set('cop_address', JSON.stringify(a.full));
+        set('cop_street1', a.street);
+        set('cop_city', a.city);
+        set('cop_stateorprovidence', a.state);
+        set('cop_zipofpostalcode', a.zip);
+        set('cop_countryorregion', a.country);
+        set('cop_latitude', a.lat);
+        set('cop_longitude', a.lng);
+      }, arcgisAddr);
+      return true;
+    };
+
+    switch (chooseStep2Source(address, arcgisAddr?.street ?? null)) {
+      case 'pin':
+        await fillFromPin();
+        break;
+      case 'typed-then-pin':
+        // The pin reverse-geocoded to a bare street (no house number) but the reporter typed one:
+        // PVD2026-89374 went to the city as "India St" when Rob typed "201 India street". Let the
+        // portal's own autocomplete resolve the typed address; if it offers nothing, fall back to the pin.
+        try {
+          await this.fillStep2Autocomplete(address);
+        } catch (e) {
+          console.warn(`[portal] autocomplete found nothing for "${address}"; using the pin address`, e);
+          await fillFromPin();
+        }
+        break;
+      default:
         await this.fillStep2Autocomplete(address);
-      }
-    } else {
-      await this.fillStep2Autocomplete(address);
     }
 
     const before = page.url();
@@ -449,13 +465,7 @@ class WorkerPortal implements Portal {
     if (!cat) throw new Error(`Unknown category: ${report.category}`);
 
     // Description
-    const descParts: string[] = [];
-    if (report.description) descParts.push(report.description);
-    if (report.lat && report.lng) {
-      descParts.push(`Exact location: https://maps.google.com/?q=${report.lat.toFixed(6)},${report.lng.toFixed(6)}`);
-    }
-    descParts.push(`[Submitted via ${this.env.APP_NAME} — ref:${report.id}]`);
-    await page.fill('#description', descParts.join('\n\n'));
+    await page.fill('#description', buildDescription(report, this.env.APP_NAME));
 
     // Conditional fields: known mappings first, then the agent scout for anything left visible.
     // dumpControls() now returns hidden controls too (for the drift canary); only fill the ones the
