@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useT } from '../i18n';
 import { shortLabel } from '../lib/categories';
-import { listMyReports } from '../lib/myReports';
 import { GOOGLE_CLIENT_ID, authErrorKey, completeSignInLink, isSignInLink, pendingEmail, sendSignInLink, signOut, takeReturnTo, useSession } from '../lib/auth';
-import { claimAndRecover, deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
+import { deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import './Account.css';
 
@@ -31,8 +30,6 @@ function SignedOut() {
   const completing = useRef(false); // oobCodes are single-use: never call signInWithEmailLink twice (StrictMode/remount)
 
   const afterSignIn = useCallback(async () => {
-    // Attach this device's reports + anything filed with this email, then go back where the reporter came from.
-    await claimAndRecover(listMyReports().map((r) => r.id));
     navigate(takeReturnTo('/my'), { replace: true });
   }, [navigate]);
   const fail = useCallback((err: unknown) => { setPhase('error'); setError(authErrorKey(err)); }, []);

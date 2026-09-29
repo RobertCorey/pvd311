@@ -27,7 +27,7 @@ export const overview = () => ({
 export const events = (n = 24) => Array.from({ length: n }, (_, i) => ({ id: `evt_${i}`, at: mins(i * 7 + 1), level: i % 9 === 4 ? 'error' : i % 5 === 2 ? 'warn' : 'info', kind: ['submit.ok', 'report.created', 'hitl.requested', 'watcher.status', 'auth.link_sent', 'intake.flagged'][i % 6], msg: ['Filed as PVD2026-90412', 'New report: pothole @ 120 Benefit St', 'Emailed for approval', 'My Requests returned 0 rows', 'Sign-in link sent', 'Moderation flagged personal_info'][i % 6], reportId: i % 2 ? 'aaaaaaaaaaa1' : null, data: i % 3 ? { caseId: 'PVD2026-90412', ms: 4120 + i } : null }));
 export const health = () => ({
   generatedAt: new Date().toISOString(), overall: 'warn',
-  engine: { ...overview().engine, locked: false, reporterEmailEnabled: true },
+  engine: { ...overview().engine, locked: false },
   subsystems: ([
     ['tick', 'Engine tick', 'Cron every minute: reaper, gates, review, submit', 'ok', 'every minute'],
     ['submit', 'Portal submit', 'Headless browser filing reports on 311.providenceri.gov', 'ok', null],
@@ -56,7 +56,6 @@ export const categories = () => ({ items: [
 export const config = () => ({ items: [
   { key: 'HITL_MODE', value: 'ramp', what: 'review = every report needs a tap; ramp = first ACCOUNT_TRUST_N per account, then auto; auto = nothing waits.' },
   { key: 'ACCOUNT_TRUST_N', value: 3, what: 'Reports an account must get filed cleanly before it auto-approves.' },
-  { key: 'REPORTER_EMAIL_ENABLED', value: true, what: 'Whether reporters get status emails (needs a verified Resend domain).' },
   { key: 'TURNSTILE', value: 'enforced', what: 'Cloudflare bot check on report creation; fails closed without the secret.' },
   { key: 'AI_DAILY_CAP', value: 1500, what: 'Max intake/moderation calls per day before the AI steps aside.' },
   { key: 'PORTAL_BASE_URL', value: 'https://311.providenceri.gov', what: 'The city portal the headless browser drives.' },

@@ -24,5 +24,3 @@ export function useInstallPrompt(): { canInstall: boolean; install: () => Promis
   };
 }
 
-export const isStandalone = () =>
-  window.matchMedia('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;

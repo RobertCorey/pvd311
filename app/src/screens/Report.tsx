@@ -7,7 +7,6 @@ import { signOut, useSession } from '../lib/auth';
 import { useLocation } from 'react-router-dom';
 import { draftStore } from '../lib/draft';
 import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
-import { rememberReport } from '../lib/myReports';
 import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
 import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
@@ -182,8 +181,7 @@ export default function Report() {
     // One queued item per Turnstile token (tokens are single-use); on success the
     // widget re-mounts for the next one.
     flushOutbox(async (r, clientId) => {
-      const created = await submitReport({ ...r, turnstileToken }, clientId);
-      rememberReport({ id: created.id, category: r.category, address: r.address, createdAt: created.createdAt });
+      await submitReport({ ...r, turnstileToken }, clientId);
     }, 1).then(async ({ sent, failed, remaining }) => {
       if (failed) setFlushPaused(true);
       setPending(remaining);
@@ -366,7 +364,6 @@ export default function Report() {
         intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined,
         photo: blob,
       }, draftId.current);
-      rememberReport({ id: created.id, category: cat.key, address: address.trim(), createdAt: created.createdAt });
       void draftStore.clear();
       draftId.current = crypto.randomUUID();
       navigate(`/r/${created.id}`, { state: { justSubmitted: true } });

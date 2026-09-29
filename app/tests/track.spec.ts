@@ -52,7 +52,7 @@ async function mockReport(page: Page, body: object, status = 200) {
 }
 
 async function useSpanish(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('snappvd.lang', 'es'));
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
 }
 
 test('sent + Assigned shows the case id and a city status row', async ({ page }) => {

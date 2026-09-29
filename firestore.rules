@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// SnapPVD: the client talks only to the Worker API; the Worker uses the Admin/service-account path.
+// FixMyPVD: the client talks only to the Worker API; the Worker uses the Admin/service-account path.
 // No client reads or writes to Firestore.
 service cloud.firestore {
   match /databases/{database}/documents {

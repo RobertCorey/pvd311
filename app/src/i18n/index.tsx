@@ -12,7 +12,7 @@ const Ctx = createContext<I18n>({ lang: 'en', t: (k) => k, setLang: () => {} });
 
 export function detectLang(): string {
   try {
-    const saved = localStorage.getItem('snappvd.lang');
+    const saved = localStorage.getItem('fixmypvd.lang');
     if (saved && DICTS[saved]) return saved;
   } catch { /* ignore */ }
   const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
@@ -26,7 +26,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLang = useCallback((l: string) => {
     if (!DICTS[l]) return;
     setLangState(l);
-    try { localStorage.setItem('snappvd.lang', l); } catch { /* ignore */ }
+    try { localStorage.setItem('fixmypvd.lang', l); } catch { /* ignore */ }
     DICTS[l]().then(setDict);
   }, []);
   const t = useCallback((key: string, vars?: Record<string, string | number>) => {

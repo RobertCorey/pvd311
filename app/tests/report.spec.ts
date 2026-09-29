@@ -62,7 +62,6 @@ test('photo-optional category: address + turnstile → submit → tracking page'
   expect(body).toContain('name="category"');
   expect(body).toContain('missed_trash');
   expect(body).toContain('name="turnstileToken"');
-  expect(body).toContain('name="deviceId"');
   expect(body).toMatch(/name="clientId"\r?\n\r?\n[0-9a-f-]{36}/);
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
@@ -107,7 +106,7 @@ test('rate limited → friendly message, stays on page', async ({ page }) => {
   await expect(page).toHaveURL(/\/\?c=missed_trash$/); // still on the report page, draft intact
 });
 
-test('offline: submit queues to outbox, shows saved screen; back online it flushes and lands in My reports', async ({ page, context }) => {
+test('offline: submit queues to outbox, shows saved screen; back online it flushes', async ({ page, context }) => {
   await mockApi(page);
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
@@ -121,8 +120,6 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   await flushed;
   await expect(page.locator('.notice-ok')).toContainText('Sent a saved report', { timeout: 15_000 });
   await expect(page.locator('.outbox-card')).toHaveCount(0);
-  await page.goto('/my');
-  await expect(page.locator('.my-row')).toHaveCount(1);
 });
 
 test('language switch to Español persists and translates the picker', async ({ page }) => {
@@ -137,8 +134,7 @@ test('language switch to Español persists and translates the picker', async ({ 
 
 test('typed address geocodes → mini-map with draggable pin appears', async ({ page }) => {
   await mockApi(page);
-  await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
-  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
@@ -150,10 +146,9 @@ test('typed address geocodes → mini-map with draggable pin appears', async ({ 
 test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides it', async ({ page }) => {
   await mockApi(page);
   await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [
-    { id: 'near1', source: 'snappvd', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', lat: 41.8241, lng: -71.4129, address: '27 Dorrance St, Providence, RI', createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), status: 'sent', portalStatus: 'Submitted', distanceM: 18 },
+    { id: 'near1', source: 'ours', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', lat: 41.8241, lng: -71.4129, address: '27 Dorrance St, Providence, RI', createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), status: 'sent', portalStatus: 'Submitted', distanceM: 18 },
   ] }) }));
-  await page.route('https://*.tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
-  await page.route('https://*.basemaps.cartocdn.com/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
@@ -189,7 +184,7 @@ test('flush failure pauses retries instead of looping (no second request until a
   await page.goto('/');
   // Seed one queued item directly (avoids the harness's synthetic offline/online events).
   await page.evaluate(() => new Promise<void>((done) => {
-    const r = indexedDB.open('snappvd', 1);
+    const r = indexedDB.open('fixmypvd', 1);
     r.onupgradeneeded = () => r.result.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
     r.onsuccess = () => {
       const tx = r.result.transaction('outbox', 'readwrite');

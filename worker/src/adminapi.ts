@@ -128,7 +128,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
         submissionsThisHour: ((engine?.['submissionTimestamps'] as number[] | undefined) ?? []).filter((t) => t > oneHourAgo).length,
         lastSubmissionTime: engine?.['lastSubmissionTime'] ? new Date(Number(engine['lastSubmissionTime'])).toISOString() : null,
         locked: !!(engine?.['lock'] && Number((engine['lock'] as { until?: number }).until ?? 0) > now),
-        hitlMode: env.HITL_MODE, accountTrustN: env.ACCOUNT_TRUST_N ?? '3', reporterEmailEnabled: env.REPORTER_EMAIL_ENABLED === 'true',
+        hitlMode: env.HITL_MODE, accountTrustN: env.ACCOUNT_TRUST_N ?? '3',
       },
       subsystems,
       counts: Object.fromEntries(statuses.map((st, i) => [st, counts[i]])),
@@ -209,7 +209,6 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     return json({ items: [
       row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = first ACCOUNT_TRUST_N per account, then auto unless flagged; auto = nothing to you (flags still force review).'),
       row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before it auto-files.'),
-      row('REPORTER_EMAIL_ENABLED', env.REPORTER_EMAIL_ENABLED === 'true', 'Whether reporters/followers get email (filed, status changes, not-filed). Admin mail is always on.'),
       row('RECONCILE_ENABLED', env.RECONCILE_ENABLED ?? '0', 'Watcher compares the whole My Requests list to our DB every 30 min (adopt / stranded / missing).'),
       row('DRIFT_CANARY_ENABLED', env.DRIFT_CANARY_ENABLED ?? '0', 'Nightly Step-3 control diff on the designated canary draft; alerts when the city changes the form.'),
       row('ADMIN_EMAILS', env.ADMIN_EMAILS ?? '', 'Google accounts allowed into /admin.'),

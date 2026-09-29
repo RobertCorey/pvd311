@@ -190,7 +190,6 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   // Identity comes ONLY from the verified token: owner + the email the city's updates go to (unless opted out).
   const account = await ensureUser(store, auth);
   const email = account.email && account.prefs?.emailUpdates !== false ? account.email : null;
-  const deviceId = f('deviceId').slice(0, 64) || null;
 
   const photo = form.get('photo');
   const hasPhoto = photo instanceof File && photo.size > 0;
@@ -213,9 +212,9 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   const now = new Date();
   await store.patchReport(id, {
     timestamp: now, category, address, lat, lng, description: description || null, descriptionOriginal: f('descriptionOriginal') || null,
-    extra, intakeFlags, photo: photoUrl, reporterName: f('name').slice(0, 120) || null, reporterEmail: email,
+    extra, intakeFlags, photo: photoUrl, reporterName: null, reporterEmail: email,
     status: 'pending', statusDetail: null, portalCaseId: null, statusUpdatedAt: now,
-    deviceId, ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
+    ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
     ownerUid: account.uid,
   });
   await logEvent(store, { level: 'info', kind: 'report.created', msg: `${cat.label} @ ${address}${intakeFlags?.length ? ` (client flags: ${intakeFlags.join(',')})` : ''}`, reportId: id, data: { category, hasPhoto, appVersion: f('appVersion').slice(0, 40) || null } });
@@ -284,8 +283,8 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
   return {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
-    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline, hasEmail: !!r.reporterEmail,
-    owned: !!r.ownerUid, cancelledByReporter: r.cancelledByReporter === true,
+    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline,
+    cancelledByReporter: r.cancelledByReporter === true,
     notFiled: notFiledReason(r),
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
     nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
@@ -311,14 +310,14 @@ async function getPhoto(id: string, { store }: ApiDeps): Promise<Response> {
 // ── Feed items (nearby) ─────────────────────────────────────
 
 interface FeedItem {
-  id: string; source: 'snappvd' | 'city'; category: string; categoryLabel: string;
+  id: string; source: 'ours' | 'city'; category: string; categoryLabel: string;
   lat: number | null; lng: number | null; address: string; createdAt: string | null;
   status: string; portalStatus: string | null;
 }
 
 function ourFeedItem(r: ReportDoc): FeedItem {
   return {
-    id: r.id, source: 'snappvd', category: r.category, categoryLabel: CATEGORIES[r.category]?.label ?? r.category,
+    id: r.id, source: 'ours', category: r.category, categoryLabel: CATEGORIES[r.category]?.label ?? r.category,
     lat: r.lat, lng: r.lng, address: r.address, createdAt: toIso(r.timestamp),
     status: PUBLIC_STATUS[r.status] ?? 'received', portalStatus: r.portalStatus ?? null,
   };

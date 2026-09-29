@@ -26,13 +26,13 @@ const env = { TURNSTILE_SECRET: '', ANTHROPIC_API_KEY: '', ALLOW_NO_TURNSTILE: '
 const get = (path: string) => handleApi(new Request(`https://api.test${path}`, { headers: { origin: 'https://fixmypvd.org' } }), env, { store: mockStore() });
 
 describe('tracking projection', () => {
-  it('exposes no PII, maps status, builds a timeline, reports hasEmail', async () => {
+  it('exposes no PII, maps status, builds a timeline', async () => {
     const r = await get('/api/reports/abc123456789');
     const j = await r!.json() as any;
     expect(r!.status).toBe(200);
     expect(j.status).toBe('sent');
     expect(j.reporterEmail).toBeUndefined();
-    expect(j.hasEmail).toBe(true);
+    expect(j.hasEmail).toBeUndefined();
     expect(j.timeline.map((t: any) => t.label)).toEqual(expect.arrayContaining([expect.stringContaining('PVD2026-1'), 'City status: Assigned']));
   });
   it('maps failed → needs_attention and rejected → rejected', async () => {

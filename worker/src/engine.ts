@@ -198,7 +198,7 @@ async function submitOne(
         .catch((e) => console.error('[tick] control drift check failed:', e instanceof Error ? e.message : e));
     }
     {
-      const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
+      const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
       await notifyReport(store, mailer, report, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
         `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
     }
@@ -292,7 +292,7 @@ export async function runWatcher(env: Env): Promise<void> {
           changes++;
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           {
-            const track = `${env.APP_BASE_URL ?? 'https://pvdsnow.org'}/r/${report.id}`;
+            const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
             const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', 'In Progress': 'is being worked on by the city', Resolved: 'is marked resolved by the city', Closed: 'was closed by the city', Completed: 'was completed by the city', Cancelled: 'was cancelled by the city', Canceled: 'was cancelled by the city' };
             await notifyReport(store, mailer, report, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
               `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);

@@ -22,7 +22,7 @@
 .cfg-help { width: 1%; text-align: center; }
 .cfg-help a { text-decoration: none; display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-weight: 700; font-size: .8rem; }
 .cfg-help a:hover { border-color: var(--ink); color: var(--ink); }
-.cfg-help a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cfg-help a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 .cfg-group th { background: var(--bg); font-family: var(--font-display); font-weight: 800; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink); height: 30px; padding: 4px 10px; }
 .cfg-group .admin-count { font-weight: 500; }

@@ -4,7 +4,7 @@
 .portal-section h2 { font-size: 1.05rem; margin: 0 0 4px; }
 .portal-section h3 { font-size: .95rem; margin: 0 0 8px; }
 .portal-intro { margin: 0 0 12px; color: var(--muted); font-size: var(--admin-meta); line-height: 1.45; max-width: 78ch; }
-.portal-intro a { color: var(--accent); font-weight: 600; }
+.portal-intro a { color: var(--ink); font-weight: 600; }
 
 /* Category rows stack multiple lines per cell — top-align and let them grow past the 44px queue height. */
 .portal-table td { height: auto; padding-top: 8px; padding-bottom: 8px; vertical-align: top; }

@@ -6,7 +6,7 @@ import type { ReportSubmission } from '../api/types';
 
 import { idbTx, type StoreSpec } from './idb';
 
-const SPEC: StoreSpec = { db: 'snappvd', store: 'outbox', options: { keyPath: 'id', autoIncrement: true } };
+const SPEC: StoreSpec = { db: 'fixmypvd', store: 'outbox', options: { keyPath: 'id', autoIncrement: true } };
 export interface OutboxItem {
   id?: number;
   queuedAt: number;

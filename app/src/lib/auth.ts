@@ -33,18 +33,11 @@ function set(s: Session | null) {
   listeners.forEach((fn) => fn(s));
 }
 
-export const getSession = () => session;
-export const isSignedIn = () => !!session;
 export function onAuthChange(fn: (s: Session | null) => void): () => void { listeners.add(fn); return () => { listeners.delete(fn); }; }
 export function useSession(): Session | null {
   const [s, setS] = useState(session);
   useEffect(() => onAuthChange(setS), []);
   return s;
-}
-/** Reactive identity for gates: `user` is null when signed out. `loading` is false after the first render. */
-export function useAuth(): { user: { uid: string; email: string | null } | null; loading: boolean } {
-  const s = useSession();
-  return { user: s ? { uid: s.uid, email: s.email } : null, loading: false };
 }
 
 async function idp<T>(method: string, body: Record<string, unknown>): Promise<T> {

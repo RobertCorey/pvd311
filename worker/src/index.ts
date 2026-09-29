@@ -56,9 +56,6 @@ export default {
     const apiResp = await handleApi(request, env, { store: createStore(env) });
     if (apiResp) return apiResp;
 
-    // The token-in-URL ops page is retired (2026-08-23): admin lives in the app at /admin (see api/admin.ts + adminapi.ts).
-    if (url.pathname === '/admin' || url.pathname === '/admin/action') return Response.redirect(`${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/admin`, 302);
-
     // Admin: run the watcher / daily jobs on demand (token-gated)
     if ((url.pathname === '/admin/watch' || url.pathname === '/admin/daily') && request.method === 'POST') {
       if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });

@@ -23,7 +23,7 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .admin-rail-nav { display: grid; gap: 4px; }
 .admin-rail-tab { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 0; background: transparent; color: var(--ink); font-family: var(--font-display); font-weight: 700; font-size: .95rem; text-align: left; cursor: pointer; }
 .admin-rail-tab[aria-selected="true"] { background: var(--ink); color: var(--bg); }
-.admin-badge { font-size: .72rem; padding: .05rem .45rem; border-radius: 999px; background: var(--accent-2, var(--warn)); color: var(--ink); font-family: var(--font-body, inherit); }
+.admin-badge { font-size: .72rem; padding: .05rem .45rem; border-radius: 999px; background: var(--ember); color: var(--ink); font-family: var(--font-body, inherit); }
 .admin-rail-search .input { min-height: 36px; padding: 6px 10px; font-size: var(--admin-text); }
 .admin-rail-engine { display: grid; gap: 4px; padding: 10px; border: 1.5px solid var(--line); border-radius: 10px; }
 .admin-rail-engine.is-paused { border-color: var(--danger); background: var(--danger-soft); }
@@ -55,8 +55,8 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .admin-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg) 55%, var(--surface)); }
 .admin-table tbody tr { cursor: pointer; }
 .admin-table tbody tr:hover td { background: color-mix(in srgb, var(--warn-soft) 50%, var(--surface)); }
-.admin-table tbody tr.is-selected td { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--accent-2, var(--warn)); }
-.admin-table tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.admin-table tbody tr.is-selected td { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--ember); }
+.admin-table tbody tr:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .admin-table tbody tr:last-child td { border-bottom: 0; }
 .admin-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
 .admin-td-age { width: 56px; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -109,7 +109,7 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 .sys-banner.is-warn { border-color: var(--warn); } .sys-banner.is-error { border-color: var(--danger); }
 .sys-banner .btn { margin-left: auto; min-height: 32px; padding: 4px 10px; font-size: .85rem; }
 .sys-dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; flex: none; background: var(--muted); box-shadow: 0 0 0 2px var(--surface); vertical-align: middle; }
-.sys-dot--ok { background: var(--success); } .sys-dot--warn { background: var(--accent-2, var(--warn)); } .sys-dot--error { background: var(--danger); } .sys-dot--unknown { background: var(--line); }
+.sys-dot--ok { background: var(--success); } .sys-dot--warn { background: var(--ember); } .sys-dot--error { background: var(--danger); } .sys-dot--unknown { background: var(--line); }
 .sys-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
 @media (min-width: 1280px) { .sys-grid { grid-template-columns: repeat(5, 1fr); } }
 .sys-card { display: grid; gap: .25rem; padding: 10px 12px; align-content: start; }

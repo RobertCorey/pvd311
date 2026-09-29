@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import Report from './screens/Report';
 
@@ -20,7 +20,6 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Report />} />
           <Route path="/r/:id" element={<Track />} />
-          <Route path="/map" element={<Navigate to="/" replace />} />
           <Route path="/my" element={<MyReports />} />
           <Route path="/account" element={<Account />} />
           <Route path="/admin" element={<Admin />} />

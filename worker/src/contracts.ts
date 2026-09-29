@@ -8,10 +8,9 @@ import type { PortalControl } from './scout.js';
 export interface Env {
   BROWSER: Fetcher;
   PORTAL_BASE_URL: string;            // var
-  APP_NAME: string;                   // var, e.g. "PVD311 app"
+  APP_NAME: string;                   // var: "FixMyPVD" — the description tag on every filed case
   HITL_MODE: 'review' | 'ramp' | 'auto'; // var
   FIREBASE_PROJECT_ID: string;        // var: pvd-snow-report
-  STORAGE_BUCKET: string;             // var: pvd-snow-report.firebasestorage.app
   NOTIFY_EMAIL: string;               // var
   NOTIFY_FROM: string;                // var
   // secrets
@@ -25,8 +24,7 @@ export interface Env {
   TURNSTILE_SECRET: string;
   APP_ORIGINS?: string;               // var: comma-separated allowed CORS origins (optional)
   ALLOW_NO_TURNSTILE?: string;        // var: '1' opens report creation without Turnstile (tests/dev ONLY; prod fails closed)
-  REPORTER_EMAIL_ENABLED?: string;    // var: 'true' once the Resend sending domain is verified
-  APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://pvdsnow.org)
+  APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://fixmypvd.org)
   ACCOUNT_TRUST_N?: string;           // var: per-account HITL ramp threshold (default 3)
   ADMIN_EMAILS?: string;              // var: comma-separated admin emails for /api/admin/* + in-app /admin (Google sign-in required)
   AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
@@ -67,7 +65,6 @@ export interface Store {
   requeueReport(id: string, retries: number, detail: string, retryAfterIso: string): Promise<void>;
   findStuckProcessing(minutes: number): Promise<ReportDoc[]>;
   findRecentSubmissions(hours: number): Promise<ReportDoc[]>;
-  countSubmittedByCategory(category: string, limit: number): Promise<number>;
   listSubmittedWithCaseId(): Promise<ReportDoc[]>;              // for the watcher
   countByStatus(status: ReportStatus): Promise<number>;
   findByStatus(status: ReportStatus, limit: number): Promise<ReportDoc[]>;
@@ -76,8 +73,6 @@ export interface Store {
   findByPortalCaseIdCandidate(caseId: string): Promise<ReportDoc | null>; // relay: a report still mid-submit (portalCaseIdCandidate / portalDraft.caseId), before portalCaseId is written
   getMeta<T>(docId: string): Promise<T | null>;                  // collection 'meta'
   setMeta(docId: string, data: Record<string, unknown>): Promise<void>; // merge
-  /** Firebase Storage. Returns gs:// path, or a tokenized public download URL when opts.downloadToken is given. */
-  uploadFile(path: string, bytes: Uint8Array, contentType: string, opts?: { downloadToken?: string }): Promise<string>;
   findReportsSince(hoursAgo: number, limit: number): Promise<ReportDoc[]>;      // public feed: any status except rejected
   /** Photos live in Firestore (photos/{id}) while the project is on Spark — no server-side bucket writes without billing. */
   putPhoto(id: string, bytes: Uint8Array, contentType: string): Promise<void>;
@@ -108,7 +103,6 @@ export interface Store {
   recentEvents(limit: number): Promise<({ id: string; at: string; level: string; kind: string; msg: string; reportId?: string | null; data?: Record<string, unknown> | null })[]>;
   deleteEventsBefore(date: Date, limit: number): Promise<number>;
   findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
-  findReportsByEmail(email: string, limit: number): Promise<ReportDoc[]>;      // reporterEmail == email (any status)
   fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped
   countOwnerByStatus(uid: string, status: ReportStatus): Promise<number>;
 }

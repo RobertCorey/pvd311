@@ -3,16 +3,12 @@ node_modules/
 *.log
 .firebaserc
 
-# Automation build output
-automation/dist/
-
 # Firebase service account key (NEVER commit)
 *.json.key
 service-account*.json
 
 # Environment files with secrets
 .env
-automation/.env
 
 # Saved browser auth state
 .auth-state.json
@@ -21,7 +17,5 @@ automation/.env
 .playwright-mcp/
 
 # Misc local files
-proton-mail/
 .DS_Store
 .claude/
-public/test-results/

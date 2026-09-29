@@ -17,13 +17,13 @@ function raw(opts: { from?: string; to?: string; subject?: string; text?: string
 const msg = (r: string, from = 'pvd311@providenceri.gov') => ({ from, to: 'cases@fixmypvd.org', headers: new Headers(), raw: r });
 
 function report(over: Partial<ReportDoc> = {}): ReportDoc {
-  return { id: 'rep1', category: 'unshoveled_sidewalk', address: '25 Dorrance St', reporterEmail: 'neighbor@example.com', portalCaseId: 'PVD2026-71677', status: 'submitted', followers: ['friend@example.com'], ...over } as ReportDoc;
+  return { id: 'rep1', category: 'unshoveled_sidewalk', address: '25 Dorrance St', reporterEmail: 'neighbor@example.com', portalCaseId: 'PVD2026-71677', status: 'submitted', ownerUid: 'u1', followerUids: ['u2'], ...over } as ReportDoc;
 }
 function deps(over: Partial<Store> = {}) {
   const store = {
     findByPortalCaseId: vi.fn(async (id: string) => (id === 'PVD2026-71677' ? report() : null)),
     patchReport: vi.fn(async () => {}), addEvent: vi.fn(async () => {}), getMeta: vi.fn(async () => null), setMeta: vi.fn(async () => {}),
-    getUser: vi.fn(async () => null), findByPortalCaseIdCandidate: vi.fn(async () => null), ...over,
+    getUser: vi.fn(async (uid: string) => (uid === 'u2' ? { uid, email: 'friend@example.com', prefs: {} } : null)), findByPortalCaseIdCandidate: vi.fn(async () => null), ...over,
   } as unknown as Store;
   const mailer = { send: vi.fn(async () => null), alert: vi.fn(async () => {}), sendTo: vi.fn(async () => {}) } as unknown as Mailer;
   const sleep = vi.fn(async () => {});

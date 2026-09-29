@@ -1,12 +1,10 @@
 /**
  * me.ts — account endpoints (/api/me/*) + owner-only report actions. Every handler here runs AFTER
- * auth.ts verified a Firebase ID token; the anonymous flows in api.ts are untouched.
+ * auth.ts verified a Firebase ID token; the public tracking reads in api.ts need none.
  *
  *   GET    /api/me                      profile + prefs + saved addresses + following (upserts users/{uid})
  *   PATCH  /api/me                      { displayName?, prefs? }
  *   GET    /api/me/reports              reports owned by this account (newest first)
- *   POST   /api/me/claim                { ids[] } → attach unowned reports (tracking ids from the device)
- *   POST   /api/me/recover              claim unowned reports whose reporterEmail == the verified account email
  *   GET    /api/me/following            followed reports
  *   PUT    /api/me/following/:id        follow   (204)
  *   DELETE /api/me/following/:id        unfollow (204)
@@ -84,32 +82,6 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   if (path === '/api/me/reports' && m === 'GET') {
     const items = (await store.findReportsByOwner(user.uid, 100)).map((r) => deps.project(r, viewer));
     return json({ items });
-  }
-
-  if (path === '/api/me/claim' && m === 'POST') {
-    const body = (await request.json().catch(() => null)) as { ids?: unknown } | null;
-    const ids = Array.isArray(body?.ids) ? Array.from(new Set(body!.ids.filter((x): x is string => typeof x === 'string' && ID_RE.test(x)))).slice(0, 50) : [];
-    if (!ids.length) return json({ error: 'invalid_ids', field: 'ids' }, 400);
-    const found = await store.fetchReports(ids);
-    const claimed: string[] = []; const skipped: string[] = [];
-    for (const r of found) {
-      if (r.ownerUid && r.ownerUid !== user.uid) { skipped.push(r.id); continue; }
-      if (!r.ownerUid) await store.patchReport(r.id, { ownerUid: user.uid, claimedAt: new Date().toISOString() });
-      claimed.push(r.id);
-    }
-    for (const id of ids) if (!found.some((r) => r.id === id)) skipped.push(id);
-    return json({ claimed, skipped });
-  }
-
-  if (path === '/api/me/recover' && m === 'POST') {
-    if (!user.email || !user.emailVerified) return json({ error: 'email_unverified' }, 403);
-    const claimed: string[] = [];
-    for (const r of await store.findReportsByEmail(user.email, 100)) {
-      if (r.ownerUid) continue;
-      await store.patchReport(r.id, { ownerUid: user.uid, claimedAt: new Date().toISOString() });
-      claimed.push(r.id);
-    }
-    return json({ claimed });
   }
 
   if (path === '/api/me/following' && m === 'GET') {

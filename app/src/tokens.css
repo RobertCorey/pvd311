@@ -1,4 +1,4 @@
-/* SnapPVD tokens — docs/design-direction.md ("Ember & Harbor"): two inks (harbor navy + ember) on paper.
+/* FixMyPVD tokens — docs/design-direction.md ("Ember & Harbor"): two inks (harbor navy + ember) on paper.
    Light on :root; dark overrides guarded both ways so a manual toggle wins. */
 :root {
   --bg: #F7F1E6;             /* paper */
@@ -28,11 +28,5 @@
   --grain-opacity: 0.035;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* Legacy aliases (old screens still reference these). */
-  --accent: var(--ink);
-  --accent-ink: var(--bg);
-  --accent-2: var(--ember);
-  --accent-soft: var(--ink-soft);
-  --accent-2-soft: var(--ember-soft);
   color-scheme: light only; /* light mode only (Rob, 2026-08-23) — no dark palette */
 }

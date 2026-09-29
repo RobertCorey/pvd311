@@ -10,8 +10,6 @@ export interface ReportSubmission {
   lat?: number | null;
   lng?: number | null;
   extra?: Record<string, string> | null;
-  email?: string;
-  name?: string;
   turnstileToken: string;
   descriptionOriginal?: string;
   intakeFlags?: IntakeFlag[];
@@ -57,18 +55,17 @@ export interface ReportView {
   portalStatus: PortalStatus | null;
   timeline: TimelineEntry[];
   nextUpdateHint: string | null;
-  hasEmail?: boolean;
   /** Set whenever the report will not / did not reach the city (docs/api.md GET /api/reports/:id). */
   notFiled?: { code: string; text: string; duplicateOf?: string | null } | null;
   /** Present when the caller is signed in (see docs/api.md Accounts). */
-  owned?: boolean; cancelledByReporter?: boolean; mine?: boolean; following?: boolean; editable?: boolean; description?: string | null;
+  cancelledByReporter?: boolean; mine?: boolean; following?: boolean; editable?: boolean; description?: string | null;
 }
 
 export interface FeedItem {
   id: string; category: string; categoryLabel: string; lat: number; lng: number;
   address: string; createdAt: string | null; status: ReportStatus | 'city'; portalStatus: PortalStatus | string | null;
-  /** 'snappvd' = ours (id is a tracking token); 'city' = the city's public feed (id = 'city:<hash>', approximate location) */
-  source?: 'snappvd' | 'city';
+  /** 'ours' = a FixMyPVD report (id is a tracking token); 'city' = the city's public feed (id = 'city:<hash>', approximate location) */
+  source?: 'ours' | 'city';
 }
 export interface NearbyItem extends FeedItem { distanceM: number; }
 export interface NearbyResponse { items: NearbyItem[]; }

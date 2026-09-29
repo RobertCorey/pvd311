@@ -33,10 +33,9 @@ export function createMailer(env: Env): Mailer {
     return data.id ?? null;
   }
 
-  /** Reporter-facing mail. Gated by REPORTER_EMAIL_ENABLED until the sending domain is verified on Resend
-   *  (onboarding@resend.dev can only deliver to the account owner). Never throws. */
+  /** Reporter-facing mail. Never throws. */
   async function sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void> {
-    if (!enabled || env.REPORTER_EMAIL_ENABLED !== 'true') { console.log(`[email] (reporter mail gated) to=${to} ${subject}`); return; }
+    if (!enabled) { console.log(`[email] (no RESEND_API_KEY) to=${to} ${subject}`); return; }
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',

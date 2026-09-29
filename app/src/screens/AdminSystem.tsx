@@ -64,7 +64,6 @@ export default function AdminSystem() {
           <Num n={data.engine.submissionsThisHour} label={t('admin.sys.thisHour')} />
           <Num n={rel(data.engine.lastSubmissionTime, t)} label={t('admin.sys.lastSent')} />
           <Num n={`${data.engine.hitlMode} · ${data.engine.accountTrustN}`} label={t('admin.sys.hitl')} />
-          <Num n={data.engine.reporterEmailEnabled ? t('admin.sys.on') : t('admin.sys.off')} label={t('admin.sys.reporterEmail')} />
         </div>
       </div>
       {data.sync && (

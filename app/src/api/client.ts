@@ -10,9 +10,6 @@ import { authHeaders } from '../lib/auth';
 const FALLBACK_BASE = 'https://pvd311-worker.pvd311-worker.workers.dev';
 const PRIMARY_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'https://api.fixmypvd.org';
 let activeBase = PRIMARY_BASE;
-/** @deprecated use apiFetch(); kept for modules that build URLs themselves. */
-export const API_BASE: string = PRIMARY_BASE;
-export const apiBase = () => activeBase;
 
 /** fetch() against the API with host fallback on a network-level failure of the primary host. */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -24,16 +21,6 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     activeBase = FALLBACK_BASE;
     return fetch(`${FALLBACK_BASE}${path}`, init);
   }
-}
-
-/** Stable per-device id (pacing on the server). Never PII. */
-export function deviceId(): string {
-  try {
-    const k = 'pvd311.deviceId';
-    let v = localStorage.getItem(k);
-    if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); }
-    return v;
-  } catch { return 'ephemeral-' + Math.random().toString(36).slice(2); }
 }
 
 export async function parseError(resp: Response): Promise<ApiError> {
@@ -56,10 +43,7 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
   fd.set('address', r.address);
   if (r.lat != null && r.lng != null) { fd.set('lat', String(r.lat)); fd.set('lng', String(r.lng)); }
   if (r.extra && Object.keys(r.extra).length) fd.set('extra', JSON.stringify(r.extra));
-  if (r.email) fd.set('email', r.email);
-  if (r.name) fd.set('name', r.name);
   fd.set('turnstileToken', r.turnstileToken);
-  fd.set('deviceId', deviceId());
   fd.set('appVersion', APP_VERSION);
   if (r.descriptionOriginal) fd.set('descriptionOriginal', r.descriptionOriginal);
   if (r.intakeFlags?.length) fd.set('intakeFlags', JSON.stringify(r.intakeFlags));

@@ -25,7 +25,6 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const adminOverview = () => call<AdminOverview>('/api/admin/overview');
 export const adminAct = (id: string, action: AdminAction, body: { reason?: string } = {}) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: JSON.stringify(body) });
-export const adminReport = (id: string) => call<AdminReport>(`/api/admin/reports/${encodeURIComponent(id)}`);
 export interface AdminProof { name: string; createdAt: string | null; contentType: string }
 export const adminProofs = (id: string) => call<AdminProof[]>(`/api/admin/reports/${encodeURIComponent(id)}/proofs`);
 /** Proof images need the bearer, so <img src> can't load them directly: fetch → object URL (caller revokes). */
@@ -52,7 +51,7 @@ export interface AdminCanaryCategory { category: string; goldenSource: 'live' | 
 export interface AdminCanary { enabled: boolean; categories: AdminCanaryCategory[] }
 export interface AdminHealth {
   generatedAt: string; overall: 'ok' | 'warn' | 'error';
-  engine: AdminEngine & { locked: boolean; reporterEmailEnabled: boolean };
+  engine: AdminEngine & { locked: boolean };
   subsystems: Subsystem[];
   counts: Record<string, number>; users: number; ai: { intakeToday: number; dailyCap: number }; cityFeed: { fetchedAt: string | null; items: number };
   sync: AdminSync;

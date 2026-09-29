@@ -95,6 +95,3 @@
 .track-expect li::marker { color: var(--ember); }
 
 /* --- email attach --- */
-.track-email { display: flex; flex-direction: column; }
-.track-email .btn { align-self: flex-start; width: auto; margin-top: 4px; }
-.track-email .notice { margin-top: 12px; }

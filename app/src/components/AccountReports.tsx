@@ -2,26 +2,18 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '../lib/auth';
 import { myReports, type MyReportView } from '../api/me';
-import { getReport } from '../api/client';
 import type { ReportView } from '../api/types';
-import { listMyReports, type MyReport } from '../lib/myReports';
 import { shortLabel } from '../lib/categories';
 import { useT } from '../i18n';
 import CategoryIcon from './CategoryIcon';
 import Illustration from './Illustration';
 import '../screens/Account.css';
 
-/**
- * The whole "My reports" list: the account's reports (signed in) + this device's (tracking ids kept in
- * localStorage), each with a status pill so it reads like tracking. Device rows are attached to the account silently
- * at sign-in (Account.tsx afterSignIn); there is no manual "attach" button. The empty state shows only when BOTH lists are empty.
- */
+/** The account's reports with a status pill each, so it reads like tracking. Signed out → sign-in prompt. */
 export default function AccountReports() {
   const t = useT();
   const session = useSession();
-  const local = listMyReports();
   const [account, setAccount] = useState<MyReportView[] | null>(null);   // null = not loaded (or signed out)
-  const [localStatus, setLocalStatus] = useState<Record<string, ReportView>>({});
 
   useEffect(() => {
     if (!session) { setAccount(null); return; }
@@ -30,20 +22,8 @@ export default function AccountReports() {
     return () => { live = false; };
   }, [session]);
 
-  // Status for device rows not covered by the account list (public tracking read, ≤20 newest).
-  const owned = new Set((account ?? []).map((r) => r.id));
-  const deviceOnly = local.filter((r) => !owned.has(r.id));
-  const needIds = deviceOnly.slice(0, 20).map((r) => r.id).filter((id) => !localStatus[id]).join(',');
-  useEffect(() => {
-    if (!needIds) return;
-    let live = true;
-    Promise.all(needIds.split(',').map((id) => getReport(id).then((v) => [id, v] as const).catch(() => null)))
-      .then((rows) => { if (live) setLocalStatus((m) => ({ ...m, ...Object.fromEntries(rows.filter((x): x is readonly [string, ReportView] => !!x)) })); });
-    return () => { live = false; };
-  }, [needIds]);
-
   const loading = !!session && account == null;
-  if (!loading && (account ?? []).length === 0 && local.length === 0) {
+  if (!loading && (account ?? []).length === 0) {
     if (!session) {
       return (
         <div className="empty rise">
@@ -65,25 +45,13 @@ export default function AccountReports() {
 
   return (
     <div className="account-reports">
-      {!session && local.length > 0 && <p className="hint"><Link to="/account">{t('my.signIn')}</Link></p>}
       {loading && <p className="muted" aria-busy="true">{t('account.loading')}</p>}
-      {account && account.length > 0 && (
-        <>
-          {deviceOnly.length > 0 && <h3 className="label">{t('my.account')}</h3>}
-          <ul className="my-list">{account.map((r) => <Row key={r.id} id={r.id} category={r.category} address={r.address} createdAt={r.createdAt} view={r} />)}</ul>
-        </>
-      )}
-      {deviceOnly.length > 0 && (
-        <>
-          {account && account.length > 0 && <h3 className="label">{t('my.device')}</h3>}
-          <ul className="my-list">{deviceOnly.map((r) => <Row key={r.id} id={r.id} category={r.category} address={r.address} createdAt={r.createdAt} view={localStatus[r.id] ?? null} />)}</ul>
-        </>
-      )}
+      {account && account.length > 0 && <ul className="my-list">{account.map((r) => <Row key={r.id} id={r.id} category={r.category} address={r.address} createdAt={r.createdAt} view={r} />)}</ul>}
     </div>
   );
 }
 
-function Row({ id, category, address, createdAt, view }: Pick<MyReport, 'id' | 'category' | 'address' | 'createdAt'> & { view: ReportView | null }) {
+function Row({ id, category, address, createdAt, view }: { id: string; category: string; address: string; createdAt: string; view: ReportView | null }) {
   const t = useT();
   return (
     <li><Link to={`/r/${id}`} className="card my-row rise">

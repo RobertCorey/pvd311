@@ -3,7 +3,7 @@
  *
  * Modes (env.HITL_MODE):
  *   review — every report needs a tap before it goes to the city (launch mode)
- *   ramp   — a category needs taps until TRUST_RAMP_N of its reports were approved+submitted, then auto-approves
+ *   ramp   — an account's first ACCOUNT_TRUST_N reports need taps; after that a clean history auto-approves
  *   auto   — nothing waits for a human (goal state; the agent scout still handles unmapped fields)
  *
  * Approvals arrive as signed HTTP GETs to /hitl/approve|reject (see index.ts) — no polling.
@@ -14,13 +14,6 @@ import { actionUrl } from './email.js';
 import { moderate } from './moderation.js';
 import { logEvent } from './health.js';
 import { accountTrusted } from './me.js';
-
-/** Trust-ramp threshold (env override optional; matches Node config default). */
-function trustRampN(env: Env): number {
-  const raw = (env as unknown as { TRUST_RAMP_N?: string }).TRUST_RAMP_N;
-  const n = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : 3;
-}
 
 /** Decide whether this report can go straight to the portal. */
 export async function needsHumanApproval(store: Store, env: Env, report: ReportDoc): Promise<boolean> {
@@ -33,12 +26,9 @@ export async function needsHumanApproval(store: Store, env: Env, report: ReportD
   if (flags.length) return true;
   if (mode === 'auto') return false;
   // ramp: per ACCOUNT — the first ACCOUNT_TRUST_N reports of an account are reviewed; after that, a clean
-  // history (0 rejected — or admin `trusted`) auto-approves. Accounts are mandatory, so every report has an owner;
-  // an ownerless legacy row falls back to the per-category ramp.
-  if (report.ownerUid) return !(await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false));
-  const n = trustRampN(env);
-  const submitted = await store.countSubmittedByCategory(report.category, n);
-  return submitted < n;
+  // history (0 rejected — or admin `trusted`) auto-approves. Accounts are mandatory, so every report has an owner.
+  if (!report.ownerUid) return true;
+  return !(await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false));
 }
 
 /** Run moderation server-side if it hasn't run yet; merge with client flags; persist. Fails SAFE: a model error → treat as flagged. */
@@ -86,7 +76,7 @@ export async function requestReview(
       ? `<p style="color:#B3261E"><b>Intake flags:</b> ${esc(report.intakeFlags.join(', '))}</p>` : '',
     report.descriptionOriginal && report.descriptionOriginal !== report.description
       ? `<p style="color:#666"><i>Original wording:</i> ${esc(report.descriptionOriginal.slice(0, 400))}</p>` : '',
-    `<p style="color:#666">Reporter: ${esc(report.reporterEmail ?? '(no email)')}${report.ownerUid ? '' : ' · no account'}</p>`,
+    `<p style="color:#666">Reporter: ${esc(report.reporterEmail ?? '(no email)')}</p>`,
     report.photo && /^https?:/.test(report.photo) ? `<p><a href="${report.photo}">photo</a></p>` : '',
     `<p><a href="${approveUrl}" style="padding:10px 16px;background:#1E7B45;color:#fff;border-radius:6px;text-decoration:none">Approve &amp; submit</a>`
       + `&nbsp;&nbsp;<a href="${rejectUrl}" style="padding:10px 16px;background:#B3261E;color:#fff;border-radius:6px;text-decoration:none">Reject</a></p>`,

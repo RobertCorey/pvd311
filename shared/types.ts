@@ -1,6 +1,5 @@
 /**
- * Shared types for the PVD311 relaunch
- * Used by both the PWA (public/app.js) and the automation layer (automation/)
+ * Shared types for FixMyPVD — used by the PWA (app/) and the Worker (worker/).
  */
 
 export { CATEGORIES, isCategory, resolveField, type Category, type CategoryConfig, type FieldSource } from './categories.js';
@@ -74,15 +73,10 @@ export interface Report {
   /** HITL bookkeeping */
   review?: { requestedAt: string; telegramMessageId: number | null; emailed?: boolean; mode: string; decision?: 'approved' | 'rejected'; by?: string; decidedAt?: string; reason?: string } | null;
 
-  /** Anonymous Firebase Auth uid of the reporting device (rules require it; used for per-device pacing) */
-  reporterUid?: string | null;
-
-  /** Account (Firebase Auth uid, Worker-verified) that filed or later claimed this report. null = anonymous. */
+  /** Account (Firebase Auth uid, Worker-verified) that filed this report. Accounts are mandatory. */
   ownerUid?: string | null;
-  claimedAt?: string | null;
 
-  /** Followers: emails (anonymous follow) and account uids (signed-in follow). Both get city-status mail. */
-  followers?: string[] | null;
+  /** Accounts following this report (signed-in follow); they get city-status mail. */
   followerUids?: string[] | null;
 
   /** Set when the reporter cancelled a still-pending report from the app (status becomes 'rejected'). */
@@ -107,5 +101,3 @@ export interface Report {
   statusUpdatedAt: FirebaseFirestore.Timestamp | null;
 }
 
-/** @deprecated use Report */
-export type SnowReport = Report;

@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// SnapPVD: photos are stored via the Worker; no client access to the bucket.
+// FixMyPVD: photos are stored via the Worker; no client access to the bucket.
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {

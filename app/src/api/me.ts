@@ -26,8 +26,6 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 15_000)
 export const getMe = () => call<Me>('/api/me');
 export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 export const myReports = () => call<{ items: MyReportView[] }>('/api/me/reports');
-export const claimReports = (ids: string[]) => call<{ claimed: string[]; skipped: string[] }>('/api/me/claim', { method: 'POST', body: JSON.stringify({ ids }) });
-export const recoverReports = () => call<{ claimed: string[] }>('/api/me/recover', { method: 'POST', body: '{}' });
 export const followingReports = () => call<{ items: MyReportView[] }>('/api/me/following');
 export const follow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'PUT' });
 export const unfollow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -37,11 +35,3 @@ export const deleteAddress = (id: string) => call<{ addresses: SavedAddress[] }>
 export const editDescription = (id: string, description: string) => call<{ ok: true; description: string | null }>(`/api/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ description }) });
 export const cancelReport = (id: string) => call<{ ok: true; status: 'rejected' }>(`/api/reports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
 
-/** Attach this device's reports (by tracking id) and any filed with the account's verified email. Each step is
- *  best-effort and counted independently, so a recover failure never hides a successful claim. */
-export async function claimAndRecover(deviceIds: string[]): Promise<number> {
-  let n = 0;
-  if (deviceIds.length) { try { n += (await claimReports(deviceIds)).claimed.length; } catch { /* offline / unknown ids */ } }
-  try { n += (await recoverReports()).claimed.length; } catch { /* unverified email / offline */ }
-  return n;
-}

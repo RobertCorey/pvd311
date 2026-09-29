@@ -446,20 +446,6 @@ export function createStore(env: Env): Store {
       return docs.map(docToReport).filter((r) => r.status !== 'rejected' && r.status !== 'auto-rejected');
     },
 
-    async countSubmittedByCategory(category, limit): Promise<number> {
-      // Two equality filters — served by single-field indexes (zigzag merge), no composite index needed.
-      const docs = await runQuery(env, {
-        from: [{ collectionId: 'reports' }],
-        where: andFilter(
-          fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }),
-          fieldFilter('category', 'EQUAL', { stringValue: category }),
-        ),
-        select: { fields: [{ fieldPath: '__name__' }] },
-        limit,
-      });
-      return docs.length;
-    },
-
     async listSubmittedWithCaseId(): Promise<ReportDoc[]> {
       const docs = await runQuery(env, {
         from: [{ collectionId: 'reports' }],
@@ -709,15 +695,6 @@ export function createStore(env: Env): Store {
       return docs.map(docToReport).sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
     },
 
-    async findReportsByEmail(email, limit): Promise<ReportDoc[]> {
-      const docs = await runQuery(env, {
-        from: [{ collectionId: 'reports' }],
-        where: fieldFilter('reporterEmail', 'EQUAL', { stringValue: email }),
-        limit,
-      });
-      return docs.map(docToReport).sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
-    },
-
     async fetchReports(ids): Promise<ReportDoc[]> {
       if (!ids.length) return [];
       const out: ReportDoc[] = [];
@@ -744,29 +721,6 @@ export function createStore(env: Env): Store {
       });
     },
 
-    async uploadFile(path, bytes, contentType, opts): Promise<string> {
-      const token = await getAccessToken(env);
-      const url =
-        `https://firebasestorage.googleapis.com/v0/b/${env.STORAGE_BUCKET}/o` +
-        `?uploadType=media&name=${encodeURIComponent(path)}`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': contentType },
-        body: bytes,
-      });
-      if (!resp.ok) throw new Error(`storage upload ${path}: ${resp.status} ${await resp.text()}`);
-      if (opts?.downloadToken) {
-        // Firebase-style tokenized URL: unguessable, no auth needed (the portal submitter fetches it).
-        const meta = await fetch(`https://firebasestorage.googleapis.com/v0/b/${env.STORAGE_BUCKET}/o/${encodeURIComponent(path)}`, {
-          method: 'PATCH',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ metadata: { firebaseStorageDownloadTokens: opts.downloadToken } }),
-        });
-        if (!meta.ok) throw new Error(`storage metadata ${path}: ${meta.status}`);
-        return `https://firebasestorage.googleapis.com/v0/b/${env.STORAGE_BUCKET}/o/${encodeURIComponent(path)}?alt=media&token=${opts.downloadToken}`;
-      }
-      return `gs://${env.STORAGE_BUCKET}/${path}`;
-    },
   };
 }
 

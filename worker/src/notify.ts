@@ -1,7 +1,6 @@
 /**
  * notify.ts — who gets a reporter-facing status email for a report.
  *   reporterEmail (unless the owning account turned email updates off)
- *   + followers (anonymous follow-by-email)
  *   + followerUids → users/{uid}.email when that account's prefs.emailUpdates is on
  * De-duplicated, lowercase. Never throws (a broken user doc just drops that recipient).
  */
@@ -17,7 +16,6 @@ export async function recipientsFor(store: Store, report: ReportDoc): Promise<st
       ownerOptedOut = owner?.prefs?.emailUpdates === false;
     }
     if (!ownerOptedOut) add(report.reporterEmail);
-    for (const e of report.followers ?? []) add(e);
     for (const uid of (report.followerUids ?? []).slice(0, 200)) {
       if (uid === report.ownerUid) continue;
       const u = await store.getUser(uid).catch(() => null);

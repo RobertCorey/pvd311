@@ -19,14 +19,3 @@ export async function neighborhoodAt(lat: number, lng: number): Promise<string |
   return null;
 }
 
-/** Batch helper for lists: resolves each item once, in order. */
-export async function neighborhoodsFor(points: { lat: number; lng: number }[]): Promise<(string | null)[]> {
-  const nb = await load();
-  return points.map(({ lat, lng }) => {
-    for (const [name, rings] of Object.entries(nb)) for (const r of rings) if (inRing(lng, lat, r)) return name;
-    return null;
-  });
-}
-
-/** Short display form for tight rows ("Upper South Providence" → "Upper S. Providence"). */
-export const shortNeighborhood = (n: string) => n.replace('South Providence', 'S. Providence');

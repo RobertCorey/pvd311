@@ -3,7 +3,7 @@
  * Worker is the only thing that trusts the result). RS256 against Google's securetoken JWKS, cached in
  * module scope per the response's max-age. No Firebase SDK anywhere.
  *
- * Accounts are optional: every public endpoint keeps working without a token. Anonymous-provider tokens
+ * Accounts are mandatory to report; tracking reads stay public. Anonymous-provider tokens
  * are rejected — an "account" means a verified email (email link) or a Google identity.
  */
 import type { Env } from './contracts.js';

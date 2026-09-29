@@ -37,11 +37,12 @@ export function inSeason(c: UiCategory, now = new Date()): boolean {
   return c.seasonal === 'winter' ? m >= 10 || m <= 2 : true;
 }
 
-export const EXTRA_QUESTIONS: Record<string, { label: string; type: 'choice' | 'text'; options?: string[]; placeholder?: string }> = {
-  size: { label: 'How big is the pothole?', type: 'choice', options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
-  cartIssue: { label: 'What is the issue with your carts?', type: 'choice', options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
-  animalType: { label: 'What kind of animal?', type: 'choice', options: ['Wildlife', 'Domestic'] },
-  vehicleDetails: { label: 'Vehicle details (make, color, plate if visible)', type: 'text', placeholder: 'e.g. silver Honda Civic, RI plate ABC-123' },
+/** Labels/placeholders live in i18n (extra.*). */
+export const EXTRA_QUESTIONS: Record<string, { type: 'choice' | 'text'; options?: string[] }> = {
+  size: { type: 'choice', options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
+  cartIssue: { type: 'choice', options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
+  animalType: { type: 'choice', options: ['Wildlife', 'Domestic'] },
+  vehicleDetails: { type: 'text' },
 };
 
 /** Group-first picker (2026-09-28, from the citywide public feed): the first screen is these groups in demand order;
