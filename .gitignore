@@ -19,3 +19,6 @@ service-account*.json
 # Misc local files
 .DS_Store
 .claude/
+
+# Local data archives (PII) — never commit
+_archive/

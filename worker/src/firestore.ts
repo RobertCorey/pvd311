@@ -492,17 +492,9 @@ export function createStore(env: Env): Store {
       return { bytes: out, contentType: d.fields?.contentType?.stringValue ?? 'image/jpeg' };
     },
 
-    async countResolved(since?: Date): Promise<number> {
+    async countResolved(): Promise<number> {
       const filters = [fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }), fieldFilter('portalStatus', 'IN', { arrayValue: { values: ['Resolved', 'Closed', 'Completed'].map((s) => ({ stringValue: s })) } })];
-      if (since) filters.push(fieldFilter('timestamp', 'GREATER_THAN_OR_EQUAL', { timestampValue: since.toISOString() }));
       return runCount(env, { from: [{ collectionId: 'reports' }], where: andFilter(...filters) });
-    },
-
-    async countFiledSince(since: Date): Promise<number> {
-      return runCount(env, {
-        from: [{ collectionId: 'reports' }],
-        where: andFilter(fieldFilter('status', 'EQUAL', { stringValue: 'submitted' }), fieldFilter('timestamp', 'GREATER_THAN_OR_EQUAL', { timestampValue: since.toISOString() })),
-      });
     },
 
     async tryAcquireEngineLock(untilMs): Promise<boolean> {

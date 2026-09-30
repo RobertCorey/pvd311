@@ -6,7 +6,7 @@
     "test": "cd app && npx playwright test",
     "build": "cd app && npm run build",
     "deploy": "zsh scripts/deploy-clean.sh",
-    "deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "deploy:rules": "firebase deploy --only firestore:rules",
     "preview:app": "cd app && npm run build && cd .. && firebase hosting:channel:deploy app-preview --expires 7d"
   },
   "devDependencies": {
