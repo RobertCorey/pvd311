@@ -188,6 +188,29 @@ describe('portal simulator — happy path', () => {
     expect(byId['PVD2026-00098']).toMatchObject({ status: 'Assigned' });
   });
 
+  it('readCaseDetail: search → row → modal iframe → fields + timeline (routing emails); closes + clears; null for unknown', async () => {
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    await portal.ensureLoggedIn();
+    const before = sim.snapshot();
+    const detail = await portal.readCaseDetail('PVD2026-00098');
+    expect(detail).toBeTruthy();
+    expect(detail!.fields.title).toMatchObject({ label: 'Case Title', value: 'PVD2026-00098 Report Street Light Issue', readonly: true });
+    expect(detail!.fields.casetypecode).toMatchObject({ label: 'Request Type', value: 'Problem', readonly: false });
+    expect(detail!.fields.cop_workordercreated).toMatchObject({ value: 'No', readonly: true });
+    expect(Object.keys(detail!.fields).some((k) => k.startsWith('frm_pref_'))).toBe(false); // honeypot never read
+    expect(detail!.fields.UpdateButton).toBeUndefined();
+    expect(detail!.notes.map((n) => [n.from, n.to])).toEqual([['PVD 311', 'RI Energy'], ['PVD 311', 'Verizon'], ['PVD 311', 'test@pvdsnow.org']]);
+    expect(detail!.notes[0]).toMatchObject({ modifiedOn: '8/18/2026 11:35 AM' });
+    expect(detail!.notes[0].text).toContain('PVD311:0100002');
+    // Non-mutating: no posts, and the grid is back to its full, unfiltered state.
+    const after = sim.snapshot();
+    expect(after.submitPosts).toBe(before.submitPosts);
+    expect((await portal.readMyRequests()).length).toBeGreaterThanOrEqual(3);
+    expect(await portal.readCaseDetail('PVD2026-99999')).toBeNull();
+    await portal.close();
+  });
+
   it('canary passes against the fresh contract and is non-mutating (no submit, no wizard advance)', async () => {
     const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
     await portal.launch();

@@ -22,6 +22,8 @@
  *   GET  /_sim/reset                               reset state to the golden seed
  *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
+ *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
+ *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -50,8 +52,11 @@ interface GridRow { pvd: string; caseType: string; street: string; status: strin
 interface WizardSession { entityId: string; caseTypeGuid: string; requestType: string; method: string; step: 2 | 3; address: string; caseId: string }
 interface Mutation { name: string; params: Record<string, string> }
 
+interface SimNote { modifiedOn: string; from: string; to: string | null; createdBy: string | null; text: string }
 interface SimState {
   cases: GridRow[];
+  /** case-detail modal timeline, keyed by entityId (newest first, like the live portal) */
+  notes: Map<string, SimNote[]>;
   sessions: Map<string, WizardSession>;
   mutations: Map<string, Mutation>;
   submitPosts: number;
@@ -73,9 +78,26 @@ function seedCases(): GridRow[] {
   ];
 }
 
+/** Timeline for the seeded Assigned case: the live portal shows the city's dispatch emails as notes
+ *  from "PVD 311" to a department, plus the acknowledgement back to the constituent. */
+function seedNotes(): Map<string, SimNote[]> {
+  const dispatch = (dept: string, ticket: string) => ({
+    modifiedOn: '8/18/2026 11:35 AM', from: 'PVD 311', to: dept, createdBy: null,
+    text: `5 Pine St | PVD2026-00098 Report Street Light Issue PVD311:${ticket} Dear ${dept} Team, PVD311 received the service request below: Request Type: Report Street Light Issue Location: 5 Pine St Please review this request and take the necessary action.`,
+  });
+  return new Map([[
+    'seed-asg-0003', [
+      dispatch('RI Energy', '0100002'),
+      dispatch('Verizon', '0100001'),
+      { modifiedOn: '8/18/2026 11:31 AM', from: 'PVD 311', to: 'test@pvdsnow.org', createdBy: null, text: 'THIS IS AN AUTOMATED SYSTEM MESSAGE FROM PVD311. Your service request has been received.' },
+    ],
+  ]]);
+}
+
 function freshState(): SimState {
   return {
     cases: seedCases(),
+    notes: seedNotes(),
     sessions: new Map(),
     mutations: new Map(),
     submitPosts: 0,
@@ -396,7 +418,7 @@ function gridRowHtml(r: GridRow): string {
   const isDraft = /^draft$/i.test(r.status);
   const title = isDraft ? `Draft — ${esc(r.caseType)}` : `${esc(r.pvd)} ${esc(r.caseType)}`;
   return `<div role="row" data-id="${esc(r.entityId)}">
-    <span role="gridcell">${title}</span>
+    <span role="gridcell"><button type="button" class="sim-open" data-id="${esc(r.entityId)}">${title}</button></span>
     <span role="gridcell">${esc(r.street)}</span>
     <span role="gridcell">${esc(r.status)}</span>
     <span role="gridcell">${esc(r.createdOn)}</span>
@@ -423,7 +445,58 @@ function myRequestsGridHtml(cases: GridRow[]): string {
       <nav class="pagination"><ul>
         <li class="disabled"><a aria-label="Next" rel="next">Next</a></li>
       </ul></nav>
-    </div>`);
+    </div>
+    <script>${GRID_MODAL_JS}</script>`);
+}
+
+/** Live grid: a Fluent search box (role=menuitem) filters rows on Enter; the title button opens a
+ *  Bootstrap modal whose body is an iframe at /_portal/modal-form-template-path/<form>?id=<GUID>. */
+const GRID_MODAL_JS = `
+(function(){
+  var search = document.createElement('input');
+  search.type = 'text'; search.placeholder = 'Search'; search.setAttribute('role','menuitem');
+  document.querySelector('.entitylist').insertBefore(search, document.querySelector('[role="grid"]'));
+  search.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter') return;
+    var q = search.value.trim().toLowerCase();
+    document.querySelectorAll('[role="grid"] [role="row"][data-id]').forEach(function(row){
+      row.style.display = (!q || row.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+    });
+  });
+  document.querySelectorAll('button.sim-open').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var modal = document.createElement('div');
+      modal.className = 'modal in'; modal.setAttribute('role','dialog');
+      modal.innerHTML = '<div class="modal-dialog"><button type="button" class="close" aria-label="Close">x</button>'
+        + '<iframe src="/_portal/modal-form-template-path/sim-form-0001?id=' + encodeURIComponent(btn.getAttribute('data-id')) + '" width="600" height="400"></iframe></div>';
+      modal.querySelector('.close').addEventListener('click', function(){ modal.remove(); });
+      document.body.appendChild(modal);
+    });
+  });
+})();`;
+
+function caseDetailHtml(r: GridRow, notes: SimNote[]): string {
+  const note = (n: SimNote) => `<div class="note"><div class="row">
+      <div class="col-md-3 col-xs-12 header"><div class="col-md-12 col-xs-9 metadata"><div class="postedon"><div class="timeago">a day ago</div></div><div class="modifiedon">Modified on ${esc(n.modifiedOn)}</div></div></div>
+      <div class="col-md-9 col-xs-12 content"><div class="from"><h5>${esc(n.from)}${n.to ? ` <span class="glyphicon glyphicon-arrow-right"></span> ${esc(n.to)}` : ''}</h5></div>
+        <div class="description">${esc(n.text)}</div>${n.createdBy ? `<div class="createdby text-muted">Created by ${esc(n.createdBy)}</div>` : ''}</div>
+    </div></div>`;
+  return page('Record details', `
+    <form>
+      <div class="form-group"><label for="title">Case Title</label><input id="title" type="text" readonly value="${esc(r.pvd)} ${esc(r.caseType)}"></div>
+      <div class="form-group"><label for="casetypecode">Request Type</label><select id="casetypecode"><option value="">Select</option><option value="1" selected>Problem</option></select></div>
+      <div class="form-group"><label for="cop_address">Address to Report</label><input id="cop_address" type="text" readonly value="${esc(r.street)}, Providence, RI"></div>
+      <div class="form-group"><label for="description">Description</label><textarea id="description">Sim description</textarea></div>
+      <div class="form-group"><label for="cop_workordercreated">Work Order Created</label>
+        <input id="cop_workordercreated_0" name="cop_workordercreated" type="radio" value="0" checked disabled><label for="cop_workordercreated_0">No</label>
+        <input id="cop_workordercreated_1" name="cop_workordercreated" type="radio" value="1" disabled><label for="cop_workordercreated_1">Yes</label></div>
+      <input id="frm_pref_deadbeef" type="text" value="">
+      <input id="UpdateButton" type="button" value="Submit">
+    </form>
+    <div id="notescontrol"><div class="entity-timeline">
+      <div class="notes">${notes.map(note).join('\n')}</div>
+      ${notes.length ? '' : '<div class="notes-empty message">No comments</div>'}
+    </div></div>`);
 }
 
 function confirmationHtml(caseId: string): string {
@@ -526,6 +599,23 @@ export async function startSim(): Promise<Sim> {
       // ── My Requests grid ──
       if (path === '/my-requests/' || path === '/my-requests') {
         return send(res, 200, authed ? myRequestsGridHtml(state.cases) : myRequestsUnauthedHtml());
+      }
+
+      // ── Case-detail modal body (iframe): form fields + .notes timeline ──
+      if (path.startsWith('/_portal/modal-form-template-path/')) {
+        if (!authed) return send(res, 200, myRequestsUnauthedHtml());
+        const id = u.searchParams.get('id') || '';
+        const row = state.cases.find((c) => c.entityId === id);
+        if (!row) return send(res, 404, page('No record', '<h1>Record not found</h1>'));
+        return send(res, 200, caseDetailHtml(row, state.notes.get(id) ?? []));
+      }
+      if (path === '/_sim/note') {
+        // Append a timeline note to a case (newest first, like the portal): ?id=<entityId>&from=&to=&text=
+        const id = u.searchParams.get('id') || '';
+        const list = state.notes.get(id) ?? [];
+        list.unshift({ modifiedOn: u.searchParams.get('at') || '8/19/2026 9:00 AM', from: u.searchParams.get('from') || 'PVD 311', to: u.searchParams.get('to'), createdBy: null, text: u.searchParams.get('text') || '' });
+        state.notes.set(id, list);
+        return json(res, 200, { ok: true, count: list.length });
       }
 
       // ── Edit-Request (draft view that exposes the assigned PVD in input#title) ──

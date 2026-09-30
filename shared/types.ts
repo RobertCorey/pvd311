@@ -14,6 +14,36 @@ export type ReportStatus =
   | 'rejected'       // Manually rejected (spam, duplicate, etc.)
   | 'auto-rejected'; // Auto-mode rejected (failed verification gate)
 
+/** One entry of the portal case timeline (comments + the city's outbound emails). */
+export interface PortalCaseNote {
+  /** Absolute time when the portal exposes it (title attr), else the relative "a day ago" text */
+  postedOn: string;
+  modifiedOn: string | null;
+  /** Sender / recipient as the timeline renders them ("PVD 311" → "RI Energy") */
+  from: string;
+  to: string | null;
+  createdBy: string | null;
+  text: string;
+  attachments: string[];
+}
+
+export interface PortalCaseDetail {
+  capturedAt: string;
+  /** Content hash of fields + notes; equal ⇒ nothing changed since the last snapshot */
+  hash: string;
+  fields: Record<string, { label: string; value: string; readonly: boolean }>;
+  /** Newest first, as the portal renders them; capped */
+  notes: PortalCaseNote[];
+  truncated?: boolean;
+}
+
+export interface PortalRouting {
+  dept: string;
+  at: string | null;
+  /** The city's internal ticket for that dispatch ("PVD311:0287190") */
+  ticket: string | null;
+}
+
 export interface Report {
   /** Firestore document ID (not stored in doc, used as reference) */
   id?: string;
@@ -59,6 +89,12 @@ export interface Report {
   portalStatus?: string | null;
   portalStatusUpdatedAt?: FirebaseFirestore.Timestamp | null;
   portalLastActivity?: { subject: string; createdOn: string | null; fetchedAt: string } | null;
+  /** Snapshot of the portal's case-detail modal (watcher: first sighting, on status change, daily while open). Raw by design — form fields + the comment/email timeline — because we don't yet know which parts matter. */
+  portalDetail?: PortalCaseDetail | null;
+  /** ISO of the last detail read attempt (changed or not) */
+  portalDetailCheckedAt?: string | null;
+  /** Departments the city dispatched this case to, derived from the timeline (PVD 311 → <dept> emails); oldest first */
+  portalRouting?: PortalRouting[] | null;
   /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20 */
   cityMessages?: { at: string; from: string; subject: string; text: string; caseId: string | null }[] | null;
   lastCityEmailAt?: string | null;

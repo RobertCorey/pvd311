@@ -20,6 +20,7 @@ import { launch, type Browser, type BrowserContext, type Page } from '@cloudflar
 import { CATEGORIES, resolveField } from '../../shared/categories.js';
 import type {
   AuthStore,
+  CaseDetailRaw,
   Env,
   Portal,
   PortalDraft,
@@ -683,6 +684,102 @@ class WorkerPortal implements Portal {
     const want = entityId.toLowerCase();
     const rows = await this.readMyRequests({ maxPages });
     return rows.find((r) => r.entityId === want) ?? null;
+  }
+
+  /**
+   * Case detail (read-only). The My Requests grid opens a record in a modal whose body is an iframe
+   * (/_portal/modal-form-template-path/…): the case form (mostly read-only) + a `.notes` timeline that
+   * holds the constituent's comments AND the city's outbound dispatch emails ("PVD 311 → RI Energy").
+   * Finds the row via the grid's own search box (one request, any age — no paging), clicks the title
+   * button, dumps the iframe, closes the modal, clears the search. Touches nothing else: the modal's
+   * Submit / Add comment / Upload are never clicked.
+   */
+  async readCaseDetail(caseId: string): Promise<CaseDetailRaw | null> {
+    const page = this.getPage();
+    if (!/\/my-requests\/?$/i.test(new URL(page.url()).pathname)) {
+      await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.waitForSelector('[role="grid"] [role="row"], table tbody tr', { timeout: 30_000 }).catch(() => {});
+      await page.waitForTimeout(3_000);
+    }
+    const search = page.locator('.entitylist input[placeholder="Search"], input[type="text"][role="menuitem"], input.entitylist-search').first();
+    const rowBtn = () => page.locator('[role="grid"] [role="row"] button, [role="grid"] [role="gridcell"] a, table tbody tr a', { hasText: caseId }).first();
+    const hasSearch = await search.isVisible().catch(() => false);
+    let filtered = false;
+    if (!(await rowBtn().isVisible().catch(() => false)) && hasSearch) {
+      await search.fill(caseId);
+      await search.press('Enter');
+      await page.waitForTimeout(3_000);
+      filtered = true;
+    }
+    const clearSearch = async () => {
+      if (!filtered) return;
+      await search.fill('').catch(() => {});
+      await search.press('Enter').catch(() => {});
+      await page.waitForTimeout(1_500);
+    };
+    const btn = rowBtn();
+    if (!(await btn.isVisible().catch(() => false))) { await clearSearch(); return null; }
+    await btn.click();
+    const closeModal = async () => {
+      await page.locator('.modal.in button.close, .modal.in .close, .modal button[aria-label="Close"]').first().click({ timeout: 5_000 }).catch(() => {});
+      await page.waitForTimeout(500);
+    };
+    try {
+      const inFrame = page.frameLocator('iframe[src*="modal-form"]');
+      await inFrame.locator('.notes .note, .notes-empty, .notes-access-denied, .notes-error, #title').first().waitFor({ state: 'visible', timeout: 25_000 }).catch(() => {});
+      await page.waitForTimeout(1_500); // notes load async after the form
+      const frame = page.frames().find((f) => /modal-form/.test(f.url()));
+      if (!frame) return null;
+      return await frame.evaluate(() => {
+        const norm = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim();
+        const fields: Record<string, { label: string; value: string; readonly: boolean }> = {};
+        const radios: Record<string, { label: string; value: string; readonly: boolean }> = {};
+        for (const e of Array.from(document.querySelectorAll('input, select, textarea')) as any[]) {
+          const id: string = e.id || '';
+          const type: string = (e.type || '').toLowerCase();
+          if (!id || /^(hidden|submit|button|file|image|reset)$/.test(type) || /^frm_pref_/.test(id)) continue; // honeypot never read
+          const labEl = document.querySelector(`label[for="${id}"]`) || e.closest('.form-group, .control, td, .field')?.querySelector('label');
+          const label = norm(labEl?.textContent).replace(/^\*\s*/, '');
+          const readonly = !!(e.readOnly || e.disabled);
+          if (type === 'radio') {
+            const key = e.name || id.replace(/_\d+$/, '');
+            if (!radios[key]) radios[key] = { label: norm(document.querySelector(`label[for="${key}"]`)?.textContent) || label, value: '', readonly };
+            if (e.checked) radios[key].value = norm(document.querySelector(`label[for="${id}"]`)?.textContent) || String(e.value);
+            continue;
+          }
+          let value = '';
+          if (e.tagName === 'SELECT') value = norm(e.options?.[e.selectedIndex]?.textContent) || String(e.value ?? '');
+          else if (type === 'checkbox') value = e.checked ? 'Yes' : 'No';
+          else value = String(e.value ?? '');
+          fields[id] = { label, value: value.slice(0, 2_000), readonly };
+        }
+        Object.assign(fields, radios);
+        const notes = (Array.from(document.querySelectorAll('.notes .note')) as any[]).slice(0, 40).map((n) => {
+          const fromEl = n.querySelector('.from');
+          let from = '';
+          let to: string | null = null;
+          if (fromEl) {
+            const clone = fromEl.cloneNode(true) as any;
+            for (const g of Array.from(clone.querySelectorAll('.glyphicon, .fa, svg')) as any[]) g.replaceWith(document.createTextNode(' → '));
+            const parts = norm(clone.textContent).split('→').map((s: string) => norm(s)).filter(Boolean);
+            from = parts[0] || '';
+            to = parts.length > 1 ? parts.slice(1).join(' → ') : null;
+          }
+          const posted = n.querySelector('.postedon, .timeago');
+          const postedOn = norm(posted?.getAttribute?.('title') || posted?.querySelector?.('[title]')?.getAttribute('title') || posted?.textContent);
+          const modifiedOn = norm(n.querySelector('.modifiedon')?.textContent).replace(/^modified on\s*/i, '') || null;
+          const createdBy = norm(n.querySelector('.createdby')?.textContent).replace(/^created by\s*/i, '') || null;
+          const text = norm(n.querySelector('.description')?.textContent).slice(0, 6_000);
+          const attachments = (Array.from(n.querySelectorAll('.attachment a, .attachment-outer-border a')) as any[])
+            .map((a) => norm(a.textContent)).filter((t) => t && !/^load more$/i.test(t)).slice(0, 10);
+          return { postedOn, modifiedOn, from, to, createdBy, text, attachments };
+        });
+        return { fields, notes };
+      });
+    } finally {
+      await closeModal();
+      await clearSearch();
+    }
   }
 
   /** Read the grid's header labels and every data row's cell text in-page. */

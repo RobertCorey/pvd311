@@ -150,6 +150,14 @@ export interface Portal {
   confirmProfileEmail(): Promise<{ ok: boolean; notes: string[] }>;
   /** Drift canary (read-only): resume the designated existing record via Edit-Request and re-dump Step-3 controls WITHOUT submitting. Creates NO new draft; null if it can't resume to Step 3. */
   resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null>;
+  /** Read-only: open one case's detail modal from My Requests (grid search by PVD number → row → iframe) and dump its form fields + timeline. Null if the case is not in the grid. Never clicks Submit/Add comment. */
+  readCaseDetail(caseId: string): Promise<CaseDetailRaw | null>;
+}
+
+/** What readCaseDetail scrapes; casedetail.ts turns it into Report.portalDetail. */
+export interface CaseDetailRaw {
+  fields: Record<string, { label: string; value: string; readonly: boolean }>;
+  notes: { postedOn: string; modifiedOn: string | null; from: string; to: string | null; createdBy: string | null; text: string; attachments: string[] }[];
 }
 
 /** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */

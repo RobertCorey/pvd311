@@ -18,6 +18,7 @@ import { needsHumanApproval, requestReview } from './hitl.js';
 import { notifyReport } from './notify.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
+import { captureCaseDetails, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
@@ -243,6 +244,8 @@ export async function runWatcher(env: Env): Promise<void> {
   const auth = createAuthStore(store);
   const portal = createPortal(env, { auth });
   let changes = 0; let rowCount = 0;
+  const changedIds = new Set<string>();
+  let detailNote = '';
   try {
     await portal.launch();
     await portal.ensureLoggedIn();
@@ -290,6 +293,7 @@ export async function runWatcher(env: Env): Promise<void> {
           await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
           console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
           changes++;
+          changedIds.add(report.id);
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           {
             const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
@@ -299,6 +303,18 @@ export async function runWatcher(env: Env): Promise<void> {
           }
           if (TERMINAL_PORTAL_STATUS.test(to)) {
             await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
+          }
+        }
+        // Case detail (routing trail): first sighting + whoever changed status this run. Bounded; non-fatal.
+        const targets = pickWatchTargets(tracked, changedIds);
+        if (targets.length) {
+          try {
+            const sum = await captureCaseDetails(store, portal, targets, { max: DETAIL_PER_WATCH, selfName: env.APP_NAME, reason: changedIds.size ? 'status_change' : 'first' });
+            detailNote = `, detail ${sum.checked} read/${sum.changed} changed${sum.unavailable ? `/${sum.unavailable} missing` : ''}${sum.failed ? `/${sum.failed} failed` : ''}`;
+            console.log(`[detail]${detailNote.slice(1)} (${targets.length} targets)`);
+          } catch (e) {
+            console.error('[detail] capture failed:', e instanceof Error ? e.message : e);
+            await logEvent(store, { level: 'error', kind: 'watcher.detail_failed', msg: e instanceof Error ? e.message : String(e) });
           }
         }
       }
@@ -330,7 +346,7 @@ export async function runWatcher(env: Env): Promise<void> {
       console.error('[watcher] city feed failed:', e instanceof Error ? e.message : e);
       await markError(store, 'cityfeed', e);
     }
-    await markOk(store, 'watcher', `${tracked.length} tracked, ${rowCount} rows, ${changes} change${changes === 1 ? '' : 's'}`);
+    await markOk(store, 'watcher', `${tracked.length} tracked, ${rowCount} rows, ${changes} change${changes === 1 ? '' : 's'}${detailNote}`);
   } catch (e) {
     await markError(store, 'watcher', e);
     throw e;
@@ -600,6 +616,18 @@ export async function runDaily(env: Env): Promise<void> {
     if (isDriftCanaryEnabled(env)) {
       await runDriftCanary(env, { store, mailer, portal })
         .catch((e) => console.error('[daily] drift canary failed:', e instanceof Error ? e.message : e));
+    }
+    // Case-detail refresh for OPEN cases (routing trail can change without a grid status change). Bounded by the open set.
+    try {
+      const open = pickDailyTargets(await store.listSubmittedWithCaseId(), (st) => TERMINAL_PORTAL_STATUS.test(st));
+      if (open.length) {
+        await portal.ensureLoggedIn();
+        const sum = await captureCaseDetails(store, portal, open, { max: DETAIL_PER_DAY, selfName: env.APP_NAME, reason: 'daily' });
+        console.log(`[daily] detail refresh: ${sum.checked} read, ${sum.changed} changed, ${sum.unavailable} missing, ${sum.failed} failed (${open.length} open)`);
+      }
+    } catch (e) {
+      console.error('[daily] detail refresh failed:', e instanceof Error ? e.message : e);
+      await logEvent(store, { level: 'error', kind: 'watcher.detail_failed', msg: `daily: ${e instanceof Error ? e.message : String(e)}` });
     }
     await markOk(store, 'daily');
   } catch (e) {
