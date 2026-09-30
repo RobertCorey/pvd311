@@ -1,0 +1,43 @@
+# Deploy the FixMyPVD app (app/ → Firebase Hosting, project pvd-snow-report) on push to main.
+#
+# Same shape as deploy-worker.yml: push to main = ship. The build has no env file — every VITE_* setting
+# defaults to the production value in code (see app/.env.example). Manual escape hatch stays `npm run deploy`
+# (scripts/deploy-clean.sh) from a Mac with `firebase login`.
+#
+# Secret (Rob/Claude set it 2026-09-30; the workflow does NOT create it):
+#   FIREBASE_SERVICE_ACCOUNT_PVD_SNOW_REPORT — key for github-hosting-deploy@pvd-snow-report.iam.gserviceaccount.com
+#   (roles/firebasehosting.admin only). Rotate with `gcloud iam service-accounts keys create` + `gh secret set`.
+name: deploy-app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'shared/**'
+      - 'firebase.json'
+      - '.github/workflows/deploy-app.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-app
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: app/package-lock.json }
+      - name: install
+        run: cd app && npm ci
+      - name: typecheck + build
+        run: cd app && npm run build
+      - name: deploy to Firebase Hosting (live channel)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PVD_SNOW_REPORT }}
+          projectId: pvd-snow-report
+          channelId: live

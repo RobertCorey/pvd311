@@ -9,7 +9,7 @@ npm run build      # tsc -b + vite build → dist/ (PWA manifest + service worke
 npm test           # Playwright, iPhone 13 emulation, API mocked via page.route
 npm run preview    # serve dist/ on :4173 (what Playwright runs against)
 ```
-From the repo root: `npm run deploy` (build + Firebase Hosting), `npm run preview:app` (preview channel; view-only — Turnstile/CORS aren't allow-listed for preview hosts).
+Push to `main` deploys the app (`.github/workflows/deploy-app.yml`, on changes under app/, shared/, firebase.json) — same as the Worker. Manual fallback from the repo root: `npm run deploy` (build + Firebase Hosting), `npm run preview:app` (preview channel; view-only — Turnstile/CORS aren't allow-listed for preview hosts).
 
 ## Layout
 ```

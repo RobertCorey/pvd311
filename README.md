@@ -48,7 +48,7 @@ firebase.json      hosting → app/dist
 npm run dev                      # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
 npm run test                     # Playwright, mobile emulation, API mocked
 npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
-npm run deploy                   # build + deploy app/dist to Firebase Hosting (LIVE site)
+npm run deploy                   # manual app deploy (build + Firebase Hosting). Normal path: push to main → .github/workflows/deploy-app.yml
 
 # Worker
 cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
