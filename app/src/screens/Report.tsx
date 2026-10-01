@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { EXTRA_QUESTIONS, GROUPS, byKey, catchAllFor, facetLabel, groupRows, inSeason, lastCategory, quickPicks, rememberCategory, rowFor, rowLabel, searchTypes, shortLabel, type GroupKey, type UiCategory } from '../lib/categories';
+import { EXTRA_QUESTIONS, GROUPS, byKey, catchAllFor, facetLabel, groupRows, inSeason, lastCategory, rememberCategory, rowFor, rowLabel, searchTypes, shortLabel, type GroupKey } from '../lib/categories';
 import { compressImage, decodeImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { signOut, useSession } from '../lib/auth';
@@ -12,7 +12,6 @@ import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
 import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
-import TrustLine from '../components/TrustLine';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
 
@@ -64,11 +63,9 @@ export default function Report() {
   const openRow = useMemo(() => (objectParam ? rowFor(objectParam) : null), [objectParam]);
   const [query, setQuery] = useState('');
   const hits = useMemo(() => searchTypes(query, t), [query, t]);
-  const quick = useMemo(() => {
-    const last = lastCategory();
-    const keys = [...(last ? [last] : []), ...quickPicks()];
-    return [...new Set(keys)].map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)).slice(0, 2).map((c) => ({ c, last: c.key === last }));
-  }, []);
+  // One "Last used" chip for repeat reporters; nothing else above the grid (Rob, 2026-10-01: the entry point was
+  // crowded — subheader, trust paragraph and seasonal chips cut so the tiles start above the fold).
+  const last = useMemo(() => { const c = byKey(lastCategory()); return c && inSeason(c) ? c : null; }, []);
   const cat = byKey(category);
 
   // --- photo ---
@@ -437,8 +434,6 @@ export default function Report() {
         {!openGroup && (
           <div className="home-hero">
             <h1>{t('report.whatsWrong')}</h1>
-            <p className="hero-sub">{t('report.heroSub')}</p>
-            <TrustLine />
           </div>
         )}
         {searchBox}
@@ -526,14 +521,14 @@ export default function Report() {
         ) : (
           <>
             {/* Level 1: the group grid (the only level with icons) + the wide Not-sure tile. */}
-            <div className="quick-row" role="group" aria-label={t('report.quick')}>
-              {quick.map(({ c, last }) => (
-                <button key={c.key} type="button" className={`quick-chip${last ? ' quick-chip--last' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>
-                  <span className="quick-icon" aria-hidden="true"><CategoryIcon k={c.key} size={22} /></span>
-                  <span>{last ? `${t('report.lastUsed')}: ${shortLabel(c.key, t)}` : shortLabel(c.key, t)}</span>
+            {last && (
+              <div className="quick-row" role="group" aria-label={t('report.quick')}>
+                <button type="button" className="quick-chip quick-chip--last" data-category={last.key} onClick={() => pick(last.key)}>
+                  <span className="quick-icon" aria-hidden="true"><CategoryIcon k={last.key} size={22} /></span>
+                  <span>{`${t('report.lastUsed')}: ${shortLabel(last.key, t)}`}</span>
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
             <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
               {GROUPS.map((g) => (
                 <button key={g.key} type="button" className="cat-tile" data-group={g.key} onClick={() => setGroup(g.key)}>

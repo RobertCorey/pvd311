@@ -14,16 +14,17 @@ async function mockApi(page: Page, opts: { intake?: object; reportStatus?: numbe
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ address: '25 Dorrance St', location: { x: -71.4129, y: 41.8241 }, score: 100, attributes: { Match_addr: '25 Dorrance St, Providence, RI' } }] }) }));
 }
 
-/** Season-proof pick: through the group, never via a quick chip (chips change with the month). */
+/** Pick through the group (the only chip is "Last used", absent on a fresh visit). */
 async function pickType(page: import('@playwright/test').Page, group: string, key: string) {
   await page.click(`.cat-tile[data-group="${group}"]`);
   await page.click(`.type-row[data-category="${key}"]`);
 }
 
-test('picker: quick picks + groups first; a group drills into text rows; the wide Not-sure tile files unsure', async ({ page }) => {
+test('picker: title + search + groups first (no chips on a fresh visit); a group drills into text rows; the wide Not-sure tile files unsure', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await expect(page.locator('.quick-chip')).toHaveCount(2); // even, like the grid
+  await expect(page.locator('.quick-chip')).toHaveCount(0); // nothing above the grid until there is a last-used type
+  await expect(page.locator('.hero-sub, .trust-line')).toHaveCount(0); // entry point = title, search, tiles
   await expect(page.locator('.cat-tile[data-group]')).toHaveCount(10); // 9 groups + the wide Not-sure tile (snow types fold into Streets in season)
   await expect(page.locator('.cat-tile .cat-icon svg')).toHaveCount(10); // icons live on the tiles only
   await page.click('.cat-tile[data-group="trash"]');

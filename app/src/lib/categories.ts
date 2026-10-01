@@ -69,7 +69,7 @@ export const EXTRA_QUESTIONS: Record<string, { type: 'choice' | 'text'; options?
  *          a row with siblings opens level 3.
  * Level 3: the siblings' shared facet question as 2–4 cards; picking one files the exact city type.
  * Plus: search over short labels, synonyms and the city's names; "Something else in this group" → GROUP_CATCH_ALL.
- * Icons exist only for level 1 and the quick picks (Rob: icon volume was the concern), so rows are text. */
+ * Icons exist only for level 1 and the "Last used" chip (Rob: icon volume was the concern), so rows are text. */
 
 /** CategoryIcon key drawn on each group tile. */
 export const GROUP_ICON: Record<GroupKey, string> = {
@@ -163,16 +163,6 @@ export function searchTypes(query: string, t: (k: string) => string, now = new D
     if (score) scored.push({ c, score: score * 100 + Math.min(c.demand, 99) });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, limit).map((s) => s.c);
-}
-
-/** Two quick picks above the groups: the season's top two citywide types (snow Dec–Mar, dark commutes in Nov, trash + potholes otherwise).
- *  The account's last type, if any, takes the first slot. */
-export function quickPicks(now = new Date()): string[] {
-  const m = now.getMonth();
-  if (m === 11 || m <= 1) return ['unshoveled_sidewalk', 'missed_plowing'];
-  if (m === 2) return ['missed_plowing', 'pothole'];
-  if (m === 10) return ['street_light', 'missed_trash'];
-  return ['missed_trash', 'pothole'];
 }
 
 const LAST_KEY = 'fixmypvd.lastCategory';
