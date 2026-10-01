@@ -143,6 +143,8 @@ export interface Portal {
   findMyRequestByEntityId(entityId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   findMyRequestByCaseId(caseId: string, maxPages?: number): Promise<{ caseId: string | null; entityId: string | null; status: string; street: string; createdOn: string } | null>;
   canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }>;
+  /** Every case type in the Step-1 lookup modal (all pages), read-only — the daily census. */
+  listCaseTypes(): Promise<{ id: string; name: string }[]>;
   /** Account profile page (/profile/): dump its form controls, or set the contact email (the address the city notifies). */
   readProfile(): Promise<{ url: string; controls: { id: string; name: string; type: string; value: string; label: string; visible: boolean }[]; buttons: { id: string; text: string }[] }>;
   setProfile(fields: { email: string; firstname?: string; lastname?: string }): Promise<{ ok: boolean; before: string | null; after: string | null; notes: string[] }>;

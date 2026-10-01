@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { GROUP_ICON, groupOf } from '../lib/categories';
 
 /**
  * Duotone "riso" category icons on a 32 grid (docs/design-direction.md, "Ember & Harbor").
@@ -326,6 +327,34 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M22 20 l2 -3 M26 22 l3 -2 M25 27 l3 2" />
     </>
   ),
+  // House with an ember roof plate; a small window + door. Group tile for Buildings & property.
+  property: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <path d="M5 15 L16 5 L27 15 H5 Z" />
+      </g>
+      <path d="M5 15 L16 5 L27 15" />
+      <path d="M8 13 V27 H24 V13" />
+      <path d="M14 27 V20 H18 V27" />
+      <path d="M11 17 H13 M19 17 H21" />
+    </>
+  ),
+
+  // Fire hydrant, ember barrel plate; two side nozzles and a cap. Group tile for Water, sewer & gas.
+  water: (
+    <>
+      <g fill="var(--ember)" stroke="none" transform={PLATE}>
+        <rect x="11" y="10" width="10" height="15" rx="2" />
+      </g>
+      <path d="M11 10 H21 V25 H11 Z" />
+      <path d="M13 10 V7 A3 3 0 0 1 19 7 V10" />
+      <path d="M9 7 H23" />
+      <path d="M8 25 H24 M9 28 H23" />
+      <path d="M6 16 H11 M21 16 H26" />
+      <path d="M6 14 V18 M26 14 V18" />
+    </>
+  ),
+
   other: (
     <>
       <g fill="var(--ember)" stroke="none" transform={PLATE}>
@@ -340,6 +369,9 @@ const ICONS: Record<string, ReactNode> = {
   ),
 };
 
+/** True when `k` has its own glyph (the launch set + group tiles). Other types draw their GROUP's icon. */
+export const hasIcon = (k: string) => k in ICONS;
+
 export default function CategoryIcon({ k, size = 22 }: { k: string; size?: number }) {
   return (
     <svg
@@ -353,7 +385,7 @@ export default function CategoryIcon({ k, size = 22 }: { k: string; size?: numbe
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {ICONS[k] ?? ICONS.other}
+      {ICONS[k] ?? ICONS[GROUP_ICON[groupOf(k) ?? 'other']] ?? ICONS.other}
     </svg>
   );
 }

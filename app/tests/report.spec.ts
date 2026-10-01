@@ -20,20 +20,55 @@ async function pickType(page: import('@playwright/test').Page, group: string, ke
   await page.click(`.type-row[data-category="${key}"]`);
 }
 
-test('picker: quick picks + groups first; a group drills into its types incl. Not sure under Something else', async ({ page }) => {
+test('picker: quick picks + groups first; a group drills into text rows; the wide Not-sure tile files unsure', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await expect(page.locator('.quick-chip')).toHaveCount(2); // even, like the grid
-  await expect(page.locator('.cat-tile[data-group]')).toHaveCount(8); // even year-round: snow types fold into Streets in season
+  await expect(page.locator('.cat-tile[data-group]')).toHaveCount(10); // 9 groups + the wide Not-sure tile (snow types fold into Streets in season)
+  await expect(page.locator('.cat-tile .cat-icon svg')).toHaveCount(10); // icons live on the tiles only
   await page.click('.cat-tile[data-group="trash"]');
   await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
-  await expect(page.locator('.type-row[data-category="trash_private"]')).toBeVisible();
+  await expect(page.locator('.type-row[data-object="trash_ground"]')).toBeVisible(); // private/public collapse into one row
+  await expect(page.locator('.type-row[data-category="trash_private"]')).toHaveCount(0);
+  await expect(page.locator('.type-row .type-icon')).toHaveCount(0); // text rows, no icon column
+  await expect(page.locator('.type-row[data-category="dpw_general"]')).toBeVisible(); // "Something else in Trash & recycling"
   await expect(page).toHaveURL(/g=trash/);
   await page.goBack(); // phone Back returns to the groups, not out of the app
   await expect(page.locator('.cat-tile[data-group="trash"]')).toBeVisible();
-  await page.click('.cat-tile[data-group="other"]');
-  await expect(page.locator('[data-category="unsure"]')).toBeVisible();
-  await page.click('[data-category="unsure"]');
+  await page.click('.cat-tile--wide[data-category="unsure"]');
+  await expect(page.locator('#address')).toBeVisible();
+});
+
+test('picker: a row with siblings asks one facet question; Back walks question → rows → groups', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.click('.cat-tile[data-group="property"]');
+  await page.click('.type-row[data-object="graffiti"]');
+  await expect(page).toHaveURL(/o=graffiti/);
+  await expect(page.getByRole('heading', { name: 'Where is it?' })).toHaveCount(0); // the question is the hero sub, h1 is the object
+  await expect(page.locator('.facet-card[data-category]')).toHaveCount(3); // city / private / park
+  await expect(page.locator('.facet-card[data-category="graffiti_park"] .type-city')).toHaveText('Graffiti in a Park');
+  await page.goBack();
+  await expect(page.locator('.type-row[data-object="graffiti"]')).toBeVisible();
+  await page.goForward();
+  await page.click('.facet-card[data-category="graffiti_private"]');
+  await expect(page).toHaveURL(/c=graffiti_private/);
+  await expect(page.locator('.chosen .chip')).toContainText('Graffiti on private property');
+});
+
+test('picker: search finds a type by synonym or by the city\'s own name and files it directly', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.fill('#type-search', 'lamp post');
+  await expect(page.locator('.type-results .type-row[data-category="streetlight_pole"]')).toBeVisible();
+  await expect(page.locator('.type-results .type-row[data-category="streetlight_pole"] .type-city')).toHaveText('Report a Leaning City Streetlight Pole');
+  await page.fill('#type-search', 'catch basin');
+  await expect(page.locator('.type-results .type-row[data-category="storm_drain"]')).toBeVisible();
+  await page.fill('#type-search', 'zzzz');
+  await expect(page.locator('.type-none')).toBeVisible();
+  await expect(page.locator('.type-results [data-category="unsure"]')).toBeVisible(); // the escape hatch is always there
+  await page.fill('#type-search', 'rats');
+  await page.click('.type-results .type-row[data-category="rodents"]');
   await expect(page.locator('#address')).toBeVisible();
 });
 

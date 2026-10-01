@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { EXTRA_QUESTIONS, GROUPS, byKey, inSeason, lastCategory, quickPicks, rememberCategory, shortLabel, type GroupKey, type UiCategory } from '../lib/categories';
+import { EXTRA_QUESTIONS, GROUPS, byKey, catchAllFor, facetLabel, groupRows, inSeason, lastCategory, quickPicks, rememberCategory, rowFor, rowLabel, searchTypes, shortLabel, type GroupKey, type UiCategory } from '../lib/categories';
 import { compressImage, decodeImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { signOut, useSession } from '../lib/auth';
@@ -43,20 +43,27 @@ export default function Report() {
   const { lang } = useI18n();
   const session = useSession();
 
-  // --- Phase A: category (group first, then the type) ---
-  // Group and category live in the URL (?g=<group>, ?c=<key>) so the phone's Back button walks
-  // type list → groups instead of leaving the app; compose state stays in memory.
+  // --- Phase A: category (browse-then-disambiguate: group → object row → facet question; or search) ---
+  // Group, object and category live in the URL (?g=<group>, ?o=<object>, ?c=<key>) so the phone's Back button walks
+  // facet question → rows → groups instead of leaving the app; compose state stays in memory.
   const [params, setParams] = useSearchParams();
   const category = params.get('c');
   const groupParam = params.get('g') as GroupKey | null;
+  const objectParam = params.get('o');
   const setCategory = useCallback((key: string | null, opts?: { replace?: boolean }) => {
-    setParams((prev) => { const n = new URLSearchParams(prev); if (key) n.set('c', key); else n.delete('c'); n.delete('g'); return n; }, { replace: opts?.replace });
+    setParams((prev) => { const n = new URLSearchParams(prev); if (key) n.set('c', key); else n.delete('c'); n.delete('g'); n.delete('o'); return n; }, { replace: opts?.replace });
   }, [setParams]);
   const setGroup = useCallback((g: GroupKey | null) => {
-    setParams((prev) => { const n = new URLSearchParams(prev); if (g) n.set('g', g); else n.delete('g'); return n; }, { replace: !g });
+    setParams((prev) => { const n = new URLSearchParams(prev); if (g) n.set('g', g); else n.delete('g'); n.delete('o'); return n; }, { replace: !g });
   }, [setParams]);
-  const groups = useMemo(() => GROUPS.map((g) => ({ ...g, cats: g.keys.map(byKey).filter((c): c is UiCategory => !!c && inSeason(c)) })).filter((g) => g.cats.length), []);
-  const openGroup = groups.find((g) => g.key === groupParam) ?? null;
+  const setObject = useCallback((o: string | null) => {
+    setParams((prev) => { const n = new URLSearchParams(prev); if (o) n.set('o', o); else n.delete('o'); return n; }, { replace: !o });
+  }, [setParams]);
+  const openGroup = groupParam && groupParam !== 'other' && GROUPS.some((g) => g.key === groupParam) ? groupParam : null;
+  const rows = useMemo(() => (openGroup ? groupRows(openGroup) : []), [openGroup]);
+  const openRow = useMemo(() => (objectParam ? rowFor(objectParam) : null), [objectParam]);
+  const [query, setQuery] = useState('');
+  const hits = useMemo(() => searchTypes(query, t), [query, t]);
   const quick = useMemo(() => {
     const last = lastCategory();
     const keys = [...(last ? [last] : []), ...quickPicks()];
@@ -209,7 +216,7 @@ export default function Report() {
     return () => window.clearTimeout(id);
   }, [turnstileToken, online, turnstileNonce]);
 
-  const pick = (key: string) => { setCategory(key); rememberCategory(key); setExtra({}); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
+  const pick = (key: string) => { setCategory(key); rememberCategory(key); setExtra({}); setQuery(''); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
   const onPhoto = useCallback(async (file: File | null) => {
     setPhotoError(null);
@@ -402,6 +409,14 @@ export default function Report() {
 
   // ---------- Phase A ----------
   if (!cat) {
+    // Search: every reportable city type by our label, synonyms or the city's own name — the shortcut past browsing.
+    const searchBox = (
+        <div className="type-search">
+          <label className="sr-only" htmlFor="type-search">{t('report.search.label')}</label>
+          <input id="type-search" type="search" className="type-search-input" value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('report.search.placeholder')} autoComplete="off" enterKeyHint="search" />
+        </div>
+    );
     return (
       <section className="section">
         {outboxNotice && <div className="notice notice-ok" role="status">{outboxNotice}</div>}
@@ -417,32 +432,97 @@ export default function Report() {
               )}
           </div>
         )}
-        {openGroup ? (
+        {(query.trim().length >= 2 || openGroup) && searchBox}
+        {query.trim().length >= 2 ? (
+          <div className="type-results" aria-live="polite">
+            {hits.length ? (
+              <ul className="type-list" aria-label={t('report.search.results')}>
+                {hits.map((c) => (
+                  <li key={c.key}>
+                    <button type="button" className="type-row type-row--text" data-category={c.key} onClick={() => pick(c.key)}>
+                      <span className="type-text">
+                        <span className="type-label">{shortLabel(c.key, t)}</span>
+                        <span className="type-city">{c.cityName}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="hint type-none">{t('report.search.none')}</p>
+            )}
+            <button type="button" className="type-row type-row--unsure type-row--text" data-category="unsure" onClick={() => pick('unsure')}>
+              <span className="type-text"><span className="type-label">{shortLabel('unsure', t)}</span><span className="type-city">{t('report.notSure.sub')}</span></span>
+            </button>
+          </div>
+        ) : openRow && openGroup ? (
           <>
+            {/* Level 3: the siblings differ by one facet — ask it as cards. */}
             <div className="home-hero home-hero--group">
-              <button type="button" className="back-link" onClick={() => setGroup(null)}>‹ {t('report.backToGroups')}</button>
-              <h1>{t(`group.${openGroup.key}`)}</h1>
-              <p className="hero-sub">{t('report.pickIn')}</p>
+              <button type="button" className="back-link" onClick={() => setObject(null)}>‹ {t(`group.${openGroup}`)}</button>
+              <h1>{rowLabel(openRow, t)}</h1>
+              <p className="hero-sub">{openRow.facetQ ? t(`facet.${openRow.facetQ}`) : t('report.pickIn')}</p>
             </div>
-            <ul className="type-list" aria-label={t(`group.${openGroup.key}`)}>
-              {openGroup.cats.map((c) => (
+            <ul className="facet-list" aria-label={openRow.facetQ ? t(`facet.${openRow.facetQ}`) : rowLabel(openRow, t)}>
+              {openRow.cats.map((c) => (
                 <li key={c.key}>
-                  <button type="button" className={`type-row${c.key === 'unsure' ? ' type-row--unsure' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>
-                    <span className="type-icon" aria-hidden="true"><CategoryIcon k={c.key} size={36} /></span>
-                    <span className="type-label">{shortLabel(c.key, t)}</span>
-                    {c.seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
+                  <button type="button" className="facet-card" data-category={c.key} onClick={() => pick(c.key)}>
+                    <span className="type-label">{facetLabel(c, t)}</span>
+                    <span className="type-city">{c.cityName}</span>
                   </button>
                 </li>
               ))}
             </ul>
           </>
+        ) : openGroup ? (
+          <>
+            {/* Level 2: one text row per object; rows with siblings open the facet question. */}
+            <div className="home-hero home-hero--group">
+              <button type="button" className="back-link" onClick={() => setGroup(null)}>‹ {t('report.backToGroups')}</button>
+              <h1>{t(`group.${openGroup}`)}</h1>
+              <p className="hero-sub">{t('report.pickIn')}</p>
+            </div>
+            <ul className="type-list" aria-label={t(`group.${openGroup}`)}>
+              {rows.map((r) => r.cats.length === 1 ? (
+                <li key={r.key}>
+                  <button type="button" className="type-row type-row--text" data-category={r.cats[0].key} onClick={() => pick(r.cats[0].key)}>
+                    <span className="type-text">
+                      <span className="type-label">{shortLabel(r.cats[0].key, t)}</span>
+                      <span className="type-city">{r.cats[0].cityName}</span>
+                    </span>
+                    {r.cats[0].seasonal === 'winter' && <span className="cat-season">{t('report.seasonWinter')}</span>}
+                  </button>
+                </li>
+              ) : (
+                <li key={r.key}>
+                  <button type="button" className="type-row type-row--text type-row--more" data-object={r.key} onClick={() => setObject(r.key)}>
+                    <span className="type-text">
+                      <span className="type-label">{rowLabel(r, t)}</span>
+                      <span className="type-city">{t('report.options', { n: r.cats.length })}</span>
+                    </span>
+                    <span className="type-chevron" aria-hidden="true">›</span>
+                  </button>
+                </li>
+              ))}
+              <li>
+                <button type="button" className="type-row type-row--unsure type-row--text" data-category={catchAllFor(openGroup)} onClick={() => pick(catchAllFor(openGroup))}>
+                  <span className="type-text">
+                    <span className="type-label">{t('report.otherIn', { group: t(`group.${openGroup}`) })}</span>
+                    <span className="type-city">{byKey(catchAllFor(openGroup))?.cityName}</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </>
         ) : (
           <>
+            {/* Level 1: the group grid (the only level with icons) + the wide Not-sure tile. */}
             <div className="home-hero">
               <h1>{t('report.whatsWrong')}</h1>
               <p className="hero-sub">{t('report.heroSub')}</p>
               <TrustLine />
             </div>
+            {searchBox}
             <div className="quick-row" role="group" aria-label={t('report.quick')}>
               {quick.map(({ c, last }) => (
                 <button key={c.key} type="button" className={`quick-chip${last ? ' quick-chip--last' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>
@@ -452,12 +532,16 @@ export default function Report() {
               ))}
             </div>
             <div className="cat-grid" role="group" aria-label={t('report.whatsWrong')}>
-              {groups.map((g) => (
+              {GROUPS.map((g) => (
                 <button key={g.key} type="button" className="cat-tile" data-group={g.key} onClick={() => setGroup(g.key)}>
                   <span className="cat-icon"><CategoryIcon k={g.icon} size={46} /></span>
                   <span className="cat-text">{t(`group.${g.key}`)}<span className="cat-sub">{t(`group.${g.key}.sub`)}</span></span>
                 </button>
               ))}
+              <button type="button" className="cat-tile cat-tile--wide" data-group="other" data-category="unsure" onClick={() => pick('unsure')}>
+                <span className="cat-icon"><CategoryIcon k="unsure" size={46} /></span>
+                <span className="cat-text">{t('report.notSure')}<span className="cat-sub">{t('report.notSure.sub')}</span></span>
+              </button>
             </div>
           </>
         )}

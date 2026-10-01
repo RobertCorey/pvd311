@@ -22,6 +22,7 @@ import { captureCaseDetails, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATC
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
+import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, type CaseType } from './casetypes.js';
 import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, GOLDEN_SCHEMA, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
@@ -612,6 +613,10 @@ export async function runDaily(env: Env): Promise<void> {
       console.log(`[daily] canary OK (${canary.notes.join('; ')})`);
       await markOk(store, 'canary', canary.notes.join('; '));
     }
+    // Case-type census (read-only lookup modal): mail when the city adds/removes/renames a type; the snapshot
+    // rolls forward so a change mails once. Registry drift (stale names / missing GUIDs) rides along in the event.
+    await runCaseTypeCensus({ store, mailer, portal })
+      .catch((e) => console.error('[daily] case-type census failed:', e instanceof Error ? e.message : e));
     // Golden-controls drift canary (flagged): resume the ONE designated record and re-dump Step-3, no submit.
     if (isDriftCanaryEnabled(env)) {
       await runDriftCanary(env, { store, mailer, portal })
@@ -757,4 +762,32 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Case-type census (daily, zero-draft) ─────────────────────────────────────────────────────────
+export interface CaseTypeMeta { at: string; count: number; types: CaseType[] }
+
+export async function runCaseTypeCensus(deps: { store: Store; mailer: Mailer; portal: Portal }): Promise<{ changed: boolean; count: number }> {
+  const { store, mailer, portal } = deps;
+  const live = await portal.listCaseTypes();
+  if (live.length < 50) throw new Error(`case-type list looks truncated: ${live.length} rows`); // never roll the snapshot forward on a partial read
+  const prev = await store.getMeta<CaseTypeMeta>('caseTypes').catch(() => null);
+  const delta = diffCaseTypes(prev?.types ?? null, live);
+  const changed = caseTypesChanged(delta);
+  const summary = summarizeCaseTypes(delta);
+  await store.setMeta('caseTypes', { at: new Date().toISOString(), count: live.length, types: live } satisfies CaseTypeMeta).catch(() => {});
+  if (!prev) {
+    await logEvent(store, { level: 'info', kind: 'canary.casetypes_baseline', msg: `Case-type census baseline: ${live.length} types (${summary})`, data: { count: live.length, registryMissing: delta.registryMissing, registryRenamed: delta.registryRenamed } });
+    if (delta.registryMissing.length || delta.registryRenamed.length) {
+      await mailer.alert('Portal case types', `<p>First census: <b>${live.length}</b> types. Registry drift:</p>${caseTypesHtml(delta, escHtml)}`).catch(() => {});
+    }
+    return { changed: false, count: live.length };
+  }
+  if (changed) {
+    await logEvent(store, { level: 'warn', kind: 'canary.casetypes', msg: `Portal case types changed — ${summary}`, data: { count: live.length, delta } });
+    await mailer.alert('Portal case types changed', `<p>The city's case-type list changed since ${escHtml(prev.at.slice(0, 10))}: <b>${escHtml(summary)}</b> (${live.length} types now).</p>${caseTypesHtml(delta, escHtml)}`).catch(() => {});
+  } else {
+    console.log(`[daily] case-type census: ${live.length} types, no change (${summary})`);
+  }
+  return { changed, count: live.length };
 }

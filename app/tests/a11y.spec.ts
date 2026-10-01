@@ -25,6 +25,8 @@ async function violations(page: Page): Promise<string[]> {
 const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['home', (p) => p.goto('/')],
   ['details', async (p) => { await p.goto('/'); await p.click('.cat-tile[data-group="streets"]'); await p.click('.type-row[data-category="pothole"]'); }],
+  ['rows', async (p) => { await p.goto('/?g=streets'); }],
+  ['facet', async (p) => { await p.goto('/?g=streets&o=sidewalk'); }],
   ['track', (p) => p.goto('/r/demo?submitted=1')],
   ['about', (p) => p.goto('/about')],
   ['my', (p) => p.goto('/my')],

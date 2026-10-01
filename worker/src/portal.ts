@@ -883,6 +883,38 @@ class WorkerPortal implements Portal {
 
   // ── Canary ─────────────────────────────────────────────────
 
+  /**
+   * Read the full case-type list from the Step-1 lookup modal (every page), read-only: no selection, no Next,
+   * so no draft is created. Rows carry data-id (GUID) + data-name. Pager: `.modal.in ul.pagination li button`
+   * (13 pages × 10 live); we stop when the Next control is absent/disabled or a page repeats. Cap 25 pages.
+   */
+  async listCaseTypes(): Promise<{ id: string; name: string }[]> {
+    const page = this.getPage();
+    await this.ensureLoggedIn();
+    await page.goto(`${this.portal}/my-requests/New-Request/`, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.waitForTimeout(3_000);
+    await page.locator(STEP1_SELECTORS['caseTypeLaunch']).first().click();
+    await page.waitForSelector('.modal.in table tbody tr[data-id]', { timeout: 20_000 });
+    const out = new Map<string, string>();
+    const readPage = async () => page.$$eval('.modal.in table tbody tr[data-id]', (rows) => rows.map((r) => ({
+      id: (r.getAttribute('data-id') ?? '').replace(/[{}]/g, '').toLowerCase(),
+      name: r.getAttribute('data-name') ?? (r.querySelector('td')?.textContent ?? '').trim(),
+    })));
+    for (let i = 0; i < 25; i++) {
+      await page.waitForTimeout(400);
+      const rows = await readPage();
+      let fresh = 0;
+      for (const r of rows) if (r.id && !out.has(r.id)) { out.set(r.id, r.name); fresh++; }
+      if (!fresh) break;
+      const next = page.locator('.modal.in ul.pagination li:not(.disabled) a[aria-label*="Next" i], .modal.in ul.pagination li:not(.disabled) button[aria-label*="Next" i], .modal.in ul.pagination li:not(.disabled) button:has-text(">")').first();
+      if (!(await next.isVisible().catch(() => false))) break;
+      await next.click();
+      await page.waitForTimeout(900);
+    }
+    await page.locator('.modal.in .cancel.btn, .modal.in button[aria-label="Cancel"]').first().click().catch(() => {});
+    return [...out].map(([id, name]) => ({ id, name }));
+  }
+
   async canary(): Promise<{ ok: boolean; missing: string[]; notes: string[] }> {
     const page = this.getPage();
     const missing: string[] = [];
