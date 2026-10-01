@@ -432,7 +432,16 @@ export default function Report() {
               )}
           </div>
         )}
-        {(query.trim().length >= 2 || openGroup) && searchBox}
+        {/* The level-1 hero and the search box sit OUTSIDE the branch below so their DOM nodes persist across
+            idle → results: a remount would blur the input and dismiss the phone keyboard mid-word. */}
+        {!openGroup && (
+          <div className="home-hero">
+            <h1>{t('report.whatsWrong')}</h1>
+            <p className="hero-sub">{t('report.heroSub')}</p>
+            <TrustLine />
+          </div>
+        )}
+        {searchBox}
         {query.trim().length >= 2 ? (
           <div className="type-results" aria-live="polite">
             {hits.length ? (
@@ -517,12 +526,6 @@ export default function Report() {
         ) : (
           <>
             {/* Level 1: the group grid (the only level with icons) + the wide Not-sure tile. */}
-            <div className="home-hero">
-              <h1>{t('report.whatsWrong')}</h1>
-              <p className="hero-sub">{t('report.heroSub')}</p>
-              <TrustLine />
-            </div>
-            {searchBox}
             <div className="quick-row" role="group" aria-label={t('report.quick')}>
               {quick.map(({ c, last }) => (
                 <button key={c.key} type="button" className={`quick-chip${last ? ' quick-chip--last' : ''}`} data-category={c.key} onClick={() => pick(c.key)}>

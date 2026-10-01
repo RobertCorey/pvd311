@@ -72,6 +72,26 @@ test('picker: search finds a type by synonym or by the city\'s own name and file
   await expect(page.locator('#address')).toBeVisible();
 });
 
+test('picker: the search box keeps focus while typing (no remount → the phone keyboard stays up)', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  const box = page.locator('#type-search');
+  await box.click();
+  await page.keyboard.type('la');
+  await expect(page.locator('.type-results')).toBeVisible();
+  await expect(box).toBeFocused();
+  await page.keyboard.type('mp post');
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue('lamp post');
+  await expect(page.locator('.type-results .type-row[data-category="streetlight_pole"]')).toBeVisible();
+  // Same from inside a group.
+  await page.goto('/?g=streets');
+  await page.locator('#type-search').click();
+  await page.keyboard.type('rats');
+  await expect(page.locator('#type-search')).toBeFocused();
+  await expect(page.locator('.type-results .type-row[data-category="rodents"]')).toBeVisible();
+});
+
 test('picker remembers the last type as a quick pick', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
