@@ -432,6 +432,9 @@ function myRequestsGridHtml(cases: GridRow[]): string {
     <div class="username">test@pvdsnow.org</div>
     <h1>My Requests</h1>
     <div class="entitylist">
+      <!-- Live page: a legacy, hidden Bootstrap search (#q, display:none) precedes the Fluent grid; the
+           usable search box (role=menuitem) is injected by script after the grid renders. -->
+      <form class="form-search" style="display:none"><input id="q" type="text" class="form-control" placeholder="Search"></form>
       <div role="grid" aria-label="My Requests">
         <div role="row">
           <span role="columnheader">Request</span>
@@ -451,11 +454,20 @@ function myRequestsGridHtml(cases: GridRow[]): string {
 
 /** Live grid: a Fluent search box (role=menuitem) filters rows on Enter; the title button opens a
  *  Bootstrap modal whose body is an iframe at /_portal/modal-form-template-path/<form>?id=<GUID>. */
+/** How long the simulated grid takes to render its data rows (live: ~2-3 s). */
+const SIM_GRID_RENDER_MS = 1_200;
 const GRID_MODAL_JS = `
 (function(){
+  // Live grid is a Fluent DetailsList that renders its data rows ~2-3 s after DOMContentLoaded (the header
+  // row is there at once). Mirror that: hold the data rows back, then re-attach them with the search box.
+  var grid = document.querySelector('[role="grid"]');
+  var held = Array.prototype.slice.call(grid.querySelectorAll('[role="row"][data-id]'));
   var search = document.createElement('input');
   search.type = 'text'; search.placeholder = 'Search'; search.setAttribute('role','menuitem');
-  document.querySelector('.entitylist').insertBefore(search, document.querySelector('[role="grid"]'));
+  setTimeout(function(){
+    held.forEach(function(r){ grid.appendChild(r); });
+    document.querySelector('.entitylist').insertBefore(search, grid);
+  }, ${SIM_GRID_RENDER_MS});
   search.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter') return;
     var q = search.value.trim().toLowerCase();
@@ -473,6 +485,8 @@ const GRID_MODAL_JS = `
       document.body.appendChild(modal);
     });
   });
+  // Detach the data rows last, once their click handlers are wired; the timer above re-attaches them.
+  held.forEach(function(r){ r.remove(); });
 })();`;
 
 function caseDetailHtml(r: GridRow, notes: SimNote[]): string {

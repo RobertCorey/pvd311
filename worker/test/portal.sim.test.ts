@@ -211,6 +211,22 @@ describe('portal simulator — happy path', () => {
     await portal.close();
   });
 
+  it('readCaseDetail right after ensureLoggedIn (the daily path): the grid is still rendering, the case is still found', async () => {
+    // runDaily calls ensureLoggedIn() — which lands on /my-requests/ and returns as soon as .username is there —
+    // and then captureCaseDetails. The live grid (Fluent DetailsList) renders its rows ~2-3 s later, so a driver
+    // that trusts "already on /my-requests/" sees an empty grid and logs "not found in My Requests" (2026-10-01/02,
+    // PVD2026-89374). The second ensureLoggedIn below is the already-signed-in shape; the sim holds rows back.
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    await portal.ensureLoggedIn();
+    await portal.ensureLoggedIn(); // signed in → goto /my-requests/, .username present, return immediately
+    expect(new URL((portal as any).getPage().url()).pathname).toBe('/my-requests/');
+    const detail = await portal.readCaseDetail('PVD2026-00098');
+    expect(detail).toBeTruthy();
+    expect(detail!.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
+    await portal.close();
+  });
+
   it('canary passes against the fresh contract and is non-mutating (no submit, no wizard advance)', async () => {
     const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
     await portal.launch();

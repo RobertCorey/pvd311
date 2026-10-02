@@ -698,11 +698,17 @@ class WorkerPortal implements Portal {
     const page = this.getPage();
     if (!/\/my-requests\/?$/i.test(new URL(page.url()).pathname)) {
       await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await page.waitForSelector('[role="grid"] [role="row"], table tbody tr', { timeout: 30_000 }).catch(() => {});
-      await page.waitForTimeout(3_000);
     }
-    const search = page.locator('.entitylist input[placeholder="Search"], input[type="text"][role="menuitem"], input.entitylist-search').first();
+    // The grid is a Fluent DetailsList: the header row is in the DOM at once, the data rows and the usable
+    // search box render ~2-3 s later. Being on /my-requests/ already (ensureLoggedIn lands there without
+    // waiting) therefore proves nothing — wait for the row we want OR the search box, whichever first.
+    // (Before this, the daily refresh logged "not found in My Requests" for a case the watcher could see.)
+    // `:visible` matters: a legacy hidden Bootstrap search (#q) precedes the Fluent one in the DOM.
+    const search = page.locator('input[placeholder="Search"]:visible, input[type="text"][role="menuitem"]:visible, input.entitylist-search:visible').first();
     const rowBtn = () => page.locator('[role="grid"] [role="row"] button, [role="grid"] [role="gridcell"] a, table tbody tr a', { hasText: caseId }).first();
+    const rowOrSearch = page.locator('[role="grid"] [role="row"] button, [role="grid"] [role="gridcell"] a, table tbody tr a, input[placeholder="Search"]:visible, input[type="text"][role="menuitem"]:visible').first();
+    await rowOrSearch.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {});
+    await page.waitForTimeout(1_000); // the rest of page 1 settles
     const hasSearch = await search.isVisible().catch(() => false);
     let filtered = false;
     if (!(await rowBtn().isVisible().catch(() => false)) && hasSearch) {
