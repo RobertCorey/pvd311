@@ -79,3 +79,19 @@ describe('Step 2 address choice (PVD2026-89374 went to the city as "India St" wh
     expect(e).toBe('Wire down across the sidewalk.\n\n[Submitted via FixMyPVD — ref:abc]');
   });
 });
+
+import { appendStatusHistory, STATUS_HISTORY_CAP } from '../src/statushistory';
+describe('appendStatusHistory', () => {
+  it('appends each change oldest-first, skips a repeat of the latest, caps the list', () => {
+    const t1 = new Date('2026-09-29T13:02:59Z'); const t2 = new Date('2026-09-29T15:31:30Z');
+    let h = appendStatusHistory(null, 'Submitted', t1);
+    expect(h).toEqual([{ status: 'Submitted', at: t1.toISOString() }]);
+    h = appendStatusHistory(h, 'Submitted', t2); // watcher saw the same status again — not a change
+    expect(h).toHaveLength(1);
+    h = appendStatusHistory(h, 'Assigned', t2);
+    expect(h.map((x) => x.status)).toEqual(['Submitted', 'Assigned']);
+    for (let i = 0; i < STATUS_HISTORY_CAP + 5; i++) h = appendStatusHistory(h, `S${i}`, t2);
+    expect(h).toHaveLength(STATUS_HISTORY_CAP);
+    expect(h[h.length - 1].status).toBe(`S${STATUS_HISTORY_CAP + 4}`);
+  });
+});

@@ -72,7 +72,7 @@ export function StatusPill({ view }: { view: ReportView }) {
 }
 function pillKey(v: ReportView): string {
   switch (v.status) {
-    case 'sent': return v.portalStatus === 'Resolved' ? 'resolved' : v.portalStatus === 'Cancelled' ? 'cityCancelled' : 'sent';
+    case 'sent': return v.portalStatus === 'Resolved' ? 'resolved' : v.portalStatus === 'Cancelled' ? 'cityCancelled' : v.portalStatus === 'Merged' ? 'merged' : 'sent';
     case 'sending': case 'awaiting_review': return 'sending';
     case 'rejected': return v.cancelledByReporter ? 'cancelled' : 'notFiled';
     case 'failed': case 'needs_attention': return 'attention';

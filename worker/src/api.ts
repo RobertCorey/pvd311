@@ -276,7 +276,11 @@ function projectReport(r: ReportDoc, viewer?: Viewer) {
   const mine = !!viewer && !!r.ownerUid && r.ownerUid === viewer.uid;
   const timeline: { at: string | null; label: string }[] = [{ at: toIso(r.timestamp), label: 'Received' }];
   if (r.portalCaseId) timeline.push({ at: toIso(r.statusUpdatedAt), label: `Filed with the city as ${r.portalCaseId}` });
-  if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
+  // One row per city status the watcher saw (oldest first); reports from before the history field carry only the latest.
+  const history = (r.portalStatusHistory ?? []).filter((h) => h && h.status);
+  if (history.length) for (const h of history) timeline.push({ at: h.at, label: `City status: ${h.status}` });
+  else if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
+  if (history.length && r.portalStatus && history[history.length - 1].status !== r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
   for (const m of (r.cityMessages ?? []).slice(-5)) timeline.push({ at: m.at, label: `Message from the city${m.subject ? `: ${m.subject.replace(/\bPVD311:\d+\b/gi, '').replace(/\bPVD\d{4}-\d+\b/gi, '').trim()}` : ''}`.slice(0, 160) });
   if (status === 'rejected') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Not filed' });
   if (status === 'needs_attention') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Needs attention — we are looking at it' });

@@ -163,7 +163,7 @@ export interface CaseDetailRaw {
 }
 
 /** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */
-export const TERMINAL_PORTAL_STATUS = /\b(resolved|closed|completed|cancel+ed|rejected|withdrawn)\b/i;
+export const TERMINAL_PORTAL_STATUS = /\b(resolved|closed|completed|cancel+ed|rejected|withdrawn|merged)\b/i;
 
 /** email.ts */
 export interface Mailer {

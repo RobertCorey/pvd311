@@ -55,6 +55,34 @@ async function useSpanish(page: Page) {
   await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
 }
 
+test('sent + In Progress lights "City working on it" on the rail and says the city is working on it', async ({ page }) => {
+  // The first real case (PVD2026-89374) went Assigned → In Progress and the rail fell back to "Sent to 311".
+  const now = new Date().toISOString();
+  await mockReport(page, view({ portalStatus: 'In Progress', timeline: [
+    { at: now, label: 'Received' }, { at: now, label: 'Filed with the city as PVD2026-87657' },
+    { at: now, label: 'City status: Submitted' }, { at: now, label: 'City status: Assigned' }, { at: now, label: 'City status: In Progress' },
+  ] }));
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city is working on it' })).toBeVisible();
+  const rail = page.locator('.rail-step');
+  await expect(rail.filter({ hasText: 'City working on it' })).toHaveClass(/rail-step--done/);
+  await expect(rail.filter({ hasText: 'Resolved' })).toHaveClass(/rail-step--active/);
+  // Every city status the watcher saw is its own row, oldest at the bottom.
+  const rows = page.locator('.track-timeline li');
+  await expect(rows.filter({ hasText: 'City status: In progress' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'City status: Assigned' })).toBeVisible();
+  await expect(rows.filter({ hasText: 'City status: Submitted' })).toBeVisible();
+  await expect(page.getByText("We'll email you as the status changes.")).toBeVisible();
+});
+
+test('sent + Merged reads as closed-by-city: merged headline, rail ends at Merged', async ({ page }) => {
+  await mockReport(page, view({ portalStatus: 'Merged' }));
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city merged this into another report' })).toBeVisible();
+  await expect(page.locator('.rail-step').filter({ hasText: 'Merged' })).toHaveClass(/rail-step--done/);
+  await expect(page.getByRole('link', { name: 'Open the official 311 portal' })).toBeVisible();
+});
+
 test('sent + Assigned shows the case id and a city status row', async ({ page }) => {
   await mockReport(page, view());
   await page.goto('/r/abc');

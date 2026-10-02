@@ -35,6 +35,25 @@ describe('tracking projection', () => {
     expect(j.hasEmail).toBeUndefined();
     expect(j.timeline.map((t: any) => t.label)).toEqual(expect.arrayContaining([expect.stringContaining('PVD2026-1'), 'City status: Assigned']));
   });
+  it('timeline shows every city status the watcher saw (oldest first), not just the latest', async () => {
+    const store = mockStore({ fetchReport: vi.fn(async () => report({
+      portalStatus: 'In Progress', portalStatusUpdatedAt: new Date('2026-10-01T19:31:30Z'),
+      portalStatusHistory: [
+        { status: 'Submitted', at: '2026-09-29T13:02:59Z' },
+        { status: 'Assigned', at: '2026-09-29T15:31:30Z' },
+        { status: 'In Progress', at: '2026-10-01T19:31:30Z' },
+      ],
+    })) });
+    const j = await (await handleApi(new Request('https://api.test/api/reports/abc123456789'), env, { store }))!.json() as any;
+    const city = j.timeline.filter((t: any) => t.label.startsWith('City status: '));
+    expect(city.map((t: any) => t.label)).toEqual(['City status: Submitted', 'City status: Assigned', 'City status: In Progress']);
+    expect(city[0].at).toBe('2026-09-29T13:02:59Z');
+  });
+  it('timeline: a report from before the history field still shows its latest city status once', async () => {
+    const store = mockStore({ fetchReport: vi.fn(async () => report({ portalStatus: 'Assigned', portalStatusHistory: null })) });
+    const j = await (await handleApi(new Request('https://api.test/api/reports/abc123456789'), env, { store }))!.json() as any;
+    expect(j.timeline.filter((t: any) => t.label.startsWith('City status: ')).map((t: any) => t.label)).toEqual(['City status: Assigned']);
+  });
   it('maps failed → needs_attention and rejected → rejected', async () => {
     const store = mockStore({ fetchReport: vi.fn(async () => report({ status: 'failed' })) });
     const j = await (await handleApi(new Request('https://api.test/api/reports/abc123456789'), env, { store }))!.json() as any;

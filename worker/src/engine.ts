@@ -10,6 +10,7 @@
  */
 import type { Page } from '@cloudflare/playwright';
 import { TERMINAL_PORTAL_STATUS, type Env, type Portal, type ReportDoc, type Store } from './contracts.js';
+import { appendStatusHistory } from './statushistory.js';
 import type { ReportStatus } from '../../shared/types.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal, type MyRequestRow } from './portal.js';
@@ -291,7 +292,8 @@ export async function runWatcher(env: Env): Promise<void> {
           const to = row.status;
           if (!to || to === from) continue;
 
-          await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: new Date() });
+          const seenAt = new Date();
+          await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: seenAt, portalStatusHistory: appendStatusHistory(report.portalStatusHistory, to, seenAt) });
           console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
           changes++;
           changedIds.add(report.id);
@@ -455,6 +457,7 @@ export async function runReconcile(store: Store, portal: Portal, scan?: { rows: 
           caseIdPending: false,
           portalStatus: row.status || null,
           portalStatusUpdatedAt: new Date(),
+          portalStatusHistory: row.status ? appendStatusHistory(report.portalStatusHistory, row.status, new Date()) : report.portalStatusHistory ?? null,
           review: { requestedAt: at, telegramMessageId: null, mode: 'reconcile', decision: 'approved', by: 'reconcile', reason: `Adopted an already-filed city case (${bound}); local status was ${status}`, decidedAt: at },
         });
         await logEvent(store, { level: 'warn', kind: 'reconcile.adopted', msg: `Adopted ${bound} — was ${status} locally but live on the portal (${row.status})`, reportId: report.id, data: { caseId: bound, was: status, portalStatus: row.status } });

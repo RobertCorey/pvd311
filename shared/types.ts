@@ -88,6 +88,8 @@ export interface Report {
   /** Last status seen on the city portal for this case (set by the status watcher) */
   portalStatus?: string | null;
   portalStatusUpdatedAt?: FirebaseFirestore.Timestamp | null;
+  /** Every city status the watcher has seen, oldest first (capped at 20) — the Track timeline shows each one, not just the latest */
+  portalStatusHistory?: { status: string; at: string }[] | null;
   portalLastActivity?: { subject: string; createdOn: string | null; fetchedAt: string } | null;
   /** Snapshot of the portal's case-detail modal (watcher: first sighting, on status change, daily while open). Raw by design — form fields + the comment/email timeline — because we don't yet know which parts matter. */
   portalDetail?: PortalCaseDetail | null;

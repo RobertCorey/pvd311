@@ -15,7 +15,7 @@ interface StatusInfo { headline: string; tone: Tone; explainer?: string; portalL
 
 function isTerminal(v: ReportView): boolean {
   if (v.status === 'rejected') return true;
-  if (v.status === 'sent' && (v.portalStatus === 'Resolved' || v.portalStatus === 'Cancelled')) return true;
+  if (v.status === 'sent' && (v.portalStatus === 'Resolved' || v.portalStatus === 'Cancelled' || v.portalStatus === 'Merged')) return true;
   return false;
 }
 
@@ -33,8 +33,10 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
       switch (v.portalStatus) {
         case 'Submitted': return { headline: t('track.state.citySubmitted'), tone: 'progress' };
         case 'Assigned': return { headline: t('track.state.cityAssigned'), tone: 'progress' };
+        case 'In Progress': return { headline: t('track.state.cityInProgress'), tone: 'progress' };
         case 'Resolved': return { headline: t('track.state.cityResolved'), tone: 'ok' };
         case 'Cancelled': return { headline: t('track.state.cityCancelled'), tone: 'warn', explainer: t('track.state.cityCancelledBody'), portalLink: true };
+        case 'Merged': return { headline: t('track.state.cityMerged'), tone: 'ok', explainer: t('track.state.cityMergedBody'), portalLink: true };
         default: return { headline: t('track.state.sent'), tone: 'ok' };
       }
     default: return { headline: t('track.state.received'), tone: 'progress' };
@@ -51,9 +53,11 @@ function buildRail(v: ReportView, t: (k: string) => string, kind: RailKind): { l
   const labels = [t('track.rail.received'), t('track.rail.sent'), t('track.rail.working'), t('track.rail.resolved')];
   if (v.status === 'sent') {
     switch (v.portalStatus) {
-      case 'Assigned': return { labels, done: 3, branch: null };
+      case 'Assigned':
+      case 'In Progress': return { labels, done: 3, branch: null };
       case 'Resolved': return { labels, done: 4, branch: null };
       case 'Cancelled': labels[3] = t('track.rail.closed'); return { labels, done: 3, branch: 'closed' };
+      case 'Merged': labels[3] = t('track.rail.merged'); return { labels, done: 4, branch: null };
       default: return { labels, done: 2, branch: null };
     }
   }

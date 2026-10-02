@@ -1,6 +1,7 @@
 // Worker API v1 — contract from alice (2026-08-22). Keep in sync with worker/.
 export type ReportStatus = 'received' | 'awaiting_review' | 'sending' | 'sent' | 'failed' | 'needs_attention' | 'rejected';
-export type PortalStatus = 'Submitted' | 'Assigned' | 'Resolved' | 'Cancelled';
+/** The city's Status Reason values seen on the portal grid. In Progress and Merged showed up on real cases (Oct 2026). */
+export type PortalStatus = 'Submitted' | 'Assigned' | 'In Progress' | 'Resolved' | 'Cancelled' | 'Merged';
 export type IntakeFlag = 'spam' | 'abuse' | 'personal_info' | 'not_311' | 'emergency';
 
 export interface ReportSubmission {
