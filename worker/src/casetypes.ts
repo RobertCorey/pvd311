@@ -27,6 +27,17 @@ export interface CaseTypeDelta {
   registryRenamed: { key: string; from: string; to: string }[];
 }
 
+/**
+ * A partial read must never become the snapshot (2026-10-04: a pager race read 5 of 13 pages → "78 removed" mail
+ * and a 50-type snapshot). The list has held at 126–128 since Aug 2026; a one-day drop past a fifth is a scrape
+ * fault, not the city. Exported for the unit test.
+ */
+export const CASE_TYPE_FLOOR = 100;
+export function assertCaseTypeListComplete(liveCount: number, prevCount: number | null): void {
+  if (liveCount < CASE_TYPE_FLOOR) throw new Error(`case-type list looks truncated: ${liveCount} rows (floor ${CASE_TYPE_FLOOR})`);
+  if (prevCount != null && liveCount < prevCount * 0.8) throw new Error(`case-type list looks truncated: ${liveCount} rows vs ${prevCount} in the last snapshot`);
+}
+
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 export function diffCaseTypes(prev: CaseType[] | null, live: CaseType[]): CaseTypeDelta {

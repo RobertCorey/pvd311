@@ -20,7 +20,7 @@
  *   GET  /my-requests/New-Request/confirmation     confirmation page (driver ignores it; it re-scrapes the grid)
  * Controls (for the mutation suite)
  *   GET  /_sim/reset                               reset state to the golden seed
- *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation
+ *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows)
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
  *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
  *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
@@ -141,7 +141,11 @@ function rootHtml(authed: boolean): string {
   return page('Home', `${user}<h1>Providence Home</h1><a href="/my-requests/">My Requests</a>`);
 }
 
-function step1Html(): string {
+/** How long a lookup-modal page takes to render after its pager link is clicked (live: ~0.3 s locally, longer on Browser Rendering). */
+const SIM_LOOKUP_PAGE_MS = 250;
+const SIM_LOOKUP_PAGE_SIZE = 10;
+
+function step1Html(opts: { pagerStall?: boolean } = {}): string {
   // Embed the census so the modal can emit .modal.in table tbody tr[data-id] rows without a network call.
   const census = JSON.stringify(CENSUS.map((c) => ({ id: c.id, name: c.name.trim() })));
   return page('New Request — Step 1', `
@@ -180,7 +184,7 @@ function step1Html(): string {
       <input type="button" id="NextButton" value="Next" onclick="document.getElementById('step1form').submit()">
     </form>
     <div id="modalMount"></div>
-    <script>window.__CENSUS = ${census};</script>
+    <script>window.__CENSUS = ${census}; window.__SIM_LOOKUP = { pageMs: ${SIM_LOOKUP_PAGE_MS}, pageSize: ${SIM_LOOKUP_PAGE_SIZE}, pagerStall: ${opts.pagerStall ? 'true' : 'false'} };</script>
     <script>${STEP1_MODAL_JS}</script>`);
 }
 
@@ -219,6 +223,36 @@ const STEP1_MODAL_JS = `
       tbody.appendChild(tr);
     });
   }
+  // Live pager (13 pages x 10): numbered a[data-page] links, li.active on the current page, prev/next anchors
+  // that carry class + aria-label only on the first render. Clicking a page flips li.active at once and EMPTIES
+  // the table until the rows arrive (pageMs later). pagerStall: the rows never arrive (fault mode).
+  var current = { list: window.__CENSUS, page: 1 };
+  function renderPager(nav, total, page){
+    var pages = Math.max(1, Math.ceil(total / window.__SIM_LOOKUP.pageSize));
+    var html = '';
+    html += '<li' + (page === 1 ? ' class="disabled"' : '') + '><a data-page="' + (page - 1) + '" role="button" aria-label="Previous page" class="entity-pager-prev-link"' + (page === 1 ? ' aria-disabled="true"' : '') + '>&lt;</a></li>';
+    for (var p = 1; p <= pages; p++) html += '<li' + (p === page ? ' class="active"' : '') + '><a href="#" data-page="' + p + '" role="button"' + (p === page ? ' aria-current="page"' : ' aria-label="page ' + p + '"') + '>' + p + '</a></li>';
+    html += '<li' + (page === pages ? ' class="disabled"' : '') + '><a data-page="' + (page + 1) + '" role="button" aria-label="Next page" class="entity-pager-next-link"' + (page === pages ? ' aria-disabled="true"' : '') + '>&gt;</a></li>';
+    nav.innerHTML = html;
+  }
+  function showPage(modal, page){
+    var tbody = modal.querySelector('.ctRows');
+    var nav = modal.querySelector('ul.pagination');
+    current.page = page;
+    renderPager(nav, current.list.length, page);
+    tbody.innerHTML = '';
+    if (window.__SIM_LOOKUP.pagerStall && page > 1) return; // fault: rows never arrive
+    var slice = current.list.slice((page - 1) * window.__SIM_LOOKUP.pageSize, page * window.__SIM_LOOKUP.pageSize);
+    var delay = page === 1 ? 0 : window.__SIM_LOOKUP.pageMs;
+    setTimeout(function(){ if (current.page === page) renderRows(tbody, slice); }, delay);
+    var links = nav.querySelectorAll('a[data-page]');
+    for (var i = 0; i < links.length; i++) links[i].addEventListener('click', function(ev){
+      ev.preventDefault();
+      if (this.closest('li').classList.contains('disabled')) return;
+      var p = Number(this.getAttribute('data-page'));
+      if (p >= 1 && p <= Math.ceil(current.list.length / window.__SIM_LOOKUP.pageSize)) showPage(modal, p);
+    });
+  }
   function openModal(){
     var mount = document.getElementById('modalMount');
     var modal = document.createElement('div');
@@ -228,16 +262,17 @@ const STEP1_MODAL_JS = `
       '<input type="text" class="query form-control" aria-label="To search on partial text, use the asterisk (*) wildcard character.">' +
       '<button type="button" class="btn btn-default btn-hg" aria-label="Search Results">Search</button>' +
       '<table><thead><tr><th></th><th>Name</th></tr></thead><tbody class="ctRows"></tbody></table>' +
+      '<ul class="pagination"></ul>' +
       '<button type="button" class="cancel btn btn-default" aria-label="Cancel">Cancel</button>' +
       '<button type="button" class="primary btn btn-primary" aria-label="Select">Select</button>' +
       '</div></div>';
     mount.appendChild(modal);
-    var tbody = modal.querySelector('.ctRows');
-    renderRows(tbody, window.__CENSUS);
+    current.list = window.__CENSUS;
+    showPage(modal, 1);
     modal.querySelector('[aria-label="Search Results"]').addEventListener('click', function(){
       var q = (modal.querySelector('.query.form-control').value || '').replace(/\\*/g,'').trim().toLowerCase();
-      var list = q ? window.__CENSUS.filter(function(c){ return c.name.toLowerCase().indexOf(q) !== -1; }) : window.__CENSUS;
-      renderRows(tbody, list);
+      current.list = q ? window.__CENSUS.filter(function(c){ return c.name.toLowerCase().indexOf(q) !== -1; }) : window.__CENSUS;
+      showPage(modal, 1);
     });
     modal.querySelector('[aria-label="Cancel"]').addEventListener('click', function(){ mount.removeChild(modal); });
     modal.querySelector('[aria-label="Select"]').addEventListener('click', function(){
@@ -693,7 +728,7 @@ export async function startSim(): Promise<Sim> {
           if (!s) return send(res, 404, page('No draft', '<h1>Draft not found</h1>'));
           return send(res, 200, step3Html(s, state));
         }
-        return send(res, 200, step1Html());
+        return send(res, 200, step1Html({ pagerStall: state.mutations.has("lookup-pager-stall") }));
       }
 
       // ── submit (AJAX) ──

@@ -23,7 +23,7 @@ import { captureCaseDetails, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATC
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
-import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, type CaseType } from './casetypes.js';
+import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, assertCaseTypeListComplete, type CaseType } from './casetypes.js';
 import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, GOLDEN_SCHEMA, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
@@ -773,8 +773,8 @@ export interface CaseTypeMeta { at: string; count: number; types: CaseType[] }
 export async function runCaseTypeCensus(deps: { store: Store; mailer: Mailer; portal: Portal }): Promise<{ changed: boolean; count: number }> {
   const { store, mailer, portal } = deps;
   const live = await portal.listCaseTypes();
-  if (live.length < 50) throw new Error(`case-type list looks truncated: ${live.length} rows`); // never roll the snapshot forward on a partial read
   const prev = await store.getMeta<CaseTypeMeta>('caseTypes').catch(() => null);
+  assertCaseTypeListComplete(live.length, prev?.count ?? null); // never roll the snapshot forward on a partial read
   const delta = diffCaseTypes(prev?.types ?? null, live);
   const changed = caseTypesChanged(delta);
   const summary = summarizeCaseTypes(delta);

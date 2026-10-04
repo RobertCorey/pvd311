@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml } from '../src/casetypes';
+import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, assertCaseTypeListComplete, CASE_TYPE_FLOOR } from '../src/casetypes';
 import { CATEGORIES, GROUP_CATCH_ALL, GROUP_ORDER } from '../../shared/categories';
 
 const census = JSON.parse(readFileSync(new URL('../../scripts/case-type-census-2026-08-21.json', import.meta.url), 'utf8')) as { caseTypes: { id: string; name: string }[] };
@@ -77,5 +77,20 @@ describe('diffCaseTypes', () => {
   it('whitespace-only name differences are not renames', () => {
     const d = diffCaseTypes(live, live.map((t) => ({ ...t, name: `  ${t.name}  ` })));
     expect(d.renamed).toEqual([]);
+  });
+});
+
+describe('census completeness guard (a partial read never becomes the snapshot)', () => {
+  it('rejects a page-1-only / 5-page read even with no previous snapshot', () => {
+    expect(() => assertCaseTypeListComplete(10, null)).toThrow(/truncated: 10 rows/);
+    expect(() => assertCaseTypeListComplete(50, null)).toThrow(/truncated: 50 rows/); // the 2026-10-04 false alarm passed a `< 50` check
+    expect(CASE_TYPE_FLOOR).toBeGreaterThan(50);
+  });
+  it('rejects a drop of more than a fifth against the last snapshot; accepts the real list and small churn', () => {
+    expect(() => assertCaseTypeListComplete(100, 128)).toThrow(/100 rows vs 128/);
+    expect(() => assertCaseTypeListComplete(128, 128)).not.toThrow();
+    expect(() => assertCaseTypeListComplete(126, 128)).not.toThrow();
+    expect(() => assertCaseTypeListComplete(140, 128)).not.toThrow();
+    expect(() => assertCaseTypeListComplete(128, null)).not.toThrow();
   });
 });

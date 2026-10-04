@@ -243,6 +243,21 @@ describe('portal simulator — happy path', () => {
     expect(s.step1Posts).toBe(0); // canary never clicks Next
   });
 
+  it('listCaseTypes reads EVERY page of the lookup modal (126 types over 13 pages; the table empties while a page loads) and is non-mutating', async () => {
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    const types = await portal.listCaseTypes();
+    await portal.close();
+
+    expect(types.length).toBe(126); // the whole Aug-21 census, not just page 1 (2026-10-04: 50 of 128 → "78 removed")
+    expect(new Set(types.map((t) => t.id)).size).toBe(126);
+    expect(types.map((t) => t.name)).toContain('Zoning Violation Concerns'); // last page
+    expect(types.map((t) => t.name)).toContain('Pothole Report');
+    const s = sim.snapshot();
+    expect(s.step1Posts).toBe(0);
+    expect(s.casesCreated).toBe(0);
+  });
+
   it('scout fills an unmapped control (noise → cop_noisesource) and the value is applied on submit', async () => {
     const scout = vi.fn(async () => ({ values: { cop_noisesource: 'Residence' }, confidence: 0.9, notes: 'residential complaint' }));
     const report = makeReport({ category: 'noise', extra: null, photo: null });

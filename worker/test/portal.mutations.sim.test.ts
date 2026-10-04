@@ -117,6 +117,14 @@ describe('portal simulator — mutation / drift suite (must fail loud, never a g
     expect(s.submitPosts).toBe(1);
   });
 
+  it('lookup-modal pager stalls (page 2 never renders) → listCaseTypes throws, never a short list', async () => {
+    sim.mutate('lookup-pager-stall');
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    await expect(portal.listCaseTypes()).rejects.toThrow(/pager stalled going to page 2 \(10 types read so far\)/);
+    await portal.close();
+  });
+
   it('the sim saw ZERO created cases across the whole suite state after a reset', async () => {
     sim.reset();
     expect(sim.snapshot().casesCreated).toBe(0);

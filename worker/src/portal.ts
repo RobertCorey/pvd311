@@ -891,8 +891,14 @@ class WorkerPortal implements Portal {
 
   /**
    * Read the full case-type list from the Step-1 lookup modal (every page), read-only: no selection, no Next,
-   * so no draft is created. Rows carry data-id (GUID) + data-name. Pager: `.modal.in ul.pagination li button`
-   * (13 pages × 10 live); we stop when the Next control is absent/disabled or a page repeats. Cap 25 pages.
+   * so no draft is created. Rows carry data-id (GUID) + data-name.
+   *
+   * Pager (live, 13 pages × 10): `.modal.in ul.pagination` with numbered `a[data-page="N"]` links, `li.active`
+   * on the current page, and prev/next anchors. Clicking a page link flips `li.active` at once and EMPTIES the
+   * table until the page's rows arrive (~0.3 s locally, longer on Browser Rendering) — a fixed sleep raced that
+   * on 2026-10-04 and read 50 of 128 types ("78 removed"). The next/prev anchors also lose their aria-label +
+   * class after the first flip, so we key on the numbered link for active+1 and wait for the rows to land.
+   * A page that never renders is a stalled read → throw; the census never rolls forward on a partial list.
    */
   async listCaseTypes(): Promise<{ id: string; name: string }[]> {
     const page = this.getPage();
@@ -906,16 +912,28 @@ class WorkerPortal implements Portal {
       id: (r.getAttribute('data-id') ?? '').replace(/[{}]/g, '').toLowerCase(),
       name: r.getAttribute('data-name') ?? (r.querySelector('td')?.textContent ?? '').trim(),
     })));
-    for (let i = 0; i < 25; i++) {
-      await page.waitForTimeout(400);
+    const activePage = () => page.$eval('.modal.in ul.pagination li.active a[data-page]', (a) => Number(a.getAttribute('data-page'))).catch(() => null);
+    for (let i = 0; i < 30; i++) {
       const rows = await readPage();
-      let fresh = 0;
-      for (const r of rows) if (r.id && !out.has(r.id)) { out.set(r.id, r.name); fresh++; }
-      if (!fresh) break;
-      const next = page.locator('.modal.in ul.pagination li:not(.disabled) a[aria-label*="Next" i], .modal.in ul.pagination li:not(.disabled) button[aria-label*="Next" i], .modal.in ul.pagination li:not(.disabled) button:has-text(">")').first();
-      if (!(await next.isVisible().catch(() => false))) break;
+      for (const r of rows) if (r.id) out.set(r.id, r.name);
+      const active = await activePage();
+      if (active == null) break; // no pager (single page)
+      const want = active + 1;
+      const next = page.locator(`.modal.in ul.pagination li:not(.disabled) a[data-page="${want}"]`).first();
+      if (!(await next.count())) break; // last page
+      const before = rows[0]?.id ?? '';
       await next.click();
-      await page.waitForTimeout(900);
+      await page
+        .waitForFunction(
+          ({ want, before }) => {
+            const a = document.querySelector('.modal.in ul.pagination li.active a[data-page]');
+            const r = document.querySelector('.modal.in table tbody tr[data-id]');
+            return Number(a?.getAttribute('data-page')) === want && !!r && (r.getAttribute('data-id') ?? '').replace(/[{}]/g, '').toLowerCase() !== before;
+          },
+          { want, before },
+          { timeout: 20_000 },
+        )
+        .catch(() => { throw new Error(`case-type lookup pager stalled going to page ${want} (${out.size} types read so far)`); });
     }
     await page.locator('.modal.in .cancel.btn, .modal.in button[aria-label="Cancel"]').first().click().catch(() => {});
     return [...out].map(([id, name]) => ({ id, name }));
