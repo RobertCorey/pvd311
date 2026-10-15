@@ -20,7 +20,7 @@ crons = ["* * * * *", "*/30 * * * *", "0 11 * * *"]
 PORTAL_BASE_URL = "https://311.providenceri.gov"
 APP_NAME = "FixMyPVD"
 HITL_MODE = "ramp"                 # per-account trust ramp (first ACCOUNT_TRUST_N reports per account reviewed, then auto); "review" = panic switch
-ACCOUNT_TRUST_N = "3"
+ACCOUNT_TRUST_N = "1"
 ADMIN_EMAILS = "robertbcorey@gmail.com"
 RECONCILE_ENABLED = "1"          # watcher: adopt/stranded/missing pass against My Requests (docs/engine-sync.md rule 7)
 DRIFT_CANARY_ENABLED = "1"       # nightly Step-3 golden diff on the designated canary draft (meta/canaryDraft); first live dump mints the baseline
