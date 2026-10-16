@@ -50,7 +50,7 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
 export async function handleApi(request: Request, env: Env, deps: ApiDeps): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/')) return null;
-  if (url.pathname === '/api/status') return null; // ops endpoint, handled in index.ts (token-gated)
+  if (url.pathname === '/api/status' || url.pathname === '/api/deploy-hold') return null; // ops endpoints, handled in index.ts (token-gated)
   const cors = corsHeaders(env, request.headers.get('origin'));
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {

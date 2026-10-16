@@ -66,6 +66,11 @@ describe('tracking projection', () => {
 });
 
 describe('feed + nearby', () => {
+  it('token-gated ops endpoints fall through to index.ts (2026-10-16: /api/deploy-hold 404ed here, so the deploy guard could not hold)', async () => {
+    expect(await get('/api/status')).toBeNull();
+    expect(await handleApi(new Request('https://api.test/api/deploy-hold?seconds=120', { method: 'POST' }), env, { store: mockStore() })).toBeNull();
+  });
+
   it('public-feed and anonymous follow are gone (they leaked tracking ids / allowed email spam)', async () => {
     expect((await get('/api/public-feed'))!.status).toBe(404);
     const r = await handleApi(new Request('https://api.test/api/reports/abc123456789/follow', { method: 'POST', body: '{"email":"x@y.z"}', headers: { 'content-type': 'application/json' } }), env, { store: mockStore() });
