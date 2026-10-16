@@ -139,6 +139,7 @@ export interface SubmitResult {
   caseIdConfirmed?: boolean;  // false → recorded as submitted-unconfirmed; watcher reconciles by GUID
   alreadyFiled?: boolean;     // check-before-create found the draft already converted; no wizard run
   caseIdCandidate?: string;   // PVD number read from the draft (input#title) before Submit
+  leftBlank?: string[];       // optional city questions the scout was unsure of — left blank, named in the description
 }
 
 /** portal.ts — the wizard driver on @cloudflare/playwright. One instance per cron tick; always close(). */

@@ -63,6 +63,8 @@ interface SimState {
   sessions: Map<string, WizardSession>;
   mutations: Map<string, Mutation>;
   submitPosts: number;
+  /** What the last AJAX submit carried: the description + every cop_* control's value (blank = left unanswered). */
+  lastSubmit: { description: string; fields: Record<string, string> } | null;
   casesCreated: number;
   step1Posts: number;
   step2Posts: number;
@@ -104,6 +106,7 @@ function freshState(): SimState {
     sessions: new Map(),
     mutations: new Map(),
     submitPosts: 0,
+    lastSubmit: null,
     casesCreated: 0,
     step1Posts: 0,
     step2Posts: 0,
@@ -439,7 +442,13 @@ const STEP3_SUBMIT_JS = `
   if (!btn) return;
   btn.addEventListener('click', function(){
     var entityId = (document.getElementById('EntityFormView_EntityID') || {}).value || '';
-    fetch('/submit', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ entityId: entityId }) })
+    var fields = {};
+    document.querySelectorAll('#step3form [id^="cop_"]').forEach(function(el){
+      if (el.type === 'radio') { if (el.checked) fields[el.name] = el.value; else if (!(el.name in fields)) fields[el.name] = ''; }
+      else fields[el.id] = el.value || '';
+    });
+    var description = (document.getElementById('description') || {}).value || '';
+    fetch('/submit', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ entityId: entityId, description: description, fields: fields }) })
       .then(function(r){ if (r.status !== 200) throw new Error('status ' + r.status); return r.json(); })
       .then(function(j){ window.location.href = '/my-requests/New-Request/confirmation?case=' + encodeURIComponent(j.caseId || ''); })
       .catch(function(){
@@ -622,7 +631,7 @@ export interface Sim {
   close(): Promise<void>;
   reset(): void;
   mutate(name: string, params?: Record<string, string>): void;
-  snapshot(): { submitPosts: number; casesCreated: number; step1Posts: number; step2Posts: number; signInPosts: number; mutations: string[]; cases: GridRow[] };
+  snapshot(): { submitPosts: number; lastSubmit: SimState['lastSubmit']; casesCreated: number; step1Posts: number; step2Posts: number; signInPosts: number; mutations: string[]; cases: GridRow[] };
 }
 
 export async function startSim(): Promise<Sim> {
@@ -754,7 +763,11 @@ export async function startSim(): Promise<Sim> {
       if (path === '/submit' && req.method === 'POST') {
         const raw = await readBody(req);
         let entityId = '';
-        try { entityId = JSON.parse(raw || '{}').entityId || ''; } catch { /* ignore */ }
+        try {
+          const body = JSON.parse(raw || '{}');
+          entityId = body.entityId || '';
+          state.lastSubmit = { description: String(body.description ?? ''), fields: body.fields ?? {} };
+        } catch { /* ignore */ }
         state.submitPosts++;
 
         if (state.mutations.has('submit-500')) {
@@ -799,7 +812,7 @@ export async function startSim(): Promise<Sim> {
     reset: () => { state = freshState(); },
     mutate: (name, params = {}) => state.mutations.set(name, { name, params }),
     snapshot: () => ({
-      submitPosts: state.submitPosts, casesCreated: state.casesCreated,
+      submitPosts: state.submitPosts, lastSubmit: state.lastSubmit, casesCreated: state.casesCreated,
       step1Posts: state.step1Posts, step2Posts: state.step2Posts, signInPosts: state.signInPosts,
       mutations: [...state.mutations.keys()], cases: state.cases.slice(),
     }),

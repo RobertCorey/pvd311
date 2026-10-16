@@ -302,7 +302,26 @@ describe('portal simulator — happy path', () => {
     expect(call.controls.map((c: any) => c.id)).toContain('cop_noisesource');
     expect(call.caseTypeName).toBe('Noise or Sound Disturbances');
     expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+    expect(res.leftBlank).toBeUndefined();
     expect(sim.snapshot().casesCreated).toBe(1);
+    expect(sim.snapshot().lastSubmit?.fields.cop_noisesource).toBeTruthy();
+  });
+
+  it('scout unsure (confidence < 0.7; PVD2026-90091 stalled this way): files anyway — the question is left blank and named in the description', async () => {
+    const scout = vi.fn(async () => ({ values: { cop_noisesource: 'Residence' }, confidence: 0.4, notes: 'source not stated' }));
+    const report = makeReport({ category: 'noise', extra: null, photo: null });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout });
+    await portal.launch();
+    const res = await portal.submitReport(report, { mode: 'live' });
+    await portal.close();
+
+    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+    expect(res.scouted).toBeUndefined();
+    expect(res.leftBlank).toHaveLength(1);
+    const s = sim.snapshot();
+    expect(s.casesCreated).toBe(1);
+    expect(s.lastSubmit?.fields.cop_noisesource ?? '').toBe(''); // the unsure guess never reached the city
+    expect(s.lastSubmit?.description).toContain(`Not specified by the reporter: ${res.leftBlank![0]}.`);
   });
 
   it('exposes the /_sim control endpoints over HTTP', async () => {

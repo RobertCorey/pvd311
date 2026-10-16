@@ -185,6 +185,7 @@ async function submitOne(
     await store.updateReportStatus(report.id, 'submitted', detail, result.caseId);
     await store.patchReport(report.id, { caseIdPending: !result.caseId, portalEntityId: result.entityId ?? report.portalDraft?.entityId ?? null, portalCaseIdCandidate: result.caseIdCandidate ?? report.portalDraft?.caseId ?? null });
     if (result.alreadyFiled) await logEvent(store, { level: 'warn', kind: 'submit.already_filed', msg: detail, reportId: report.id });
+    if (result.leftBlank?.length) await logEvent(store, { level: 'warn', kind: 'submit.left_blank', msg: `Filed with city question(s) left blank (scout unsure): ${result.leftBlank.join(', ')}`, reportId: report.id, data: { leftBlank: result.leftBlank } });
     if (!result.caseId) await logEvent(store, { level: 'warn', kind: 'submit.unconfirmed', msg: 'Portal accepted the submission but no case number was read; watcher will reconcile', reportId: report.id });
     await store.setMeta('engine', {
       submissionTimestamps: [...stamps, Date.now()].slice(-50),

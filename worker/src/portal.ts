@@ -43,7 +43,7 @@ const UA =
 /** How the city should send updates (#cop_methodofupdate). '585680002' Email → the account's contact address, which is the
  *  relay inbox (relay.ts) once PORTAL_NOTIFY_METHOD is set; default '585680003' No Contact Necessary. */
 const DEFAULT_NOTIFICATION_METHOD = '585680003';
-/** Scout confidence below this parks the report for review (NEEDS_REVIEW). */
+/** Scout confidence below this leaves the unsure questions blank (named in the description) rather than guessing. */
 const SCOUT_MIN_CONFIDENCE = 0.7;
 
 const STEP1_SELECTORS: Record<string, string> = {
@@ -492,7 +492,8 @@ class WorkerPortal implements Portal {
     if (!cat) throw new Error(`Unknown category: ${report.category}`);
 
     // Description
-    await page.fill('#description', buildDescription(report, this.env.APP_NAME));
+    const description = buildDescription(report, this.env.APP_NAME);
+    await page.fill('#description', description);
 
     // Conditional fields: known mappings first, then the agent scout for anything left visible.
     // dumpControls() now returns hidden controls too (for the drift canary); only fill the ones the
@@ -513,6 +514,7 @@ class WorkerPortal implements Portal {
     }
 
     let scouted: Record<string, string> | undefined;
+    let leftBlank: string[] | undefined;
     if (unmapped.length && mode === 'live') {
       const scout = this.deps.scout ?? defaultScoutFields;
       const result = await scout({
@@ -522,16 +524,18 @@ class WorkerPortal implements Portal {
         report,
         controls: unmapped,
       });
-      scouted = result.values;
-      for (const c of unmapped) {
-        const v = scouted[c.id];
-        if (v !== undefined) await this.setControl(c, v);
-      }
-      if (result.confidence < SCOUT_MIN_CONFIDENCE) {
-        throw new Error(
-          `NEEDS_REVIEW: scout confidence ${result.confidence} below ${SCOUT_MIN_CONFIDENCE} for ` +
-            `${unmapped.map((c) => c.id).join(', ')} — ${result.notes}`,
-        );
+      if (result.confidence >= SCOUT_MIN_CONFIDENCE) {
+        scouted = result.values;
+        for (const c of unmapped) {
+          const v = scouted[c.id];
+          if (v !== undefined) await this.setControl(c, v);
+        }
+      } else {
+        // File first, quality later (Rob, 2026-10-16): the city marks none of its Step-3 questions required
+        // (only max-length validators; its show/hide script never sets one), so an unsure guess is left
+        // blank and named in the description instead of parking the report (PVD2026-90091 stalled this way).
+        leftBlank = unmapped.map((c) => c.label || c.id);
+        await page.fill('#description', `${description}\n\nNot specified by the reporter: ${leftBlank.join(', ')}.`);
       }
     }
 
@@ -594,11 +598,11 @@ class WorkerPortal implements Portal {
       // unconfirmed (engine: submitted + caseIdPending); the watcher confirms it by the draft's PVD number, and
       // requeues it if the portal still shows a Draft. Throwing here would retry and could file it twice.
       const proofPath = await this.saveProof(opts, report.id, 'submit-unconfirmed');
-      return { mode, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: false, caseIdCandidate: candidate ?? undefined };
+      return { mode, proofPath, controls, scouted, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: false, caseIdCandidate: candidate ?? undefined };
     }
     const caseId = await this.extractCaseId(candidate);
     const proofPath = await this.saveProof(opts, report.id, caseId ?? 'submitted');
-    return { mode, caseId, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };
+    return { mode, caseId, proofPath, controls, scouted, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };
   }
 
   // ── Proof ──────────────────────────────────────────────────
