@@ -121,6 +121,9 @@ export interface Report {
   /** Set when the reporter cancelled a still-pending report from the app (status becomes 'rejected'). */
   cancelledByReporter?: boolean | null;
 
+  /** Reporter-quota buckets this report was counted in (worker/src/quota.ts); a reporter cancel refunds them. */
+  quotaSlot?: { key: string; ipKey: string | null; day: string; week: string; refundedAt?: string } | null;
+
   /** Optional reporter name */
   reporterName: string | null;
 

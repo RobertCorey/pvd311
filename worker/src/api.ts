@@ -1,6 +1,6 @@
 /**
  * Public app API — the ONLY thing the client talks to. No Firebase SDK in the client.
- *   POST /api/report      multipart → creates the report (account REQUIRED: Firebase ID token; Turnstile-verified; paced per uid + IP)
+ *   POST /api/report      multipart → creates the report (account REQUIRED: Firebase ID token; Turnstile-verified; reporter quota per mailbox + IP, quota.ts)
  *   POST /api/auth/link   JSON → Worker-minted sign-in link by email (authmail.ts)
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
@@ -21,11 +21,10 @@ import { moderate } from './moderation.js';
 import { handleAdmin, isAdmin } from './adminapi.js';
 import { logEvent, markOk } from './health.js';
 import { recordUi } from './ui.js';
+import { checkQuota, type QuotaSlot } from './quota.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
-const PACE_MS = 3 * 60_000;       // one report per device per 3 min
-const DAILY_CAP = 5;              // per device per day
 const INTAKE_PER_MIN = 10;        // per IP per minute (durable, Firestore meta)
 const INTAKE_PER_DAY_GLOBAL = 1500; // hard cap on AI spend per UTC day, all callers
 
@@ -103,36 +102,7 @@ async function verifyTurnstile(env: Env, token: string | null, ip: string): Prom
   return !!d.success;
 }
 
-/** Pacing per account (uid) and per IP, persisted in Firestore meta (low volume → fine).
- *  Two phases so a rejection by one key never consumes the other's budget: peek all, then commit all. */
-type PaceRec = { last: number; day: string; count: number };
-const paceId = (key: string) => `pace_${key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120)}`;
-async function checkPace(store: Store, keys: string[]): Promise<{ ok: boolean; retryAfterSec: number }> {
-  const now = Date.now();
-  const today = new Date().toISOString().slice(0, 10);
-  const recs: { id: string; rec: PaceRec; count: number }[] = [];
-  for (const key of keys) {
-    const id = paceId(key);
-    const rec = (await store.getMeta<PaceRec>(id)) ?? { last: 0, day: '', count: 0 };
-    const count = rec.day === today ? rec.count : 0;
-    if (now - rec.last < PACE_MS) return { ok: false, retryAfterSec: Math.ceil((PACE_MS - (now - rec.last)) / 1000) };
-    if (count >= DAILY_CAP) return { ok: false, retryAfterSec: 3600 };
-    recs.push({ id, rec, count });
-  }
-  for (const { id, count } of recs) await store.setMeta(id, { last: now, day: today, count: count + 1 });
-  return { ok: true, retryAfterSec: 0 };
-}
-
-/** One budget per mailbox, not per uid: strip +tags, lowercase, and collapse gmail dots. */
-export function paceIdentity(uid: string, email: string | null | undefined): string {
-  if (!email) return uid;
-  const m = /^([^@]+)@(.+)$/.exec(email.trim().toLowerCase());
-  if (!m) return uid;
-  let local = m[1].replace(/\+.*$/, '');
-  const domain = m[2];
-  if (domain === 'gmail.com' || domain === 'googlemail.com') local = local.replace(/\./g, '');
-  return `${local}@${domain}`;
-}
+export { paceIdentity } from './quota.js'; // re-exported: tests + older imports
 
 const intakeHits = new Map<string, number[]>();
 /** Fast in-isolate check, then a durable per-IP-per-minute + global-per-day check in Firestore meta
@@ -201,10 +171,12 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   if (!hasPhoto && cat.photoRequired !== false) return json({ error: 'photo_required', field: 'photo' }, 400);
   if (hasPhoto && (photo.size > 5 * 1024 * 1024 || !/^image\//.test(photo.type))) return json({ error: 'invalid_photo', field: 'photo' }, 400);
 
-  // Pace per account and per IP (IP is the backstop against many accounts from one box)
+  // Reporter quota (docs/quota.md): per mailbox, plus a loose per-IP backstop. Every accepted report counts.
+  let quotaSlot: QuotaSlot;
   {
-    const p = await checkPace(store, [`u_${paceIdentity(account.uid, account.email)}`, `ip_${ip}`]);
-    if (!p.ok) return json({ error: 'rate_limited', retryAfterSec: p.retryAfterSec }, 429, { 'retry-after': String(p.retryAfterSec) });
+    const q = await checkQuota(store, { uid: account.uid, email: account.email, ip, raised: account.quotaRaised === true });
+    if (!q.ok) return json({ error: 'rate_limited', reason: q.reason, retryAfterSec: q.retryAfterSec, quota: q.quota }, 429, { 'retry-after': String(q.retryAfterSec) });
+    quotaSlot = q.slot;
   }
 
   const id = newId();
@@ -220,7 +192,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     extra, intakeFlags, photo: photoUrl, reporterName: null, reporterEmail: email,
     status: 'pending', statusDetail: null, portalCaseId: null, statusUpdatedAt: now,
     ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
-    ownerUid: account.uid,
+    ownerUid: account.uid, quotaSlot,
   });
   await logEvent(store, { level: 'info', kind: 'report.created', msg: `${cat.label} @ ${address}${intakeFlags?.length ? ` (client flags: ${intakeFlags.join(',')})` : ''}`, reportId: id, data: { category, hasPhoto, appVersion: f('appVersion').slice(0, 40) || null } });
   await markOk(store, 'api', `report ${category}`);

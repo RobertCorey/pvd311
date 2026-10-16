@@ -4,7 +4,7 @@ Base: `https://pvd311-worker.pvd311-worker.workers.dev` (custom domain at launch
 Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 400/403/404/429/500. The client never blocks on intake errors.
 
 ## POST /api/report — create a report
-**Requires an account**: `Authorization: Bearer <Firebase ID token>` (see Accounts) → 401 `auth_required` without one. The report's `ownerUid` and `reporterEmail` come from the token (email only when the account's `prefs.emailUpdates` is on). Pacing is per account (1 per 3 min, 5 per day) plus per IP.
+**Requires an account**: `Authorization: Bearer <Firebase ID token>` (see Accounts) → 401 `auth_required` without one. The report's `ownerUid` and `reporterEmail` come from the token (email only when the account's `prefs.emailUpdates` is on). Reporter quota (docs/quota.md, worker/src/quota.ts): per mailbox 5/day + 15/week (admin-raised: 20/60), 60 s between reports; per IP 30/day. Days reset 00:00 America/New_York, weeks Monday 00:00 ET. Every accepted report counts; a reporter cancel before filing refunds its day + week.
 `multipart/form-data`:
 | field | rules |
 |---|---|
@@ -22,7 +22,7 @@ Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 40
 | `photo` | image/*, ≤ 5 MB; required unless the category has `photoRequired:false`. Client should compress to ≤ ~300 KB. |
 
 201 → `{ id, trackingUrl: "/r/{id}", category, createdAt }`. `id` is the tracking token (22 chars, unguessable).
-Errors: `auth_required` (401), `invalid_category`, `invalid_address`, `too_long`, `lat_lng_pair`, `invalid_coords`, `outside_providence`, `invalid_extra`, `photo_required`, `invalid_photo`, `turnstile_failed` (403), `rate_limited` (429).
+Errors: `auth_required` (401), `invalid_category`, `invalid_address`, `too_long`, `lat_lng_pair`, `invalid_coords`, `outside_providence`, `invalid_extra`, `photo_required`, `invalid_photo`, `turnstile_failed` (403), `rate_limited` (429: `{ error, reason: 'gap'|'day'|'week'|'ip', retryAfterSec, quota }`, `quota` as in `GET /api/me`).
 
 ## POST /api/intake — moderation + optional wording cleanup (AI)
 JSON `{ category|null, description, address, extra?, hasPhoto, appVersion }` →
@@ -51,7 +51,7 @@ The /map page was cut, and the feed exposed every report's tracking id (the id i
 Anonymous follow let anyone subscribe any email to any report. Use `PUT /api/me/following/:id` (account required).
 
 ## GET /api/me
-`{ uid, email, emailVerified, displayName, provider, prefs: { emailUpdates }, addresses: [{ id, label, address, lat, lng }], following: [id], createdAt }`. Creates the user doc on first call.
+`{ uid, email, emailVerified, displayName, provider, prefs: { emailUpdates }, addresses: [{ id, label, address, lat, lng }], following: [id], createdAt, quota: { dayUsed, dayLimit, weekUsed, weekLimit, dayResetsAt, weekResetsAt, nextAllowedAt, raised } }`. Creates the user doc on first call. `quota` times are ISO UTC; `nextAllowedAt` is null when a report would be accepted now (the per-IP backstop is not reflected).
 
 ## PATCH /api/me
 JSON `{ displayName?: string|null, prefs?: { emailUpdates?: boolean } }` → the `GET /api/me` shape. `emailUpdates:false` silences city-status mail for own + followed reports.
@@ -94,7 +94,7 @@ Requires a Firebase ID token whose email is in the Worker var `ADMIN_EMAILS`, ve
 - `GET /api/admin/overview` → `{ engine: { paused, consecutiveFailures, submissionsThisHour, lastSubmissionTime, hitlMode, accountTrustN }, awaitingReview[], failed[], pending[], submitted7d[] }` — items are the admin projection (includes `description`, `descriptionOriginal`, `intakeFlags`, `reporterEmail`, `review`, `retries`, `statusDetail`).
 - `GET /api/admin/reports/:id` → admin projection.
 - `POST /api/admin/reports/:id/approve` (awaiting_review|pending) · `/reject` (awaiting_review|pending|failed; JSON `{ reason? }` — the reporter gets a short email, with the reason if given) · `/requeue` (failed) → updated projection; 409 `{ error, status }` if the state doesn't allow it.
-- `GET /api/admin/users/:uid` → `{ uid, email, provider, trusted, submitted, rejected, createdAt }` · `POST /api/admin/users/:uid/trust` `{ trusted: boolean }` → same shape. `trusted` overrides the ramp (auto-approve) — flags still force review.
+- `GET /api/admin/users/:uid` → `{ uid, email, provider, trusted, quotaRaised, submitted, rejected, createdAt }` · `POST /api/admin/users/:uid/trust` `{ trusted: boolean }` → same shape. `trusted` overrides the ramp (auto-approve) — flags still force review. · `POST /api/admin/users/:uid/quota` `{ raised: boolean }` → same shape; writes `users/{uid}.quotaRaised` (+ `quotaRaisedBy`/`quotaRaisedAt`) and an `admin.quota` event.
 - `POST /api/admin/engine/resume` · `/pause` → `{ ok, paused }`.
 - `POST /api/admin/canary/golden/:category/rebaseline` — JSON `{ controls }` replaces the live Step-3 golden for that category; no body clears it so the next live dump re-mints. Returns the canary status block.
 - `GET /api/admin/reports?status&category&q&before&limit=50` → `{ items: [admin projection], next }` — every report, newest first; `q` is a case-insensitive substring over id/address/description/reporter email/case id/status detail (scans up to 10× limit); `before` = `createdAt` cursor from `next`.
@@ -105,5 +105,5 @@ Requires a Firebase ID token whose email is in the Worker var `ADMIN_EMAILS`, ve
 - `GET /api/admin/explain` → `{ sections: [{ key, title, summary, details[], live?, links? }] }` — the "how it works" content for the Learn tabs (pipeline, hitl, moderation, portal, sync, email, health, data), generated from the code that enforces it.
 - `GET /api/admin/health?events=100` → system visibility for the /admin "System" view:
   `{ generatedAt, overall: 'ok'|'warn'|'error', engine: { paused, consecutiveFailures, submissionsThisHour, lastSubmissionTime, locked, hitlMode, accountTrustN, reporterEmailEnabled }, subsystems: [{ key, label, what, status: 'ok'|'warn'|'error'|'unknown', lastOkAt, lastErrorAt, lastError, lastDetail, okToday, errToday, expectedEvery }], counts: { pending, awaiting_review, processing, submitted, failed, rejected, 'auto-rejected' }, users, ai: { intakeToday, dailyCap }, cityFeed: { fetchedAt, items }, canary: { enabled, categories: [{ category, goldenSource: 'live'|'sim'|null, goldenAt, lastLiveAt, drifted }] }, sync: { status: 'ok'|'warn'|'error', caseIdPending, caseIdPendingOldestAt, reconcile: { at, scanned, adopted, stranded, missing (counts), ids: { adopted[], stranded[], missing[] } (PVD numbers, ≤50 each), error } | null }, events: [{ id, at, level: 'info'|'warn'|'error', kind, msg, reportId, data }] }`.
-  Subsystems: tick (engine cron, expected every minute), submit (portal filing), watcher (30 min), cityfeed, canary (daily), daily, email, ai, auth_mail, api. Status is derived from heartbeat freshness (`expectedEvery` is a human string like "every 30 min" / "daily, 7 am"; null for on-demand subsystems) and whether the last error is newer than the last OK. Events are kept 14 days; kinds: report.created, hitl.requested/approved/rejected, submit.ok/failed, tick.reaped/auto_rejected, engine.breaker, watcher.status, canary.drift, retention.photo_deleted, auth.link_sent, admin.pause/resume/trust.
+  Subsystems: tick (engine cron, expected every minute), submit (portal filing), watcher (30 min), cityfeed, canary (daily), daily, email, ai, auth_mail, api. Status is derived from heartbeat freshness (`expectedEvery` is a human string like "every 30 min" / "daily, 7 am"; null for on-demand subsystems) and whether the last error is newer than the last OK. Events are kept 14 days; kinds: report.created, hitl.requested/approved/rejected, submit.ok/failed, tick.reaped/auto_rejected, engine.breaker, watcher.status, canary.drift, retention.photo_deleted, auth.link_sent, admin.pause/resume/trust/quota.
 The token-in-URL `/admin` page is retired once the app screen ships.

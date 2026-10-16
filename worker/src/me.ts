@@ -2,7 +2,7 @@
  * me.ts — account endpoints (/api/me/*) + owner-only report actions. Every handler here runs AFTER
  * auth.ts verified a Firebase ID token; the public tracking reads in api.ts need none.
  *
- *   GET    /api/me                      profile + prefs + saved addresses + following (upserts users/{uid})
+ *   GET    /api/me                      profile + prefs + saved addresses + following + reporter quota (upserts users/{uid})
  *   PATCH  /api/me                      { displayName?, prefs? }
  *   GET    /api/me/reports              reports owned by this account (newest first)
  *   GET    /api/me/following            followed reports
@@ -11,10 +11,11 @@
  *   PUT    /api/me/addresses            { id?, label, address, lat?, lng? } → { addresses }
  *   DELETE /api/me/addresses/:id        → { addresses }
  *   PATCH  /api/reports/:id             { description } owner-only, while still pending
- *   POST   /api/reports/:id/cancel      owner-only, while still pending → status 'rejected' ("Cancelled by reporter")
+ *   POST   /api/reports/:id/cancel      owner-only, while still pending → status 'rejected' ("Cancelled by reporter"); refunds its quota slot
  */
 import type { Env, ReportDoc, SavedAddress, Store, UserDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
+import { quotaFor, refundQuota, type QuotaView } from './quota.js';
 
 export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown>; admin?: boolean }
 export interface Viewer { uid: string; following: Set<string> }
@@ -48,12 +49,14 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
   return doc;
 }
 
-function projectMe(u: UserDoc, admin = false) {
+function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
   return {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
     prefs: { emailUpdates: u.prefs?.emailUpdates !== false }, addresses: u.addresses ?? [], following: u.following ?? [], createdAt: u.createdAt,
+    quota,
   };
 }
+const meQuota = (store: Store, u: UserDoc) => quotaFor(store, u.uid, u.email, u.quotaRaised === true);
 
 export async function handleMe(request: Request, url: URL, env: Env, deps: MeDeps, auth: AuthUser): Promise<Response> {
   const { store } = deps;
@@ -63,7 +66,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   const viewer: Viewer = { uid: user.uid, following: new Set(user.following ?? []) };
 
   if (path === '/api/me') {
-    if (m === 'GET') return json(projectMe(user, !!deps.admin));
+    if (m === 'GET') return json(projectMe(user, !!deps.admin, await meQuota(store, user)));
     if (m === 'PATCH') {
       const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown } } | null;
       if (!body) return json({ error: 'invalid_body' }, 400);
@@ -74,7 +77,8 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
       }
       if (body.prefs && typeof body.prefs === 'object' && 'emailUpdates' in body.prefs) patch['prefs.emailUpdates'] = body.prefs.emailUpdates === true;
       if (Object.keys(patch).length) await store.patchUser(user.uid, patch);
-      return json(projectMe((await store.getUser(user.uid)) ?? user, !!deps.admin));
+      const fresh = (await store.getUser(user.uid)) ?? user;
+      return json(projectMe(fresh, !!deps.admin, await meQuota(store, fresh)));
     }
     return json({ error: 'not_found' }, 404);
   }
@@ -152,7 +156,11 @@ export async function cancelReport(id: string, store: Store, auth: AuthUser): Pr
   // 'processing' = a browser is mid-wizard; never yank it. An earlier attempt's portalDraft is harmless (undeletable anyway).
   if (!EDITABLE.has(r.status)) return json({ error: 'not_cancellable', status: r.status }, 409);
   await store.updateReportStatus(id, 'rejected', 'Cancelled by reporter');
-  await store.patchReport(id, { cancelledByReporter: true, review: { ...(r.review ?? {}), decision: 'rejected', by: 'reporter', decidedAt: new Date().toISOString() } });
+  const now = new Date().toISOString();
+  // A cancel before filing gives the quota slot back (docs/quota.md) — once: the report is no longer cancellable after this.
+  const slot = r.quotaSlot && !r.quotaSlot.refundedAt ? r.quotaSlot : null;
+  await store.patchReport(id, { cancelledByReporter: true, review: { ...(r.review ?? {}), decision: 'rejected', by: 'reporter', decidedAt: now }, ...(slot ? { quotaSlot: { ...slot, refundedAt: now } } : {}) });
+  if (slot) await refundQuota(store, slot);
   return json({ ok: true, status: 'rejected' });
 }
 
