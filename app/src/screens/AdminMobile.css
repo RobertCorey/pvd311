@@ -73,6 +73,16 @@
   .admin-table tbody tr:hover td { background: none; }
   [data-label]::before { content: attr(data-label); display: block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 1px; }
 
+  /* Email: kind · when / subject / who / delivery */
+  .email-table .email-td-kind { grid-column: 1; grid-row: 1; max-width: none; }
+  .email-table .email-td-when { grid-column: 2; grid-row: 1; width: auto; }
+  .email-table .email-td-delivery { width: auto; }
+  .admin-queue.has-pane .email-table .email-td-who { display: block; }
+  .admin-email .usage-range .btn { min-height: 40px; flex: 1 1 0; }
+  .admin-email .email-dir-filter { flex-basis: 100%; }
+  .admin-email .email-dir-filter .usage-range { display: flex; }
+  .admin-email .admin-filter--grow { flex-basis: 100%; }
+
   /* Queue + Reports: category · age / address · case / reporter / flags / status / actions */
   .admin-table--rows tr { grid-template-columns: minmax(0, 1fr) auto; }
   .admin-table--rows tr.is-selected { border-color: var(--ember); background: var(--warn-soft); }

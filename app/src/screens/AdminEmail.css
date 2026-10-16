@@ -1,0 +1,43 @@
+/* /admin → Email tab, and the email lists in the report pane and a person's pane (AdminEmailParts.tsx). */
+.admin-email .admin-filters { align-items: end; }
+.email-totals { margin: 4px 0 10px; }
+.email-trouble { color: var(--danger); }
+
+.email-dir { display: inline-grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 6px; font-weight: 800; font-size: .8rem; line-height: 1; }
+.email-dir--out { background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+.email-dir--in { background: var(--ink); color: var(--bg); }
+
+.email-kind { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 700; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
+.email-kind--ask, .email-kind--ask_reminder, .email-kind--to_city, .email-kind--reply_in { border-color: var(--warn); background: var(--warn-soft); }
+.email-kind--city_in, .email-kind--unmatched_in { border-color: var(--ink); }
+.email-kind--admin_review, .email-kind--admin_alert, .email-kind--admin_digest { color: var(--muted); }
+
+.email-pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 700; border: 1.5px solid var(--line); white-space: nowrap; }
+.email-pill--ok { border-color: var(--success); background: var(--success-soft); }
+.email-pill--warn { border-color: var(--warn); background: var(--warn-soft); }
+.email-pill--error { border-color: var(--danger); background: var(--danger-soft); }
+.email-pill--muted { color: var(--muted); }
+
+.email-table .email-td-when { width: 70px; white-space: nowrap; }
+.email-table .email-td-kind { max-width: 190px; }
+.email-table .email-td-who { max-width: 230px; }
+.email-table .email-td-subject { max-width: none; min-width: 220px; }
+.email-table .email-td-delivery { min-width: 0; width: 1%; white-space: nowrap; }
+.admin-queue.has-pane .email-table .email-td-who { display: none; }
+.admin-queue.has-pane .acct-table td:nth-child(n+6), .admin-queue.has-pane .acct-table th:nth-child(n+6) { display: none; }
+
+/* Compact lists inside a pane */
+.email-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.email-row { display: grid; gap: 2px; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); text-decoration: none; }
+.email-row:hover { border-color: var(--ink); }
+.email-row:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.email-row-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.email-row-when { margin-left: auto; font-size: var(--admin-meta); color: var(--muted); }
+.email-row-subject { font-size: var(--admin-text); line-height: 1.35; overflow-wrap: anywhere; }
+.email-row-who { overflow-wrap: anywhere; }
+
+/* One email */
+.email-subject { font-size: 1.05rem; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.email-pane .admin-pane-head { flex-wrap: wrap; }
+.email-text { margin: 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-family: inherit; font-size: .9rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: none; }
+.user-pane .admin-pane-head strong { min-width: 0; }

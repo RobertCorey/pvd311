@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
-import { adminProofBlobUrl, adminProofs, adminTrust, adminUser, type AdminAction, type AdminProof, type AdminReport, type AdminUser } from '../api/admin';
+import { adminEmails, adminProofBlobUrl, adminProofs, adminTrust, adminUser, type AdminAction, type AdminEmailRow, type AdminProof, type AdminReport, type AdminUser } from '../api/admin';
+import { EmailRows } from './AdminEmailParts';
 import CategoryIcon from '../components/CategoryIcon';
 import { ACTIONS } from './Admin';
 import { When, abs } from './adminUtil';
@@ -20,6 +21,7 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
   const [user, setUser] = useState<AdminUser | null>(null);
   const [trustBusy, setTrustBusy] = useState(false);
   const [raw, setRaw] = useState(false);
+  const [emails, setEmails] = useState<AdminEmailRow[] | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const actions = ACTIONS[r.status] ?? [];
 
@@ -27,6 +29,7 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
     let live = true;
     adminProofs(r.id).then((p) => { if (live) setProofs(p); }).catch(() => { if (live) setProofs([]); });
     if (r.ownerUid) adminUser(r.ownerUid).then((u) => { if (live) setUser(u); }).catch(() => {});
+    adminEmails({ reportId: r.id, limit: 100 }).then((p) => { if (live) setEmails(p.items); }).catch(() => { if (live) setEmails([]); });
     return () => { live = false; };
   }, [r.id, r.ownerUid]);
 
@@ -71,7 +74,7 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
           {r.portalCaseId && <><dt>{t('admin.pane.case')}</dt><dd>{r.portalCaseId}{r.portalStatus ? ` · ${r.portalStatus}` : ''}</dd></>}
           <dt>{t('admin.col.reporter')}</dt>
           <dd>
-            {r.reporterEmail ?? <span className="admin-meta">{t('admin.noEmail')}</span>}
+            {r.ownerUid ? <a href={`#accounts:${encodeURIComponent(r.ownerUid)}`}>{r.reporterEmail ?? r.ownerUid}</a> : r.reporterEmail ?? <span className="admin-meta">{t('admin.noEmail')}</span>}
             {user && <div className="admin-meta">{t('admin.pane.history', { sent: user.submitted, rejected: user.rejected })}{user.trusted ? ` · ${t('admin.pane.trusted')}` : ''}</div>}
           </dd>
           {r.intakeFlags.length > 0 && <><dt>{t('admin.col.flags')}</dt><dd className="admin-flags">{r.intakeFlags.map((f) => <span key={f} className="admin-flag">{f}</span>)}</dd></>}
@@ -95,6 +98,9 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
             </ul>
           </>
         )}
+
+        <h3 className="label">{t('admin.pane.emails', { n: emails?.length ?? 0 })}</h3>
+        {emails == null ? <p className="admin-meta">{t('account.loading')}</p> : <EmailRows items={emails} t={t} showWho />}
 
         <h3 className="label">{t('admin.pane.ids')}</h3>
         <dl className="admin-dl admin-dl--mono">

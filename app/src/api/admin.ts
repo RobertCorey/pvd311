@@ -120,3 +120,34 @@ export interface AdminCityQuestionsItem {
 }
 export interface AdminCityQuestions { generatedAt: string; seed: { generatedAt: string; dump: string; notes: string[] }; items: AdminCityQuestionsItem[] }
 export const adminCityQuestions = () => call<AdminCityQuestions>('/api/admin/city-questions');
+
+// ── Email log (worker/src/emaillog.ts) ─────────────────────────────────────────────
+export type EmailKind =
+  | 'signin_link' | 'filed' | 'status' | 'city_copy' | 'ask' | 'ask_reminder' | 'answer_receipt' | 'not_sent' | 'reporter_other'
+  | 'to_city' | 'admin_review' | 'admin_alert' | 'admin_digest' | 'city_in' | 'reply_in' | 'unmatched_in' | 'dropped_in';
+/** List row: everything but the body (a preview instead). `lastEvent` = Resend delivery state (delivered / bounced …). */
+export interface AdminEmailRow {
+  id: string; at: string; dir: 'in' | 'out'; kind: EmailKind; from: string; to: string[]; subject: string;
+  status: 'sent' | 'failed' | 'skipped' | 'received' | 'dropped'; error: string | null; lastEvent: string | null;
+  reportId: string | null; caseId: string | null; cityKind: string | null; outcome: string | null; source: 'live' | 'import'; preview: string; hasText: boolean;
+}
+export interface AdminEmail extends AdminEmailRow {
+  text: string | null; replyTo: string | null; messageId: string | null; resendId: string | null; lastEventAt: string | null;
+  report: { id: string; categoryLabel: string; address: string; status: string; portalCaseId: string | null; portalStatus: string | null } | null;
+  accounts: { uid: string; email: string | null }[];
+}
+export interface AdminEmailsQuery { dir?: string; kind?: string; q?: string; reportId?: string; uid?: string; before?: string | null; limit?: number }
+export const adminEmails = (p: AdminEmailsQuery = {}) => {
+  const qs = new URLSearchParams(Object.entries(p).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)]));
+  return call<Paged<AdminEmailRow>>(`/api/admin/emails${qs.toString() ? `?${qs}` : ''}`);
+};
+export const adminEmail = (id: string) => call<AdminEmail>(`/api/admin/emails/${encodeURIComponent(id)}`);
+export const adminEmailSync = () => call<{ scanned: number; imported: number; updated: number; unreadable?: boolean; cityImported: number }>('/api/admin/emails/sync', { method: 'POST', body: '{}' });
+
+/** One person: account + their reports + their email (GET /api/admin/users/:uid/profile). */
+export interface AdminProfile {
+  user: Omit<AdminAccount, 'following' | 'awaitingReview'> & { following: string[] };
+  reports: AdminReport[];
+  emails: AdminEmailRow[];
+}
+export const adminProfile = (uid: string) => call<AdminProfile>(`/api/admin/users/${encodeURIComponent(uid)}/profile`);

@@ -125,6 +125,31 @@ export const cityQuestions = () => {
   }).sort((a, b) => b.score - a.score || b.demand - a.demand || a.label.localeCompare(b.label));
   return { generatedAt: new Date().toISOString(), seed: { generatedAt: CQ_SEED.generatedAt, dump: CQ_SEED.source.dump, notes: CQ_SEED.notes }, items };
 };
+// Email log fixtures (worker/src/emaillog.ts shapes): one per kind that matters, linked to report aaaaaaaaaaa3 / account uid_0….
+const em = (id: string, o: Record<string, unknown>) => ({ id, at: mins(30), dir: 'out', kind: 'status', from: 'updates@fixmypvd.org', to: ['resident0@example.com'], subject: 'The city assigned your request (PVD2026-90412)',
+  status: 'sent', error: null, lastEvent: 'delivered', reportId: 'aaaaaaaaaaa3', caseId: 'PVD2026-90412', cityKind: null, outcome: null, source: 'live', preview: 'The city assigned your request…', hasText: true, ...o });
+export const emails = () => ({ items: [
+  em('rs_ask', { at: mins(5), kind: 'ask', subject: 'The city needs more information about your report (PVD2026-90412)', lastEvent: 'delivered' }),
+  em('in_ask', { at: mins(9), dir: 'in', kind: 'city_in', from: 'pvd311@providenceri.gov', to: ['cases@fixmypvd.org'], subject: 'PVD311 needs more information regarding your service request PVD311:0250715', status: 'received', lastEvent: null, cityKind: 'ask', outcome: 'forwarded to 1 recipient (asks the reporter for information)' }),
+  em('rs_city', { at: mins(20), kind: 'to_city', from: 'cases@fixmypvd.org', to: ['pvd311@providenceri.gov'], subject: 'RE: PVD311 needs more information PVD311:0250715 (PVD2026-90412)', lastEvent: 'delivered' }),
+  em('rs_bounce', { at: mins(60), kind: 'filed', subject: 'Your report was filed with Providence 311 (PVD2026-90412)', to: ['typo@exmaple.com'], lastEvent: 'bounced' }),
+  em('rs_signin', { at: mins(90), kind: 'signin_link', subject: 'Your FixMyPVD sign-in link', reportId: null, caseId: null, lastEvent: 'delivered' }),
+  em('rs_review', { at: mins(120), kind: 'admin_review', to: ['rob@fixmypvd.org'], subject: '[FixMyPVD] Review: Pothole @ 120 Benefit St', lastEvent: 'delivered' }),
+  em('in_reply', { at: mins(200), dir: 'in', kind: 'reply_in', from: 'resident0@example.com', to: ['cases@fixmypvd.org'], subject: 'Re: thanks', status: 'received', lastEvent: null, reportId: null, outcome: 'sent to you (nothing went to the city)' }),
+], next: null });
+export const emailDetail = (id: string) => {
+  const row = emails().items.find((e) => e.id === id) ?? emails().items[0];
+  return { ...row, text: 'Providence 311 asked for more information about your noise report at 25 Dorrance St (city case PVD2026-90412). Their message:\n\nPlease respond to this email by providing the address and details of your request.\n\nSign in: [link removed]',
+    replyTo: 'cases@fixmypvd.org', messageId: null, resendId: 'r1', lastEventAt: mins(4),
+    report: row.reportId ? { id: row.reportId, categoryLabel: 'Noise complaint', address: '25 Dorrance St', status: 'submitted', portalCaseId: 'PVD2026-90412', portalStatus: 'Submitted' } : null,
+    accounts: [{ uid: 'uid_0xxxxxxxxxxxxxxxxxxxxxxxx', email: 'resident0@example.com' }] };
+};
+export const profile = () => ({
+  user: { ...users().items[0], following: ['aaaaaaaaaaa1'], addresses: 1 },
+  reports: [overview().awaitingReview[0], overview().submitted7d[0]],
+  emails: emails().items.filter((e) => e.to.includes('resident0@example.com') || e.from === 'resident0@example.com'),
+});
+
 /** Route every /api/admin/* + /api/me to fixtures; abort the primary host so apiFetch falls back to the mocked one. */
 export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
@@ -139,6 +164,16 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/reports/*/proofs/*`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64') }));
   await page.route(`${API}/api/admin/users?*`, (r) => r.fulfill(json(users())));
   await page.route(`${API}/api/admin/users/*`, (r) => r.fulfill(json({ uid: 'u9', email: 'neighbor@example.com', provider: 'google.com', trusted: false, submitted: 2, rejected: 0, createdAt: mins(9000) })));
+  await page.route(`${API}/api/admin/users/*/profile`, (r) => r.fulfill(json(profile())));
+  await page.route(`${API}/api/admin/emails**`, (r) => {
+    const u = new URL(r.request().url());
+    const m = /\/api\/admin\/emails\/([^/?]+)$/.exec(u.pathname);
+    if (m && r.request().method() === 'GET') return r.fulfill(json(emailDetail(decodeURIComponent(m[1]))));
+    if (u.pathname.endsWith('/sync')) return r.fulfill(json({ scanned: 0, imported: 0, updated: 0, unreadable: true, cityImported: 2 }));
+    const all = emails().items;
+    const dir = u.searchParams.get('dir'); const kind = u.searchParams.get('kind'); const reportId = u.searchParams.get('reportId');
+    return r.fulfill(json({ items: all.filter((e) => (!dir || e.dir === dir) && (!kind || e.kind === kind) && (!reportId || e.reportId === reportId)), next: null }));
+  });
   await page.route(`${API}/api/admin/events?*`, (r) => r.fulfill(json({ items: events(opts.events ?? 100), next: mins(900) })));
   await page.route(`${API}/api/admin/categories`, (r) => r.fulfill(json(categories())));
   await page.route(`${API}/api/admin/config`, (r) => r.fulfill(json(config())));
@@ -146,4 +181,4 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/usage*`, (r) => r.fulfill(json(usage())));
   await page.route(`${API}/api/admin/city-questions`, (r) => r.fulfill(json(cityQuestions())));
 }
-export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
+export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;

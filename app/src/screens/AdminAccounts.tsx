@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../i18n';
 import { adminTrust, adminUsers, type AdminAccount } from '../api/admin';
 import { Dot, When } from './adminUtil';
+import AdminUserPane from './AdminUserPane';
 import './Admin.css';
 import './AdminAccounts.css';
 
@@ -11,10 +12,10 @@ const PAGE = 50;
 /**
  * /admin → Accounts: every person who has ever signed in, densest-possible table.
  * Server pages by `lastSeenAt` cursor (Load more → `next` as `before`); sort + filter are client-side.
- * A row click deep-links into the Reports tab filtered to that account (`#reports?q=<email|uid>`).
+ * A row click opens that person on the right (`#accounts:<uid>`): the account, their reports and their email.
  * Trust is a per-row optimistic toggle — flips locally, reverts on error.
  */
-export default function AdminAccounts() {
+export default function AdminAccounts({ openUid = null, go = (h: string) => { location.hash = h; } }: { openUid?: string | null; go?: (hash: string) => void } = {}) {
   const t = useT();
   const [items, setItems] = useState<AdminAccount[]>([]);
   const [next, setNext] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export default function AdminAccounts() {
     auto: items.filter((u) => u.autoFiles).length,
   }), [items]);
 
-  const openReports = (u: AdminAccount) => { location.hash = '#reports?q=' + encodeURIComponent(u.email || u.uid); };
+  const openReports = (u: AdminAccount) => go(`#accounts:${encodeURIComponent(u.uid)}`);
 
   if (!loaded) {
     return err
@@ -77,6 +78,7 @@ export default function AdminAccounts() {
   }
 
   return (
+    <div className={`admin-queue${openUid ? ' has-pane' : ''}`}>
     <div className="admin-accounts">
       <p className="portal-intro">{t('admin.accounts.intro')}</p>
       {err && <div className="notice notice-error" role="alert">{t('admin.loadError')} <button type="button" className="btn btn-ghost" onClick={() => load(null)}>{t('account.retry')}</button></div>}
@@ -154,6 +156,8 @@ export default function AdminAccounts() {
       </div>
 
       {toast && <div className="notice notice-error admin-toast" role="status">{toast}</div>}
+    </div>
+    {openUid && <AdminUserPane key={openUid} uid={openUid} onClose={() => go('#accounts')} />}
     </div>
   );
 }

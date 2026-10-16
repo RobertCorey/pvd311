@@ -128,3 +128,56 @@ test('every tab is reachable from the rail and keeps the hash', async ({ page })
     await expect(page).toHaveURL(new RegExp(`#${tab}$`));
   }
 });
+
+// ── Three angles on the same system (Rob, 2026-10-16): by email, by report, by person ──
+
+test('email: every mail in and out, filterable; a row opens it with its report and people', async ({ page }) => {
+  await page.goto('/admin#email');
+  const rows = page.locator('.email-table tbody tr');
+  await expect(rows).toHaveCount(7);
+  await expect(page.locator('.email-totals')).toContainText('7 shown · 5 sent · 2 received');
+  await expect(page.locator('.email-trouble')).toHaveText('1 failed or bounced');
+  await expect(rows.filter({ hasText: 'Your report was filed' }).locator('.email-pill')).toHaveText('Bounced');
+  await page.getByRole('button', { name: 'Received', exact: true }).click();
+  await expect(rows).toHaveCount(2);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await expect(rows).toHaveCount(7);
+  await rows.filter({ hasText: 'needs more information about your report' }).click();
+  await expect(page).toHaveURL(/#email:rs_ask$/);
+  const pane = page.locator('.email-pane');
+  await expect(pane.locator('.email-subject')).toHaveText('The city needs more information about your report (PVD2026-90412)');
+  await expect(pane.locator('.email-text')).toContainText('Please respond to this email by providing');
+  await expect(pane.getByRole('link', { name: 'Noise complaint · 25 Dorrance St' })).toHaveAttribute('href', '#reports?q=aaaaaaaaaaa3');
+  await expect(pane.getByRole('link', { name: 'resident0@example.com' })).toHaveAttribute('href', '#accounts:uid_0xxxxxxxxxxxxxxxxxxxxxxxx');
+  expect(await noHScroll(page)).toBe(false);
+  await page.screenshot({ path: 'tests/__screenshots__/admin-email.png' });
+  await pane.getByRole('button', { name: 'Close' }).click();
+  await expect(pane).toBeHidden();
+  await expect(page).toHaveURL(/#email$/);
+});
+
+test('report pane lists the report\'s email; one click opens that mail in Email', async ({ page }) => {
+  await page.goto('/admin#queue');
+  await page.locator('.admin-table tbody tr').first().click();
+  const pane = page.locator('.admin-pane');
+  await expect(pane.getByRole('heading', { name: /^Email \(\d+\)$/ })).toBeVisible();
+  const mail = pane.locator('.email-row').first();
+  await expect(mail).toContainText('City needs info');
+  await mail.click();
+  await expect(page).toHaveURL(/#email:rs_ask$/);
+  await expect(page.locator('.email-pane .email-subject')).toBeVisible();
+});
+
+test('accounts: a row opens the person — account, their reports, their email — and links on', async ({ page }) => {
+  await page.goto('/admin#accounts');
+  await page.locator('.acct-table tbody tr').first().click();
+  await expect(page).toHaveURL(/#accounts:uid_0x+$/);
+  const pane = page.locator('.user-pane');
+  await expect(pane.locator('.admin-pane-head')).toContainText('resident0@example.com');
+  await expect(pane.getByRole('heading', { name: 'Reports (2)' })).toBeVisible();
+  await expect(pane.getByRole('heading', { name: /^Email \(\d+\)$/ })).toBeVisible();
+  await expect(pane.locator('a.email-row[href^="#reports?q="]').first()).toBeVisible();
+  await pane.locator('a.email-row[href^="#email:"]').first().click();
+  await expect(page).toHaveURL(/#email:/);
+  await expect(page.locator('.email-pane')).toBeVisible();
+});
