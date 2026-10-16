@@ -87,7 +87,7 @@ export async function sendSignInLink(request: Request, env: Env, store: Store): 
   const sent = m.ok ? ((await m.clone().json().catch(() => ({}))) as { id?: string }).id ?? null : null;
   await logEmail(store, record({
     id: newOutId(sent), at: new Date().toISOString(), dir: 'out', kind: 'signin_link', from, to: [email], subject: copy.subject, text,
-    status: m.ok ? 'sent' : 'failed', error: m.ok ? null : `Resend ${m.status}`, resendId: sent, lastEvent: null, source: 'live',
+    status: m.ok ? 'sent' : 'failed', error: m.ok ? null : `Resend ${m.status}`, resendId: sent, lastEvent: undefined, source: 'live',
   }));
   if (!m.ok) { console.error('[authmail] resend failed', m.status, await m.text().catch(() => '')); await markError(store, 'auth_mail', `Resend ${m.status}`); return Response.json({ error: 'internal' }, { status: 500 }); }
   await markOk(store, 'auth_mail', `link sent (${email.split('@')[1]})`);

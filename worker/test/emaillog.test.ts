@@ -4,7 +4,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // lands in emails/{id}; credentials never do; Resend's history and delivery state are imported.
 const mem = new Map<string, Record<string, unknown>>();
 const fakeStore = {
-  putEmail: vi.fn(async (r: { id: string }) => { mem.set(r.id, { ...(mem.get(r.id) ?? {}), ...r }); }),
+  // like Firestore's patch: undefined fields are not written
+  putEmail: vi.fn(async (r: { id: string }) => { mem.set(r.id, { ...(mem.get(r.id) ?? {}), ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)) }); }),
   getEmail: vi.fn(async (id: string) => (mem.get(id) as never) ?? null),
   patchEmail: vi.fn(async (id: string, f: Record<string, unknown>) => { mem.set(id, { ...(mem.get(id) ?? {}), ...f }); }),
   getMeta: vi.fn(async () => null), setMeta: vi.fn(async () => {}), addEvent: vi.fn(async () => {}),
@@ -204,5 +205,58 @@ describe('admin email endpoints', () => {
   it('admin only', async () => {
     const req = new Request('https://api.test/api/admin/emails');
     expect((await handleAdmin(req, new URL(req.url), env, {} as Store, { ...admin, email: 'x@example.com' })).status).toBe(403);
+  });
+});
+
+// ── Resend webhook (delivery state pushed to us) + a send-only key ─────────────────
+
+import { verifyResendWebhook, handleResendWebhook } from '../src/emaillog';
+
+const SECRET = 'whsec_' + btoa('0123456789abcdef0123456789abcdef');
+async function signed(body: string, ts = Math.floor(Date.now() / 1000), secret = SECRET) {
+  const key = await crypto.subtle.importKey('raw', Uint8Array.from(atob(secret.replace(/^whsec_/, '')), (c) => c.charCodeAt(0)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`msg_1.${ts}.${body}`)));
+  return new Request('https://api.test/hooks/resend', { method: 'POST', body, headers: { 'svix-id': 'msg_1', 'svix-timestamp': String(ts), 'svix-signature': `v1,${btoa(String.fromCharCode(...mac))}` } });
+}
+const hookEnv = { ...env, RESEND_WEBHOOK_SECRET: SECRET } as unknown as Env;
+const ev = (type: string, id = 'w1', subject = 'The city assigned your request (PVD2026-90113)') => JSON.stringify({ type, created_at: '2026-10-16T22:05:00.000Z', data: { email_id: id, from: 'FixMyPVD <updates@fixmypvd.org>', to: ['owner@example.com'], subject, created_at: '2026-10-16T22:04:59.000Z' } });
+
+describe('Resend delivery webhook', () => {
+  it('verifies the svix signature (and its age)', async () => {
+    const body = ev('email.delivered');
+    const req = await signed(body);
+    expect(await verifyResendWebhook(SECRET, req.headers, body)).toBe(true);
+    expect(await verifyResendWebhook(SECRET, req.headers, body + ' ')).toBe(false);
+    expect(await verifyResendWebhook('whsec_' + btoa('another-secret-another-secret-xx'), req.headers, body)).toBe(false);
+    const old = await signed(body, Math.floor(Date.now() / 1000) - 3600);
+    expect(await verifyResendWebhook(SECRET, old.headers, body)).toBe(false);
+  });
+  it('moves an email forward (a late "sent" never undoes "delivered"; a bounce always wins); unsigned → 401', async () => {
+    mem.set('rs_w1', { id: 'rs_w1', lastEvent: null });
+    const store = { ...fakeStore, findByPortalCaseId: vi.fn(async () => null) } as unknown as Store;
+    expect((await handleResendWebhook(await signed(ev('email.delivered')), hookEnv, store)).status).toBe(200);
+    expect(mem.get('rs_w1')).toMatchObject({ lastEvent: 'delivered', lastEventAt: '2026-10-16T22:05:00.000Z' });
+    await handleResendWebhook(await signed(ev('email.sent')), hookEnv, store);
+    expect(mem.get('rs_w1')!.lastEvent).toBe('delivered');
+    await handleResendWebhook(await signed(ev('email.bounced')), hookEnv, store);
+    expect(mem.get('rs_w1')!.lastEvent).toBe('bounced');
+    const forged = new Request('https://api.test/hooks/resend', { method: 'POST', body: ev('email.delivered'), headers: { 'svix-id': 'x', 'svix-timestamp': String(Math.floor(Date.now() / 1000)), 'svix-signature': 'v1,AAAA' } });
+    expect((await handleResendWebhook(forged, hookEnv, store)).status).toBe(401);
+    expect((await handleResendWebhook(await signed(ev('email.delivered')), env, store)).status).toBe(503); // no secret configured
+  });
+  it('an email the log never saw is recorded from the event (kind from the subject, report from the case id)', async () => {
+    const store = { ...fakeStore, findByPortalCaseId: vi.fn(async () => ({ id: 'rep1' })) } as unknown as Store;
+    await handleResendWebhook(await signed(ev('email.delivered', 'w2')), hookEnv, store);
+    expect(mem.get('rs_w2')).toMatchObject({ dir: 'out', kind: 'status', reportId: 'rep1', caseId: 'PVD2026-90113', lastEvent: 'delivered', to: ['owner@example.com'], source: 'import', text: null });
+  });
+  it('a live send logged after its webhook keeps the delivery state (the log write leaves lastEvent alone)', async () => {
+    mem.set('rs_w3', { id: 'rs_w3', lastEvent: 'delivered' });
+    fetchMock.mockResolvedValueOnce(ok({ id: 'w3' }));
+    await createMailer(env).sendTo('owner@example.com', 'The city assigned your request (PVD2026-1)', '<p>x</p>', { kind: 'status' });
+    expect(mem.get('rs_w3')).toMatchObject({ lastEvent: 'delivered', kind: 'status', source: 'live' });
+  });
+  it('a send-only Resend key: the sync reports unreadable instead of failing', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    expect(await syncFromResend(env, fakeStore as unknown as Store)).toEqual({ scanned: 0, imported: 0, updated: 0, unreadable: true });
   });
 });

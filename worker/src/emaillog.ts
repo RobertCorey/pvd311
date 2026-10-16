@@ -138,16 +138,20 @@ const resendIso = (s: string) => {
   return Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString();
 };
 
+/** Reads need a full-access Resend key; the Worker's key is send-only by design → `unreadable`, not an error.
+ *  Delivery state then arrives by webhook (handleResendWebhook) and history by the one-off import script. */
+class ResendUnreadable extends Error {}
 async function resendGet<T>(env: Pick<Env, 'RESEND_API_KEY'>, path: string): Promise<T | null> {
   if (!env.RESEND_API_KEY) return null;
   const r = await fetch(`https://api.resend.com${path}`, { headers: { authorization: `Bearer ${env.RESEND_API_KEY}` } });
+  if (r.status === 401 || r.status === 403) throw new ResendUnreadable(`Resend ${r.status} on ${path}`);
   if (!r.ok) throw new Error(`Resend ${r.status} on ${path}`);
   return (await r.json()) as T;
 }
 
 /** One email's body + delivery state from Resend, redacted. Null when Resend has none / no key. */
 export async function fetchResendEmail(env: Pick<Env, 'RESEND_API_KEY'>, resendId: string): Promise<{ text: string | null; lastEvent: string | null } | null> {
-  const e = await resendGet<ResendEmail>(env, `/emails/${encodeURIComponent(resendId)}`);
+  const e = await resendGet<ResendEmail>(env, `/emails/${encodeURIComponent(resendId)}`).catch((err) => { if (err instanceof ResendUnreadable) return null; throw err; });
   if (!e) return null;
   const text = (e.text && e.text.trim()) || (e.html ? toText(e.html) : '');
   return { text: text ? redact(text) : null, lastEvent: e.last_event ?? null };
@@ -160,9 +164,15 @@ export async function fetchResendEmail(env: Pick<Env, 'RESEND_API_KEY'>, resendI
  */
 export async function syncFromResend(
   env: Env, store: Store, opts: { maxPages?: number; now?: Date } = {},
-): Promise<{ scanned: number; imported: number; updated: number }> {
-  const out = { scanned: 0, imported: 0, updated: 0 };
+): Promise<{ scanned: number; imported: number; updated: number; unreadable?: boolean }> {
+  const out: { scanned: number; imported: number; updated: number; unreadable?: boolean } = { scanned: 0, imported: 0, updated: 0 };
   if (!env.RESEND_API_KEY) return out;
+  try { await syncPages(env, store, opts, out); }
+  catch (e) { if (e instanceof ResendUnreadable) out.unreadable = true; else throw e; }
+  return out;
+}
+
+async function syncPages(env: Env, store: Store, opts: { maxPages?: number; now?: Date }, out: { scanned: number; imported: number; updated: number }): Promise<void> {
   const now = (opts.now ?? new Date()).toISOString();
   const reportByCase = new Map<string, string | null>();
   let after = '';
@@ -197,7 +207,58 @@ export async function syncFromResend(
     if (!r?.has_more || !items.length) break;
     after = items[items.length - 1].id;
   }
-  return out;
+}
+
+// ── Resend webhook: delivery state pushed to us (svix-signed) ─────────────────────
+
+/** How far along a delivery state is; a late "sent" never overwrites "delivered", a bounce always wins. */
+const STATE_RANK: Record<string, number> = { sent: 1, delivery_delayed: 2, delivered: 3, opened: 4, clicked: 5, bounced: 9, complained: 9, failed: 9 };
+
+/** Svix signature (what Resend signs webhooks with): v1 = base64 HMAC-SHA256(secret, `${id}.${timestamp}.${body}`), ±5 min. */
+export async function verifyResendWebhook(secret: string, headers: Headers, body: string, nowMs = Date.now()): Promise<boolean> {
+  const id = headers.get('svix-id'); const ts = headers.get('svix-timestamp'); const sig = headers.get('svix-signature');
+  if (!id || !ts || !sig || !Number.isFinite(Number(ts)) || Math.abs(nowMs / 1000 - Number(ts)) > 300) return false;
+  const raw = atob(secret.replace(/^whsec_/, ''));
+  const key = await crypto.subtle.importKey('raw', Uint8Array.from(raw, (c) => c.charCodeAt(0)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${id}.${ts}.${body}`)));
+  const want = btoa(String.fromCharCode(...mac));
+  return sig.split(' ').some((part) => {
+    const [v, s] = part.split(',');
+    if (v !== 'v1' || !s || s.length !== want.length) return false;
+    let d = 0; for (let i = 0; i < s.length; i++) d |= s.charCodeAt(i) ^ want.charCodeAt(i);
+    return d === 0;
+  });
+}
+
+interface ResendWebhook { type?: string; created_at?: string; data?: { email_id?: string; from?: string; to?: string[]; subject?: string; created_at?: string } }
+
+/** POST /hooks/resend — delivery events. Updates the email's state; an email the log never saw is recorded from the event. */
+export async function handleResendWebhook(request: Request, env: Env, store: Store): Promise<Response> {
+  const secret = (env as unknown as { RESEND_WEBHOOK_SECRET?: string }).RESEND_WEBHOOK_SECRET;
+  if (!secret) return new Response('not configured', { status: 503 });
+  const body = await request.text();
+  if (!(await verifyResendWebhook(secret, request.headers, body))) return new Response('bad signature', { status: 401 });
+  let ev: ResendWebhook;
+  try { ev = JSON.parse(body) as ResendWebhook; } catch { return new Response('bad json', { status: 400 }); }
+  const state = (ev.type ?? '').replace(/^email\./, '');
+  const resendId = ev.data?.email_id;
+  if (!resendId || !(state in STATE_RANK)) return new Response('ignored', { status: 200 });
+  const id = newOutId(resendId);
+  const at = ev.created_at ? resendIso(ev.created_at) : new Date().toISOString();
+  const have = await store.getEmail(id).catch(() => null);
+  if (have) {
+    if ((STATE_RANK[state] ?? 0) >= (STATE_RANK[have.lastEvent ?? ''] ?? 0)) await store.patchEmail(id, { lastEvent: state, lastEventAt: at });
+  } else {
+    const to = (ev.data?.to ?? []).map(bare);
+    const subject = ev.data?.subject ?? '';
+    const caseId = caseIdIn(subject);
+    const reportId = caseId ? (await store.findByPortalCaseId(caseId).catch(() => null))?.id ?? null : null;
+    await logEmail(store, record({
+      id, at: ev.data?.created_at ? resendIso(ev.data.created_at) : at, dir: 'out', kind: inferKind(subject, to, env), from: ev.data?.from ?? '', to, subject,
+      text: null, status: 'sent', resendId, lastEvent: state, lastEventAt: at, reportId, caseId, source: 'import',
+    }));
+  }
+  return new Response('ok', { status: 200 });
 }
 
 /** City mail already stored on reports (cityMessages) → inbound records, for the time before the log existed. */

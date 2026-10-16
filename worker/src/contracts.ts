@@ -40,6 +40,7 @@ export interface Env {
   UI_EVENTS?: AnalyticsEngineDataset; // binding: first-party usage analytics (ui.ts)
   CF_ACCOUNT_ID?: string;             // var: account for the Analytics Engine SQL API (/api/admin/usage)
   CF_ANALYTICS_TOKEN?: string;        // secret: API token with Account Analytics Read
+  RESEND_WEBHOOK_SECRET?: string;     // secret: svix signing secret of the Resend webhook → POST /hooks/resend (emaillog.ts)
 }
 
 export type ReportDoc = Report & { id: string };

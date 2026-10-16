@@ -24,7 +24,8 @@ export function createMailer(env: Env): Mailer {
     const text = o.text ?? toText(o.html);
     const log = (status: 'sent' | 'failed' | 'skipped', id: string | null, error: string | null) => logEmail(getStore(), record({
       id: newOutId(id), at, dir: 'out', kind: meta?.kind ?? kind, from: o.from, to: [o.to], subject: o.subject, text, status, error, resendId: id,
-      lastEvent: null, reportId: meta?.reportId ?? null, caseId: meta?.caseId ?? null, replyTo: o.replyTo ?? null, source: 'live',
+      // lastEvent left out (undefined → not written): the delivery webhook can land before this write and must not be erased
+      lastEvent: undefined, reportId: meta?.reportId ?? null, caseId: meta?.caseId ?? null, replyTo: o.replyTo ?? null, source: 'live',
     }));
     if (!env.RESEND_API_KEY) { console.log(`[email] (no RESEND_API_KEY) to=${o.to} ${o.subject}`); await log('skipped', null, 'email disabled'); return { ok: false, id: null, error: 'email disabled' }; }
     try {

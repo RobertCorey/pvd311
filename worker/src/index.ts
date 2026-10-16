@@ -25,6 +25,7 @@ import { signAction, timingSafeEqualHex, createMailer } from './email.js';
 import { approve, reject } from './hitl.js';
 import { relayEmail } from './relay.js';
 import { syncEmailLog } from './adminapi.js';
+import { handleResendWebhook } from './emaillog.js';
 import { logEvent } from './health.js';
 
 export default {
@@ -113,6 +114,9 @@ export default {
         await portal.close().catch(() => {});
       }
     }
+
+    // Resend delivery events (svix-signed) → the email log's delivery state.
+    if (url.pathname === '/hooks/resend' && request.method === 'POST') return handleResendWebhook(request, env, createStore(env));
 
     // Ops: one full email-log sync (Resend's sent mail + stored city mail → emails/*). Writes only our own log.
     if (url.pathname === '/admin/emails/sync' && request.method === 'POST') {

@@ -86,7 +86,7 @@ export function emailSummary(e: EmailRecord) {
 }
 
 /** One full sync: Resend's sent mail + city mail stored on reports → the log; delivery states refreshed. */
-export async function syncEmailLog(env: Env, store: Store): Promise<{ scanned: number; imported: number; updated: number; cityImported: number }> {
+export async function syncEmailLog(env: Env, store: Store): Promise<{ scanned: number; imported: number; updated: number; unreadable?: boolean; cityImported: number }> {
   const r = await syncFromResend(env, store, { maxPages: 20 });
   const reports = await store.listReports({ limit: 500 }).catch(() => [] as ReportDoc[]);
   const cityImported = await importCityMessages(env, store, reports.filter((x) => x.cityMessages?.length));
