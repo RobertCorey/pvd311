@@ -51,7 +51,7 @@ export default function AdminUsage() {
               <thead><tr><th scope="col">{t('admin.usage.step')}</th><th scope="col">{t('admin.usage.visitors')}</th><th scope="col">{t('admin.usage.ofVisitors')}</th><th scope="col"><span className="visually-hidden">{t('admin.usage.bar')}</span></th></tr></thead>
               <tbody>
                 {FUNNEL.map((e) => { const f = u.funnel.find((x) => x.event === e); const n = f?.visitors ?? 0; return (
-                  <tr key={e}><td>{t(`admin.usage.ev.${e}`)}</td><td>{n}</td><td>{pct(n)}</td><td className="usage-bar-cell"><span className="usage-bar" style={{ width: top ? `${(n / top) * 100}%` : 0 }} /></td></tr>
+                  <tr key={e}><td>{t(`admin.usage.ev.${e}`)}</td><td>{n}</td><td>{pct(n)}</td><td className="usage-bar-cell">{n > 0 && <span className="usage-bar" style={{ width: `${(n / top) * 100}%` }} />}</td></tr>
                 ); })}
               </tbody>
             </table>
@@ -63,7 +63,7 @@ export default function AdminUsage() {
             {u.daily.length === 0 ? <p className="admin-empty">{t('admin.bucket.empty')}</p> : (
               <table className="admin-table usage-table">
                 <thead><tr><th scope="col">{t('admin.usage.day')}</th><th scope="col">{t('admin.usage.visitors')}</th><th scope="col">{t('admin.usage.reports')}</th><th scope="col"><span className="visually-hidden">{t('admin.usage.bar')}</span></th></tr></thead>
-                <tbody>{u.daily.map((d) => <tr key={d.day}><td>{d.day}</td><td>{d.visitors}</td><td>{d.reports}</td><td className="usage-bar-cell"><span className="usage-bar" style={{ width: `${(d.visitors / maxDay) * 100}%` }} /></td></tr>)}</tbody>
+                <tbody>{u.daily.map((d) => <tr key={d.day}><td>{d.day}</td><td>{d.visitors}</td><td>{d.reports}</td><td className="usage-bar-cell">{d.visitors > 0 && <span className="usage-bar" style={{ width: `${(d.visitors / maxDay) * 100}%` }} />}</td></tr>)}</tbody>
               </table>
             )}
           </section>
