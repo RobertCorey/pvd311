@@ -1,64 +1,32 @@
 # FixMyPVD
 
-Report a Providence street problem in one photo — we file it with the city's 311 for you. **FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
+Report a Providence street problem in one photo, and we file it with the city's 311 for you. Live at [fixmypvd.org](https://fixmypvd.org).
 
-Pre-launch (quiet). Live at [pvdsnow.org](https://pvdsnow.org) until fixmypvd.org is bought. Product spec: [`docs/product-spec.md`](docs/product-spec.md).
+**FixMyPVD is an independent community project and is not affiliated with, endorsed by, or operated by the City of Providence.**
 
-Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git history before `c81a893`). Plan and status: [`PLAN.md`](PLAN.md), [`.claude/STATE.md`](.claude/STATE.md). Portal research: [`scripts/`](scripts/).
+## Our philosophy
 
-## How it works
+### 1. We extend 311. We don't replace it.
+The city's 311 system is the official channel, and it stays that way. Every report we take goes into 311, and the city works it like any other request. We're a shortcut into the city's system, not a parallel one. Anyone can file directly at [311.providenceri.gov](https://311.providenceri.gov) at any time.
 
-1. **Resident** opens the app, taps a category (8 big tiles; "Other" opens the full sheet), snaps a photo (EXIF fills the location) or types the address, adds a description, and taps Send. **An account is required to send** (email link or Google — no password); the draft is kept across the sign-in round trip. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
-2. **Worker** (`worker/`, Cloudflare) validates, rate-limits per device, stores the report + photo, and returns an unguessable tracking id (`/r/:id`).
-3. **Review** — HITL at launch: the operator gets an email and approves/rejects from `/admin`; full-auto with an agent in the loop is the goal.
-4. **Portal submit** — the Worker drives the city's 311 portal with a headless browser (Browser Rendering): case type by census GUID, conditional fields (unmapped → an LLM "scout" reads the live controls), submit, case id.
-5. **Status** — the Worker polls the portal; the resident sees the timeline on the tracking page (shareable link) and under **Mine** (account reports, follow/edit/cancel while pending). A public map was built and then cut (2026-08-22) to keep the product focused; the feed/nearby API stays for the "already reported nearby" prompt.
+### 2. We're a friend to the city, not an enemy.
+We want to make the city's job easier. We use its systems gently, follow its process, and try to be a project the city is glad exists.
 
-## Stack
+### 3. Helpful reports, not frustration.
+We help reporters send something the city can act on: the right category, the right location, a clear photo, and a plain description. A report asks for a fix; it isn't a place to vent.
 
-| Layer | Tech |
-|---|---|
-| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Firebase Auth over REST (email link via Worker+Resend, Google), Leaflet (compose/tracking mini-pin only), Cloudflare Turnstile, Playwright + axe tests. Talks only to the Worker API (api.fixmypvd.org). |
-| Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
-| Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
-| Legacy | `automation/` (laptop engine, reference only). The old `public/` PWA was removed after cutover (git history before a0f7776) |
-| Target | Providence 311 portal (Power Pages / Dynamics 365) |
+### 4. We're not a spam platform.
+One problem gets one report. We check for duplicates, limit how fast reports go out, and have a person read new accounts' first reports. Volume isn't the goal. Fixed problems are.
 
-## Project structure
+### 5. We don't enable harassment.
+FixMyPVD is for problems with the city's streets and services. It is not a tool for targeting neighbors, businesses, or city workers, and we won't file a report whose purpose is to go after a person instead of fixing a problem.
 
-```
-app/               FixMyPVD client (React)
-  src/screens/     Report (tiles → details → sign-in gate at Send), Track (/r/:id), MyReports, Account, About, Privacy
-  src/api/         Worker API client + types (wire contract)
-  src/lib/         categories (from shared/), geo (EXIF, geocode, compress), auth (Firebase REST), draft, outbox, idb, myReports
-  src/i18n/        strings.en.json / strings.es.json + useT
-  src/brand.ts     every brand string
-  tests/           Playwright (mobile emulation, API mocked)
-worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
-shared/            category registry (single source of truth)
-docs/              product-spec.md, api.md, engine-sync.md, launch-checklist.md
-scripts/           portal research, case-type census
-firebase.json      hosting → app/dist
-```
+### 6. We relay our reporters faithfully.
+Our obligation to the people who use FixMyPVD is to get what they told us to the city accurately. We may suggest clearer wording, but the reporter approves every change. We don't add to, soften, or editorialize what they meant.
 
-## Development
+### 7. We're ready to step aside.
+We're willing to shut down at any time. If the city builds something that does what we do, or any part of it, we'll turn off our version of that feature and send people to theirs. The city making us unnecessary would count as success.
 
-```bash
-# Client
-npm run dev                      # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
-npm run test                     # Playwright, mobile emulation, API mocked
-npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
-npm run deploy                   # manual app deploy (build + Firebase Hosting). Normal path: push to main → .github/workflows/deploy-app.yml
+---
 
-# Worker
-cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
-
-```
-
-Headless browsers cannot pass Turnstile (by design) — real end-to-end submits are done from a real browser.
-
-## Principles
-
-- Good tenant of the city portal: minimal drafts (they are permanent), conservative rate caps, no junk, no pre-crawling.
-- The city never receives unreviewed AI text at launch.
-- Small commits; `.claude/STATE.md` updated every session.
+Developer notes: [`docs/development.md`](docs/development.md)

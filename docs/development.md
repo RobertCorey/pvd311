@@ -1,0 +1,62 @@
+# FixMyPVD — developer notes
+
+Moved out of the README (2026-10-16), which now holds the project's philosophy. Product spec: [`product-spec.md`](product-spec.md). Plan and status: [`PLAN.md`](../PLAN.md), [`.claude/STATE.md`](../.claude/STATE.md). Portal research: [`scripts/`](../scripts/).
+
+Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git history before `c81a893`).
+
+## How it works
+
+1. **Resident** opens the app, taps a category (8 big tiles; "Other" opens the full sheet), snaps a photo (EXIF fills the location) or types the address, adds a description, and taps Send. **An account is required to send** (email link or Google — no password); the draft is kept across the sign-in round trip. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
+2. **Worker** (`worker/`, Cloudflare) validates, rate-limits per device, stores the report + photo, and returns an unguessable tracking id (`/r/:id`).
+3. **Review** — HITL at launch: the operator gets an email and approves/rejects from `/admin`; full-auto with an agent in the loop is the goal.
+4. **Portal submit** — the Worker drives the city's 311 portal with a headless browser (Browser Rendering): case type by census GUID, conditional fields (unmapped → an LLM "scout" reads the live controls), submit, case id.
+5. **Status** — the Worker polls the portal; the resident sees the timeline on the tracking page (shareable link) and under **Mine** (account reports, follow/edit/cancel while pending). A public map was built and then cut (2026-08-22) to keep the product focused; the feed/nearby API stays for the "already reported nearby" prompt.
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Firebase Auth over REST (email link via Worker+Resend, Google), Leaflet (compose/tracking mini-pin only), Cloudflare Turnstile, Playwright + axe tests. Talks only to the Worker API (api.fixmypvd.org). |
+| Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
+| Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
+| Legacy | `automation/` (laptop engine, reference only). The old `public/` PWA was removed after cutover (git history before a0f7776) |
+| Target | Providence 311 portal (Power Pages / Dynamics 365) |
+
+## Project structure
+
+```
+app/               FixMyPVD client (React)
+  src/screens/     Report (tiles → details → sign-in gate at Send), Track (/r/:id), MyReports, Account, About, Privacy
+  src/api/         Worker API client + types (wire contract)
+  src/lib/         categories (from shared/), geo (EXIF, geocode, compress), auth (Firebase REST), draft, outbox, idb, myReports
+  src/i18n/        strings.en.json / strings.es.json + useT
+  src/brand.ts     every brand string
+  tests/           Playwright (mobile emulation, API mocked)
+worker/            Cloudflare Worker: app API, engine, HITL, watcher, admin
+shared/            category registry (single source of truth)
+docs/              product-spec.md, api.md, engine-sync.md, launch-checklist.md
+scripts/           portal research, case-type census
+firebase.json      hosting → app/dist
+```
+
+## Development
+
+```bash
+# Client
+npm run dev                      # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
+npm run test                     # Playwright, mobile emulation, API mocked
+npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
+npm run deploy                   # manual app deploy (build + Firebase Hosting). Normal path: push to main → .github/workflows/deploy-app.yml
+
+# Worker
+cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
+
+```
+
+Headless browsers cannot pass Turnstile (by design) — real end-to-end submits are done from a real browser.
+
+## Engineering rules
+
+- Good tenant of the city portal: minimal drafts (they are permanent), conservative rate caps, no junk, no pre-crawling.
+- The city never receives unreviewed AI text at launch.
+- Small commits; `.claude/STATE.md` updated every session.
