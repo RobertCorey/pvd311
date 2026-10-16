@@ -5,6 +5,7 @@
  * De-duplicated, lowercase. Never throws (a broken user doc just drops that recipient).
  */
 import type { ReportDoc, Store, Mailer } from './contracts.js';
+import type { EmailKind } from './emaillog.js';
 
 export async function recipientsFor(store: Store, report: ReportDoc, opts: { excludeOwner?: boolean } = {}): Promise<string[]> {
   const out = new Set<string>();
@@ -29,9 +30,10 @@ export async function recipientsFor(store: Store, report: ReportDoc, opts: { exc
 }
 
 /** Send one reporter-facing email to everyone who should hear about this report. Gated inside mailer.sendTo. */
-export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string; excludeOwner?: boolean }): Promise<number> {
+export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string; excludeOwner?: boolean; kind?: EmailKind }): Promise<number> {
   const to = await recipientsFor(store, report, { excludeOwner: opts?.excludeOwner });
-  for (const addr of to) await mailer.sendTo(addr, subject, html, opts?.replyTo ? { replyTo: opts.replyTo } : undefined);
+  const meta = { kind: opts?.kind, reportId: report.id, caseId: report.portalCaseId ?? report.cityCaseId ?? null };
+  for (const addr of to) await mailer.sendTo(addr, subject, html, { ...(opts?.replyTo ? { replyTo: opts.replyTo } : {}), ...meta });
   return to.length;
 }
 

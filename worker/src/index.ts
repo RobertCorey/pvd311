@@ -24,6 +24,7 @@ import { handleApi } from './api.js';
 import { signAction, timingSafeEqualHex, createMailer } from './email.js';
 import { approve, reject } from './hitl.js';
 import { relayEmail } from './relay.js';
+import { syncEmailLog } from './adminapi.js';
 import { logEvent } from './health.js';
 
 export default {
@@ -111,6 +112,12 @@ export default {
       } finally {
         await portal.close().catch(() => {});
       }
+    }
+
+    // Ops: one full email-log sync (Resend's sent mail + stored city mail → emails/*). Writes only our own log.
+    if (url.pathname === '/admin/emails/sync' && request.method === 'POST') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      return Response.json(await syncEmailLog(env, createStore(env)));
     }
 
     if (url.pathname === '/healthz') {

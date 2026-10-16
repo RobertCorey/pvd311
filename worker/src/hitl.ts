@@ -85,7 +85,7 @@ export async function requestReview(
 
   let emailed = false;
   try {
-    await mailer.send(`[FixMyPVD] Review: ${cat?.label ?? report.category} @ ${report.address}`, html);
+    await mailer.send(`[FixMyPVD] Review: ${cat?.label ?? report.category} @ ${report.address}`, html, { kind: 'admin_review', reportId: report.id });
     emailed = true;
   } catch (e) {
     console.error('[hitl] email send failed (report stays in review queue):', e);
@@ -137,7 +137,7 @@ export async function reject(store: Store, id: string, by: string, opts: RejectO
       + `<p>If we got this wrong, please report it again with a photo and the exact location — a person reviews these, and we'd rather see it twice than miss it.</p>`
       + `<p><a href="${base}/r/${encodeURIComponent(id)}" style="color:#E8622C">Your report</a> · <a href="${base}/" style="color:#E8622C">Report again</a></p>`
       + `<p style="color:#999;font-size:.8rem;margin-top:2rem">FixMyPVD is an independent community project, not affiliated with the City of Providence.</p></div>`;
-    await opts.mailer.sendTo(rep.reporterEmail, `[FixMyPVD] We didn't send your ${cat} report`, html).catch((e) => console.error('[hitl] reject email failed:', e));
+    await opts.mailer.sendTo(rep.reporterEmail, `[FixMyPVD] We didn't send your ${cat} report`, html, { kind: 'not_sent', reportId: id }).catch((e) => console.error('[hitl] reject email failed:', e));
   }
 }
 

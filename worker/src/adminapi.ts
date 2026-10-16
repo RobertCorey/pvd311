@@ -22,6 +22,10 @@
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
  *   GET  /api/admin/usage?days=7|30        → first-party usage analytics (ui.ts, Analytics Engine)
+ *   GET  /api/admin/emails?dir&kind&q&reportId&uid&addr&before&limit → the email log (emaillog.ts), newest first, summaries
+ *   GET  /api/admin/emails/:id             → one email: full text (fetched from Resend when not stored) + delivery state + linked report/accounts
+ *   POST /api/admin/emails/sync            → import Resend's sent mail + stored city mail we have no record of; refresh delivery states
+ *   GET  /api/admin/users/:uid/profile     → one person: account + their reports + their email
  */
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
@@ -34,6 +38,7 @@ import { explainSystem } from './adminexplain.js';
 import { usage } from './ui.js';
 import { buildAdminView } from './cityquestions.js';
 import type { ReportStatus } from '../../shared/types.js';
+import { fetchResendEmail, importCityMessages, syncFromResend, type EmailRecord } from './emaillog.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -69,6 +74,28 @@ function adminProjection(r: ReportDoc) {
     retries: r.retries ?? 0, retryAfter: r.retryAfter ?? null, review: r.review ?? null, approvedAt: r.approvedAt ?? null,
     caseIdPending: r.caseIdPending === true, portalEntityId: (r as unknown as { portalEntityId?: string | null }).portalEntityId ?? r.portalDraft?.entityId ?? null,
   };
+}
+
+/** List row for an email: everything but the body (a 160-char preview instead). */
+export function emailSummary(e: EmailRecord) {
+  return {
+    id: e.id, at: e.at, dir: e.dir, kind: e.kind, from: e.from, to: e.to, subject: e.subject, status: e.status, error: e.error ?? null,
+    lastEvent: e.lastEvent ?? null, reportId: e.reportId ?? null, caseId: e.caseId ?? null, cityKind: e.cityKind ?? null, outcome: e.outcome ?? null,
+    source: e.source, preview: (e.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 160), hasText: e.text != null,
+  };
+}
+
+/** One full sync: Resend's sent mail + city mail stored on reports → the log; delivery states refreshed. */
+export async function syncEmailLog(env: Env, store: Store): Promise<{ scanned: number; imported: number; updated: number; cityImported: number }> {
+  const r = await syncFromResend(env, store, { maxPages: 20 });
+  const reports = await store.listReports({ limit: 500 }).catch(() => [] as ReportDoc[]);
+  const cityImported = await importCityMessages(env, store, reports.filter((x) => x.cityMessages?.length));
+  return { ...r, cityImported };
+}
+
+function userRow(u: { uid: string; email?: string | null; displayName?: string | null; provider?: string; emailVerified?: boolean; createdAt?: string; lastSeenAt?: string | null; trusted?: boolean; prefs?: { emailUpdates?: boolean }; following?: string[]; addresses?: unknown[] }) {
+  return { uid: u.uid, email: u.email ?? null, displayName: u.displayName ?? null, provider: u.provider ?? null, emailVerified: !!u.emailVerified, createdAt: u.createdAt ?? null,
+    lastSeenAt: u.lastSeenAt ?? null, trusted: !!u.trusted, emailUpdates: u.prefs?.emailUpdates !== false, following: u.following ?? [], addresses: (u.addresses ?? []).length };
 }
 
 export async function handleAdmin(request: Request, url: URL, env: Env, store: Store, auth: AuthUser | null): Promise<Response> {
@@ -191,6 +218,74 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     return json({ items, next: users.length >= limit ? users[users.length - 1].createdAt : null });
   }
 
+  if (m === 'GET' && path === '/api/admin/emails') {
+    const p = url.searchParams;
+    const limit = Math.min(300, Math.max(1, Number(p.get('limit')) || 100));
+    const [dir, kind, q, reportId, uid, addrParam, before] = ['dir', 'kind', 'q', 'reportId', 'uid', 'addr', 'before'].map((k) => (p.get(k) || '').trim() || null);
+    const addr = addrParam ?? (uid ? (await store.getUser(uid).catch(() => null))?.email ?? null : null);
+    const scoped = !!(reportId || uid || addrParam);
+    const filtered = !!(dir || kind || q);
+    const rows = reportId ? await store.findEmails({ reportId, limit: 300 })
+      : addr ? await store.findEmails({ addr, limit: 300 })
+      : uid ? []
+      : await store.listEmails({ before, limit: filtered ? Math.min(1000, limit * 5) : limit });
+    const needle = q?.toLowerCase() ?? '';
+    const hit = (e: EmailRecord) => (!dir || e.dir === dir) && (!kind || e.kind === kind)
+      && (!needle || [e.subject, e.from, ...(e.to ?? []), e.caseId ?? '', e.reportId ?? '', e.text ?? ''].some((v) => String(v).toLowerCase().includes(needle)));
+    const items = rows.filter(hit).slice(0, limit).map(emailSummary);
+    const last = rows[rows.length - 1];
+    return json({ items, next: !scoped && last && rows.length >= (filtered ? Math.min(1000, limit * 5) : limit) ? last.at : null });
+  }
+
+  if (m === 'POST' && path === '/api/admin/emails/sync') {
+    const r = await syncEmailLog(env, store);
+    await logEvent(store, { level: 'info', kind: 'admin.email_sync', msg: `Email log synced by ${auth.email}: ${r.imported} imported from Resend, ${r.cityImported} city emails, ${r.updated} delivery updates (${r.scanned} scanned)`, data: r });
+    return json(r);
+  }
+
+  const em = /^\/api\/admin\/emails\/([A-Za-z0-9_-]{4,80})$/.exec(path);
+  if (em && m === 'GET') {
+    let e = await store.getEmail(em[1]);
+    if (!e) return json({ error: 'not_found' }, 404);
+    // Sent through Resend: fetch the body if the log never had it (the import), and refresh delivery state (≤ every 5 min).
+    const stale = !e.lastEventAt || Date.now() - Date.parse(e.lastEventAt) > 5 * 60_000;
+    if (e.dir === 'out' && e.resendId && (e.text == null || stale)) {
+      try {
+        const r = await fetchResendEmail(env, e.resendId);
+        if (r) {
+          const patch: Partial<EmailRecord> = { lastEvent: r.lastEvent, lastEventAt: new Date().toISOString(), ...(e.text == null && r.text ? { text: r.text } : {}) };
+          await store.patchEmail(e.id, patch);
+          e = { ...e, ...patch };
+        }
+      } catch (err) { console.error('[admin] resend fetch failed:', err instanceof Error ? err.message : err); }
+    }
+    const report = e.reportId ? await store.fetchReport(e.reportId).catch(() => null) : null;
+    const own = (env.RELAY_ADDRESS ?? 'cases@fixmypvd.org').split('@')[1] ?? 'fixmypvd.org';
+    const people = (e.addrs ?? []).filter((a) => !a.endsWith(`@${own}`) && !a.endsWith('providenceri.gov') && a !== (env.NOTIFY_EMAIL ?? '').toLowerCase());
+    const accounts = (await Promise.all(people.map((a) => store.findUserByEmail(a).catch(() => null)))).filter((u): u is NonNullable<typeof u> => !!u).map((u) => ({ uid: u.uid, email: u.email ?? null }));
+    return json({
+      ...emailSummary(e), text: e.text ?? null, replyTo: e.replyTo ?? null, messageId: e.messageId ?? null, resendId: e.resendId ?? null, lastEventAt: e.lastEventAt ?? null,
+      report: report ? { id: report.id, categoryLabel: CATEGORIES[report.category]?.label ?? report.category, address: report.address, status: report.status, portalCaseId: report.portalCaseId ?? null, portalStatus: report.portalStatus ?? null } : null,
+      accounts,
+    });
+  }
+
+  const prof = /^\/api\/admin\/users\/([A-Za-z0-9_-]{6,128})\/profile$/.exec(path);
+  if (prof && m === 'GET') {
+    const u = await store.getUser(prof[1]);
+    if (!u) return json({ error: 'not_found' }, 404);
+    const [reports, emails, submitted, rejected] = await Promise.all([
+      store.findReportsByOwner(u.uid, 100).catch(() => [] as ReportDoc[]),
+      u.email ? store.findEmails({ addr: u.email, limit: 300 }).catch(() => [] as EmailRecord[]) : Promise.resolve([] as EmailRecord[]),
+      store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0),
+    ]);
+    const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
+    return json({
+      user: { ...userRow(u), submitted, rejected, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) },
+      reports: reports.map(adminProjection), emails: emails.map(emailSummary),
+    });
+  }
+
   if (m === 'GET' && path === '/api/admin/events') {
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
     const items = await store.listEvents({ level: url.searchParams.get('level') || null, kind: url.searchParams.get('kind') || null, reportId: url.searchParams.get('reportId') || null, before: url.searchParams.get('before') || null, limit });
@@ -235,7 +330,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       row('Reporter quota', '5/day + 15/week per mailbox · 60 s gap · 30/day per IP', 'Days reset at midnight ET, weeks Monday midnight ET. Every accepted report counts (rejected ones too); a reporter cancel refunds. Enforced in POST /api/report via Firestore counters (worker/src/quota.ts).'),
       row('Intake AI limits', '10/min per IP, 1,500/day global', 'Caps Anthropic spend; server-side moderation runs once per report regardless.'),
       row('Engine limits', 'lock 12 min · stuck reaper 20 min · retries 2 with backoff · breaker after repeated failures · hourly cap', 'See worker/src/engine.ts constants.'),
-      row('Retention', 'photos 30 days after the city closes a case · events 14 days · HITL links 30 days', 'Daily job at 7 am ET.'),
+      row('Retention', 'photos 30 days after the city closes a case · events 14 days · email log 60 days · HITL links 30 days', 'Daily job at 7 am ET.'),
     ] });
   }
 

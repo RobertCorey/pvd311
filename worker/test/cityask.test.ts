@@ -116,7 +116,7 @@ describe('syncCityAsks', () => {
     expect(sent[0][2]).toContain('please respond to this email by providing the address and details');
     expect(sent[0][2]).not.toContain('[cid:');
     expect(sent[0][2]).toContain(`https://fixmypvd.org/r/${ID}#answer`);
-    expect(sent[0][3]).toEqual({ replyTo: 'cases@fixmypvd.org' });
+    expect(sent[0][3]).toEqual({ replyTo: 'cases@fixmypvd.org', kind: 'ask', reportId: ID, caseId: 'PVD2026-90113' });
     const asks = d.report!.cityAsks!;
     expect(asks).toHaveLength(1);
     expect(asks[0]).toMatchObject({ at: ASKED_AT, source: 'email', from: 'pvd311@providenceri.gov', subject: ASK_SUBJ, messageId: '<ask-1@providenceri.gov>', by: 'rule', notifiedAt: now.toISOString() });

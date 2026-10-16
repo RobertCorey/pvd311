@@ -72,6 +72,7 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
         'Reporters get: sign-in links (minted by the Worker through Firebase Identity Toolkit), "filed with the city" with the case number, each city status change, and a kind note if a report is not filed.',
         'Relay: the portal account\'s contact address (RELAY_ADDRESS, cases@fixmypvd.org) is routed to this Worker. A city email whose subject or body carries a PVD case id we filed is forwarded to that report\'s reporter and followers (Reply-To = the relay address) and kept on the report as cityMessages, tagged receipt / routed (with its "Department Assigned") / ask / update. City mail with no matching case, and replies about cases the city never asked about, go to you. The one thing that reaches the city automatically is the reporter\'s answer to a city question — see "When the city asks the reporter".',
         'You get: review requests, reaper/breaker/canary alerts, and the daily digest (sent only when queue counts change).',
+        'The Email tab is the log of all of it, in and out: kind, who, the text (sign-in and approve/reject links cut out), which report, and Resend\'s delivery state (delivered / bounced …, refreshed when you open one and daily). Kept 60 days. Reports and accounts show their own email; "Sync with Resend" imports anything sent before the log existed.',
       ],
       live: { notifyEmail: env.NOTIFY_EMAIL ?? null, from: env.NOTIFY_FROM ?? null },
     },

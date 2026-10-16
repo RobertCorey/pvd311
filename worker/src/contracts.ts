@@ -5,6 +5,7 @@
 import type { Report, ReportStatus } from '../../shared/types.js';
 import type { PortalControl } from './scout.js';
 import type { CityQuestionsDoc } from './cityquestions.js';
+import type { EmailRecord, EmailMeta } from './emaillog.js';
 
 export interface Env {
   BROWSER: Fetcher;
@@ -109,6 +110,15 @@ export interface Store {
   findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
   fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped
   countOwnerByStatus(uid: string, status: ReportStatus): Promise<number>;
+  /** emails/{id} — the email log (emaillog.ts). put = full write of the record; patch = merge. Lists are newest first. */
+  putEmail(r: EmailRecord): Promise<void>;
+  getEmail(id: string): Promise<EmailRecord | null>;
+  patchEmail(id: string, fields: Partial<EmailRecord>): Promise<void>;
+  listEmails(opts: { before?: string | null; limit: number }): Promise<EmailRecord[]>;
+  /** By report (equality) or by address (array-contains on `addrs`); sorted newest first in memory (no composite index). */
+  findEmails(opts: { reportId?: string | null; addr?: string | null; limit: number }): Promise<EmailRecord[]>;
+  deleteEmailsBefore(date: Date, limit: number): Promise<number>;
+  findUserByEmail(email: string): Promise<UserDoc | null>;            // users where email == (lowercased match tried too)
   /** cityQuestions/{category} — the per-category city-questions record (cityquestions.ts). set = full replace of the given top-level fields. */
   getCityQuestions(category: string): Promise<CityQuestionsDoc | null>;
   setCityQuestions(category: string, doc: Record<string, unknown>): Promise<void>;
@@ -187,10 +197,11 @@ export const TERMINAL_PORTAL_STATUS = /\b(resolved|closed|completed|cancel+ed|re
 
 /** email.ts */
 export interface Mailer {
-  send(subject: string, html: string): Promise<string | null>;
-  alert(subject: string, html: string): Promise<void>;   // never throws
-  sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void>; // reporter-facing; gated; never throws
+  // Every send is logged to emails/{id} (emaillog.ts); `meta` tags it (kind, report). Logging never throws.
+  send(subject: string, html: string, meta?: EmailMeta): Promise<string | null>;
+  alert(subject: string, html: string, meta?: EmailMeta): Promise<void>;   // never throws
+  sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string } & EmailMeta): Promise<void>; // reporter-facing; gated; never throws
   /** City-facing: FROM the portal account's contact address (RELAY_ADDRESS), so the city's CRM matches our contact and its
    *  replies come back through relay.ts. Only cityask.ts calls it, only to a city address. Never throws. */
-  sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null }): Promise<{ ok: boolean; id: string | null; error: string | null }>;
+  sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null } & EmailMeta): Promise<{ ok: boolean; id: string | null; error: string | null }>;
 }

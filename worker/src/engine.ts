@@ -22,6 +22,7 @@ import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
 import { syncCityAsks, ASK_SETTLE_MS } from './cityask.js';
+import { EMAIL_RETENTION_DAYS, syncFromResend } from './emaillog.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
@@ -86,7 +87,7 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
     for (const stuck of await store.findStuckProcessing(STUCK_MINUTES).catch(() => [] as ReportDoc[])) {
       await store.updateReportStatus(stuck.id, 'failed', `Reaped: stuck in processing > ${STUCK_MINUTES}m`).catch(() => {});
       await logEvent(store, { level: 'warn', kind: 'tick.reaped', msg: `Stuck in processing > ${STUCK_MINUTES}m → failed`, reportId: stuck.id });
-      await mailer.alert(`Reaped ${stuck.id}`, `<p>Report <b>${stuck.id}</b> was stuck in processing &gt; ${STUCK_MINUTES}m and was failed. Retry from the dashboard (draft will resume).</p>`);
+      await mailer.alert(`Reaped ${stuck.id}`, `<p>Report <b>${stuck.id}</b> was stuck in processing &gt; ${STUCK_MINUTES}m and was failed. Retry from the dashboard (draft will resume).</p>`, { reportId: stuck.id });
     }
 
     if (state.paused) {
@@ -219,7 +220,8 @@ async function submitOne(
     {
       const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
       await notifyReport(store, mailer, report, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
-        `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
+        `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`,
+        { kind: 'filed' });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -240,7 +242,7 @@ async function submitOne(
     await store.setMeta('engine', { consecutiveFailures, paused });
 
     if (/^NEEDS_(REVIEW|MAPPING)/.test(message)) {
-      await mailer.alert(`Needs a human — report ${report.id}`, `<pre>${escHtml(message)}</pre>`);
+      await mailer.alert(`Needs a human — report ${report.id}`, `<pre>${escHtml(message)}</pre>`, { reportId: report.id });
     }
     if (paused) {
       console.error(`[tick] circuit breaker tripped after ${consecutiveFailures} failures`);
@@ -343,7 +345,7 @@ export async function runWatcher(env: Env): Promise<void> {
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           statusMail.push({ report, caseId, to }); // sent after the detail read below, so a closure email can quote the city's note
           if (TERMINAL_PORTAL_STATUS.test(to)) {
-            await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
+            await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`, { reportId: report.id, caseId });
           }
         }
         // Case detail (routing trail): first sighting + whoever changed status this run. Bounded; non-fatal.
@@ -364,7 +366,7 @@ export async function runWatcher(env: Env): Promise<void> {
         for (const { report, caseId, to } of statusMail) {
           const fresh = (await store.fetchReport(report.id).catch(() => null)) ?? report;
           const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl: `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`, resolution: cityResolutionMessage(fresh) });
-          await notifyReport(store, mailer, fresh, mail.subject, mail.html);
+          await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status' });
         }
       }
     } else {
@@ -629,6 +631,11 @@ export async function runDaily(env: Env): Promise<void> {
     }
     const purged = await store.deleteEventsBefore(new Date(Date.now() - 14 * 24 * 3_600_000), 500).catch(() => 0);
     if (purged) console.log(`[retention] purged ${purged} old events`);
+    const mails = await store.deleteEmailsBefore(new Date(Date.now() - EMAIL_RETENTION_DAYS * 24 * 3_600_000), 500).catch(() => 0);
+    if (mails) console.log(`[retention] purged ${mails} old email-log records`);
+    // Email log: delivery states for recent mail + anything Resend sent that the log missed (bounded: 2 pages).
+    await syncFromResend(env, store, { maxPages: 2 }).then((r) => console.log(`[daily] email log: ${r.imported} imported, ${r.updated} delivery updates`))
+      .catch((e) => console.error('[daily] email log sync failed:', e instanceof Error ? e.message : e));
   } catch (e) { console.error('[retention] failed:', e); await markError(store, 'daily', e); }
 
   // Digest: only mail when the queue snapshot differs from the last one we sent (meta/digest).

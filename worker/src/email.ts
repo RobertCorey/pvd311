@@ -5,85 +5,83 @@
 import type { Env, Mailer, Store } from './contracts.js';
 import { createStore } from './firestore.js';
 import { markOk, markError } from './health.js';
+import { inferKind, logEmail, newOutId, record, toText, type EmailKind, type EmailMeta } from './emaillog.js';
 
 /** Build a Mailer bound to this Worker's env (from NOTIFY_FROM → NOTIFY_EMAIL). */
 export function createMailer(env: Env): Mailer {
   const enabled = !!env.RESEND_API_KEY && !!env.NOTIFY_EMAIL;
   let store: Store | null = null;
+  const getStore = () => { try { return (store ??= createStore(env)); } catch { return null; } };
   const health = (ok: boolean, detail: unknown) => {
-    try { store ??= createStore(env); return ok ? markOk(store, 'email', String(detail)) : markError(store, 'email', detail); } catch { return Promise.resolve(); }
+    const st = getStore();
+    if (!st) return Promise.resolve();
+    return (ok ? markOk(st, 'email', String(detail)) : markError(st, 'email', detail)).catch(() => {});
   };
 
-  async function send(subject: string, html: string): Promise<string | null> {
-    if (!enabled) { console.log(`[email] (disabled) ${subject}`); return null; }
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        from: env.NOTIFY_FROM,
-        to: [env.NOTIFY_EMAIL],
-        subject,
-        html,
-        text: toText(html),
-      }),
-    });
-    const data = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
-    if (!resp.ok) { await health(false, `Resend ${resp.status}: ${data.message ?? 'send failed'} (${subject})`); throw new Error(`Resend ${resp.status}: ${data.message ?? 'send failed'}`); }
-    await health(true, `admin: ${subject}`);
-    return data.id ?? null;
-  }
-
-  /** Reporter-facing mail. Never throws. */
-  async function sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void> {
-    if (!enabled) { console.log(`[email] (no RESEND_API_KEY) to=${to} ${subject}`); return; }
+  /** One Resend send, logged to emails/{id} whatever happens (emaillog.ts). Never throws. */
+  async function deliver(o: { from: string; to: string; subject: string; html: string; text?: string; replyTo?: string | null; headers?: Record<string, string> }, kind: EmailKind, meta: EmailMeta | undefined, label: string): Promise<{ ok: boolean; id: string | null; error: string | null }> {
+    const at = new Date().toISOString();
+    const text = o.text ?? toText(o.html);
+    const log = (status: 'sent' | 'failed' | 'skipped', id: string | null, error: string | null) => logEmail(getStore(), record({
+      id: newOutId(id), at, dir: 'out', kind: meta?.kind ?? kind, from: o.from, to: [o.to], subject: o.subject, text, status, error, resendId: id,
+      lastEvent: null, reportId: meta?.reportId ?? null, caseId: meta?.caseId ?? null, replyTo: o.replyTo ?? null, source: 'live',
+    }));
+    if (!env.RESEND_API_KEY) { console.log(`[email] (no RESEND_API_KEY) to=${o.to} ${o.subject}`); await log('skipped', null, 'email disabled'); return { ok: false, id: null, error: 'email disabled' }; }
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: env.NOTIFY_FROM, to: [to], subject, html, text: toText(html), ...(opts?.replyTo ? { reply_to: opts.replyTo } : {}) }),
-      });
-      if (!resp.ok) { console.error(`[email] reporter mail failed ${resp.status}`); await health(false, `Resend ${resp.status} (reporter: ${subject})`); }
-      else await health(true, `reporter: ${subject}`);
-    } catch (e) { console.error('[email] reporter mail error', e); await health(false, e); }
-  }
-
-  /** City-facing mail from the relay address (cityask.ts). Threads onto the city's message when we know its Message-ID. Never throws. */
-  async function sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null }): Promise<{ ok: boolean; id: string | null; error: string | null }> {
-    if (!env.RESEND_API_KEY) { console.log(`[email] (no RESEND_API_KEY) city mail to=${o.to} ${o.subject}`); return { ok: false, id: null, error: 'email disabled' }; }
-    const relay = env.RELAY_ADDRESS ?? 'cases@fixmypvd.org';
-    const headers = o.inReplyTo ? { 'In-Reply-To': o.inReplyTo, References: o.inReplyTo } : undefined;
-    try {
-      const resp = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: `${env.APP_NAME || 'FixMyPVD'} <${relay}>`, to: [o.to], reply_to: relay, subject: o.subject, text: o.text, html: o.html, ...(headers ? { headers } : {}) }),
+        body: JSON.stringify({ from: o.from, to: [o.to], subject: o.subject, html: o.html, text, ...(o.replyTo ? { reply_to: o.replyTo } : {}), ...(o.headers ? { headers: o.headers } : {}) }),
       });
       const data = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
-      if (!resp.ok) { const error = `Resend ${resp.status}: ${data.message ?? 'send failed'}`; await health(false, `${error} (city: ${o.subject})`); return { ok: false, id: null, error }; }
-      await health(true, `city: ${o.subject}`);
+      if (!resp.ok) {
+        const error = `Resend ${resp.status}: ${data.message ?? 'send failed'}`;
+        await health(false, `${error} (${label}: ${o.subject})`);
+        await log('failed', null, error);
+        return { ok: false, id: null, error };
+      }
+      await health(true, `${label}: ${o.subject}`);
+      await log('sent', data.id ?? null, null);
       return { ok: true, id: data.id ?? null, error: null };
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       await health(false, e);
+      await log('failed', null, error);
       return { ok: false, id: null, error };
     }
   }
 
+  /** Admin mail (to NOTIFY_EMAIL). Throws on a failed send (callers that must not throw use alert()). */
+  async function send(subject: string, html: string, meta?: EmailMeta): Promise<string | null> {
+    if (!enabled) { console.log(`[email] (disabled) ${subject}`); return null; }
+    const r = await deliver({ from: env.NOTIFY_FROM, to: env.NOTIFY_EMAIL, subject, html }, inferKind(subject, [env.NOTIFY_EMAIL.toLowerCase()], env), meta, 'admin');
+    if (!r.ok) throw new Error(r.error ?? 'send failed');
+    return r.id;
+  }
+
+  /** Reporter-facing mail. Never throws. */
+  async function sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string } & EmailMeta): Promise<void> {
+    if (!enabled) { console.log(`[email] (no RESEND_API_KEY) to=${to} ${subject}`); return; }
+    const r = await deliver({ from: env.NOTIFY_FROM, to, subject, html, replyTo: opts?.replyTo ?? null }, inferKind(subject, [to.toLowerCase()], env), opts, 'reporter');
+    if (!r.ok) console.error(`[email] reporter mail failed: ${r.error}`);
+  }
+
+  /** City-facing mail from the relay address (cityask.ts). Threads onto the city's message when we know its Message-ID. Never throws. */
+  async function sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null } & EmailMeta): Promise<{ ok: boolean; id: string | null; error: string | null }> {
+    const relay = env.RELAY_ADDRESS ?? 'cases@fixmypvd.org';
+    const headers = o.inReplyTo ? { 'In-Reply-To': o.inReplyTo, References: o.inReplyTo } : undefined;
+    return deliver({ from: `${env.APP_NAME || 'FixMyPVD'} <${relay}>`, to: o.to, subject: o.subject, html: o.html, text: o.text, replyTo: relay, headers }, 'to_city', { kind: o.kind ?? 'to_city', reportId: o.reportId, caseId: o.caseId }, 'city');
+  }
+
   /** Fire-and-forget alert; never throws. Subject is prefixed [FixMyPVD]. */
-  async function alert(subject: string, html: string): Promise<void> {
-    try { await send(`[FixMyPVD] ${subject}`, html); }
+  async function alert(subject: string, html: string, meta?: EmailMeta): Promise<void> {
+    try { await send(`[FixMyPVD] ${subject}`, html, meta); }
     catch (e) { console.error('[email] alert failed:', e); }
   }
 
   return { send, alert, sendTo, sendAsRelay };
 }
 
-/** Plain-text alternative for a small HTML mail: tags → newlines, entities decoded. */
-function toText(html: string): string {
-  return html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|blockquote|h[1-6]|tr)>/gi, '\n').replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n').trim();
-}
 
 // ── HITL link signing (HMAC-SHA256 hex via WebCrypto) ───────────────────────────────
 

@@ -272,7 +272,7 @@ export async function syncCityAsks(
       const mailIt = a === newest && !!to && askState(a, report, now).open && now - Date.parse(a.at) <= ASK_NOTIFY_MAX_AGE_MS;
       if (mailIt) {
         const m = askEmail({ reminder: false, caseId, category: categoryWords(report), address: report.address, trackUrl: url, cityText: a.text });
-        await deps.mailer.sendTo(to!, m.subject, m.html, { replyTo: env.RELAY_ADDRESS ?? 'cases@fixmypvd.org' });
+        await deps.mailer.sendTo(to!, m.subject, m.html, { replyTo: env.RELAY_ADDRESS ?? 'cases@fixmypvd.org', kind: 'ask', reportId: report.id, caseId });
         a.notifiedAt = nowIso;
         out.notified++;
       }
@@ -287,7 +287,7 @@ export async function syncCityAsks(
     const last = all[all.length - 1];
     if (last && to && last.notifiedAt && !last.remindedAt && askState(last, report, now).open && now - Date.parse(last.notifiedAt) >= ASK_REMIND_AFTER_MS) {
       const m = askEmail({ reminder: true, caseId, category: categoryWords(report), address: report.address, trackUrl: url, cityText: last.text });
-      await deps.mailer.sendTo(to, m.subject, m.html, { replyTo: env.RELAY_ADDRESS ?? 'cases@fixmypvd.org' });
+      await deps.mailer.sendTo(to, m.subject, m.html, { replyTo: env.RELAY_ADDRESS ?? 'cases@fixmypvd.org', kind: 'ask_reminder', reportId: report.id, caseId });
       last.remindedAt = nowIso;
       changed = true;
       out.reminded++;
@@ -402,12 +402,12 @@ export async function answerCityAsk(
 
   const to = cityDomainOk(ask.from, env) ? ask.from! : (env.CITY_REPLY_ADDRESS || DEFAULT_CITY_REPLY);
   const mail = cityAnswerMail(report, ask, text);
-  const res = await deps.mailer.sendAsRelay({ to, subject: mail.subject, text: mail.text, html: mail.html, inReplyTo: ask.messageId ?? null });
+  const res = await deps.mailer.sendAsRelay({ to, subject: mail.subject, text: mail.text, html: mail.html, inReplyTo: ask.messageId ?? null, kind: 'to_city', reportId: report.id, caseId });
   const answer: CityAskAnswer = { at, via: input.via, text, status: res.ok ? 'sent' : 'failed', reason: res.ok ? null : res.error, emailId: res.id };
   await save(answer);
   if (!res.ok) {
     await logEvent(deps.store, { level: 'error', kind: 'city.answer_failed', reportId: report.id, msg: `${caseId}: answer to the city failed to send — ${res.error}`, data: { caseId, askId: ask.id, via: input.via, to } });
-    await deps.mailer.alert(`Answer to the city failed (${caseId})`, `<p>The reporter's answer on <b>${esc(caseId)}</b> (report ${esc(report.id)}) could not be mailed to ${esc(to)}: ${esc(res.error ?? 'unknown error')}. They were told to try again.</p>`);
+    await deps.mailer.alert(`Answer to the city failed (${caseId})`, `<p>The reporter's answer on <b>${esc(caseId)}</b> (report ${esc(report.id)}) could not be mailed to ${esc(to)}: ${esc(res.error ?? 'unknown error')}. They were told to try again.</p>`, { reportId: report.id, caseId });
     return { ok: false, error: 'send_failed', answer };
   }
   await logEvent(deps.store, { level: 'info', kind: 'city.answer_sent', reportId: report.id, msg: `${caseId}: the reporter's answer went to the city (${input.via})`, data: { caseId, askId: ask.id, via: input.via, to, emailId: res.id } });

@@ -11,6 +11,7 @@ import { TERMINAL_PORTAL_STATUS } from './contracts.js';
 import type { Report, ReportStatus } from '../../shared/types.js';
 import type { Store, AuthStore, Env, ReportDoc, PortalDraft, UserDoc } from './contracts.js';
 import type { CityQuestionsDoc } from './cityquestions.js';
+import type { EmailRecord } from './emaillog.js';
 
 // ── Service-account JWT → OAuth access token ───────────────────────────────
 interface ServiceAccount {
@@ -320,6 +321,13 @@ function docToReport(doc: FsDocument): ReportDoc {
 }
 
 // ── Store ──────────────────────────────────────────────────────────────────
+function emailFromDoc(doc: FsDocument): EmailRecord {
+  const data = decodeFields(doc.fields ?? {}) as Record<string, unknown>;
+  const ts = data.at as { toDate?: () => Date } | string | null;
+  const at = !ts ? '' : typeof ts === 'string' ? ts : typeof ts.toDate === 'function' ? ts.toDate().toISOString() : '';
+  return { ...(data as unknown as EmailRecord), id: doc.name.split('/').pop() as string, at };
+}
+
 export function createStore(env: Env): Store {
   const reportPath = (id: string) => `reports/${id}`;
 
@@ -646,6 +654,61 @@ export function createStore(env: Env): Store {
         const at = !ts ? '' : typeof ts === 'string' ? ts : typeof ts.toDate === 'function' ? ts.toDate().toISOString() : typeof ts.seconds === 'number' ? new Date(ts.seconds * 1000).toISOString() : '';
         return { id: d.name.split('/').pop() as string, at, level: String(data.level ?? 'info'), kind: String(data.kind ?? ''), msg: String(data.msg ?? ''), reportId: (data.reportId as string | null) ?? null, data: (data.data as Record<string, unknown> | null) ?? null };
       });
+    },
+
+    async putEmail(r): Promise<void> {
+      await patchDoc(env, `emails/${r.id}`, { ...r, at: new Date(r.at) });
+    },
+
+    async getEmail(id): Promise<EmailRecord | null> {
+      const doc = await getDoc(env, `emails/${id}`);
+      return doc ? emailFromDoc(doc) : null;
+    },
+
+    async patchEmail(id, fields): Promise<void> {
+      await patchDoc(env, `emails/${id}`, { ...fields, ...(fields.at ? { at: new Date(fields.at) } : {}) });
+    },
+
+    async listEmails({ before, limit }): Promise<EmailRecord[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'emails' }],
+        ...(before ? { where: fieldFilter('at', 'LESS_THAN', { timestampValue: before }) } : {}),
+        orderBy: [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }],
+        limit,
+      });
+      return docs.map(emailFromDoc);
+    },
+
+    async findEmails({ reportId, addr, limit }): Promise<EmailRecord[]> {
+      const where = reportId ? fieldFilter('reportId', 'EQUAL', { stringValue: reportId })
+        : addr ? fieldFilter('addrs', 'ARRAY_CONTAINS', { stringValue: addr.toLowerCase() }) : null;
+      if (!where) return [];
+      const docs = await runQuery(env, { from: [{ collectionId: 'emails' }], where, limit });
+      return docs.map(emailFromDoc).sort((a, b) => b.at.localeCompare(a.at));
+    },
+
+    async findUserByEmail(email): Promise<UserDoc | null> {
+      for (const v of [...new Set([email, email.toLowerCase()])]) {
+        const docs = await runQuery(env, { from: [{ collectionId: 'users' }], where: fieldFilter('email', 'EQUAL', { stringValue: v }), limit: 1 });
+        if (docs[0]) return { ...(decodeFields(docs[0].fields ?? {}) as unknown as UserDoc), uid: docs[0].name.split('/').pop() as string };
+      }
+      return null;
+    },
+
+    async deleteEmailsBefore(date, limit): Promise<number> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'emails' }],
+        where: fieldFilter('at', 'LESS_THAN', { timestampValue: date.toISOString() }),
+        select: { fields: [{ fieldPath: 'at' }] },
+        limit,
+      });
+      const token = await getAccessToken(env);
+      let n = 0;
+      for (const d of docs) {
+        const resp = await fetch(`${docBase(env)}/emails/${d.name.split('/').pop()}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+        if (resp.ok || resp.status === 404) n++;
+      }
+      return n;
     },
 
     async deleteEventsBefore(date, limit): Promise<number> {

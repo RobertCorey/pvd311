@@ -24,6 +24,7 @@ import type { Env, Store, Mailer, ReportDoc } from './contracts.js';
 import { notifyReport } from './notify.js';
 import { classifyInbound, syncCityAsks, isOwnerAddress, answerCityAsk, asksOf, extractReplyText, isAnswerSubject, isNotAnAnswer, answerOutcomeEmail, unverifiedReplyEmail } from './cityask.js';
 import type { CityMailKind } from '../../shared/types.js';
+import { inboundId, logEmail, record, type EmailKind } from './emaillog.js';
 import { markOk, markError, logEvent } from './health.js';
 
 export const CASE_ID_RE = /\bPVD\d{4}-\d{4,7}\b/i;
@@ -56,7 +57,7 @@ export interface InboundMessage {
 }
 
 export type RelayOutcome =
-  | { kind: 'forwarded'; caseId: string; reportId: string; recipients: number }
+  | { kind: 'forwarded'; caseId: string; reportId: string; recipients: number; at: string; cityKind: CityMailKind }
   | { kind: 'unmatched'; caseId: string | null }
   | { kind: 'reply'; caseId: string | null }
   | { kind: 'answer'; caseId: string; reportId: string; outcome: string }
@@ -123,8 +124,40 @@ export async function handleInbound(
   env: Env,
   deps: { store: Store; mailer: Mailer; sleep?: (ms: number) => Promise<void> },
 ): Promise<RelayOutcome> {
-  const { store, mailer } = deps;
   const mail = await parseInbound(msg);
+  const at = new Date().toISOString();
+  const out = await routeInbound(mail, env, deps, at);
+  await logInbound(env, deps.store, mail, out, at);
+  return out;
+}
+
+const INBOUND_KIND: Record<RelayOutcome['kind'], EmailKind> = { forwarded: 'city_in', unmatched: 'unmatched_in', reply: 'reply_in', answer: 'reply_in', dropped: 'dropped_in' };
+
+/** Every inbound message lands in the email log with what we did with it (emaillog.ts). Never throws. */
+async function logInbound(env: Env, store: Store, mail: InboundMail, out: RelayOutcome, at: string): Promise<void> {
+  const reportId = out.kind === 'forwarded' || out.kind === 'answer' ? out.reportId : null;
+  const caseId = 'caseId' in out ? out.caseId ?? null : extractCaseId(mail.subject, mail.text);
+  const outcome = out.kind === 'forwarded' ? `forwarded to ${out.recipients} recipient${out.recipients === 1 ? '' : 's'}${out.cityKind === 'ask' ? ' (asks the reporter for information)' : ''}`
+    : out.kind === 'answer' ? (out.outcome === 'sent' ? "reporter's answer — sent to the city" : `reporter's answer — not sent (${out.outcome})`)
+    : out.kind === 'reply' ? 'sent to you (nothing went to the city)'
+    : out.kind === 'unmatched' ? 'no matching report — sent to you'
+    : `dropped (${out.reason})`;
+  // Forwarded city mail uses the id the cityMessages import computes, so the two never duplicate.
+  const id = out.kind === 'forwarded' ? inboundId([out.reportId, out.at, mail.subject.slice(0, 300)]) : inboundId([mail.messageId ?? '', at, mail.from, mail.subject]);
+  await logEmail(store, record({
+    id, at: out.kind === 'forwarded' ? out.at : at, dir: 'in', kind: INBOUND_KIND[out.kind], from: mail.from, to: [mail.to], subject: mail.subject,
+    text: mail.text, status: out.kind === 'dropped' ? 'dropped' : 'received', reportId, caseId, messageId: mail.messageId,
+    cityKind: out.kind === 'forwarded' ? out.cityKind : null, outcome, source: 'live',
+  }));
+}
+
+async function routeInbound(
+  mail: InboundMail,
+  env: Env,
+  deps: { store: Store; mailer: Mailer; sleep?: (ms: number) => Promise<void> },
+  _at: string,
+): Promise<RelayOutcome> {
+  const { store, mailer } = deps;
   const caseId = extractCaseId(mail.subject, mail.text);
   const ownDomain = (env.RELAY_ADDRESS ?? 'cases@fixmypvd.org').split('@')[1]?.toLowerCase() ?? 'fixmypvd.org';
 
@@ -148,6 +181,7 @@ export async function handleInbound(
       `Reply to relay${caseId ? ` re ${caseId}` : ''} from ${mail.from}`,
       `<p><b>${escHtml(mail.fromName ?? mail.from)}</b> &lt;${escHtml(mail.from)}&gt; wrote to ${escHtml(mail.to)}${caseId ? ` about <b>${escHtml(caseId)}</b>` : ''}. Nothing was sent to the city.</p>`
       + `<p><b>${escHtml(mail.subject || '(no subject)')}</b></p>${quote(mail.text)}`,
+      { caseId },
     );
     await logEvent(store, { level: 'info', kind: 'relay.reply', msg: `Reply from ${mail.from}${caseId ? ` re ${caseId}` : ''}`, data: { caseId } });
     await markOk(store, 'relay', `reply from ${mail.from}`);
@@ -160,14 +194,15 @@ export async function handleInbound(
       `City email${caseId ? ` for ${caseId}` : ''} — no matching report`,
       `<p>From ${escHtml(mail.from)} to ${escHtml(mail.to)}${caseId ? `, case <b>${escHtml(caseId)}</b> is not one of ours (or the case id was never recorded)` : ', no PVD case id found'}.</p>`
       + `<p><b>${escHtml(mail.subject || '(no subject)')}</b></p>${quote(mail.text)}`,
+      { caseId },
     );
     await logEvent(store, { level: 'warn', kind: 'relay.unmatched', msg: `City email with no matching report${caseId ? ` (${caseId})` : ''}: ${mail.subject}`.slice(0, 300), data: { caseId, from: mail.from } });
     await markOk(store, 'relay', `unmatched ${caseId ?? '(no id)'}`);
     return { kind: 'unmatched', caseId };
   }
 
-  const recipients = await forwardToReporter(env, deps, report, mail, caseId!);
-  return { kind: 'forwarded', caseId: caseId!, reportId: report.id, recipients };
+  const fwd = await forwardToReporter(env, deps, report, mail, caseId!);
+  return { kind: 'forwarded', caseId: caseId!, reportId: report.id, recipients: fwd.recipients, at: fwd.at, cityKind: fwd.cityKind };
 }
 
 /** Match a city case id to our report. The city's confirmation mail is sent the moment the wizard's Submit lands,
@@ -193,7 +228,7 @@ async function ownerAnswer(env: Env, deps: { store: Store; mailer: Mailer }, rep
   const to = report.reporterEmail ?? mail.from;
   if (mail.dmarc !== 'pass') {
     const m = unverifiedReplyEmail({ caseId, trackUrl: track });
-    await mailer.sendTo(to, m.subject, m.html);
+    await mailer.sendTo(to, m.subject, m.html, { kind: 'answer_receipt', reportId: report.id, caseId });
     await logEvent(store, { level: 'warn', kind: 'relay.answer', reportId: report.id, msg: `${caseId}: emailed answer not sent — sender not verified (DMARC ${mail.dmarc}); pointed the reporter to the app`, data: { caseId, outcome: 'unverified', dmarc: mail.dmarc } });
     await markOk(store, 'relay', `${caseId} answer unverified`);
     return { kind: 'answer', caseId, reportId: report.id, outcome: 'unverified' };
@@ -201,14 +236,14 @@ async function ownerAnswer(env: Env, deps: { store: Store; mailer: Mailer }, rep
   const text = extractReplyText(mail.text);
   const result = await answerCityAsk(env, deps, report, { text, via: 'email' });
   const m = answerOutcomeEmail({ result, caseId, trackUrl: track, text, attachments: mail.attachments });
-  await mailer.sendTo(to, m.subject, m.html);
+  await mailer.sendTo(to, m.subject, m.html, { kind: 'answer_receipt', reportId: report.id, caseId });
   const outcome = result.ok ? 'sent' : result.error;
   await logEvent(store, { level: result.ok ? 'info' : 'warn', kind: 'relay.answer', reportId: report.id, msg: `${caseId}: emailed answer from the reporter — ${outcome}`, data: { caseId, outcome } });
   await markOk(store, 'relay', `${caseId} answer ${outcome}`);
   return { kind: 'answer', caseId, reportId: report.id, outcome };
 }
 
-async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer }, report: ReportDoc, mail: InboundMail, caseId: string): Promise<number> {
+async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer }, report: ReportDoc, mail: InboundMail, caseId: string): Promise<{ recipients: number; at: string; cityKind: CityMailKind }> {
   const { store, mailer } = deps;
   const at = new Date().toISOString();
   const cls = await classifyInbound(env, mail.subject, mail.text);
@@ -225,7 +260,7 @@ async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer 
 
   // An ask goes to the owner as "the city needs more information" (syncCityAsks below); followers get the usual copy.
   const ask = cls.kind === 'ask';
-  let recipients = await notifyReport(store, mailer, report, subject, html, { replyTo: env.RELAY_ADDRESS ?? undefined, excludeOwner: ask });
+  let recipients = await notifyReport(store, mailer, report, subject, html, { replyTo: env.RELAY_ADDRESS ?? undefined, excludeOwner: ask, kind: 'city_copy' });
 
   const entry: CityMessage = { at, from: mail.from, subject: mail.subject.slice(0, 300), text: mail.text.slice(0, MAX_TEXT), caseId, kind: cls.kind, dept: cls.dept, by: cls.by, messageId: mail.messageId };
   const messages = [...(report.cityMessages ?? []).slice(-(MAX_STORED - 1)), entry];
@@ -235,7 +270,7 @@ async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer 
   if (ask) recipients += (await syncCityAsks(env, deps, { ...report, cityMessages: messages, cityCaseId: report.cityCaseId ?? caseId })).notified;
   await logEvent(store, { level: 'info', kind: 'relay.forwarded', msg: `City email on ${caseId} (${cls.kind}${cls.by === 'ai' ? ', AI-read' : ''}) forwarded to ${recipients} recipient${recipients === 1 ? '' : 's'}: ${subjectTail || mail.subject}`.slice(0, 300), reportId: report.id, data: { caseId, recipients, kind: cls.kind, by: cls.by } });
   await markOk(store, 'relay', `${caseId} → ${recipients}`);
-  return recipients;
+  return { recipients, at, cityKind: cls.kind };
 }
 
 /** Entry point for index.ts: never throws; on failure the raw mail is forwarded to RELAY_FALLBACK_TO so nothing is lost. */
