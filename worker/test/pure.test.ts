@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseCityRow, mapCategory, cityItemId, parseCityDate } from '../src/cityfeed';
 import { signAction, actionUrl, timingSafeEqualHex, HITL_LINK_TTL_MS } from '../src/email';
 import { TERMINAL_PORTAL_STATUS } from '../src/contracts';
-import { hasHouseNumber, chooseStep2Source, buildDescription } from '../src/address';
+import { hasHouseNumber, chooseStep2Source, buildDescription, CITY_NOTE } from '../src/address';
 
 describe('cityfeed parsing', () => {
   const headers = ['Case Type', 'Street', 'Status Reason', 'Created On'];
@@ -72,11 +72,11 @@ describe('Step 2 address choice (PVD2026-89374 went to the city as "India St" wh
   it('no pin → typed', () => {
     expect(chooseStep2Source('201 India street', null)).toBe('typed');
   });
-  it('description always carries the typed address, the pin link, and the ref tag', () => {
+  it('description always carries the typed address, the pin link, the ref tag, and the note to city staff', () => {
     const d = buildDescription({ id: 'abc', description: null, address: '201 India street', lat: 41.81786944, lng: -71.39075833 } as any, 'FixMyPVD');
-    expect(d).toBe('Address given by reporter: 201 India street\n\nExact location: https://maps.google.com/?q=41.817869,-71.390758\n\n[Submitted via FixMyPVD — ref:abc]');
+    expect(d).toBe('Address given by reporter: 201 India street\n\nExact location: https://maps.google.com/?q=41.817869,-71.390758\n\n[Submitted via FixMyPVD — ref:abc]\n\n' + CITY_NOTE);
     const e = buildDescription({ id: 'abc', description: '  Wire down across the sidewalk. ', address: '', lat: null, lng: null } as any, 'FixMyPVD');
-    expect(e).toBe('Wire down across the sidewalk.\n\n[Submitted via FixMyPVD — ref:abc]');
+    expect(e).toBe('Wire down across the sidewalk.\n\n[Submitted via FixMyPVD — ref:abc]\n\n' + CITY_NOTE);
   });
 });
 

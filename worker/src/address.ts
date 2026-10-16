@@ -22,8 +22,18 @@ export function chooseStep2Source(typed: string, pinStreet: string | null): 'pin
 }
 
 /**
+ * A hello to the city staff who read every case we file (Rob, 2026-10-16: "we want to be friends … let me
+ * know if there's anything I can do for you"). The contact is rob@, not the relay address: city mail that
+ * names a case id at cases@ is forwarded to that case's reporter (relay.ts), and this is a note for us.
+ */
+export const CITY_NOTE =
+  'FixMyPVD is a free app run by a Providence resident that files reports into 311 on residents\' behalf; ' +
+  'it is not part of the City. We want to make your job easier. If there is anything we should do ' +
+  'differently, or stop doing, please email rob@fixmypvd.org.';
+
+/**
  * Step 3 description: the reporter's words, the address they typed (the portal's Step 2 record may be
- * coarser than what they wrote — see chooseStep2Source), the exact pin, and our ref tag.
+ * coarser than what they wrote — see chooseStep2Source), the exact pin, our ref tag, and the note to staff.
  */
 export function buildDescription(
   report: Pick<ReportDoc, 'id' | 'description' | 'address' | 'lat' | 'lng'>,
@@ -36,5 +46,6 @@ export function buildDescription(
     parts.push(`Exact location: https://maps.google.com/?q=${report.lat.toFixed(6)},${report.lng.toFixed(6)}`);
   }
   parts.push(`[Submitted via ${appName} — ref:${report.id}]`);
+  parts.push(CITY_NOTE);
   return parts.join('\n\n');
 }
