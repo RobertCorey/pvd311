@@ -42,3 +42,33 @@ for (const lang of ['en', 'es']) {
     expect(errors, errors.join('\n')).toEqual([]);
   });
 }
+
+// Test runs must not report to the production Sentry project (JAVASCRIPT-9 was this suite's localhost:4173
+// run). index.html skips the Sentry loader on localhost; on any other host it must still load.
+const SENTRY = /(^|\.)sentry(-cdn)?\.io$|(^|\.)sentry-cdn\.com$/;
+test('Sentry is not loaded on localhost', async ({ page }) => {
+  const hits: string[] = [];
+  page.on('request', (r) => { if (SENTRY.test(new URL(r.url()).hostname)) hits.push(r.url()); });
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.goto('/');
+  await expect(page.locator('main')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  expect(hits, hits.join('\n')).toEqual([]);
+  expect(await page.evaluate(() => 'sentryOnLoad' in window)).toBe(false);
+});
+
+test('Sentry loader is still requested on a non-local host', async ({ page }) => {
+  const hits: string[] = [];
+  await page.route(/sentry-cdn\.com|sentry\.io/, (r) => { hits.push(r.request().url()); return r.abort(); });
+  // Serve the built index.html as if from a production-like hostname.
+  await page.route('http://fixmypvd.test/', async (r) => {
+    const res = await r.fetch({ url: 'http://localhost:4173/' });
+    await r.fulfill({ response: res });
+  });
+  await page.route(/^http:\/\/fixmypvd\.test\/(?!$)/, (r) => r.abort());
+  await page.goto('http://fixmypvd.test/');
+  await expect.poll(() => hits.length).toBeGreaterThan(0);
+  expect(hits[0]).toContain('js.sentry-cdn.com/04195069c1daa8e3d2057b6405e37a21.min.js');
+  expect(await page.evaluate(() => typeof (window as unknown as { sentryOnLoad?: unknown }).sentryOnLoad)).toBe('function');
+});
