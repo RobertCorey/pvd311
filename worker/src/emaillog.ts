@@ -97,6 +97,7 @@ export function inferKind(subject: string, to: string[], env: Pick<Env, 'NOTIFY_
   if (s.startsWith('the city needs more information')) return 'ask';
   if (/your answer|answer the city on your tracking page/.test(s)) return 'answer_receipt';
   if (/^(the city|a city department)\b/.test(s)) return 'status';
+  if (/^your report pvd\d{4}-\d+ (has been|was|is)\b/.test(s)) return 'status'; // the Aug–Oct 2026 status wording
   return 'reporter_other';
 }
 

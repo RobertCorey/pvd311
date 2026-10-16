@@ -45,6 +45,10 @@ describe('pure helpers', () => {
     expect(k('Providence 311 on your report PVD2026-1: You service request…')).toBe('city_copy');
     expect(k('The city assigned your request (PVD2026-1)')).toBe('status');
     expect(k('A city department responded to your request (PVD2026-1)')).toBe('status');
+    expect(k('Your report PVD2026-90089 has been received by the city')).toBe('status');
+    expect(k('Your report PVD2026-90089 was assigned to a city crew')).toBe('status');
+    expect(k('Your report PVD2026-90090 is now Department Responded')).toBe('status');
+    expect(k('Your FixMyPVD report at 13 Wisdom Ave — two quick questions')).toBe('reporter_other');
     expect(k('The city needs more information about your report (PVD2026-1)')).toBe('ask');
     expect(k('Reminder: the city is waiting for more information (PVD2026-1)')).toBe('ask_reminder');
     expect(k('We sent your answer to the city (PVD2026-1)')).toBe('answer_receipt');
