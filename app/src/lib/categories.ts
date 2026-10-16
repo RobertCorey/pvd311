@@ -55,13 +55,8 @@ export function inSeason(c: UiCategory, now = new Date()): boolean {
   return c.seasonal === 'winter' ? m >= 10 || m <= 2 : true;
 }
 
-/** Labels/placeholders live in i18n (extra.*). */
-export const EXTRA_QUESTIONS: Record<string, { type: 'choice' | 'text'; options?: string[] }> = {
-  size: { type: 'choice', options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
-  cartIssue: { type: 'choice', options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
-  animalType: { type: 'choice', options: ['Wildlife', 'Domestic'] },
-  vehicleDetails: { type: 'text' },
-};
+/** In-app questions (`extra.<key>`); defined in shared/categories.ts so the Worker's city-questions audit sees the same options. Labels/placeholders live in i18n (extra.*). */
+export { EXTRA_QUESTIONS } from '@shared/categories';
 
 /* ── Browse-then-disambiguate picker (2026-10-01) ─────────────────────────────────────────────────
  * Level 1: group tiles (icons) in GROUP_ORDER; `other` renders as the wide "Not sure" tile.

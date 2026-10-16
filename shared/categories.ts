@@ -756,6 +756,19 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
   },
 };
 
+/**
+ * In-app questions the reporter answers, keyed by the `extra.<key>` a `fields` source reads. A `choice` option is
+ * sent to the city verbatim, so each must be one of the city's own options for the mapped control — the Worker's
+ * city-questions audit (worker/src/cityquestions.ts) flags `app_option_stale` when a live filing no longer offers one.
+ * The app renders these (app/src/lib/categories.ts re-exports); labels/placeholders live in i18n (extra.*).
+ */
+export const EXTRA_QUESTIONS: Record<string, { type: 'choice' | 'text'; options?: string[] }> = {
+  size: { type: 'choice', options: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'] },
+  cartIssue: { type: 'choice', options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
+  animalType: { type: 'choice', options: ['Wildlife', 'Domestic'] },
+  vehicleDetails: { type: 'text' },
+};
+
 export type Category = keyof typeof CATEGORIES;
 
 export function isCategory(x: unknown): x is Category {

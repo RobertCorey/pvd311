@@ -1,0 +1,795 @@
+{
+  "generatedAt": "2026-10-16T16:38:32.376Z",
+  "source": {
+    "dump": "step3-page-2026-10-16.json",
+    "how": "Step-3 page dump (Portal.inspectStep3Page, read-only); the city's inline `switch (casetypeval)` show/hide script decides which questions each case type shows; labels/options from the dumped controls; hidden-input Power Apps toggles from the form HTML.",
+    "generator": "scripts/city-questions-seed.mjs",
+    "ignored": [
+      "cop_streetlightdisclaimer",
+      "cop_decorativelightdisclaimer"
+    ]
+  },
+  "notes": [
+    "3 case type(s) in the city's switch match none of our categories: dce7b671-7a2e-ef11-840a-001dd8039400 (\"chanical, Plumbing Inspection Requests\"); 48e8b671-7a2e-ef11-840a-001dd8039400 (\"ination\"); cc2ea02f-a203-f011-bae3-001dd805310f (\"ssue(s)\")."
+  ],
+  "categoryNotes": {
+    "missed_trash": "The city's show/hide script is broken for this case type: `elements.elements.cop_servicerequestnumber` throws while showElements' arguments are evaluated, so this case shows nothing (case comment \"-up Issue\").",
+    "missed_plowing": "The city's script shows cop_typeofroadservice, but no such control exists on the page."
+  },
+  "caseTypes": {
+    "bae7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "acant City Owned Property Concerns",
+      "categories": [
+        "vacant_city"
+      ],
+      "shows": [
+        "cop_ispropertyabandoned",
+        "cop_typeofproperty"
+      ]
+    },
+    "bce7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "cle to Report",
+      "categories": [
+        "abandoned_vehicle"
+      ],
+      "shows": [
+        "cop_vehicledetails"
+      ]
+    },
+    "630efb0b-0454-ef11-a317-001dd8068673": {
+      "comment": "Concerns",
+      "categories": [
+        "animal_control"
+      ],
+      "shows": [
+        "cop_typeofanimal"
+      ]
+    },
+    "4ce8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "Roadway or Sidewalk",
+      "categories": [
+        "dead_animal"
+      ],
+      "shows": [
+        "cop_typeofanimal"
+      ]
+    },
+    "d4e7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "eet Light Issue",
+      "categories": [
+        "decorative_light"
+      ],
+      "shows": [
+        "cop_polenumberrequested",
+        "cop_streetlightdisclaimer",
+        "cop_streetlightrepair"
+      ]
+    },
+    "c2e7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "and Scooter Issues",
+      "categories": [
+        "scooter"
+      ],
+      "shows": [
+        "cop_deviceowner",
+        "cop_location"
+      ]
+    },
+    "dce7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "chanical, Plumbing Inspection Requests",
+      "categories": [],
+      "shows": [
+        "cop_typeofproperty"
+      ]
+    },
+    "e4e7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "g or Raw Sewage",
+      "categories": [
+        "raw_sewage"
+      ],
+      "shows": [
+        "cop_typeofproperty"
+      ]
+    },
+    "f4e7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "Park",
+      "categories": [
+        "graffiti_park"
+      ],
+      "shows": [
+        "cop_hatespeech",
+        "cop_surfacetype"
+      ]
+    },
+    "92e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "ty-Owned Property",
+      "categories": [
+        "graffiti"
+      ],
+      "shows": [
+        "cop_hatespeech",
+        "cop_surfacetype",
+        "cop_typeofproperty"
+      ]
+    },
+    "7ae8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "ivate Property",
+      "categories": [
+        "graffiti_private"
+      ],
+      "shows": [
+        "cop_areyouthepropertyowner",
+        "cop_hatespeech",
+        "cop_presscharges",
+        "cop_surfacetype",
+        "cop_typeofproperty",
+        "cop_videosurveillanceavailable"
+      ]
+    },
+    "04e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "g Issues or Concerns",
+      "categories": [
+        "illegal_housing"
+      ],
+      "shows": [
+        "cop_typeofillegalhousing"
+      ]
+    },
+    "16e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "e or Utility Cover",
+      "categories": [
+        "manhole_missing"
+      ],
+      "shows": [
+        "cop_location",
+        "cop_size"
+      ]
+    },
+    "18e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "Disturbances",
+      "categories": [
+        "noise"
+      ],
+      "shows": [
+        "cop_whereisthenoisefrom"
+      ]
+    },
+    "0e8e7734-cc3f-ef11-8409-001dd800f706": {
+      "comment": "mpster",
+      "categories": [
+        "overflowing_dumpster"
+      ],
+      "shows": [
+        "cop_typeofdumpster"
+      ]
+    },
+    "1ae8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "High Grass Public Property",
+      "categories": [
+        "overgrowth_public"
+      ],
+      "shows": [
+        "cop_treework"
+      ]
+    },
+    "22e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "at a Construction Site",
+      "categories": [
+        "construction_permit"
+      ],
+      "shows": [
+        "cop_typeofpermit",
+        "cop_typeofproperty"
+      ]
+    },
+    "5f0efb0b-0454-ef11-a317-001dd8068673": {
+      "comment": "",
+      "categories": [
+        "pothole"
+      ],
+      "shows": [
+        "cop_size"
+      ]
+    },
+    "48e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "ination",
+      "categories": [],
+      "shows": [
+        "cop_basisofdiscrimination"
+      ]
+    },
+    "44e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "Backup",
+      "categories": [
+        "sewage_backup"
+      ],
+      "shows": [
+        "cop_locationofbackup"
+      ]
+    },
+    "36e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "or Replace Trash or Recycling Bins",
+      "categories": [
+        "bins_carts"
+      ],
+      "shows": [
+        "cop_cartrequesttype"
+      ]
+    },
+    "3ce8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "ding of Abandoned Property",
+      "categories": [
+        "reboarding"
+      ],
+      "shows": [
+        "cop_ispropertyabandoned",
+        "cop_typeofproperty"
+      ]
+    },
+    "9714e369-5b9a-ef11-8a6a-001dd830140a": {
+      "comment": "Baiting Information",
+      "categories": [
+        "rodents"
+      ],
+      "shows": [
+        "cop_propertyoccupiedby",
+        "cop_servicerequestnumber",
+        "cop_typeofrodentrequest"
+      ]
+    },
+    "5ae8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "r Salting or Sanding Request",
+      "categories": [
+        "missed_plowing"
+      ],
+      "shows": [
+        "cop_typeofroadservice"
+      ],
+      "notOnPage": [
+        "cop_typeofroadservice"
+      ]
+    },
+    "c6e7b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "using Code Issues or Violations",
+      "categories": [
+        "substandard_housing"
+      ],
+      "shows": [
+        "cop_nameandnumberoflandlord",
+        "cop_typeofproperty",
+        "cop_typeofviolation"
+      ]
+    },
+    "b1c3d9d8-cd3f-ef11-8409-001dd800f706": {
+      "comment": "Malfunction",
+      "categories": [
+        "traffic_signal"
+      ],
+      "shows": [
+        "cop_trafficlightissue"
+      ]
+    },
+    "1ee8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "-up Issue",
+      "categories": [
+        "missed_trash"
+      ],
+      "shows": [],
+      "error": "`elements.elements.cop_servicerequestnumber` throws while showElements' arguments are evaluated, so this case shows nothing"
+    },
+    "68e8b671-7a2e-ef11-840a-001dd8039400": {
+      "comment": "te Property or Sidewalk",
+      "categories": [
+        "trash_private"
+      ],
+      "shows": [
+        "cop_areyouthepropertyowner",
+        "cop_propertyoccupiedby"
+      ]
+    },
+    "070b1e94-b7f3-ef11-be20-001dd804ed86": {
+      "comment": "ssue(s)",
+      "categories": [
+        "tree"
+      ],
+      "shows": [
+        "cop_location",
+        "cop_treework"
+      ]
+    },
+    "cc2ea02f-a203-f011-bae3-001dd805310f": {
+      "comment": "ssue(s)",
+      "categories": [],
+      "shows": [
+        "cop_cartrequesttype"
+      ]
+    }
+  },
+  "categories": {
+    "pothole": [
+      {
+        "id": "cop_size",
+        "cityLabel": "Size",
+        "cityOptions": [
+          "Small (~4in)",
+          "Medium (~28in)",
+          "Large (~36in)",
+          "Unknown"
+        ],
+        "type": "select"
+      }
+    ],
+    "missed_trash": [],
+    "bins_carts": [
+      {
+        "id": "cop_cartrequesttype",
+        "cityLabel": "Cart",
+        "cityOptions": [
+          "Request Type I did not receive my new carts.",
+          "Request Type My old carts were not removed",
+          "Request Type Other"
+        ],
+        "type": "radio"
+      }
+    ],
+    "abandoned_vehicle": [
+      {
+        "id": "cop_vehicledetails",
+        "cityLabel": "Vehicle Details",
+        "cityOptions": [],
+        "type": "text"
+      }
+    ],
+    "animal_control": [
+      {
+        "id": "cop_typeofanimal",
+        "cityLabel": "Type of Animal",
+        "cityOptions": [
+          "Domestic",
+          "Wildlife"
+        ],
+        "type": "select"
+      }
+    ],
+    "noise": [
+      {
+        "id": "cop_whereisthenoisefrom",
+        "cityLabel": "Where is the noise from",
+        "cityOptions": [
+          "House",
+          "Business (add name to description)",
+          "Car",
+          "Park (add name to description)",
+          "Other (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "graffiti": [
+      {
+        "id": "cop_hatespeech",
+        "cityLabel": "Hate Speech",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_surfacetype",
+        "cityLabel": "Surface Type",
+        "cityOptions": [
+          "Brick",
+          "Concrete",
+          "Wood",
+          "Asphalt",
+          "Vinyl Siding",
+          "City Objects",
+          "Metal",
+          "Unknown"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "tree": [
+      {
+        "id": "cop_location",
+        "cityLabel": "Location",
+        "cityOptions": [
+          "Street",
+          "Sidewalk",
+          "Public Property",
+          "Private Property",
+          "Curb",
+          "Driveway",
+          "Between Sidewalk and Building",
+          "Other (add to description)"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_treework",
+        "cityLabel": "Tree Work",
+        "cityOptions": [],
+        "type": "toggle"
+      }
+    ],
+    "traffic_signal": [
+      {
+        "id": "cop_trafficlightissue",
+        "cityLabel": "Traffic Light Issue",
+        "cityOptions": [
+          "Signals not synchronized",
+          "Timing issue",
+          "Pole knocked down",
+          "Walk signal not working",
+          "Red light flashing",
+          "Signal not detecting vehicles"
+        ],
+        "type": "select"
+      }
+    ],
+    "dead_animal": [
+      {
+        "id": "cop_typeofanimal",
+        "cityLabel": "Type of Animal",
+        "cityOptions": [
+          "Domestic",
+          "Wildlife"
+        ],
+        "type": "select"
+      }
+    ],
+    "missed_plowing": [],
+    "trash_private": [
+      {
+        "id": "cop_areyouthepropertyowner",
+        "cityLabel": "Are you the Property Owner",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_propertyoccupiedby",
+        "cityLabel": "Property occupied by",
+        "cityOptions": [
+          "Owner",
+          "Tenant"
+        ],
+        "type": "select"
+      }
+    ],
+    "overflowing_dumpster": [
+      {
+        "id": "cop_typeofdumpster",
+        "cityLabel": "Type of Dumpster",
+        "cityOptions": [
+          "Business",
+          "Residential"
+        ],
+        "type": "select"
+      }
+    ],
+    "manhole_missing": [
+      {
+        "id": "cop_location",
+        "cityLabel": "Location",
+        "cityOptions": [
+          "Street",
+          "Sidewalk",
+          "Public Property",
+          "Private Property",
+          "Curb",
+          "Driveway",
+          "Between Sidewalk and Building",
+          "Other (add to description)"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_size",
+        "cityLabel": "Size",
+        "cityOptions": [
+          "Small (~4in)",
+          "Medium (~28in)",
+          "Large (~36in)",
+          "Unknown"
+        ],
+        "type": "select"
+      }
+    ],
+    "scooter": [
+      {
+        "id": "cop_deviceowner",
+        "cityLabel": "Device Owner",
+        "cityOptions": [
+          "Bird (Blue/Grey)",
+          "Spin - Scooters",
+          "VeoRide (Green)"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_location",
+        "cityLabel": "Location",
+        "cityOptions": [
+          "Street",
+          "Sidewalk",
+          "Public Property",
+          "Private Property",
+          "Curb",
+          "Driveway",
+          "Between Sidewalk and Building",
+          "Other (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "overgrowth_public": [
+      {
+        "id": "cop_treework",
+        "cityLabel": "Tree Work",
+        "cityOptions": [],
+        "type": "toggle"
+      }
+    ],
+    "decorative_light": [
+      {
+        "id": "cop_polenumberrequested",
+        "cityLabel": "Pole Number Requested",
+        "cityOptions": [],
+        "type": "textarea"
+      },
+      {
+        "id": "cop_streetlightrepair",
+        "cityLabel": "Street Light Repair",
+        "cityOptions": [
+          "Light is out",
+          "Light is turning on and off",
+          "Light is too bright",
+          "Other (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "sewage_backup": [
+      {
+        "id": "cop_locationofbackup",
+        "cityLabel": "Location of Backup",
+        "cityOptions": [
+          "Inside (Shower, toilet, etc)",
+          "Outside (add location to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "raw_sewage": [
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "rodents": [
+      {
+        "id": "cop_propertyoccupiedby",
+        "cityLabel": "Property occupied by",
+        "cityOptions": [
+          "Owner",
+          "Tenant"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_servicerequestnumber",
+        "cityLabel": "Service request number",
+        "cityOptions": [],
+        "type": "text"
+      },
+      {
+        "id": "cop_typeofrodentrequest",
+        "cityLabel": "Type of Rodent Request",
+        "cityOptions": [
+          "Baiting",
+          "Rebaiting"
+        ],
+        "type": "select"
+      }
+    ],
+    "graffiti_private": [
+      {
+        "id": "cop_areyouthepropertyowner",
+        "cityLabel": "Are you the Property Owner",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_hatespeech",
+        "cityLabel": "Hate Speech",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_presscharges",
+        "cityLabel": "Would you like to press charges?",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_surfacetype",
+        "cityLabel": "Surface Type",
+        "cityOptions": [
+          "Brick",
+          "Concrete",
+          "Wood",
+          "Asphalt",
+          "Vinyl Siding",
+          "City Objects",
+          "Metal",
+          "Unknown"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_videosurveillanceavailable",
+        "cityLabel": "Video Surveillance available",
+        "cityOptions": [],
+        "type": "toggle"
+      }
+    ],
+    "graffiti_park": [
+      {
+        "id": "cop_hatespeech",
+        "cityLabel": "Hate Speech",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_surfacetype",
+        "cityLabel": "Surface Type",
+        "cityOptions": [
+          "Brick",
+          "Concrete",
+          "Wood",
+          "Asphalt",
+          "Vinyl Siding",
+          "City Objects",
+          "Metal",
+          "Unknown"
+        ],
+        "type": "select"
+      }
+    ],
+    "vacant_city": [
+      {
+        "id": "cop_ispropertyabandoned",
+        "cityLabel": "Is Property Abandoned",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "reboarding": [
+      {
+        "id": "cop_ispropertyabandoned",
+        "cityLabel": "Is Property Abandoned",
+        "cityOptions": [],
+        "type": "toggle"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      }
+    ],
+    "substandard_housing": [
+      {
+        "id": "cop_nameandnumberoflandlord",
+        "cityLabel": "Name and Number of Landlord",
+        "cityOptions": [],
+        "type": "textarea"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_typeofviolation",
+        "cityLabel": "Type of Violation",
+        "cityOptions": [
+          "Internal",
+          "External"
+        ],
+        "type": "select"
+      }
+    ],
+    "illegal_housing": [
+      {
+        "id": "cop_typeofillegalhousing",
+        "cityLabel": "Type of Illegal Housing",
+        "cityOptions": [
+          "Apartment",
+          "Home",
+          "Residing in Commercial Building"
+        ],
+        "type": "select"
+      }
+    ],
+    "construction_permit": [
+      {
+        "id": "cop_typeofpermit",
+        "cityLabel": "Type of Permit",
+        "cityOptions": [
+          "Your Own",
+          "Another Person's"
+        ],
+        "type": "select"
+      },
+      {
+        "id": "cop_typeofproperty",
+        "cityLabel": "Type of Property",
+        "cityOptions": [
+          "Commercial (my own)",
+          "Commercial (someone else's property)",
+          "Residential (that I own or rent)",
+          "Residential (someone else's property)",
+          "City Property (add to description)"
+        ],
+        "type": "select"
+      }
+    ]
+  }
+}
