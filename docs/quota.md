@@ -4,11 +4,13 @@
 
 ## Rules
 
-| | Standard | Raised (admin-granted) |
-|---|---|---|
-| Per day (resets 00:00 America/New_York) | **5** | 20 |
-| Per week (resets Monday 00:00 America/New_York) | **15** | 60 |
-| Min gap between reports | **60 s** | 60 s |
+One tier for everyone (no admin-raised limits — Rob, 2026-10-16: "we'll deal with that if we ever need to"):
+
+| | Limit |
+|---|---|
+| Per day (resets 00:00 America/New_York) | **5** |
+| Per week (resets Monday 00:00 America/New_York) | **15** |
+| Min gap between reports | **60 s** |
 
 - **Identity.** Keep the existing `paceIdentity` (mailbox: lowercase, `+tag` stripped, gmail dots collapsed) so alias accounts share one quota.
 - **IP backstop.** Keep a per-IP check, but loose: 30/day, no weekly limit, no gap. Shared networks (libraries, offices, cell carrier NAT) must not block real people.
@@ -19,15 +21,14 @@
 
 ## API
 
-- `GET /api/me` adds `quota: { dayUsed, dayLimit, weekUsed, weekLimit, dayResetsAt, weekResetsAt, nextAllowedAt, raised }`, with times in ISO UTC. The server is the only authority; the app only displays this.
+- `GET /api/me` adds `quota: { dayUsed, dayLimit, weekUsed, weekLimit, dayResetsAt, weekResetsAt, nextAllowedAt }`, with times in ISO UTC (`nextAllowedAt` null = can send now). The server is the only authority; the app only displays this.
 - A `429 rate_limited` from `POST /api/report` includes the same `quota` object plus `reason: 'gap' | 'day' | 'week' | 'ip'` and `retryAfterSec`.
-- `POST /api/admin/users/:uid/quota` takes `{ raised: boolean }` and writes `users/{uid}.quotaRaised` (+ `quotaRaisedBy` / `quotaRaisedAt`), plus an `admin.quota` event. Model it on the existing `/trust` endpoint.
 
 ## App
 
-- **Report screen.** Silent while 3+ remain. At ≤2 left: one quiet line, "2 reports left today · resets at midnight". At 0 (day or week): Send disabled, a short reason with the reset time, the draft kept, and a "Need to report more? Contact us" link (mailto rob@fixmypvd.org). The `rate_limited` path shows the same state.
+- **Report screen.** Silent while 3+ remain. At ≤2 left: one quiet line, "2 reports left today · resets at midnight". At 0 (day, week, or the network backstop): Send disabled, a short reason with the reset time ("Daily limit reached (5 reports). Your draft is kept — you can send it after midnight."), and the draft kept. No contact link (Rob, 2026-10-16: "we don't want emails from crazy people"). The `rate_limited` path shows the same state.
+- **Disabled Send.** Whenever Send can't send (any block reason — photo, address, outside Providence, the human check — or the quota), it looks plainly off: grey fill (`--disabled-bg`), no shadow, not-allowed cursor, label still AA-readable (`--disabled-ink`, 5.7:1), and `aria-disabled="true"` so screen readers announce it. It stays a real button (not `disabled`), so a tap still lands and the reason line underneath explains what's missing.
 - **Mine tab.** Always shows "This week: N of 15".
-- **/admin → Accounts.** A "Raise limits" toggle per account, next to Trust.
 - Strings in both `strings.en.json` and `strings.es.json`.
 
 ## Tests
@@ -36,12 +37,12 @@
   - day / week / gap / IP limits;
   - the Eastern-time day and week boundaries (incl. a DST date);
   - refund on cancel;
-  - raised limits;
+  - no raised tier (the flag and the admin endpoint are gone);
   - `/api/me` quota shape;
   - the 429 body.
 - App e2e:
   - nothing shown at 3+ remaining;
   - the line at ≤2;
-  - Send disabled at 0 with the draft kept;
-  - the Mine weekly line;
-  - the admin toggle.
+  - Send disabled at 0 with the draft kept, no contact link;
+  - the disabled styling + `aria-disabled` + label contrast on every blocked Send;
+  - the Mine weekly line.

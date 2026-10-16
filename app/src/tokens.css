@@ -10,6 +10,8 @@
   --link: #1D5C99;           /* river — inline links only */
   --muted: #5A6275;
   --line: #E3DACB;
+  --disabled-bg: #E3DACB;     /* a primary action that can't run yet (Send with a reason underneath) */
+  --disabled-ink: #4A5163;    /* on --disabled-bg: 5.7:1, AA for normal text */
   --success: #1B6B45;
   --warn: #9A4B00;
   --danger: #B42318;

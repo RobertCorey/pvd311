@@ -20,6 +20,24 @@ async function pickType(page: import('@playwright/test').Page, group: string, ke
   await page.click(`.type-row[data-category="${key}"]`);
 }
 
+/** A blocked Send must look plainly off (grey fill, no shadow, not-allowed cursor), be announced as disabled, and keep an AA-readable label. */
+async function expectSendLooksDisabled(page: Page, disabled: boolean) {
+  const send = page.locator('.submit-bar button[type="submit"]');
+  await expect(send).toHaveAttribute('aria-disabled', String(disabled));
+  await expect(async () => { // the colours transition (0.15 s): poll until settled
+    const st = await send.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+      const lum = ([r, g, b]: number[]) => { const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const [a, b] = [lum(rgb(cs.backgroundColor)), lum(rgb(cs.color))];
+      return { bg: cs.backgroundColor, shadow: cs.boxShadow, cursor: cs.cursor, opacity: cs.opacity, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+    });
+    if (disabled) expect(st).toMatchObject({ bg: 'rgb(227, 218, 203)', shadow: 'none', cursor: 'not-allowed', opacity: '1' });
+    else { expect(st.bg).toBe('rgb(244, 101, 42)'); expect(st.cursor).toBe('pointer'); expect(st.shadow).not.toBe('none'); }
+    expect(st.ratio).toBeGreaterThanOrEqual(4.5); // WCAG AA, normal-size text
+  }).toPass({ timeout: 3000 });
+}
+
 test('picker: title + search + groups first (no chips on a fresh visit); a group drills into text rows; the wide Not-sure tile files unsure', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
@@ -352,13 +370,19 @@ test('disabled Send explains what is missing, in order', async ({ page }) => {
   await pickType(page, 'streets', 'pothole');
   await expect(page.getByRole('heading', { name: 'Add a photo (required)' })).toBeVisible();
   await expect(page.locator('.submit-bar .hint')).toHaveText('Add a photo to send.');
+  await expectSendLooksDisabled(page, true);
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click({ force: true }); // a tap on the grey button just keeps explaining
+  await expect(page.locator('.submit-bar .hint')).toHaveText('Add a photo to send.');
+  await expect(page).toHaveURL(/c=pothole/);
   await page.evaluate(() => { /* no file chooser in headless: fall back to a photo-optional category check below */ });
   await page.getByRole('button', { name: /Change/ }).click();
   await pickType(page, 'trash', 'missed_trash');
   await expect(page.locator('.submit-bar .hint')).toHaveText('Add the address to send.');
+  await expectSendLooksDisabled(page, true);
   await page.fill('#address', '25 Dorrance St');
   await expect(page.locator('.submit-bar .hint')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeEnabled();
+  await expectSendLooksDisabled(page, false);
 });
 
 // A valid 1x1 PNG (green pixel), and a non-image, for the photo-validation tests.
@@ -545,7 +569,7 @@ test('quota: 3 or more left → nothing shown, Send works', async ({ page }) => 
   await compose(page);
   await me;
   await page.waitForTimeout(300);
-  await expect(page.locator('.quota-line, .quota-out, .quota-contact')).toHaveCount(0);
+  await expect(page.locator('.quota-line, .quota-out')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'false');
 });
 
@@ -554,23 +578,24 @@ test('quota: 2 left today → one quiet line; the week wins when it runs out fir
   await mockMe(page, quota({ dayUsed: 3, weekUsed: 3 }));
   await compose(page);
   await expect(page.locator('.quota-line')).toHaveText('2 reports left today · resets at midnight');
-  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'false');
+  await expectSendLooksDisabled(page, false);
   await page.unroute(`${API}/api/me`);
   await mockMe(page, quota({ dayUsed: 1, weekUsed: 14 }));
   await compose(page);
   await expect(page.locator('.quota-line')).toHaveText('1 report left this week · resets Monday');
 });
 
-test('quota: 0 left today → Send disabled with the reason + contact link, draft kept, nothing sent', async ({ page }) => {
+test('quota: 0 left today → Send greyed + aria-disabled with the reason, no contact link, draft kept, nothing sent', async ({ page }) => {
   await mockApi(page);
   await mockMe(page, quota({ dayUsed: 5, weekUsed: 7 }));
   let posted = 0;
   page.on('request', (r) => { if (r.url() === `${API}/api/report`) posted++; });
   await compose(page);
   const send = page.getByRole('button', { name: 'Send to Providence 311' });
-  await expect(send).toHaveAttribute('aria-disabled', 'true');
+  await expectSendLooksDisabled(page, true);
   await expect(page.locator('.quota-out')).toHaveText('Daily limit reached (5 reports). Your draft is kept — you can send it after midnight.');
-  await expect(page.getByRole('link', { name: 'Need to report more? Contact us' })).toHaveAttribute('href', 'mailto:rob@fixmypvd.org');
+  await expect(page.locator('.submit-bar a[href^="mailto:"]')).toHaveCount(0);
+  await expect(page.getByText(/Need to report more/)).toHaveCount(0);
   await expect(page.locator('.quota-line')).toHaveCount(0);
   await send.click({ force: true }); // aria-disabled: a tap must still not send
   await page.waitForTimeout(300);
@@ -585,8 +610,8 @@ test('quota: a 429 rate_limited (week) shows the same blocked state and keeps th
   await compose(page);
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   await expect(page.locator('.quota-out')).toHaveText('Weekly limit reached (15 reports). Your draft is kept — you can send it on Monday.');
-  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByRole('link', { name: 'Need to report more? Contact us' })).toBeVisible();
+  await expectSendLooksDisabled(page, true);
+  await expect(page.locator('.submit-bar a[href^="mailto:"]')).toHaveCount(0);
   await expect(page.locator('.notice-error')).toHaveCount(0);
   await expect(page.locator('#description')).toHaveValue('bins left out since Monday');
   await expect(page).toHaveURL(/\/\?c=missed_trash$/);

@@ -43,6 +43,8 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 .btn:active { transform: scale(0.97); }
 .btn-primary { background: var(--ember); color: var(--ember-ink); border-color: var(--ember); width: 100%; box-shadow: 0 3px 0 rgba(22, 33, 58, 0.25); }
 .btn-primary:disabled { opacity: 0.45; cursor: default; box-shadow: none; transform: none; }
+/* aria-disabled (not :disabled) so a tap still lands and the reason underneath explains why; looks plainly off. */
+.btn-primary[aria-disabled="true"] { background: var(--disabled-bg); border-color: var(--disabled-bg); color: var(--disabled-ink); box-shadow: none; cursor: not-allowed; transform: none; }
 .btn-secondary { background: var(--surface); color: var(--ink); border-color: var(--ink); }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; }
 .btn-ghost:hover { border-color: var(--ink); }
