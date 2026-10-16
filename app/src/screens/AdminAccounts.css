@@ -14,10 +14,6 @@
 
 .acct-trust { min-height: 28px; padding: 2px 12px; font-size: .8rem; border-width: 1.5px; }
 .acct-trust[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-/* Trust + Raise limits share one cell, stacked: rows are already 2–3 lines tall, and a 14th column would clip Addresses at 1512 px. */
-.acct-toggles { white-space: nowrap; }
-.acct-toggles .acct-trust { display: flex; }
-.acct-toggles .acct-trust + .acct-trust { margin-top: 4px; }
 
 .acct-more { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
 .acct-more .btn { min-height: 34px; }

@@ -76,7 +76,7 @@ export interface Stats { filed: number; resolved: number }
 /** Reporter quota (docs/quota.md) — server-computed; the app only displays it. Times are ISO UTC. */
 export interface Quota {
   dayUsed: number; dayLimit: number; weekUsed: number; weekLimit: number;
-  dayResetsAt: string; weekResetsAt: string; nextAllowedAt: string | null; raised: boolean;
+  dayResetsAt: string; weekResetsAt: string; nextAllowedAt: string | null;
 }
 export type QuotaReason = 'gap' | 'day' | 'week' | 'ip';
 

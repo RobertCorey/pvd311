@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../i18n';
-import { adminQuota, adminTrust, adminUsers, type AdminAccount } from '../api/admin';
+import { adminTrust, adminUsers, type AdminAccount } from '../api/admin';
 import { Dot, When } from './adminUtil';
 import './Admin.css';
 import './AdminAccounts.css';
@@ -12,7 +12,7 @@ const PAGE = 50;
  * /admin → Accounts: every person who has ever signed in, densest-possible table.
  * Server pages by `lastSeenAt` cursor (Load more → `next` as `before`); sort + filter are client-side.
  * A row click deep-links into the Reports tab filtered to that account (`#reports?q=<email|uid>`).
- * Trust and Raise limits are per-row optimistic toggles — flip locally, revert on error.
+ * Trust is a per-row optimistic toggle — flips locally, reverts on error.
  */
 export default function AdminAccounts() {
   const t = useT();
@@ -48,20 +48,6 @@ export default function AdminAccounts() {
       await adminTrust(u.uid, target);
     } catch {
       setItems((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, trusted: u.trusted } : x))); // revert
-      say(t('admin.error'));
-    } finally {
-      setBusy((b) => { const n = new Set(b); n.delete(u.uid); return n; });
-    }
-  }, [say, t]);
-
-  const toggleQuota = useCallback(async (u: AdminAccount) => {
-    const target = !u.quotaRaised;
-    setBusy((b) => new Set(b).add(u.uid));
-    setItems((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, quotaRaised: target } : x))); // optimistic
-    try {
-      await adminQuota(u.uid, target);
-    } catch {
-      setItems((prev) => prev.map((x) => (x.uid === u.uid ? { ...x, quotaRaised: u.quotaRaised } : x))); // revert
       say(t('admin.error'));
     } finally {
       setBusy((b) => { const n = new Set(b); n.delete(u.uid); return n; });
@@ -123,7 +109,7 @@ export default function AdminAccounts() {
                 <th scope="col" className="acct-num">{t('admin.accounts.col.rejected')}</th>
                 <th scope="col" className="acct-num">{t('admin.accounts.col.awaiting')}</th>
                 <th scope="col">{t('admin.accounts.col.autoFiles')}</th>
-                <th scope="col">{t('admin.accounts.col.trustLimits')}</th>
+                <th scope="col">{t('admin.accounts.col.trusted')}</th>
                 <th scope="col">{t('admin.accounts.col.emailUpdates')}</th>
                 <th scope="col" className="acct-num">{t('admin.accounts.col.following')}</th>
                 <th scope="col" className="acct-num">{t('admin.accounts.col.addresses')}</th>
@@ -145,14 +131,10 @@ export default function AdminAccounts() {
                   <td className="acct-num">{u.rejected}</td>
                   <td className="acct-num">{u.awaitingReview}</td>
                   <td><YesNo v={u.autoFiles} t={t} /></td>
-                  <td className="acct-toggles" onClick={(e) => e.stopPropagation()}>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="chip acct-trust" aria-pressed={u.trusted} disabled={busy.has(u.uid)}
                       title={t('admin.accounts.trustHint')} onClick={() => void toggleTrust(u)}>
                       {u.trusted ? t('admin.accounts.trusted') : t('admin.accounts.trust')}
-                    </button>
-                    <button type="button" className="chip acct-trust acct-quota" aria-pressed={!!u.quotaRaised} disabled={busy.has(u.uid)}
-                      title={t('admin.accounts.raiseHint')} onClick={() => void toggleQuota(u)}>
-                      {u.quotaRaised ? t('admin.accounts.raised') : t('admin.accounts.raise')}
                     </button>
                   </td>
                   <td className="acct-yn">{u.emailUpdates ? t('admin.accounts.on') : t('admin.accounts.off')}</td>

@@ -729,7 +729,6 @@ export default function Report() {
         <button type="submit" className="btn btn-primary" aria-disabled={!canSubmit}
           aria-describedby={!submitting && blockReason ? 'submit-hint' : undefined}>{submitting ? t('report.sending') : t('report.submit')}</button>
         {!submitting && blockReason && <p id="submit-hint" className={`hint center${quotaOut ? ' quota-out' : ''}`} aria-live="polite">{blockReason}</p>}
-        {!submitting && quotaOut && <p className="hint center quota-contact"><a href={`mailto:${BRAND.contactEmail}`}>{t('report.quota.contact')}</a></p>}
         {!submitting && !blockReason && quotaLine && <p className="hint center quota-line">{quotaLine}</p>}
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
