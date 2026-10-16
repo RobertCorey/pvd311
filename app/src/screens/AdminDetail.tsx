@@ -66,7 +66,7 @@ export default function AdminDetail({ r, busy, onAct, onClose }: { r: AdminRepor
           : <div className="admin-pane-nophoto">{t('admin.pane.noPhoto')}</div>}
 
         <dl className="admin-dl">
-          <dt>{t('admin.col.address')}</dt><dd>{r.address}{r.lat != null && r.lng != null && <span className="admin-meta"> · {r.lat.toFixed(5)}, {r.lng.toFixed(5)}</span>}</dd>
+          <dt>{t('admin.col.address')}</dt><dd>{r.address}{r.lat != null && r.lng != null && <span className="admin-meta"> · <a href={`https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`} target="_blank" rel="noopener noreferrer">{r.lat.toFixed(5)}, {r.lng.toFixed(5)}</a></span>}</dd>
           <dt>{t('admin.pane.filed')}</dt><dd><When iso={r.createdAt} t={t} /> <span className="admin-meta">{abs(r.createdAt)}</span> · <Link to={`/r/${r.id}`} target="_blank">{r.id}</Link></dd>
           {r.portalCaseId && <><dt>{t('admin.pane.case')}</dt><dd>{r.portalCaseId}{r.portalStatus ? ` · ${r.portalStatus}` : ''}</dd></>}
           <dt>{t('admin.col.reporter')}</dt>

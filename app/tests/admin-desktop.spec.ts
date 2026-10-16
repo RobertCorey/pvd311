@@ -20,6 +20,10 @@ test('queue: rail + table + 480px detail pane, no phone chrome', async ({ page }
   const pane = page.locator('.admin-pane');
   await expect(pane).toBeVisible();
   await expect(pane.locator('.admin-proofs img')).toHaveCount(1);
+  const coords = pane.locator('a[href^="https://www.google.com/maps/search/"]');
+  await expect(coords).toHaveText('41.82680, -71.40530');
+  await expect(coords).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=41.8268,-71.4053');
+  await expect(coords).toHaveAttribute('target', '_blank');
   const box = await pane.boundingBox();
   expect(box!.width).toBeGreaterThanOrEqual(470);
   expect(box!.x + box!.width).toBeLessThanOrEqual(1512);
