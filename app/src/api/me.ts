@@ -36,4 +36,6 @@ export const deleteAddress = (id: string) => call<{ addresses: SavedAddress[] }>
 /** Owner-only, while the report is still pending. */
 export const editDescription = (id: string, description: string) => call<{ ok: true; description: string | null }>(`/api/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ description }) });
 export const cancelReport = (id: string) => call<{ ok: true; status: 'rejected' }>(`/api/reports/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' });
-
+/** Owner-only: answer the city's request for more information; the Worker mails it to the city (docs/api.md). */
+export const answerCity = (id: string, text: string, askId?: string) =>
+  call<{ ok: true; answer: { at: string; via: 'app'; status: 'sent'; text: string } }>(`/api/reports/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ text, ...(askId ? { askId } : {}) }) });

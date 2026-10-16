@@ -278,3 +278,132 @@ test('spanish: closed wording, the city note label and the city message row are 
   await expect(page.locator('blockquote.track-city-note-text')).toHaveText(CITY_NOTE);
   await expect(page.locator('details.track-tl-msg summary')).toHaveText('Mensaje de la ciudad: Your request has been updated');
 });
+
+// ── The city asked for more information (Rob, 2026-10-16: relay it to the reporter, relay the answer back) ──
+
+const ASK_TEXT = 'Dear FixMyPVD fixmypvd.org,\n\nWe noticed that you began to submit a service request (PVD2026-90113 Noise or Sound Disturbances) but did not provide important information needed. Please respond to this email by providing the address and details of your request.';
+function askView(o: { mine?: boolean; answers?: { at: string; via: string; status: string; text: string }[]; open?: boolean; canAnswer?: boolean; portalStatus?: string } = {}) {
+  const now = new Date().toISOString();
+  const answers = o.answers ?? [];
+  const mine = o.mine ?? true;
+  const sent = answers.filter((a) => a.status === 'sent');
+  return {
+    ...view({ portalStatus: o.portalStatus ?? 'Submitted', portalCaseId: 'PVD2026-90113', timeline: [
+      { at: now, label: 'Received' }, { at: now, label: 'Filed with the city as PVD2026-90113' },
+      { at: now, label: 'The city confirmed it received the request', kind: 'city_receipt' },
+      { at: now, label: 'The city asked for more information', kind: 'city_ask', ...(mine ? { text: ASK_TEXT } : {}) },
+    ] }),
+    ...(o.mine === undefined || o.mine ? { mine: true } : o.mine === false ? { mine: false } : {}),
+    cityAsk: {
+      askedAt: now, open: o.open ?? sent.length === 0, answered: sent.length > 0, answeredAt: sent.length ? sent[sent.length - 1].at : null,
+      ...(mine ? { id: 'ask1', canAnswer: o.canAnswer ?? true, expiresAt: now, text: ASK_TEXT, answers } : {}),
+    },
+  };
+}
+const publicAskView = () => { const v = askView({ mine: false }) as Record<string, unknown>; delete v.mine; return v; };
+
+test('owner: the city asks for more information → headline, the city words, an answer form that posts to /answer', async ({ page }) => {
+  await mockReport(page, askView());
+  let posted: unknown = null;
+  await page.route(`${API}/api/reports/*/answer`, async (r) => {
+    posted = r.request().postDataJSON();
+    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, answer: { at: new Date().toISOString(), via: 'app', status: 'sent', text: 'x' } }) });
+  });
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city needs more information from you' })).toBeVisible();
+  const card = page.locator('#answer');
+  await expect(card.getByRole('heading', { name: 'Answer the city' })).toBeVisible();
+  await expect(card.locator('.track-ask-text')).toContainText('please respond to this email by providing the address'.replace('please', 'Please'));
+  await expect(page.locator('.rail-step--active')).toHaveCount(1);
+  // empty → says so, nothing posted
+  await card.getByRole('button', { name: 'Send to the city' }).click();
+  await expect(card.getByRole('alert')).toHaveText('Type your answer first.');
+  expect(posted).toBeNull();
+  await card.getByLabel('Your answer').fill('  It is 30 Example St, the back yard, after 11pm.  ');
+  await card.getByRole('button', { name: 'Send to the city' }).click();
+  await expect(card.getByRole('status')).toHaveText("Sent. We'll email you when the city updates the case.");
+  expect(posted).toEqual({ text: 'It is 30 Example St, the back yard, after 11pm.', askId: 'ask1' });
+  await expect(card.getByLabel('Your answer')).toHaveValue('');
+  // the timeline words the ask in our words and keeps the city's text behind a disclosure
+  await expect(page.locator('.track-timeline')).toContainText('The city asked for more information');
+  await expect(page.locator('.track-timeline')).toContainText('The city confirmed it received the request');
+});
+
+test('owner: a flagged answer explains why it was not sent; answered + closed states', async ({ page }) => {
+  await mockReport(page, askView());
+  await page.route(`${API}/api/reports/*/answer`, (r) => r.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'blocked', flags: ['abuse'] }) }));
+  await page.goto('/r/abc');
+  await page.getByLabel('Your answer').fill('rude words');
+  await page.getByRole('button', { name: 'Send to the city' }).click();
+  await expect(page.locator('#answer').getByRole('alert')).toContainText('our automatic check flagged it');
+});
+
+test('owner: after answering, the card lists the answer and offers "Add more details"; the headline is the case status again', async ({ page }) => {
+  const at = new Date().toISOString();
+  await mockReport(page, askView({ answers: [{ at, via: 'email', status: 'sent', text: 'Back yard of 30 Example St' }, { at, via: 'app', status: 'blocked', text: 'rude' }] }));
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city has your report' })).toBeVisible();
+  const card = page.locator('#answer');
+  await expect(card.getByRole('heading', { name: 'You answered the city' })).toBeVisible();
+  await expect(card.locator('.track-ask-answer--sent')).toContainText('Back yard of 30 Example St');
+  await expect(card.locator('.track-ask-answer--blocked')).toContainText('Not sent — flagged by our check');
+  await expect(card.getByLabel('Add more details')).toBeVisible();
+});
+
+test('owner: a closed case shows what the city asked, with no form', async ({ page }) => {
+  await mockReport(page, askView({ open: false, canAnswer: false, portalStatus: 'Resolved' }));
+  await page.goto('/r/abc');
+  const card = page.locator('#answer');
+  await expect(card.getByRole('heading', { name: 'The city asked for more information' })).toBeVisible();
+  await expect(card).toContainText("Answers can't be sent from here anymore");
+  await expect(card.locator('textarea')).toHaveCount(0);
+});
+
+test('public viewer: the city is waiting on the reporter, no city words, no form, a sign-in link', async ({ page }) => {
+  await mockReport(page, publicAskView());
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city asked the reporter for more information' })).toBeVisible();
+  const card = page.locator('#answer');
+  await expect(card.getByRole('heading', { name: 'The city is waiting on the reporter' })).toBeVisible();
+  await expect(card.locator('textarea')).toHaveCount(0);
+  await expect(card).not.toContainText('Dear FixMyPVD');
+  await expect(card.getByRole('link', { name: 'Is this your report? Sign in to answer.' })).toHaveAttribute('href', '/account?returnTo=%2Fr%2Fabc');
+});
+
+test('spanish: the ask card and headline are localized', async ({ page }) => {
+  await useSpanish(page);
+  await mockReport(page, askView());
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'La ciudad necesita más información de ti' })).toBeVisible();
+  await expect(page.locator('#answer').getByRole('button', { name: 'Enviar a la ciudad' })).toBeVisible();
+  await expect(page.locator('.track-timeline')).toContainText('La ciudad pidió más información');
+});
+
+test("work order + department: the city's facts on the ticket, worded neutrally, one timeline row per change", async ({ page }) => {
+  const now = new Date().toISOString();
+  await mockReport(page, {
+    ...view({ portalStatus: 'Department Responded', portalCaseId: 'PVD2026-90090', timeline: [
+      { at: now, label: 'Received' },
+      { at: now, label: 'The city sent it to DPW Sewer', kind: 'city_routed', vars: { dept: 'DPW Sewer' } } as never,
+      { at: '2026-10-16T13:30:00Z', label: 'City work order 0000206909: New Request', kind: 'work_order', vars: { number: '0000206909', status: 'New Request' } } as never,
+      { at: '2026-10-16T15:00:00Z', label: 'City work order 0000206909: Completed', kind: 'work_order', vars: { number: '0000206909', status: 'Completed' } } as never,
+      { at: now, label: 'City work order 0000206910: Inspection Scheduled', kind: 'work_order', vars: { number: '0000206910', status: 'Inspection Scheduled' } } as never,
+    ] }),
+    department: 'DPW Sewer',
+    workOrder: { number: '0000206909', status: 'Completed', completedAt: '2026-10-16T11:24:00.000Z' },
+  });
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'A city department responded' })).toBeVisible();
+  await expect(page.locator('.rail-step').filter({ hasText: 'City working on it' })).toHaveClass(/rail-step--done/);
+  const facts = page.locator('.track-facts');
+  await expect(facts).toContainText('Sent to');
+  await expect(facts).toContainText('DPW Sewer');
+  await expect(facts).toContainText('#0000206909 · Marked complete');
+  await expect(page.getByText('The city marked its work order complete; the case itself is still open.')).toBeVisible();
+  const tl = page.locator('.track-timeline');
+  await expect(tl).toContainText('The city sent it to DPW Sewer');
+  await expect(tl).toContainText('City work order #0000206909: New');
+  await expect(tl).toContainText('City work order #0000206909: Marked complete');
+  await expect(tl).toContainText('City work order #0000206910: Inspection Scheduled'); // unknown word → the city's own
+  await expect(page.locator('#answer')).toHaveCount(0);
+});

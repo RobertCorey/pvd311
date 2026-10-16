@@ -46,6 +46,31 @@
 .track-city-note-label { margin: 0 0 4px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
 .track-city-note-text { margin: 0; padding: 8px 12px; border-inline-start: 3px solid var(--line); background: var(--bg); border-radius: 0 6px 6px 0; color: var(--ink); font-size: 0.92rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ticket-eta { margin: 12px 0 0; font-size: 0.85rem; color: var(--muted); }
+/* where the city sent it + its work order — the city's words, two short rows */
+.track-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0 0; font-size: 0.9rem; line-height: 1.4; }
+.track-facts dt { color: var(--muted); font-weight: 600; }
+.track-facts dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.track-facts-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.track-facts-when { color: var(--muted); }
+
+/* --- the city asked for more information --- */
+.track-ask { margin-top: 14px; border: 2px solid var(--line); scroll-margin-top: 72px; }
+.track-ask--open { border-color: var(--warn); }
+.track-ask-title { margin: 0 0 4px; font-size: 1.1rem; }
+.track-ask--open .track-ask-title { color: var(--warn); }
+.track-ask-meta { margin: 0 0 6px; font-size: 0.85rem; color: var(--muted); }
+.track-ask-body { margin: 4px 0 0; font-size: 0.92rem; line-height: 1.45; text-wrap: pretty; }
+.track-ask-signin { display: inline-block; margin-top: 8px; font-weight: 600; font-size: 0.92rem; }
+.track-ask-text { margin: 0 0 12px; padding: 8px 12px; border-inline-start: 3px solid var(--line); background: var(--bg); border-radius: 0 6px 6px 0; color: var(--ink); font-size: 0.9rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16em; overflow-y: auto; }
+.track-ask-answers { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.track-ask-answer { padding: 8px 12px; border-radius: var(--radius); background: var(--bg); border: 2px solid var(--line); }
+.track-ask-answer--sent { border-color: var(--ink); }
+.track-ask-answer-status { display: block; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.track-ask-answer--blocked .track-ask-answer-status, .track-ask-answer--failed .track-ask-answer-status { color: var(--warn); }
+.track-ask-answer-text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.92rem; line-height: 1.45; }
+.track-ask-form .btn { width: 100%; }
+.track-ask-form .notice { margin: 0 0 10px; }
+.track-ask > .notice { margin: 0 0 10px; }
 
 /* rail: 4 steps, horizontal, connectors fill as steps complete */
 .rail { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); position: relative; counter-reset: step; }

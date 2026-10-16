@@ -31,6 +31,13 @@ test("a city-Resolved report's pill says the city closed it, not 'Resolved'", as
   await expect(page.locator('main')).not.toContainText('Resolved');
 });
 
+test('a report the city is waiting on says so in its pill', async ({ page }) => {
+  await setup(page, { account: [view('a5', 'sent', { portalStatus: 'Submitted', portalCaseId: 'PVD2026-90113', cityAsk: { askedAt: new Date().toISOString(), open: true, answered: false, answeredAt: null } })] });
+  await page.goto('/my');
+  await expect(page.locator('main .my-status')).toHaveText(['City needs info']);
+  await expect(page.locator('main .my-status')).toHaveClass(/my-status--cityAsk/);
+});
+
 test('signed out with no reports → sign-in prompt, not the empty state', async ({ page }) => {
   await setup(page, { signedIn: false });
   await page.goto('/my');

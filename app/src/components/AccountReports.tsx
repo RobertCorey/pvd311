@@ -64,7 +64,7 @@ function Row({ id, category, address, createdAt, view }: { id: string; category:
   );
 }
 
-/** Short tracking status: Received · Sending · Sent · Resolved · Cancelled · Not filed · Needs attention. */
+/** Short tracking status: Received · Sending · Sent · City needs info · Resolved · Cancelled · Not filed · Needs attention. */
 export function StatusPill({ view }: { view: ReportView }) {
   const t = useT();
   const k = pillKey(view);
@@ -72,7 +72,7 @@ export function StatusPill({ view }: { view: ReportView }) {
 }
 function pillKey(v: ReportView): string {
   switch (v.status) {
-    case 'sent': return v.portalStatus === 'Resolved' ? 'resolved' : v.portalStatus === 'Cancelled' ? 'cityCancelled' : v.portalStatus === 'Merged' ? 'merged' : 'sent';
+    case 'sent': return v.cityAsk?.open ? 'cityAsk' : v.portalStatus === 'Resolved' ? 'resolved' : v.portalStatus === 'Cancelled' ? 'cityCancelled' : v.portalStatus === 'Merged' ? 'merged' : 'sent';
     case 'sending': case 'awaiting_review': return 'sending';
     case 'rejected': return v.cancelledByReporter ? 'cancelled' : 'notFiled';
     case 'failed': case 'needs_attention': return 'attention';

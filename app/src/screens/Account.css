@@ -38,3 +38,4 @@
 .my-status--sending, .my-status--received { border-color: var(--ink); color: var(--ink); }
 .my-status--cancelled, .my-status--notFiled, .my-status--cityCancelled, .my-status--merged { border-color: var(--line); color: var(--muted); }
 .my-status--attention { border-color: var(--warn); color: var(--warn); }
+.my-status--cityAsk { border-color: var(--warn); color: var(--warn); }

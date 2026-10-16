@@ -1,7 +1,7 @@
 // Worker API v1 — contract from alice (2026-08-22). Keep in sync with worker/.
 export type ReportStatus = 'received' | 'awaiting_review' | 'sending' | 'sent' | 'failed' | 'needs_attention' | 'rejected';
 /** The city's Status Reason values seen on the portal grid. In Progress and Merged showed up on real cases (Oct 2026). */
-export type PortalStatus = 'Submitted' | 'Assigned' | 'In Progress' | 'Resolved' | 'Cancelled' | 'Merged';
+export type PortalStatus = 'Submitted' | 'Assigned' | 'In Progress' | 'Department Responded' | 'Resolved' | 'Cancelled' | 'Merged';
 export type IntakeFlag = 'spam' | 'abuse' | 'personal_info' | 'not_311' | 'emergency';
 
 export interface ReportSubmission {
@@ -40,9 +40,24 @@ export interface IntakeResult {
   model?: string;
 }
 
-/** `kind: 'city_message'` = a relayed city email (label carries its subject). `text` = that email's plain-text body,
- *  sent only to the report's owner on GET /api/reports/:id — never public, never in lists. */
-export interface TimelineEntry { at: string | null; label: string; kind?: 'city_message'; text?: string; }
+/** `kind` marks rows the app words itself (`label` is the server's English fallback):
+ *  city_message = a city email (label carries its subject) · city_receipt = the city's receipt · city_routed = routed, `vars.dept`
+ *  · city_ask = the city asked for more information · city_answer = the reporter's answer went to the city
+ *  · work_order = the city's work order changed, `vars.number` / `vars.status` (the city's words).
+ *  `text` = the city's (or the owner's) words, sent only to the report's owner on GET /api/reports/:id — never public, never in lists. */
+export type TimelineKind = 'city_message' | 'city_receipt' | 'city_routed' | 'city_ask' | 'city_answer' | 'work_order';
+export interface TimelineEntry { at: string | null; label: string; kind?: TimelineKind; text?: string; vars?: Record<string, string>; }
+
+/** The city's work order on the case, verbatim (its status is the work order's, not the case's). */
+export interface WorkOrder { number: string | null; status: string; completedAt: string | null }
+
+/** The newest time the city asked the reporter for more information (docs/api.md). Public: that it asked + whether it was answered.
+ *  Owner adds id/canAnswer/expiresAt, and on the single-report read the city's words + every answer attempt. */
+export interface CityAskView {
+  askedAt: string; open: boolean; answered: boolean; answeredAt: string | null;
+  id?: string; canAnswer?: boolean; expiresAt?: string;
+  text?: string; answers?: { at: string; via: 'app' | 'email'; status: 'sent' | 'blocked' | 'failed'; text: string }[];
+}
 
 export interface ReportView {
   id: string;
@@ -59,6 +74,11 @@ export interface ReportView {
   /** The city's own "Resolution Message" for the case, verbatim (public); null when the city left none. */
   resolutionMessage?: string | null;
   timeline: TimelineEntry[];
+  /** The city's work order, when the case has one */
+  workOrder?: WorkOrder | null;
+  /** Where the city sent the case ("Department Assigned:"), verbatim */
+  department?: string | null;
+  cityAsk?: CityAskView | null;
   nextUpdateHint: string | null;
   /** Set whenever the report will not / did not reach the city (docs/api.md GET /api/reports/:id). */
   notFiled?: { code: string; text: string; duplicateOf?: string | null } | null;

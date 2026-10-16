@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { getReport } from '../api/client';
-import { ApiError, type ReportView } from '../api/types';
+import { ApiError, type ReportView, type TimelineEntry } from '../api/types';
 import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
 import { neighborhoodAt } from '../lib/neighborhoods';
 import { shortLabel } from '../lib/categories';
 import OwnerActions from '../components/OwnerActions';
+import CityAskCard from '../components/CityAskCard';
 import { track } from '../lib/analytics';
 import './Track.css';
 
@@ -35,6 +36,7 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
         case 'Submitted': return { headline: t('track.state.citySubmitted'), tone: 'progress' };
         case 'Assigned': return { headline: t('track.state.cityAssigned'), tone: 'progress' };
         case 'In Progress': return { headline: t('track.state.cityInProgress'), tone: 'progress' };
+        case 'Department Responded': return { headline: t('track.state.cityDeptResponded'), tone: 'progress' };
         case 'Resolved': return { headline: t('track.state.cityResolved'), tone: 'closed' };
         case 'Cancelled': return { headline: t('track.state.cityCancelled'), tone: 'warn', explainer: t('track.state.cityCancelledBody'), portalLink: true };
         case 'Merged': return { headline: t('track.state.cityMerged'), tone: 'closed', explainer: t('track.state.cityMergedBody'), portalLink: true };
@@ -55,7 +57,8 @@ function buildRail(v: ReportView, t: (k: string) => string, kind: RailKind): { l
   if (v.status === 'sent') {
     switch (v.portalStatus) {
       case 'Assigned':
-      case 'In Progress': return { labels, done: 3, branch: null };
+      case 'In Progress':
+      case 'Department Responded': return { labels, done: 3, branch: null };
       case 'Resolved': return { labels, done: 4, branch: null };
       case 'Cancelled': labels[3] = t('track.rail.closed'); return { labels, done: 3, branch: 'closed' };
       case 'Merged': labels[3] = t('track.rail.merged'); return { labels, done: 4, branch: null };
@@ -63,6 +66,29 @@ function buildRail(v: ReportView, t: (k: string) => string, kind: RailKind): { l
     }
   }
   return { labels, done: 1, branch: null };
+}
+
+/** The city's work-order status in the active language when we know the word; the city's own word otherwise. */
+function workOrderStatus(status: string, t: (k: string) => string): string {
+  const k = `track.workOrder.status.${status}`;
+  const v = t(k);
+  return v === k ? status : v;
+}
+
+/** Rows the server marks with a `kind` are worded here; the rest arrive as English labels (localized below, raw as fallback). */
+function timelineLabel(e: TimelineEntry, mine: boolean, t: (k: string, vars?: Record<string, string | number>) => string): string {
+  switch (e.kind) {
+    case 'city_receipt': return t('track.timeline.cityReceipt');
+    case 'city_routed': return e.vars?.dept ? t('track.timeline.cityRouted', { dept: e.vars.dept }) : t('track.timeline.cityRoutedBare');
+    case 'city_ask': return t('track.timeline.cityAsk');
+    case 'city_answer': return mine ? t('track.timeline.youAnswered') : t('track.timeline.answerSent');
+    case 'work_order': {
+      const number = e.vars?.number ?? '';
+      const status = e.vars?.status ? workOrderStatus(e.vars.status, t) : '';
+      return status ? t(number ? 'track.timeline.workOrder' : 'track.timeline.workOrderNoNumber', { number, status }) : t('track.timeline.workOrderCreated', { number });
+    }
+    default: return localizeTimelineLabel(e.label, t);
+  }
 }
 
 /** Server timeline labels arrive in English; render them in the active language, raw label as fallback. */
@@ -188,8 +214,13 @@ export default function Track() {
   const notFiled = nf !== null;
   const kind: RailKind = cancelled ? 'cancelled' : notFiled ? 'notfiled' : 'normal';
   const info = statusInfo(view, t);
-  const headline = cancelled ? t('track.state.cancelledByYou') : notFiled ? t('track.notfiled.heading') : info.headline;
-  const tone: Tone = cancelled || notFiled ? 'warn' : info.tone;
+  // The city is waiting on the reporter: that is the status that matters until they answer.
+  const askOpen = !cancelled && !notFiled && view.cityAsk?.open === true;
+  const headline = cancelled ? t('track.state.cancelledByYou') : notFiled ? t('track.notfiled.heading')
+    : askOpen ? t(view.mine ? 'track.state.askOwner' : 'track.state.askPublic') : info.headline;
+  const tone: Tone = cancelled || notFiled || askOpen ? 'warn' : info.tone;
+  const wo = !cancelled && !notFiled ? view.workOrder ?? null : null;
+  const dept = !cancelled && !notFiled ? view.department ?? null : null;
   const rail = buildRail(view, t, kind);
   const trackUrl = `${BRAND.siteUrl}/r/${id}`;
   const ts = (iso: string | null) => (iso ? new Date(iso).getTime() || 0 : 0);
@@ -214,6 +245,24 @@ export default function Track() {
             <p className="track-city-note-label">{t('track.cityNote.label')}</p>
             <blockquote className="track-city-note-text">{view.resolutionMessage}</blockquote>
           </div>
+        )}
+        {(dept || wo) && (
+          <dl className="track-facts">
+            {dept && (<><dt>{t('track.facts.department')}</dt><dd>{dept}</dd></>)}
+            {wo && (
+              <>
+                <dt>{t('track.facts.workOrder')}</dt>
+                <dd>
+                  {wo.number && <span className="track-facts-num">#{wo.number}</span>}
+                  {wo.status && <span>{wo.number ? ' · ' : ''}{workOrderStatus(wo.status, t)}</span>}
+                  {wo.completedAt && /complete/i.test(wo.status) && <span className="track-facts-when"> · {absTime(wo.completedAt)}</span>}
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
+        {wo && /complete/i.test(wo.status) && view.status === 'sent' && !isTerminal(view) && (
+          <p className="track-status-explainer">{t('track.facts.workOrderDoneOpen')}</p>
         )}
         {notFiled && nf ? (
           <NotFiledBody nf={nf} t={t} />
@@ -242,6 +291,8 @@ export default function Track() {
         {view.nextUpdateHint && !notFiled && !cancelled && <p className="ticket-eta">{view.nextUpdateHint}</p>}
       </div>
 
+      {!notFiled && !cancelled && <CityAskCard id={id!} view={view} onChange={() => load({ silent: true })} />}
+
       <div className="section">
         <h2>{t('track.timeline.title')}</h2>
         <ol className="track-timeline">
@@ -251,11 +302,11 @@ export default function Track() {
               <div className="track-tl-body">
                 {e.text ? (
                   <details className="track-tl-msg">
-                    <summary className="track-tl-label">{localizeTimelineLabel(e.label, t)}</summary>
+                    <summary className="track-tl-label">{timelineLabel(e, view.mine === true, t)}</summary>
                     <div className="track-tl-msg-text">{e.text}</div>
                   </details>
                 ) : (
-                  <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>
+                  <span className="track-tl-label">{timelineLabel(e, view.mine === true, t)}</span>
                 )}
                 <span className="track-tl-time">
                   <time dateTime={e.at ?? undefined}>{relTime(e.at, t('track.time.justNow'))}</time>
