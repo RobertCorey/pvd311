@@ -30,6 +30,8 @@
 .ticket-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 2px dashed var(--line); }
 .ticket-head .label { margin: 0; }
 .track-status--ok .track-status-headline { color: var(--success); }
+/* 'Closed by the city' can mean fixed OR referred elsewhere (PVD2026-90091 → Inspections), so it stays neutral ink, never success green. */
+.track-status--closed .track-status-headline { color: var(--ink); }
 .track-status--warn .track-status-headline { color: var(--warn); }
 .track-status-headline { font-size: 1.35rem; margin: 0; line-height: 1.15; }
 .track-case { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--bg); font-family: var(--font-mono); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
@@ -61,8 +63,6 @@
 .rail-label { font-family: var(--font-display); font-weight: 700; font-size: 0.7rem; line-height: 1.2; color: var(--muted); max-width: 7.5em; }
 .rail-step--done .rail-label, .rail-step--active .rail-label { color: var(--ink); }
 .rail-step--warn .rail-label { color: var(--warn); }
-.rail--ok .rail-step:last-child.rail-step--done .rail-dot { background: var(--success); border-color: var(--success); }
-.rail--ok .rail-step:last-child.rail-step--done .rail-label { color: var(--success); }
 
 /* --- timeline (exact timestamps) --- */
 .track-timeline { list-style: none; margin: 8px 0 0; padding: 0; }

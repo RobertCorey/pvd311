@@ -11,7 +11,7 @@ import OwnerActions from '../components/OwnerActions';
 import { track } from '../lib/analytics';
 import './Track.css';
 
-type Tone = 'progress' | 'ok' | 'warn';
+type Tone = 'progress' | 'ok' | 'closed' | 'warn';
 interface StatusInfo { headline: string; tone: Tone; explainer?: string; portalLink?: boolean; }
 
 function isTerminal(v: ReportView): boolean {
@@ -35,9 +35,9 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
         case 'Submitted': return { headline: t('track.state.citySubmitted'), tone: 'progress' };
         case 'Assigned': return { headline: t('track.state.cityAssigned'), tone: 'progress' };
         case 'In Progress': return { headline: t('track.state.cityInProgress'), tone: 'progress' };
-        case 'Resolved': return { headline: t('track.state.cityResolved'), tone: 'ok' };
+        case 'Resolved': return { headline: t('track.state.cityResolved'), tone: 'closed' };
         case 'Cancelled': return { headline: t('track.state.cityCancelled'), tone: 'warn', explainer: t('track.state.cityCancelledBody'), portalLink: true };
-        case 'Merged': return { headline: t('track.state.cityMerged'), tone: 'ok', explainer: t('track.state.cityMergedBody'), portalLink: true };
+        case 'Merged': return { headline: t('track.state.cityMerged'), tone: 'closed', explainer: t('track.state.cityMergedBody'), portalLink: true };
         default: return { headline: t('track.state.sent'), tone: 'ok' };
       }
     default: return { headline: t('track.state.received'), tone: 'progress' };
