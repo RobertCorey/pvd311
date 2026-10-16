@@ -100,6 +100,7 @@ export interface Report {
   /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20 */
   cityMessages?: { at: string; from: string; subject: string; text: string; caseId: string | null }[] | null;
   lastCityEmailAt?: string | null;
+  cityCaseId?: string | null;        // case number named by the city's own receipt email (relay) — confirms a submit we could not read back
 
   /** Set when a human (or the trust ramp) approved this report for submission */
   approvedAt?: string | null;

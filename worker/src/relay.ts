@@ -187,7 +187,9 @@ async function forwardToReporter(env: Env, store: Store, mailer: Mailer, report:
 
   const entry: CityMessage = { at, from: mail.from, subject: mail.subject.slice(0, 300), text: mail.text.slice(0, MAX_TEXT), caseId };
   const prev = (report.cityMessages ?? []).slice(-(MAX_STORED - 1));
-  await store.patchReport(report.id, { cityMessages: [...prev, entry], lastCityEmailAt: at }).catch((e) => console.error('[relay] patch failed', e));
+  // cityCaseId: the case number the city itself acknowledged — lets the watcher confirm a submit whose number
+  // the driver could not read, and stops it re-queuing a report the city already has (2026-10-16 duplicate).
+  await store.patchReport(report.id, { cityMessages: [...prev, entry], lastCityEmailAt: at, cityCaseId: report.cityCaseId ?? caseId }).catch((e) => console.error('[relay] patch failed', e));
   await logEvent(store, { level: 'info', kind: 'relay.forwarded', msg: `City email on ${caseId} forwarded to ${recipients} recipient${recipients === 1 ? '' : 's'}: ${subjectTail || mail.subject}`.slice(0, 300), reportId: report.id, data: { caseId, recipients } });
   await markOk(store, 'relay', `${caseId} → ${recipients}`);
   return recipients;

@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@cloudflare/playwright', () => ({ launch: vi.fn() }));
 
-import { runReconcile } from '../src/engine';
+import { runReconcile, resolveUnconfirmed } from '../src/engine';
 import type { Store, ReportDoc, Portal } from '../src/contracts';
 import type { MyRequestRow } from '../src/portal';
 
@@ -49,6 +49,7 @@ function makeStore(reports: ReportDoc[]) {
     getMeta: vi.fn(async (doc) => meta[doc] ?? null),
     setMeta: vi.fn(async (doc, data) => { meta[doc] = { ...(meta[doc] ?? {}), ...data }; }), // Firestore field-merge: array fields replace wholesale
     addEvent: vi.fn(async (ev) => { events.push(ev as any); }),
+    requeueReport: vi.fn(async (id, retries, detail) => { const r = reports.find((x) => x.id === id); if (r) { r.status = 'pending'; r.statusDetail = detail; r.retries = retries; } }),
   };
   return { store: store as Store, events, meta };
 }
@@ -218,5 +219,46 @@ describe('reconcile: safety + idempotency', () => {
     expect(events.length).toBe(eventsAfter1);                          // stranded/missing already recorded last tick
     expect(s2.stranded).toEqual(['PVD2026-1']);                        // summary still reflects current state
     expect(s2.missing).toEqual(['PVD2026-2']);
+  });
+});
+
+describe('resolveUnconfirmed: never re-file what the city already has (2026-10-16 PVD2026-90094/90098 duplicate)', () => {
+  const unconfirmed = (over: Partial<ReportDoc> = {}) => report({ status: 'submitted', caseIdPending: true, portalCaseId: null, ...over } as any);
+
+  it('the city receipt names the case → confirmed with it, even when My Requests shows nothing', async () => {
+    const u = unconfirmed({ cityCaseId: 'PVD2026-90094' } as any);
+    const { store, events } = makeStore([u]);
+    const out = await resolveUnconfirmed(store, [u], []);
+    expect(out.map((r) => r.portalCaseId)).toEqual(['PVD2026-90094']);
+    expect(u.portalCaseId).toBe('PVD2026-90094');
+    expect(store.requeueReport).not.toHaveBeenCalled();
+    expect(events.map((e) => e.kind)).toEqual(['watcher.case_confirmed']);
+  });
+
+  it('the exact 90098 path: record points at an abandoned Draft, the city already acknowledged → NOT re-queued', async () => {
+    const u = unconfirmed({ portalEntityId: 'ABANDONED-GUID', lastCityEmailAt: '2026-10-16T12:37:14Z' } as any);
+    const { store, events } = makeStore([u]);
+    await resolveUnconfirmed(store, [u], [row({ entityId: 'abandoned-guid', status: 'Draft' })]);
+    expect(store.requeueReport).not.toHaveBeenCalled();
+    expect(u.status).toBe('submitted');
+    expect(events.map((e) => e.kind)).toEqual(['watcher.draft_but_city_ack']);
+  });
+
+  it('still a Draft and the city never wrote → the submit did not take: re-queued (unchanged behaviour)', async () => {
+    const u = unconfirmed({ portalEntityId: 'g-1' } as any);
+    const { store, events } = makeStore([u]);
+    await resolveUnconfirmed(store, [u], [row({ entityId: 'G-1', status: 'Draft' })]);
+    expect(store.requeueReport).toHaveBeenCalledTimes(1);
+    expect(u.status).toBe('pending');
+    expect(events.map((e) => e.kind)).toEqual(['watcher.draft_not_submitted']);
+  });
+
+  it('a live (non-Draft) row for the candidate number → confirmed from My Requests', async () => {
+    const u = unconfirmed({ portalCaseIdCandidate: 'PVD2026-90092' } as any);
+    const { store } = makeStore([u]);
+    const out = await resolveUnconfirmed(store, [u], [row({ caseId: 'PVD2026-90092', status: 'Submitted' })]);
+    expect(out).toHaveLength(1);
+    expect(u.portalCaseId).toBe('PVD2026-90092');
+    expect(store.requeueReport).not.toHaveBeenCalled();
   });
 });

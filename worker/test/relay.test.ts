@@ -80,6 +80,7 @@ describe('handleInbound', () => {
     expect(patch[0]).toBe('rep1');
     expect(patch[1].cityMessages).toHaveLength(1);
     expect(patch[1].cityMessages[0]).toMatchObject({ from: 'pvd311@providenceri.gov', caseId: 'PVD2026-71677' });
+    expect(patch[1].cityCaseId).toBe('PVD2026-71677'); // the city's own acknowledgement — the watcher confirms with it
     expect(d.mailer.alert).not.toHaveBeenCalled();
     expect((d.store.addEvent as any).mock.calls[0][0].kind).toBe('relay.forwarded');
   });

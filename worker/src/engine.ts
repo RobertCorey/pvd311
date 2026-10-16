@@ -239,6 +239,44 @@ async function submitOne(
 
 // ── Status watcher (every 30 min) ──────────────────────────────────────────────────────
 
+/**
+ * Submissions we could not read a case number for. Confirm from (1) the city's own receipt email (relay records
+ * cityCaseId) or (2) a non-Draft My Requests row; re-queue ONLY when the row is still a Draft AND the city never
+ * acknowledged the report. 2026-10-16: the street light was filed as PVD2026-90094, its record still pointed at an
+ * abandoned earlier draft, the watcher saw that Draft and re-queued it → filed again as PVD2026-90098.
+ * Returns the reports it confirmed (to be tracked this run).
+ */
+export async function resolveUnconfirmed(store: Store, unconfirmed: ReportDoc[], rows: MyRequestRow[]): Promise<ReportDoc[]> {
+  const byId = new Map(rows.filter((r) => r.caseId).map((r) => [r.caseId as string, r]));
+  const byEntity = new Map(rows.filter((r) => r.entityId).map((r) => [(r.entityId as string).toLowerCase(), r]));
+  const confirmed: ReportDoc[] = [];
+  for (const u of unconfirmed) {
+    const cand = u.portalCaseIdCandidate ?? u.portalDraft?.caseId ?? null;
+    const eid = ((u as unknown as { portalEntityId?: string | null }).portalEntityId ?? u.portalDraft?.entityId ?? '').toLowerCase();
+    const row = (cand ? byId.get(cand) : undefined) ?? (eid ? byEntity.get(eid) : undefined);
+    const live = row?.caseId && !/^draft$/i.test(row.status) ? row.caseId : null;
+    const caseId = u.cityCaseId ?? live;
+    if (caseId) {
+      const how = u.cityCaseId ? 'the city\'s receipt email' : 'My Requests';
+      await store.updateReportStatus(u.id, 'submitted', `Case number confirmed by ${how}: ${caseId}`, caseId);
+      await store.patchReport(u.id, { caseIdPending: false });
+      await logEvent(store, { level: 'info', kind: 'watcher.case_confirmed', msg: `Case number ${caseId} confirmed by ${how}`, reportId: u.id, data: { caseId } });
+      confirmed.push({ ...u, portalCaseId: caseId });
+    } else if (row && /^draft$/i.test(row.status)) {
+      if (u.lastCityEmailAt) {
+        // The city wrote to us about this report, so it was filed; the Draft is a different (abandoned) record.
+        await logEvent(store, { level: 'warn', kind: 'watcher.draft_but_city_ack', msg: 'A Draft matched this report, but the city already acknowledged it — NOT re-queued', reportId: u.id });
+        continue;
+      }
+      // The portal still shows it as a Draft and the city never acknowledged it: the submit did NOT take.
+      await store.requeueReport(u.id, u.retries ?? 0, 'Watcher: portal still shows Draft — re-submitting', new Date().toISOString());
+      await store.patchReport(u.id, { caseIdPending: false });
+      await logEvent(store, { level: 'warn', kind: 'watcher.draft_not_submitted', msg: 'Portal still shows this as a Draft; re-queued', reportId: u.id });
+    }
+  }
+  return confirmed;
+}
+
 export async function runWatcher(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
@@ -263,27 +301,11 @@ export async function runWatcher(env: Env): Promise<void> {
       scan = await portal.readMyRequestsPaged();
       const rows = scan.rows;
       rowCount = rows.length;
+      tracked.push(...(await resolveUnconfirmed(store, unconfirmed, rows)));
       if (!rows.length) {
         console.warn('[watcher] My Requests returned 0 rows — skipping diff');
       } else {
         const byId = new Map(rows.filter((r) => r.caseId).map((r) => [r.caseId as string, r]));
-        const byEntity = new Map(rows.filter((r) => r.entityId).map((r) => [r.entityId as string, r]));
-        for (const u of unconfirmed) {
-          const cand = u.portalCaseIdCandidate ?? u.portalDraft?.caseId ?? null;
-          const eid = ((u as unknown as { portalEntityId?: string | null }).portalEntityId ?? u.portalDraft?.entityId ?? '').toLowerCase();
-          const row = (cand ? byId.get(cand) : undefined) ?? (eid ? byEntity.get(eid) : undefined);
-          if (row?.caseId && !/^draft$/i.test(row.status)) {
-            await store.updateReportStatus(u.id, 'submitted', `Case number confirmed by watcher: ${row.caseId}`, row.caseId);
-            await store.patchReport(u.id, { caseIdPending: false });
-            await logEvent(store, { level: 'info', kind: 'watcher.case_confirmed', msg: `Case number ${row.caseId} confirmed by GUID`, reportId: u.id, data: { caseId: row.caseId } });
-            tracked.push({ ...u, portalCaseId: row.caseId });
-          } else if (row && /^draft$/i.test(row.status)) {
-            // The portal still shows it as a Draft: the submit did NOT take. Put it back in the queue to resume the draft.
-            await store.requeueReport(u.id, u.retries ?? 0, 'Watcher: portal still shows Draft — re-submitting', new Date().toISOString());
-            await store.patchReport(u.id, { caseIdPending: false });
-            await logEvent(store, { level: 'warn', kind: 'watcher.draft_not_submitted', msg: 'Portal still shows this as a Draft; re-queued', reportId: u.id });
-          }
-        }
         for (const report of tracked) {
           const caseId = report.portalCaseId;
           if (!caseId) continue;

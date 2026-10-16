@@ -183,24 +183,26 @@ class WorkerPortal implements Portal {
       await page.goto(`${this.portal}/my-requests/New-Request/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForSelector('#casetypecode', { timeout: 20_000 });
       await this.fillStep1(report.category);
-      await this.saveDraft(opts, 2);
+      await this.saveDraft(opts, 2, report);
     }
     if (!resumedAt || resumedAt === 2) {
       await this.fillStep2(report.address, report.lat, report.lng);
-      await this.saveDraft(opts, 3);
+      await this.saveDraft(opts, 3, report);
     }
     return this.fillStep3(report, mode, opts);
   }
 
-  private async saveDraft(opts: SubmitOptions, step: 2 | 3): Promise<void> {
-    if (!opts.onDraft) return;
+  private async saveDraft(opts: SubmitOptions, step: 2 | 3, report: ReportDoc): Promise<void> {
     const page = this.getPage();
     const entityId = await page
       .$eval('#EntityFormView_EntityID', (el: any) => el.value as string)
       .catch(() => null);
     const caseId = await this.readDraftCaseId(entityId || null);
     const draft: PortalDraft = { url: page.url(), entityId: entityId || null, step, savedAt: new Date().toISOString(), caseId };
-    await opts.onDraft(draft).catch(() => {});
+    // The in-memory draft must describe THIS record: when a resume fails and a fresh draft is created, the stale
+    // entityId otherwise rides into the result → portalEntityId → the watcher matches the abandoned Draft (2026-10-16).
+    report.portalDraft = draft;
+    if (opts.onDraft) await opts.onDraft(draft).catch(() => {});
   }
 
   /**

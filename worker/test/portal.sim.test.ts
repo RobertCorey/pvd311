@@ -162,6 +162,23 @@ describe('portal simulator — happy path', () => {
     expect(sim.snapshot().casesCreated).toBe(1);
   });
 
+  it('a stale draft that will not resume → a fresh draft is filed and the result describes the FRESH one (2026-10-16 duplicate root cause)', async () => {
+    const stale = { url: `${sim.url}/my-requests/New-Request/?stepid=step2&id=gone`, entityId: 'stale-guid', step: 2, savedAt: new Date().toISOString(), caseId: null };
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    const drafts: any[] = [];
+    const res = await portal.submitReport(makeReport({ portalDraft: stale as any }), { mode: 'live', onDraft: async (d) => { drafts.push(d); } });
+    await portal.close();
+
+    const fresh = drafts.find((d) => d.step === 3);
+    expect(fresh.entityId).toBeTruthy();
+    expect(fresh.entityId).not.toBe('stale-guid');
+    expect(res.entityId).toBe(fresh.entityId);      // was 'stale-guid' → portalEntityId → watcher matched the abandoned Draft
+    expect(res.caseIdCandidate).toBe(fresh.caseId);
+    expect(res.caseId).toBe(fresh.caseId);
+    expect(sim.snapshot().casesCreated).toBe(1);
+  });
+
   it('draft-resume: a persisted Step-3 draft resumes without re-running Step 1/2, reusing the login', async () => {
     const auth = memAuthStore();
     const report = makeReport();
