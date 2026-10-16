@@ -131,6 +131,37 @@ describe('portal simulator — happy path', () => {
     expect(after.step1Posts).toBe(before.step1Posts);
   });
 
+  it('slow Submit postback (> 10 s; PVD2026-90089/90090 on 2026-10-16): the click times out but the case IS filed — return the confirmed PVD, never throw', async () => {
+    sim.mutate('slow-postback', { ms: '12000' });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    const res = await portal.submitReport(makeReport(), { mode: 'live' });
+    await portal.close();
+
+    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+    expect(res.caseIdConfirmed).toBe(true);
+    const s = sim.snapshot();
+    expect(s.submitPosts).toBe(1);
+    expect(s.casesCreated).toBe(1);
+    expect(s.cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted' });
+  });
+
+  it('hung Submit postback (no answer in 60 s): recorded as filed with the case number unconfirmed (draft PVD as candidate) — a throw would retry and file it twice', async () => {
+    sim.mutate('slow-postback', { ms: '75000' });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    const drafts: any[] = [];
+    const res = await portal.submitReport(makeReport(), { mode: 'live', onDraft: async (d) => { drafts.push(d); } });
+    await portal.close();
+
+    const draftPvd = drafts.find((d) => d.step === 3)?.caseId;
+    expect(draftPvd).toMatch(/^PVD2026-\d{5}$/);
+    expect(res.caseId).toBeUndefined();
+    expect(res.caseIdConfirmed).toBe(false); // engine records submitted + caseIdPending; the watcher reconciles
+    expect(res.caseIdCandidate).toBe(draftPvd);
+    expect(sim.snapshot().casesCreated).toBe(1);
+  });
+
   it('draft-resume: a persisted Step-3 draft resumes without re-running Step 1/2, reusing the login', async () => {
     const auth = memAuthStore();
     const report = makeReport();

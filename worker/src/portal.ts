@@ -531,25 +531,45 @@ class WorkerPortal implements Portal {
     // Swallow the navigation waiter's own rejection: on the throw paths below the page gets closed and this
     // promise would otherwise surface as an unhandled "Target closed" rejection.
     const navPromise = page.waitForFunction((u) => location.href !== u, before, { timeout: 60_000 }).then(() => true, () => false);
-    await page.click('#NextButton', { timeout: 10_000 });
-    const outcome = await Promise.race([
-      navPromise.then((ok) => (ok ? 'navigated' : 'nav_timeout') as 'navigated' | 'nav_timeout'),
-      page.waitForTimeout(5_000).then(async () => {
-        const btnValue = await page.$eval('#NextButton', (el: any) => el.value).catch(() => '');
-        if (btnValue === 'Processing...') return (await navPromise) ? ('navigated' as const) : ('nav_timeout' as const);
-        const errorText = await page
-          .$eval('.validation-summary-errors', (el: any) => el.textContent?.trim())
-          .catch(() => '');
-        return { validation: errorText || '' } as const;
-      }),
-    ]);
-    if (outcome === 'nav_timeout') throw new Error('Portal submit did not navigate within 60s (postback hung?)');
+    // A slow postback makes the click itself time out: Playwright dispatched it ("click action done") and then
+    // waited past 10 s for the navigation it started. The city already has the case — on 2026-10-16 PVD2026-90089
+    // and -90090 were filed this way, logged as failures and queued to retry (= file twice). Only a click that
+    // never dispatched may fail here.
+    let clickTimedOut = false;
+    try {
+      await page.click('#NextButton', { timeout: 10_000 });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const btnValue = await page.$eval('#NextButton', (el: any) => el.value).catch(() => '');
+      if (!/click action done|scheduled navigations/i.test(msg) && btnValue !== 'Processing...') throw e;
+      clickTimedOut = true;
+    }
+    const outcome = clickTimedOut
+      ? ((await navPromise) ? ('navigated' as const) : ('nav_timeout' as const))
+      : await Promise.race([
+          navPromise.then((ok) => (ok ? 'navigated' : 'nav_timeout') as 'navigated' | 'nav_timeout'),
+          page.waitForTimeout(5_000).then(async () => {
+            const btnValue = await page.$eval('#NextButton', (el: any) => el.value).catch(() => '');
+            if (btnValue === 'Processing...') return (await navPromise) ? ('navigated' as const) : ('nav_timeout' as const);
+            const errorText = await page
+              .$eval('.validation-summary-errors', (el: any) => el.textContent?.trim())
+              .catch(() => '');
+            return { validation: errorText || '' } as const;
+          }),
+        ]);
     if (typeof outcome === 'object') {
       throw new Error(`Portal form validation failed${outcome.validation ? ': ' + outcome.validation : ' (button still shows "Submit")'}`);
     }
 
     const entityId = report.portalDraft?.entityId ?? null;
     const candidate = report.portalDraft?.caseId ?? null;
+    if (outcome === 'nav_timeout') {
+      // The click went through but the postback never answered in 60 s. Record it as filed with the case number
+      // unconfirmed (engine: submitted + caseIdPending); the watcher confirms it by the draft's PVD number, and
+      // requeues it if the portal still shows a Draft. Throwing here would retry and could file it twice.
+      const proofPath = await this.saveProof(opts, report.id, 'submit-unconfirmed');
+      return { mode, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: false, caseIdCandidate: candidate ?? undefined };
+    }
     const caseId = await this.extractCaseId(candidate);
     const proofPath = await this.saveProof(opts, report.id, caseId ?? 'submitted');
     return { mode, caseId, proofPath, controls, scouted, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };

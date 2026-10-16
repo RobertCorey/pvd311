@@ -17,10 +17,13 @@
  *   GET  /my-requests/New-Request/?stepid=step3&id Step 3 (#description + per-case-type controls + #AttachFile + #NextButton)
  *   POST /my-requests/New-Request/                 wizard Next (Step 1 & 2 postbacks); creates/advances the draft entity
  *   POST /submit                                   AJAX submit; echoes a fake PVD2026-##### and pushes the grid row
+ *   POST /submit-postback                          full-page submit postback (slow-postback fault): converts the draft at once,
+ *                                                  then answers after `ms` — the live portal's >10 s Submit (2026-10-16)
  *   GET  /my-requests/New-Request/confirmation     confirmation page (driver ignores it; it re-scrapes the grid)
  * Controls (for the mutation suite)
  *   GET  /_sim/reset                               reset state to the golden seed
- *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows)
+ *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows;
+ *                                                  slow-postback&ms=N: Step-3 Submit is a real form POST answered after N ms)
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
  *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
  *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
@@ -397,9 +400,13 @@ const SHARED_HIDDEN_STEP3_CONTROL = `
 function step3Html(session: WizardSession, state: SimState): string {
   const category = GUID_TO_CATEGORY.get(session.caseTypeGuid) ?? null;
   const controls = applyStep3Mutations(readFixture(category), state);
+  // slow-postback: the live Submit is a full-page ASP.NET postback ("Processing..." + disabled), not AJAX.
+  const postback = state.mutations.has('slow-postback');
   const nextBtn = state.mutations.has('drop-next')
     ? '<!-- #NextButton dropped by mutation -->'
-    : `<input type="button" id="NextButton" value="Submit" class="btn btn-primary button next submit-btn">`;
+    : postback
+      ? `<input type="button" id="NextButton" value="Submit" class="btn btn-primary button next submit-btn" onclick="this.value='Processing...';this.disabled=true;document.getElementById('postbackform').submit();">`
+      : `<input type="button" id="NextButton" value="Submit" class="btn btn-primary button next submit-btn">`;
   return page('New Request — Step 3', `
     <div class="username">test@pvdsnow.org</div>
     <h1>New Request — Step 3 of 3</h1>
@@ -421,7 +428,9 @@ function step3Html(session: WizardSession, state: SimState): string {
       ${nextBtn}
       <div class="validation-summary-errors" style="display:none"></div>
     </form>
-    <script>${STEP3_SUBMIT_JS}</script>`);
+    ${postback
+      ? `<form id="postbackform" method="POST" action="/submit-postback"><input type="hidden" name="entityId" value="${esc(session.entityId)}"></form>`
+      : `<script>${STEP3_SUBMIT_JS}</script>`}`);
 }
 
 const STEP3_SUBMIT_JS = `
@@ -573,6 +582,16 @@ function editRequestHtml(session: WizardSession): string {
 }
 
 // ── request plumbing ────────────────────────────────────────────────────────
+/** Submit converts the draft: its grid row flips Draft → Submitted and now shows the PVD. Returns the PVD. */
+function convertDraft(state: SimState, entityId: string): string {
+  const session = state.sessions.get(entityId);
+  const row = state.cases.find((c) => c.entityId === entityId);
+  if (row) { row.status = 'Submitted'; if (session?.address) row.street = session.address; }
+  state.casesCreated++;
+  if (session) state.sessions.delete(entityId); // draft consumed
+  return session?.caseId || row?.pvd || '';
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((res) => {
     let data = '';
@@ -737,8 +756,6 @@ export async function startSim(): Promise<Sim> {
         let entityId = '';
         try { entityId = JSON.parse(raw || '{}').entityId || ''; } catch { /* ignore */ }
         state.submitPosts++;
-        const session = state.sessions.get(entityId);
-        const row = state.cases.find((c) => c.entityId === entityId);
 
         if (state.mutations.has('submit-500')) {
           return json(res, 500, { error: 'internal error' });
@@ -749,10 +766,20 @@ export async function startSim(): Promise<Sim> {
           return json(res, 200, { caseId: '' });
         }
         // Normal path: the draft converts — its grid row flips Draft → Submitted and now shows the PVD.
-        if (row) { row.status = 'Submitted'; if (session?.address) row.street = session.address; }
-        state.casesCreated++;
-        if (session) state.sessions.delete(entityId); // draft consumed
-        return json(res, 200, { caseId: session?.caseId || row?.pvd || '' });
+        return json(res, 200, { caseId: convertDraft(state, entityId) });
+      }
+
+      // ── submit (full-page postback; slow-postback fault) ──
+      // The city has the case as soon as the POST lands (the live receipt email beat the response by ~20 s);
+      // only the response is slow. Answered after `ms` (default 12 s, past the driver's 10 s click timeout).
+      if (path === '/submit-postback' && req.method === 'POST') {
+        const entityId = new URLSearchParams(await readBody(req)).get('entityId') || '';
+        state.submitPosts++;
+        const caseId = convertDraft(state, entityId);
+        const ms = Number(state.mutations.get('slow-postback')?.params.ms ?? 12_000);
+        await new Promise((r) => setTimeout(r, ms));
+        if (res.writableEnded || res.destroyed) return;
+        return send(res, 302, '', { location: `/my-requests/New-Request/confirmation?case=${encodeURIComponent(caseId)}` });
       }
 
       return send(res, 404, page('Not found', `<h1>404</h1><p>${esc(path)}</p>`));
