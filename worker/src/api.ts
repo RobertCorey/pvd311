@@ -174,7 +174,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   // Reporter quota (docs/quota.md): per mailbox, plus a loose per-IP backstop. Every accepted report counts.
   let quotaSlot: QuotaSlot;
   {
-    const q = await checkQuota(store, { uid: account.uid, email: account.email, ip, raised: account.quotaRaised === true });
+    const q = await checkQuota(store, { uid: account.uid, email: account.email, ip });
     if (!q.ok) return json({ error: 'rate_limited', reason: q.reason, retryAfterSec: q.retryAfterSec, quota: q.quota }, 429, { 'retry-after': String(q.retryAfterSec) });
     quotaSlot = q.slot;
   }

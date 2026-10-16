@@ -5,13 +5,12 @@
  *   GET  /api/admin/reports/:id            → full report (admin projection incl. description, flags, reporter email, review)
  *   POST /api/admin/reports/:id/approve    → HITL approve
  *   POST /api/admin/reports/:id/reject     → HITL reject; JSON body { reason? } → emailed to the reporter
- *   GET  /api/admin/users/:uid             → { uid, email, trusted, quotaRaised, submitted, rejected }
+ *   GET  /api/admin/users/:uid             → { uid, email, trusted, submitted, rejected }
  *   POST /api/admin/users/:uid/trust       → JSON { trusted: boolean } (override the ramp)
- *   POST /api/admin/users/:uid/quota       → JSON { raised: boolean } (raised reporter quota, quota.ts)
  *   POST /api/admin/reports/:id/requeue    → failed → pending (retry now)
  *   GET  /api/admin/health                 → system visibility: subsystem traffic lights, counters, event stream
  *   GET  /api/admin/reports?status&category&q&before&limit → all reports, newest first (admin projection); q = substring on address/description/email/id/caseId
- *   GET  /api/admin/users?before&limit     → accounts with report counts + trust + quotaRaised
+ *   GET  /api/admin/users?before&limit     → accounts with report counts + trust
  *   GET  /api/admin/events?level&kind&reportId&before&limit → filtered event stream
  *   GET  /api/admin/categories             → registry (label, portal case type + GUID, fields, photo/seasonal) + per-category golden/controls status + counts
  *   GET  /api/admin/config                 → live settings with explanations (no secrets)
@@ -183,7 +182,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       ]);
       const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
       return { uid: u.uid, email: u.email, displayName: u.displayName ?? null, provider: u.provider, emailVerified: !!u.emailVerified, createdAt: u.createdAt, lastSeenAt: u.lastSeenAt ?? null,
-        trusted: !!u.trusted, quotaRaised: u.quotaRaised === true, emailUpdates: u.prefs?.emailUpdates !== false, following: (u.following ?? []).length, addresses: (u.addresses ?? []).length,
+        trusted: !!u.trusted, emailUpdates: u.prefs?.emailUpdates !== false, following: (u.following ?? []).length, addresses: (u.addresses ?? []).length,
         submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) };
     }));
     return json({ items, next: users.length >= limit ? users[users.length - 1].createdAt : null });
@@ -225,7 +224,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       row('NOTIFY_EMAIL', env.NOTIFY_EMAIL ?? null, 'Where admin mail goes.'),
       row('NOTIFY_FROM', env.NOTIFY_FROM ?? null, 'From address for all mail (Resend, domain verified).'),
       row('BLOCKED_ADDRESSES', (env as unknown as { BLOCKED_ADDRESSES?: string }).BLOCKED_ADDRESSES ?? '(default)', 'Addresses the engine auto-rejects (substring match).'),
-      row('Reporter quota', '5/day + 15/week per mailbox (raised: 20/day + 60/week) · 60 s gap · 30/day per IP', 'Days reset at midnight ET, weeks Monday midnight ET. Every accepted report counts (rejected ones too); a reporter cancel refunds. Enforced in POST /api/report via Firestore counters (worker/src/quota.ts).'),
+      row('Reporter quota', '5/day + 15/week per mailbox · 60 s gap · 30/day per IP', 'Days reset at midnight ET, weeks Monday midnight ET. Every accepted report counts (rejected ones too); a reporter cancel refunds. Enforced in POST /api/report via Firestore counters (worker/src/quota.ts).'),
       row('Intake AI limits', '10/min per IP, 1,500/day global', 'Caps Anthropic spend; server-side moderation runs once per report regardless.'),
       row('Engine limits', 'lock 12 min · stuck reaper 20 min · retries 2 with backoff · breaker after repeated failures · hourly cap', 'See worker/src/engine.ts constants.'),
       row('Retention', 'photos 30 days after the city closes a case · events 14 days · HITL links 30 days', 'Daily job at 7 am ET.'),
@@ -268,7 +267,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     }
   }
 
-  const usr = /^\/api\/admin\/users\/([A-Za-z0-9_-]{6,128})(?:\/(trust|quota))?$/.exec(path);
+  const usr = /^\/api\/admin\/users\/([A-Za-z0-9_-]{6,128})(?:\/(trust))?$/.exec(path);
   if (usr) {
     const [, uid, action] = usr;
     const u = await store.getUser(uid);
@@ -279,16 +278,10 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       await store.patchUser(uid, { trusted: body.trusted, trustedBy: body.trusted ? auth.email : null, trustedAt: body.trusted ? new Date().toISOString() : null });
       await logEvent(store, { level: 'info', kind: 'admin.trust', msg: `${body.trusted ? 'Trusted' : 'Untrusted'} account ${u.email ?? uid} (by ${auth.email})` });
     }
-    if (m === 'POST' && action === 'quota') {
-      const body = (await request.json().catch(() => null)) as { raised?: unknown } | null;
-      if (!body || typeof body.raised !== 'boolean') return json({ error: 'invalid_body' }, 400);
-      await store.patchUser(uid, { quotaRaised: body.raised, quotaRaisedBy: body.raised ? auth.email : null, quotaRaisedAt: body.raised ? new Date().toISOString() : null });
-      await logEvent(store, { level: 'info', kind: 'admin.quota', msg: `${body.raised ? 'Raised' : 'Reset'} report limits for ${u.email ?? uid} (by ${auth.email})` });
-    }
-    if (m === 'GET' || (m === 'POST' && (action === 'trust' || action === 'quota'))) {
+    if (m === 'GET' || (m === 'POST' && action === 'trust')) {
       const fresh = (await store.getUser(uid)) ?? u;
       const [submitted, rejected] = await Promise.all([store.countOwnerByStatus(uid, 'submitted'), store.countOwnerByStatus(uid, 'rejected')]);
-      return json({ uid, email: fresh.email ?? null, provider: fresh.provider ?? null, trusted: !!fresh.trusted, quotaRaised: fresh.quotaRaised === true, submitted, rejected, createdAt: fresh.createdAt ?? null });
+      return json({ uid, email: fresh.email ?? null, provider: fresh.provider ?? null, trusted: !!fresh.trusted, submitted, rejected, createdAt: fresh.createdAt ?? null });
     }
   }
 

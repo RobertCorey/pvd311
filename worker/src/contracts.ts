@@ -55,9 +55,6 @@ export interface UserDoc {
   addresses: SavedAddress[];               // ≤ 10
   following: string[];                     // report ids (≤ 200)
   trusted?: boolean;                       // admin override for the per-account trust ramp
-  quotaRaised?: boolean;                   // admin-raised reporter quota (20/day, 60/week instead of 5/15; quota.ts)
-  quotaRaisedBy?: string | null;
-  quotaRaisedAt?: string | null;
 }
 export type PortalDraft = NonNullable<Report['portalDraft']>;
 

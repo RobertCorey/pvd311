@@ -92,7 +92,7 @@ describe('reporter quota (POST /api/report)', () => {
     const r = await post(s, 'alice');
     expect(r.status).toBe(429);
     const j = await r.json() as any;
-    expect(j).toMatchObject({ error: 'rate_limited', reason: 'day', quota: { dayUsed: 5, dayLimit: 5, weekUsed: 5, weekLimit: 15, raised: false, dayResetsAt: '2026-10-15T04:00:00.000Z', weekResetsAt: '2026-10-19T04:00:00.000Z', nextAllowedAt: '2026-10-15T04:00:00.000Z' } });
+    expect(j).toMatchObject({ error: 'rate_limited', reason: 'day', quota: { dayUsed: 5, dayLimit: 5, weekUsed: 5, weekLimit: 15, dayResetsAt: '2026-10-15T04:00:00.000Z', weekResetsAt: '2026-10-19T04:00:00.000Z', nextAllowedAt: '2026-10-15T04:00:00.000Z' } });
     expect(j.retryAfterSec).toBe(Math.ceil((Date.parse('2026-10-15T04:00:00Z') - Date.now()) / 1000));
     expect(r.headers.get('retry-after')).toBe(String(j.retryAfterSec));
     at('2026-10-15T03:59:00Z'); // 23:59 EDT, still Wednesday in Providence (Thursday in UTC)
@@ -160,13 +160,14 @@ describe('reporter quota (POST /api/report)', () => {
     expect((s.meta.get('pace_ip_198_51_100_9') as any).dayCount).toBe(5);
   });
 
-  it('raised accounts get 20/day and 60/week', async () => {
+  it('one tier only: a quotaRaised flag on the user doc changes nothing (the raised tier was dropped)', async () => {
     const s = memStore();
     at('2026-10-14T14:00:00Z');
     await s.store.patchUser('uid_bob', { uid: 'uid_bob', email: 'bob@example.com', quotaRaised: true });
-    expect((await sendN(s, 'bob', 20)).status).toBe(201);
+    expect((await sendN(s, 'bob', QUOTA.day)).status).toBe(201);
     const j = await (await post(s, 'bob')).json() as any;
-    expect(j).toMatchObject({ reason: 'day', quota: { dayUsed: 20, dayLimit: 20, weekLimit: 60, raised: true } });
+    expect(j).toMatchObject({ reason: 'day', quota: { dayUsed: 5, dayLimit: 5, weekLimit: 15 } });
+    expect(j.quota.raised).toBeUndefined();
   });
 
   it('every accepted report counts and records the buckets it used on the report', async () => {
@@ -206,11 +207,11 @@ describe('refund on cancel', () => {
   it('a cancel in a later week changes nothing', async () => {
     const s = memStore();
     at('2026-10-16T14:00:00Z');
-    const slot = (await checkQuota(s.store, { uid: 'u', email: 'x@example.com', ip: null, raised: false })) as any;
+    const slot = (await checkQuota(s.store, { uid: 'u', email: 'x@example.com', ip: null })) as any;
     at('2026-10-19T14:00:00Z');
-    await checkQuota(s.store, { uid: 'u', email: 'x@example.com', ip: null, raised: false });
+    await checkQuota(s.store, { uid: 'u', email: 'x@example.com', ip: null });
     await refundQuota(s.store, slot.slot);
-    expect(await quotaFor(s.store, 'u', 'x@example.com', false)).toMatchObject({ dayUsed: 1, weekUsed: 1 });
+    expect(await quotaFor(s.store, 'u', 'x@example.com')).toMatchObject({ dayUsed: 1, weekUsed: 1 });
   });
 });
 
@@ -223,14 +224,14 @@ describe('GET /api/me quota', () => {
     expect(me.quota).toEqual({
       dayUsed: 1, dayLimit: 5, weekUsed: 1, weekLimit: 15,
       dayResetsAt: '2026-10-17T04:00:00.000Z', weekResetsAt: '2026-10-19T04:00:00.000Z',
-      nextAllowedAt: '2026-10-16T14:01:00.000Z', raised: false,
+      nextAllowedAt: '2026-10-16T14:01:00.000Z',
     });
   });
   it('a fresh account starts at zero with nextAllowedAt null', async () => {
     const s = memStore();
     at('2026-10-16T14:00:00Z');
     const me = await (await call(s, 'alice', '/api/me')).json() as any;
-    expect(me.quota).toMatchObject({ dayUsed: 0, weekUsed: 0, dayLimit: 5, weekLimit: 15, nextAllowedAt: null, raised: false });
+    expect(me.quota).toMatchObject({ dayUsed: 0, weekUsed: 0, dayLimit: 5, weekLimit: 15, nextAllowedAt: null });
   });
 });
 
@@ -239,10 +240,10 @@ describe('old pacing records (deploy switch-over)', () => {
     const s = memStore();
     at('2026-10-16T14:00:00Z');
     await s.store.setMeta('pace_u_bob_example_com', { last: Date.parse('2026-10-16T13:59:30Z'), day: '2026-10-16', count: 3 });
-    const q = await quotaFor(s.store, 'uid_bob', 'bob@example.com', false);
+    const q = await quotaFor(s.store, 'uid_bob', 'bob@example.com');
     expect(q).toMatchObject({ dayUsed: 3, weekUsed: 3, nextAllowedAt: '2026-10-16T14:00:30.000Z' });
     await s.store.setMeta('pace_u_bob_example_com', { last: Date.parse('2026-10-15T13:00:00Z'), day: '2026-10-15', count: 5 });
-    expect(await quotaFor(s.store, 'uid_bob', 'bob@example.com', false)).toMatchObject({ dayUsed: 0, weekUsed: 0, nextAllowedAt: null });
+    expect(await quotaFor(s.store, 'uid_bob', 'bob@example.com')).toMatchObject({ dayUsed: 0, weekUsed: 0, nextAllowedAt: null });
     expect((await post(s, 'bob')).status).toBe(201);
     expect(s.meta.get('pace_u_bob_example_com')).toMatchObject({ v: 2, day: '2026-10-16', dayCount: 1, week: '2026-10-12', weekCount: 1 });
   });
@@ -252,24 +253,14 @@ describe('old pacing records (deploy switch-over)', () => {
   });
 });
 
-describe('POST /api/admin/users/:uid/quota', () => {
-  it('raises and resets an account, logs admin.quota, and the users list shows it', async () => {
-    const s = memStore();
-    at('2026-10-16T14:00:00Z');
-    await call(s, 'bob', '/api/me'); // creates users/uid_bob
-    const r = await call(s, 'admin', '/api/admin/users/uid_bob/quota', 'POST', { raised: true });
-    expect(r.status).toBe(200);
-    expect(await r.json()).toMatchObject({ uid: 'uid_bob', quotaRaised: true });
-    expect(s.users.get('uid_bob')).toMatchObject({ quotaRaised: true, quotaRaisedBy: 'rob@example.com', quotaRaisedAt: '2026-10-16T14:00:00.000Z' });
-    expect(s.events.some((e) => e.kind === 'admin.quota' && /Raised/.test(e.msg))).toBe(true);
-    expect((await (await call(s, 'bob', '/api/me')).json() as any).quota).toMatchObject({ dayLimit: QUOTA.raised.day, weekLimit: QUOTA.raised.week, raised: true });
-    await call(s, 'admin', '/api/admin/users/uid_bob/quota', 'POST', { raised: false });
-    expect(s.users.get('uid_bob')).toMatchObject({ quotaRaised: false, quotaRaisedBy: null, quotaRaisedAt: null });
-  });
-  it('rejects a bad body and non-admins', async () => {
+describe('no raised tier in the admin API', () => {
+  it('POST /api/admin/users/:uid/quota does not exist and the user projection has no quotaRaised', async () => {
     const s = memStore();
     await call(s, 'bob', '/api/me');
-    expect((await call(s, 'admin', '/api/admin/users/uid_bob/quota', 'POST', { raised: 'yes' })).status).toBe(400);
-    expect((await call(s, 'bob', '/api/admin/users/uid_bob/quota', 'POST', { raised: true })).status).toBe(403);
+    const r = await call(s, 'admin', '/api/admin/users/uid_bob/quota', 'POST', { raised: true });
+    expect(r.status).toBe(404);
+    expect((s.users.get('uid_bob') as any).quotaRaised).toBeUndefined();
+    expect(s.events.some((e) => e.kind === 'admin.quota')).toBe(false);
+    expect((await (await call(s, 'admin', '/api/admin/users/uid_bob')).json() as any).quotaRaised).toBeUndefined();
   });
 });

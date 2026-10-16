@@ -56,7 +56,7 @@ function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
     quota,
   };
 }
-const meQuota = (store: Store, u: UserDoc) => quotaFor(store, u.uid, u.email, u.quotaRaised === true);
+const meQuota = (store: Store, u: UserDoc) => quotaFor(store, u.uid, u.email);
 
 export async function handleMe(request: Request, url: URL, env: Env, deps: MeDeps, auth: AuthUser): Promise<Response> {
   const { store } = deps;

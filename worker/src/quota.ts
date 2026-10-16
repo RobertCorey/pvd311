@@ -2,8 +2,7 @@
  * quota.ts — reporter quota (docs/quota.md). Every report is filed under FixMyPVD's one city 311 account, so one
  * person flooding the city costs everyone; the server is the only authority and the app just displays it.
  *
- *   Per mailbox (paceIdentity): 5/day + 15/week standard, 20/day + 60/week when an admin raised the account
- *   (users/{uid}.quotaRaised); 60 s minimum gap. Days reset 00:00 America/New_York, weeks Monday 00:00 ET.
+ *   Per mailbox (paceIdentity): 5/day + 15/week; 60 s minimum gap. Days reset 00:00 America/New_York, weeks Monday 00:00 ET.
  *   Per IP (loose backstop for shared networks): 30/day, no weekly limit, no gap.
  *
  * Records live in Firestore meta `pace_<key>` (same ids as the old 3-min/5-per-UTC-day pacing, whose shape
@@ -13,8 +12,8 @@
 import type { Store } from './contracts.js';
 
 export const QUOTA = {
-  standard: { day: 5, week: 15 },
-  raised: { day: 20, week: 60 },
+  day: 5,
+  week: 15,
   gapMs: 60_000,
   ipDay: 30,
 } as const;
@@ -27,7 +26,6 @@ export interface QuotaView {
   dayResetsAt: string; weekResetsAt: string;
   /** ISO when the next report is accepted; null = now. */
   nextAllowedAt: string | null;
-  raised: boolean;
 }
 /** What a counted report remembers so a cancel refunds the right buckets. */
 export interface QuotaSlot { key: string; ipKey: string | null; day: string; week: string }
@@ -98,33 +96,30 @@ function normalize(raw: QuotaRec | LegacyRec | null, now: number): QuotaRec {
   return { v: 2, last: Number(l.last) || 0, day, dayCount: carried, week, weekCount: carried };
 }
 
-const limitsFor = (raised: boolean) => (raised ? QUOTA.raised : QUOTA.standard);
-
 /** Why this identity can't send right now (week before day before gap: the longest wait is the useful one), or null. */
-function blockedBy(rec: QuotaRec, raised: boolean, now: number): { reason: QuotaReason; until: number } | null {
-  const lim = limitsFor(raised);
+function blockedBy(rec: QuotaRec, now: number): { reason: QuotaReason; until: number } | null {
+  const lim = QUOTA;
   if (rec.weekCount >= lim.week) return { reason: 'week', until: etMidnight(addDays(rec.week, 7)) };
   if (rec.dayCount >= lim.day) return { reason: 'day', until: etMidnight(addDays(rec.day, 1)) };
   if (rec.last && now - rec.last < QUOTA.gapMs) return { reason: 'gap', until: rec.last + QUOTA.gapMs };
   return null;
 }
 
-function view(rec: QuotaRec, raised: boolean, now: number): QuotaView {
-  const lim = limitsFor(raised);
-  const b = blockedBy(rec, raised, now);
+function view(rec: QuotaRec, now: number): QuotaView {
+  const lim = QUOTA;
+  const b = blockedBy(rec, now);
   return {
     dayUsed: rec.dayCount, dayLimit: lim.day, weekUsed: rec.weekCount, weekLimit: lim.week,
     dayResetsAt: new Date(etMidnight(addDays(rec.day, 1))).toISOString(),
     weekResetsAt: new Date(etMidnight(addDays(rec.week, 7))).toISOString(),
     nextAllowedAt: b ? new Date(b.until).toISOString() : null,
-    raised,
   };
 }
 
 /** Read-only quota for GET /api/me. */
-export async function quotaFor(store: Store, uid: string, email: string | null | undefined, raised: boolean, now = Date.now()): Promise<QuotaView> {
+export async function quotaFor(store: Store, uid: string, email: string | null | undefined, now = Date.now()): Promise<QuotaView> {
   const rec = normalize(await store.getMeta<QuotaRec | LegacyRec>(metaId(identityKey(uid, email))), now);
-  return view(rec, raised, now);
+  return view(rec, now);
 }
 
 export type QuotaCheck =
@@ -132,7 +127,7 @@ export type QuotaCheck =
   | { ok: false; reason: QuotaReason; retryAfterSec: number; quota: QuotaView };
 
 /** Two phases so one key's rejection never consumes the other key's budget: peek both, then commit both. */
-export async function checkQuota(store: Store, o: { uid: string; email: string | null | undefined; ip: string | null; raised: boolean; now?: number }): Promise<QuotaCheck> {
+export async function checkQuota(store: Store, o: { uid: string; email: string | null | undefined; ip: string | null; now?: number }): Promise<QuotaCheck> {
   const now = o.now ?? Date.now();
   const idKey = identityKey(o.uid, o.email);
   const ipK = o.ip ? ipKey(o.ip) : null;
@@ -144,14 +139,14 @@ export async function checkQuota(store: Store, o: { uid: string; email: string |
   const ipRec = ipK ? normalize(ipRaw, now) : null;
   const retry = (until: number) => Math.max(1, Math.ceil((until - now) / 1000));
 
-  const b = blockedBy(idRec, o.raised, now);
-  if (b) return { ok: false, reason: b.reason, retryAfterSec: retry(b.until), quota: view(idRec, o.raised, now) };
-  if (ipRec && ipRec.dayCount >= QUOTA.ipDay) return { ok: false, reason: 'ip', retryAfterSec: retry(etMidnight(addDays(ipRec.day, 1))), quota: view(idRec, o.raised, now) };
+  const b = blockedBy(idRec, now);
+  if (b) return { ok: false, reason: b.reason, retryAfterSec: retry(b.until), quota: view(idRec, now) };
+  if (ipRec && ipRec.dayCount >= QUOTA.ipDay) return { ok: false, reason: 'ip', retryAfterSec: retry(etMidnight(addDays(ipRec.day, 1))), quota: view(idRec, now) };
 
   const idNext: QuotaRec = { ...idRec, last: now, dayCount: idRec.dayCount + 1, weekCount: idRec.weekCount + 1 };
   await store.setMeta(metaId(idKey), idNext);
   if (ipK && ipRec) await store.setMeta(metaId(ipK), { ...ipRec, last: now, dayCount: ipRec.dayCount + 1, weekCount: ipRec.weekCount + 1 });
-  return { ok: true, quota: view(idNext, o.raised, now), slot: { key: idKey, ipKey: ipK, day: idRec.day, week: idRec.week } };
+  return { ok: true, quota: view(idNext, now), slot: { key: idKey, ipKey: ipK, day: idRec.day, week: idRec.week } };
 }
 
 /** Give a cancelled report's slot back: −1 in the day and week buckets it was counted in, if those are still current.
