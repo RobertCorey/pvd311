@@ -10,6 +10,7 @@
 import { TERMINAL_PORTAL_STATUS } from './contracts.js';
 import type { Report, ReportStatus } from '../../shared/types.js';
 import type { Store, AuthStore, Env, ReportDoc, PortalDraft, UserDoc } from './contracts.js';
+import type { CityQuestionsDoc } from './cityquestions.js';
 
 // ── Service-account JWT → OAuth access token ───────────────────────────────
 interface ServiceAccount {
@@ -459,6 +460,20 @@ export function createStore(env: Env): Store {
         from: [{ collectionId: 'reports' }],
         where: fieldFilter('status', 'EQUAL', { stringValue: status }),
       });
+    },
+
+    async getCityQuestions(category) {
+      const doc = await getDoc(env, `cityQuestions/${encodeURIComponent(category)}`);
+      return doc ? (decodeFields(doc.fields ?? {}) as unknown as CityQuestionsDoc) : null;
+    },
+
+    async setCityQuestions(category, data): Promise<void> {
+      await patchDoc(env, `cityQuestions/${encodeURIComponent(category)}`, data);
+    },
+
+    async listCityQuestions() {
+      const docs = await runQuery(env, { from: [{ collectionId: 'cityQuestions' }], limit: 500 });
+      return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as CityQuestionsDoc), category: d.name.split('/').pop() as string }));
     },
 
     async getMeta<T>(docId: string): Promise<T | null> {

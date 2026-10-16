@@ -4,6 +4,7 @@
  */
 import type { Report, ReportStatus } from '../../shared/types.js';
 import type { PortalControl } from './scout.js';
+import type { CityQuestionsDoc } from './cityquestions.js';
 
 export interface Env {
   BROWSER: Fetcher;
@@ -107,6 +108,10 @@ export interface Store {
   findReportsByOwner(uid: string, limit: number): Promise<ReportDoc[]>;        // newest first
   fetchReports(ids: string[]): Promise<ReportDoc[]>;                           // batch get; missing ids skipped
   countOwnerByStatus(uid: string, status: ReportStatus): Promise<number>;
+  /** cityQuestions/{category} — the per-category city-questions record (cityquestions.ts). set = full replace of the given top-level fields. */
+  getCityQuestions(category: string): Promise<CityQuestionsDoc | null>;
+  setCityQuestions(category: string, doc: Record<string, unknown>): Promise<void>;
+  listCityQuestions(): Promise<CityQuestionsDoc[]>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

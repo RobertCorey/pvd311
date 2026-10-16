@@ -28,6 +28,7 @@ import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, ass
 import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, GOLDEN_SCHEMA, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
+import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
 // Providence bounding box (same as Node engine).
 const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.370 };
@@ -208,6 +209,11 @@ async function submitOne(
     if (isDriftCanaryEnabled(env) && result.controls?.length) {
       await recordControls(store, mailer, report.category, result.controls, 'submit')
         .catch((e) => console.error('[tick] control drift check failed:', e instanceof Error ? e.message : e));
+    }
+    // City-questions audit (read-only visibility, docs/city-questions.md phase 1): how this filing answered each
+    // Step-3 question vs the committed seed → cityQuestions/{category}. Never throws, time-boxed.
+    if (result.controls?.length) {
+      await auditCityQuestions(store, { category: report.category, reportId: report.id, controls: result.controls, scouted: result.scouted, leftBlank: result.leftBlank });
     }
     {
       const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
@@ -583,8 +589,8 @@ type DigestKey = (typeof DIGEST_KEYS)[number];
 const DIGEST_LABEL: Record<DigestKey, string> = {
   submitted: 'submitted', pending: 'pending', awaiting_review: 'awaiting review', failed: 'failed', processing: 'processing',
 };
-/** meta/digest — last queue snapshot mailed; the digest only goes out when it changes. */
-interface DigestMeta { counts?: Record<DigestKey, number>; sentAt?: string; checkedAt?: string }
+/** meta/digest — last queue snapshot mailed; the digest only goes out when it changes (or city questions have news). */
+interface DigestMeta extends QuestionsDigestState { counts?: Record<DigestKey, number>; sentAt?: string; checkedAt?: string }
 
 async function snapshotCounts(store: Store): Promise<Record<DigestKey, number>> {
   const vals = await Promise.all(DIGEST_KEYS.map((k) => store.countByStatus(k)));
@@ -616,22 +622,26 @@ export async function runDaily(env: Env): Promise<void> {
     const counts = await snapshotCounts(store);
     const prev = await store.getMeta<DigestMeta>('digest').catch(() => null);
     const now = new Date().toISOString();
-    const changed = !prev?.counts || DIGEST_KEYS.some((k) => prev.counts![k] !== counts[k]);
-    if (changed) {
+    // City questions: categories with flags not mailed before, or more blank answers than at the last digest.
+    const cq = questionsDigest(await store.listCityQuestions().catch(() => []), prev);
+    const queueChanged = !prev?.counts || DIGEST_KEYS.some((k) => prev.counts![k] !== counts[k]);
+    if (queueChanged || cq.lines.length) {
       const row = (k: DigestKey) => {
         const delta = prev?.counts ? counts[k] - (prev.counts[k] ?? 0) : 0;
         const d = delta === 0 ? '' : ` (${delta > 0 ? '+' : ''}${delta})`;
         return `<li>${DIGEST_LABEL[k]} ${counts[k]}${d}</li>`;
       };
+      const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
       await mailer.alert(
         'Daily digest',
-        `<p><b>Queue snapshot</b>${prev?.sentAt ? ` — changed since ${escHtml(prev.sentAt.slice(0, 10))}` : ''}</p>`
-        + `<ul>${DIGEST_KEYS.map(row).join('')}</ul>`,
+        `<p><b>Queue snapshot</b>${prev?.sentAt ? (queueChanged ? ` — changed since ${escHtml(prev.sentAt.slice(0, 10))}` : ' — unchanged') : ''}</p>`
+        + `<ul>${DIGEST_KEYS.map(row).join('')}</ul>`
+        + (cq.lines.length ? `<p><b>City questions</b> — new since the last digest (<a href="${base}/admin#questions">/admin → City questions</a>)</p><ul>${cq.lines.map((l) => `<li>${escHtml(l)}</li>`).join('')}</ul>` : ''),
       );
-      await store.setMeta('digest', { counts, sentAt: now, checkedAt: now }).catch(() => {});
+      await store.setMeta('digest', { counts, ...cq.state, sentAt: now, checkedAt: now }).catch(() => {});
     } else {
       console.log('[digest] queue unchanged since last digest — not mailing');
-      await store.setMeta('digest', { ...prev, counts, checkedAt: now }).catch(() => {});
+      await store.setMeta('digest', { ...prev, counts, ...cq.state, checkedAt: now }).catch(() => {});
     }
   } catch (e) { console.error('[digest] failed:', e); } // never skip the canary because the digest failed
 

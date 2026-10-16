@@ -13,6 +13,8 @@
  *   GET  /api/admin/users?before&limit     → accounts with report counts + trust
  *   GET  /api/admin/events?level&kind&reportId&before&limit → filtered event stream
  *   GET  /api/admin/categories             → registry (label, portal case type + GUID, fields, photo/seasonal) + per-category golden/controls status + counts
+ *   GET  /api/admin/city-questions         → per category: seed questions + live record (counts app/ai/blank, last seen live) + flags + demand,
+ *                                            ranked by blank count × demand (read-only; docs/city-questions.md phase 1)
  *   GET  /api/admin/config                 → live settings with explanations (no secrets)
  *   GET  /api/admin/explain                → "how it works" sections with live numbers (Learn tabs)
  *   GET  /api/admin/reports/:id/proofs     → [{ name, createdAt, contentType }]  ·  GET …/proofs/:name → image bytes
@@ -30,6 +32,7 @@ import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js'
 import { canaryGoldenStatus, rebaselineGolden } from './canary-golden.js';
 import { explainSystem } from './adminexplain.js';
 import { usage } from './ui.js';
+import { buildAdminView } from './cityquestions.js';
 import type { ReportStatus } from '../../shared/types.js';
 
 const json = (body: unknown, status = 200) =>
@@ -209,6 +212,11 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
         counts: { submitted, rejected } };
     }));
     return json({ items });
+  }
+
+  if (m === 'GET' && path === '/api/admin/city-questions') {
+    const records = await store.listCityQuestions();
+    return json({ generatedAt: new Date().toISOString(), ...buildAdminView(records) });
   }
 
   if (m === 'GET' && path === '/api/admin/config') {

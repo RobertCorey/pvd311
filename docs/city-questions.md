@@ -47,6 +47,14 @@
    **First use: noise** ("Where is the noise coming from?": a house · a business · a car · a park · somewhere else · not sure).
 3. **Tidy.** Move the 4 hand-coded mappings (pothole size, carts, animal type, vehicle details) into the same records; fix the sim fixtures from the stored live snapshots.
 
+## Phase 1 status (built 2026-10-16, not deployed)
+
+- **Seed:** `shared/city-questions.seed.json`, generated once by `scripts/city-questions-seed.mjs` from the 2026-10-16 Step-3 page dump. 30 case types in the switch; 27 of our categories land on one; 45 questions (11 of them on/off toggles the bot's control dump never sees). Re-run the script only with a fresh dump.
+- **Surprises in the city's script:** missed trash's case reads `elements.elements.cop_servicerequestnumber`, which throws, so that case type shows no questions at all; missed plowing's case shows `cop_typeofroadservice`, which isn't on the page; 3 case types in the switch match none of our categories.
+- **Audit:** `worker/src/cityquestions.ts`, called from `engine.submitOne` after every live submit with controls (independent of `DRIFT_CANARY_ENABLED`) → `cityQuestions/{category}`; `questions.drift` (warn) event when a filing has flags; daily digest section for new flags / new blanks.
+- **Admin:** `GET /api/admin/city-questions` + the read-only `/admin#questions` tab.
+- **CI:** `worker/test/city-questions-fixtures.sim.test.ts` compares each sim Step-3 fixture with the seed; known drifts (noise, bins_carts radio labels) are allow-listed with TODOs for phase 3.
+
 ## Decisions for Rob
 
 - **Spanish.** City choices are English only. Should the toggle auto-translate the friendly labels for review, or ask in English until a translation is entered?
