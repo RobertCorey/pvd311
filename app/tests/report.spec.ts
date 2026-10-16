@@ -278,6 +278,34 @@ test('signed out: Send parks the draft and shows the sign-in gate; after sign-in
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
 
+// Sentry JAVASCRIPT-8 (2026-10-16, DuckDuckGo on iOS): IndexedDB is stubbed. Signed-out Send must still reach
+// the sign-in gate — no uncaught error, no hang — whether the stub hands back no result or never answers at all.
+for (const [name, stub] of [
+  ['upgradeneeded with result undefined', 'upgrade-undefined'],
+  ['a request that never fires any event', 'silent'],
+] as const) {
+  test(`stubbed IndexedDB (${name}): signed-out Send still shows the sign-in gate, no page error`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.addInitScript((mode) => {
+      const fake = () => {
+        const req: Record<string, unknown> = { result: undefined, error: null, transaction: null };
+        if (mode === 'upgrade-undefined') setTimeout(() => (req.onupgradeneeded as (() => void) | undefined)?.(), 0);
+        return req;
+      };
+      Object.defineProperty(window.indexedDB, 'open', { value: fake, configurable: true });
+    }, stub);
+    await mockApi(page, { signedIn: false });
+    await page.goto('/');
+    await pickType(page, 'trash', 'missed_trash');
+    await page.fill('#address', '25 Dorrance St');
+    await page.fill('#description', 'bins not collected');
+    await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+    await expect(page.locator('.gate-slot')).toBeVisible({ timeout: 8_000 });
+    expect(errors.filter((m) => /objectStoreNames|indexeddb/i.test(m))).toEqual([]);
+  });
+}
+
 test('a plain visit to / does not resurrect an abandoned draft', async ({ page }) => {
   await mockApi(page, { signedIn: false });
   await page.goto('/');
