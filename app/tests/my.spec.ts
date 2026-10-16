@@ -24,6 +24,13 @@ test('account reports only → cards with status pills, no empty state', async (
   await expect(main).not.toContainText('Attach these reports');
 });
 
+test("a city-Resolved report's pill says the city closed it, not 'Resolved'", async ({ page }) => {
+  await setup(page, { account: [view('a4', 'sent', { portalStatus: 'Resolved', portalCaseId: 'PVD2026-90091' })] });
+  await page.goto('/my');
+  await expect(page.locator('main .my-status')).toHaveText(['Closed by city']);
+  await expect(page.locator('main')).not.toContainText('Resolved');
+});
+
 test('signed out with no reports → sign-in prompt, not the empty state', async ({ page }) => {
   await setup(page, { signedIn: false });
   await page.goto('/my');

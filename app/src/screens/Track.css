@@ -39,6 +39,10 @@
 .track-notfiled-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .track-notfiled-actions .btn { width: auto; text-decoration: none; }
 .track-notfiled-note { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; text-wrap: pretty; }
+/* the city's own Resolution Message, quoted verbatim under the status */
+.track-city-note { margin-top: 10px; }
+.track-city-note-label { margin: 0 0 4px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.track-city-note-text { margin: 0; padding: 8px 12px; border-inline-start: 3px solid var(--line); background: var(--bg); border-radius: 0 6px 6px 0; color: var(--ink); font-size: 0.92rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ticket-eta { margin: 12px 0 0; font-size: 0.85rem; color: var(--muted); }
 
 /* rail: 4 steps, horizontal, connectors fill as steps complete */
@@ -73,6 +77,11 @@
 .track-tl-row.is-current .track-tl-label { color: var(--ink); }
 .track-tl-time { font-size: 0.8rem; color: var(--muted); }
 .track-tl-abs { }
+/* a city email (owner only): native disclosure, plain text body */
+.track-tl-msg summary { cursor: pointer; }
+.track-tl-msg summary:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; border-radius: 4px; }
+.track-tl-msg[open] summary { color: var(--ink); }
+.track-tl-msg-text { margin: 6px 0 4px; padding: 8px 12px; border-inline-start: 3px solid var(--line); background: var(--surface); border-radius: 0 6px 6px 0; color: var(--ink); font-size: 0.88rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* --- details --- */
 .track-details { display: flex; flex-direction: column; gap: 14px; }

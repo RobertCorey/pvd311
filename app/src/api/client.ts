@@ -89,14 +89,14 @@ export async function getReport(id: string): Promise<ReportView> {
 }
 
 /** Dedupe check: reports (ours + city) within radiusM of a point, last 14 days, nearest-first. Never throws. */
-/** Public counters (cached 5 min server-side). Null on any failure — the trust line just omits the number. */
+/** Public counter (cached 5 min server-side). Null on any failure — the trust line just omits the number. */
 export async function getStats(): Promise<Stats | null> {
   const t = withTimeout(6_000);
   try {
     const resp = await apiFetch('/api/stats', { signal: t.signal });
     if (!resp.ok) return null;
     const d = (await resp.json()) as Partial<Stats>;
-    return Number.isFinite(d.filed) ? { filed: Number(d.filed), resolved: Number(d.resolved ?? 0) } : null;
+    return Number.isFinite(d.filed) ? { filed: Number(d.filed) } : null;
   } catch { return null; } finally { t.done(); }
 }
 

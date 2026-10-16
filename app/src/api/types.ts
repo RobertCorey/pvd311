@@ -40,7 +40,9 @@ export interface IntakeResult {
   model?: string;
 }
 
-export interface TimelineEntry { at: string | null; label: string; }
+/** `kind: 'city_message'` = a relayed city email (label carries its subject). `text` = that email's plain-text body,
+ *  sent only to the report's owner on GET /api/reports/:id — never public, never in lists. */
+export interface TimelineEntry { at: string | null; label: string; kind?: 'city_message'; text?: string; }
 
 export interface ReportView {
   id: string;
@@ -54,6 +56,8 @@ export interface ReportView {
   status: ReportStatus;
   portalCaseId: string | null;
   portalStatus: PortalStatus | null;
+  /** The city's own "Resolution Message" for the case, verbatim (public); null when the city left none. */
+  resolutionMessage?: string | null;
   timeline: TimelineEntry[];
   nextUpdateHint: string | null;
   /** Set whenever the report will not / did not reach the city (docs/api.md GET /api/reports/:id). */
@@ -70,8 +74,8 @@ export interface FeedItem {
 }
 export interface NearbyItem extends FeedItem { distanceM: number; }
 export interface NearbyResponse { items: NearbyItem[]; }
-/** GET /api/stats — public counters for the home trust line. */
-export interface Stats { filed: number; resolved: number }
+/** GET /api/stats — public counter for the home trust line. No resolved count (Rob, 2026-10-16). */
+export interface Stats { filed: number }
 
 /** Reporter quota (docs/quota.md) — server-computed; the app only displays it. Times are ISO UTC. */
 export interface Quota {

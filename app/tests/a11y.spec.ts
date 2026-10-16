@@ -10,6 +10,7 @@ async function mocks(page: Page) {
   await page.addInitScript(() => { (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'x'; });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/demo`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'demo', category: 'pothole', categoryLabel: 'Pothole', address: '120 Benefit St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-1', portalStatus: 'Assigned', timeline: [{ at: new Date().toISOString(), label: 'Received' }], nextUpdateHint: null }) }));
+  await page.route(`${API}/api/reports/closed1234`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'closed1234', category: 'pothole', categoryLabel: 'Pothole', address: '120 Benefit St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-2', portalStatus: 'Resolved', resolutionMessage: 'Complaint (CODE-26-1465) has been received and logged into the system for review.', mine: true, timeline: [{ at: new Date().toISOString(), label: 'Received' }, { at: new Date().toISOString(), label: 'Message from the city: Your request has been updated', kind: 'city_message', text: 'Hello,\n\nYour request has been updated.' }], nextUpdateHint: null }) }));
   await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
 }
@@ -28,6 +29,7 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['rows', async (p) => { await p.goto('/?g=streets'); }],
   ['facet', async (p) => { await p.goto('/?g=streets&o=sidewalk'); }],
   ['track', (p) => p.goto('/r/demo?submitted=1')],
+  ['track-closed', async (p) => { await p.goto('/r/closed1234'); await p.click('details.track-tl-msg summary'); }],
   ['about', (p) => p.goto('/about')],
   ['my', (p) => p.goto('/my')],
 ];

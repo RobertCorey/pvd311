@@ -46,7 +46,7 @@ function statusInfo(v: ReportView, t: (k: string) => string): StatusInfo {
 
 type RailKind = 'cancelled' | 'notfiled' | 'normal';
 
-/** Parcel-style rail: Received → Sent to city → City working → Resolved. `done` = steps completed;
+/** Parcel-style rail: Received → Sent to city → City working → Closed by the city (the city's "Resolved"). `done` = steps completed;
  *  `branch` marks a warn ending. Not-filed / cancelled rails end at the failure — no steps ahead. */
 function buildRail(v: ReportView, t: (k: string) => string, kind: RailKind): { labels: string[]; done: number; branch: 'closed' | 'warn' | null } {
   if (kind === 'cancelled') return { labels: [t('track.rail.received'), t('track.rail.cancelled')], done: 1, branch: 'warn' };
@@ -75,6 +75,8 @@ function localizeTimelineLabel(label: string, t: (k: string, vars?: Record<strin
   if (exact[label]) return t(exact[label]);
   const filed = label.match(/^Filed with the city as (.+)$/);
   if (filed) return t('track.timeline.filedAs', { case: filed[1] });
+  const msg = label.match(/^Message from the city(?:: (.+))?$/);
+  if (msg) return msg[1] ? t('track.timeline.cityMessage', { subject: msg[1] }) : t('track.timeline.cityMessageBare');
   const city = label.match(/^City status: (.+)$/);
   if (city) {
     const localized = t(`track.portalStatus.${city[1]}`);
@@ -207,6 +209,12 @@ export default function Track() {
           )}
         </div>
         <h2 className="track-status-headline">{headline}</h2>
+        {view.resolutionMessage && !notFiled && !cancelled && (
+          <div className="track-city-note">
+            <p className="track-city-note-label">{t('track.cityNote.label')}</p>
+            <blockquote className="track-city-note-text">{view.resolutionMessage}</blockquote>
+          </div>
+        )}
         {notFiled && nf ? (
           <NotFiledBody nf={nf} t={t} />
         ) : cancelled ? null : (
@@ -241,7 +249,14 @@ export default function Track() {
             <li key={`${e.at}-${i}`} className={`track-tl-row${i === 0 ? ' is-current' : ''}`}>
               <span className="track-tl-dot" aria-hidden="true" />
               <div className="track-tl-body">
-                <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>
+                {e.text ? (
+                  <details className="track-tl-msg">
+                    <summary className="track-tl-label">{localizeTimelineLabel(e.label, t)}</summary>
+                    <div className="track-tl-msg-text">{e.text}</div>
+                  </details>
+                ) : (
+                  <span className="track-tl-label">{localizeTimelineLabel(e.label, t)}</span>
+                )}
                 <span className="track-tl-time">
                   <time dateTime={e.at ?? undefined}>{relTime(e.at, t('track.time.justNow'))}</time>
                   <span className="track-tl-abs"> · {absTime(e.at)}</span>
