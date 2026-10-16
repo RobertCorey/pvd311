@@ -40,3 +40,18 @@ test('signed in with no reports → "No reports yet" empty state', async ({ page
   await expect(main).toContainText('No reports yet');
   await expect(main).not.toContainText('Your reports are waiting');
 });
+
+test('signed in → the weekly quota line ("This week: N of 15")', async ({ page }) => {
+  await setup(page, { account: [view('a1', 'received')] });
+  await page.route(`${API}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google.com', prefs: { emailUpdates: true }, addresses: [], following: [], createdAt: new Date().toISOString(),
+    quota: { dayUsed: 1, dayLimit: 5, weekUsed: 4, weekLimit: 15, dayResetsAt: new Date().toISOString(), weekResetsAt: new Date().toISOString(), nextAllowedAt: null, raised: false } }) }));
+  await page.goto('/my');
+  await expect(page.locator('main .quota-week')).toHaveText('This week: 4 of 15');
+});
+
+test('signed out → no quota line', async ({ page }) => {
+  await setup(page, { signedIn: false });
+  await page.goto('/my');
+  await expect(page.locator('main')).toContainText('Your reports are waiting');
+  await expect(page.locator('.quota-week')).toHaveCount(0);
+});

@@ -522,3 +522,72 @@ test('emergency banner shows on a danger keyword (AI check silent), not on "fire
   await ta.fill('graffiti on the firehouse wall');
   await expect(page.locator('.emergency-banner')).toHaveCount(0);
 });
+
+// ── Reporter quota (docs/quota.md): the server's /api/me quota drives a quiet line / a blocked Send ──
+const quota = (o: Partial<{ dayUsed: number; weekUsed: number; dayLimit: number; weekLimit: number }> = {}) => ({
+  dayUsed: 0, dayLimit: 5, weekUsed: 0, weekLimit: 15, dayResetsAt: new Date(Date.now() + 3_600_000).toISOString(),
+  weekResetsAt: new Date(Date.now() + 86_400_000).toISOString(), nextAllowedAt: null, raised: false, ...o,
+});
+async function mockMe(page: Page, q: ReturnType<typeof quota>) {
+  await page.route(`${API}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'password', prefs: { emailUpdates: true }, addresses: [], following: [], createdAt: new Date().toISOString(), quota: q }) }));
+}
+async function compose(page: Page) {
+  await page.goto('/');
+  await pickType(page, 'trash', 'missed_trash');
+  await page.fill('#address', '25 Dorrance St');
+  await page.fill('#description', 'bins left out since Monday');
+}
+
+test('quota: 3 or more left → nothing shown, Send works', async ({ page }) => {
+  await mockApi(page);
+  await mockMe(page, quota({ dayUsed: 2, weekUsed: 2 }));
+  const me = page.waitForRequest(`${API}/api/me`);
+  await compose(page);
+  await me;
+  await page.waitForTimeout(300);
+  await expect(page.locator('.quota-line, .quota-out, .quota-contact')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'false');
+});
+
+test('quota: 2 left today → one quiet line; the week wins when it runs out first', async ({ page }) => {
+  await mockApi(page);
+  await mockMe(page, quota({ dayUsed: 3, weekUsed: 3 }));
+  await compose(page);
+  await expect(page.locator('.quota-line')).toHaveText('2 reports left today · resets at midnight');
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'false');
+  await page.unroute(`${API}/api/me`);
+  await mockMe(page, quota({ dayUsed: 1, weekUsed: 14 }));
+  await compose(page);
+  await expect(page.locator('.quota-line')).toHaveText('1 report left this week · resets Monday');
+});
+
+test('quota: 0 left today → Send disabled with the reason + contact link, draft kept, nothing sent', async ({ page }) => {
+  await mockApi(page);
+  await mockMe(page, quota({ dayUsed: 5, weekUsed: 7 }));
+  let posted = 0;
+  page.on('request', (r) => { if (r.url() === `${API}/api/report`) posted++; });
+  await compose(page);
+  const send = page.getByRole('button', { name: 'Send to Providence 311' });
+  await expect(send).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('.quota-out')).toHaveText('Daily limit reached (5 reports). Your draft is kept — you can send it after midnight.');
+  await expect(page.getByRole('link', { name: 'Need to report more? Contact us' })).toHaveAttribute('href', 'mailto:rob@fixmypvd.org');
+  await expect(page.locator('.quota-line')).toHaveCount(0);
+  await send.click({ force: true }); // aria-disabled: a tap must still not send
+  await page.waitForTimeout(300);
+  expect(posted).toBe(0);
+  await expect(page.locator('#description')).toHaveValue('bins left out since Monday');
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
+});
+
+test('quota: a 429 rate_limited (week) shows the same blocked state and keeps the draft', async ({ page }) => {
+  await mockApi(page, { reportStatus: 429, reportBody: { error: 'rate_limited', reason: 'week', retryAfterSec: 200_000, quota: quota({ dayUsed: 2, weekUsed: 15 }) } });
+  await mockMe(page, quota({ dayUsed: 1, weekUsed: 14 }));
+  await compose(page);
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.quota-out')).toHaveText('Weekly limit reached (15 reports). Your draft is kept — you can send it on Monday.');
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('link', { name: 'Need to report more? Contact us' })).toBeVisible();
+  await expect(page.locator('.notice-error')).toHaveCount(0);
+  await expect(page.locator('#description')).toHaveValue('bins left out since Monday');
+  await expect(page).toHaveURL(/\/\?c=missed_trash$/);
+});

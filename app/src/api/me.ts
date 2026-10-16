@@ -1,6 +1,6 @@
 // Account endpoints (/api/me/*) — see docs/api.md "Accounts". All calls need a session (authHeaders()).
 import { apiFetch, parseError, withTimeout } from './client';
-import type { ReportView } from './types';
+import type { Quota, ReportView } from './types';
 import { authHeaders } from '../lib/auth';
 
 export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
@@ -9,6 +9,8 @@ export interface Me {
   prefs: { emailUpdates: boolean }; addresses: SavedAddress[]; following: string[]; createdAt: string;
   /** True for an allow-listed Google-verified email (docs/api.md Admin). */
   admin?: boolean;
+  /** Reporter quota (docs/quota.md); absent from an older Worker. */
+  quota?: Quota;
 }
 /** ReportView plus the signed-in extras the Worker adds. */
 export interface MyReportView extends ReportView { mine?: boolean; following?: boolean; editable?: boolean; description?: string | null; owned?: boolean }

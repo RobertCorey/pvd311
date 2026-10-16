@@ -33,9 +33,11 @@ export async function adminProofBlobUrl(id: string, name: string): Promise<strin
   if (!resp.ok) throw await parseError(resp);
   return URL.createObjectURL(await resp.blob());
 }
-export interface AdminUser { uid: string; email: string | null; provider: string; trusted: boolean; submitted: number; rejected: number; createdAt: string | null }
+export interface AdminUser { uid: string; email: string | null; provider: string; trusted: boolean; quotaRaised?: boolean; submitted: number; rejected: number; createdAt: string | null }
 export const adminUser = (uid: string) => call<AdminUser>(`/api/admin/users/${encodeURIComponent(uid)}`);
 export const adminTrust = (uid: string, trusted: boolean) => call<AdminUser>(`/api/admin/users/${encodeURIComponent(uid)}/trust`, { method: 'POST', body: JSON.stringify({ trusted }) });
+/** Raised reporter quota (20/day, 60/week instead of 5/15). */
+export const adminQuota = (uid: string, raised: boolean) => call<AdminUser>(`/api/admin/users/${encodeURIComponent(uid)}/quota`, { method: 'POST', body: JSON.stringify({ raised }) });
 export const adminEngine = (op: 'pause' | 'resume') => call<{ ok: boolean; paused: boolean }>(`/api/admin/engine/${op}`, { method: 'POST', body: '{}' });
 
 // ── System view (/api/admin/health) ──
@@ -70,7 +72,7 @@ export const adminReports = (p: AdminReportsQuery = {}) => {
 };
 export interface AdminAccount {
   uid: string; email: string | null; displayName: string | null; provider: string; emailVerified: boolean;
-  createdAt: string | null; lastSeenAt: string | null; trusted: boolean; emailUpdates: boolean; following: number; addresses: number;
+  createdAt: string | null; lastSeenAt: string | null; trusted: boolean; quotaRaised?: boolean; emailUpdates: boolean; following: number; addresses: number;
   submitted: number; rejected: number; awaitingReview: number; autoFiles: boolean;
 }
 export const adminUsers = (before?: string | null, limit = 50) => call<Paged<AdminAccount>>(`/api/admin/users?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`);

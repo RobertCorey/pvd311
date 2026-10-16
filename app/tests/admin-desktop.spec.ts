@@ -86,3 +86,23 @@ test('every tab is reachable from the rail and keeps the hash', async ({ page })
     await expect(page).toHaveURL(new RegExp(`#${tab}$`));
   }
 });
+
+test('accounts: "Raise limits" toggle next to Trust posts { raised } to /quota and flips', async ({ page }) => {
+  const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
+  const bodies: unknown[] = [];
+  await page.route(`${API}/api/admin/users/*/quota`, async (r) => {
+    bodies.push(r.request().postDataJSON());
+    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'uid_0', email: 'resident0@example.com', provider: 'password', trusted: false, quotaRaised: true, submitted: 5, rejected: 0, createdAt: null }) });
+  });
+  await page.goto('/admin#accounts');
+  const row = page.locator('.acct-table tbody tr', { hasText: 'resident0@example.com' });
+  const raise = row.getByRole('button', { name: 'Raise limits' });
+  await expect(raise).toHaveAttribute('aria-pressed', 'false');
+  // It sits next to Trust (same cell, stacked).
+  await expect(row.locator('td.acct-toggles .acct-trust:not(.acct-quota) + .acct-quota')).toHaveCount(1);
+  await raise.click();
+  await expect(row.getByRole('button', { name: 'Limits raised' })).toHaveAttribute('aria-pressed', 'true');
+  expect(bodies).toEqual([{ raised: true }]);
+  await expect(page).toHaveURL(/#accounts$/); // the cell click did not open the account's reports
+  await expect(page.locator('.acct-table tbody tr', { hasText: 'resident2@example.com' }).getByRole('button', { name: 'Limits raised' })).toHaveAttribute('aria-pressed', 'true');
+});

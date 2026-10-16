@@ -7,7 +7,8 @@ import { signOut, useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { useLocation } from 'react-router-dom';
 import { draftStore } from '../lib/draft';
-import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
+import { ApiError, type IntakeResult, type NearbyItem, type Quota } from '../api/types';
+import { getMe } from '../api/me';
 import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
 import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
@@ -118,6 +119,26 @@ export default function Report() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
+
+  // --- reporter quota (docs/quota.md): the server is the authority; we only display it ---
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [ipLimited, setIpLimited] = useState(false); // 429 reason 'ip' (shared-network backstop)
+  useEffect(() => {
+    if (!session) { setQuota(null); return; }
+    let live = true;
+    getMe().then((m) => { if (live) setQuota(m.quota ?? null); }).catch(() => { /* offline / older Worker: stay silent */ });
+    return () => { live = false; };
+  }, [session]);
+  const quotaOut: 'week' | 'day' | 'ip' | null = quota && quota.weekUsed >= quota.weekLimit ? 'week'
+    : quota && quota.dayUsed >= quota.dayLimit ? 'day'
+    : ipLimited ? 'ip' : null;
+  const dayLeft = quota ? quota.dayLimit - quota.dayUsed : Infinity;
+  const weekLeft = quota ? quota.weekLimit - quota.weekUsed : Infinity;
+  const left = Math.min(dayLeft, weekLeft);
+  // Silent at 3+ left; one quiet line at 1–2 (naming whichever limit runs out first).
+  const quotaLine = quotaOut || !(left >= 1 && left <= 2) ? null
+    : weekLeft < dayLeft ? t(left === 1 ? 'report.quota.leftWeekOne' : 'report.quota.leftWeek', { n: left })
+    : t(left === 1 ? 'report.quota.leftTodayOne' : 'report.quota.leftToday', { n: left });
 
   // Idempotency key for this draft: a retried submit (timeout, flaky network) can't file twice.
   const draftId = useRef<string>(crypto.randomUUID());
@@ -320,9 +341,12 @@ export default function Report() {
   // Independent of the AI check: a client-side keyword scan (#13).
   const emergencyKeyword = useMemo(() => isEmergencyText(description), [description]);
   const photoRequired = cat ? cat.photoRequired : true;
-  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside;
+  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside && !quotaOut;
   // First unmet requirement, shown under the disabled Send so nobody sits on a grey button.
   const blockReason = !cat ? null
+    : quotaOut === 'week' ? t('report.quota.outWeek', { limit: quota!.weekLimit })
+    : quotaOut === 'day' ? t('report.quota.outDay', { limit: quota!.dayLimit })
+    : quotaOut === 'ip' ? t('report.quota.outIp')
     : photoRequired && !photo ? t('report.block.photo')
     : address.trim().length < 3 ? t('report.block.address')
     : outside ? t('report.block.outside')
@@ -392,7 +416,12 @@ export default function Report() {
           setDraftUnsaved(!saved); setError(t('report.error.sessionExpired')); setGated(true);
           return;
         }
-        if (err.code === 'rate_limited') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
+        if (err.code === 'rate_limited') {
+          if (err.quota) setQuota(err.quota);
+          if (err.reason === 'ip') setIpLimited(true);
+          // day / week / ip → the submit bar shows the limit state (draft kept); a gap (or an older Worker) → the short wait message.
+          if (err.reason !== 'day' && err.reason !== 'week' && err.reason !== 'ip') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
+        }
         else if (err.code === 'turnstile_failed') setError(t('report.error.turnstile'));
         else if (err.status === 400) setError(err.field ? t('report.error.field', { field: err.field }) : t('report.error.badRequest'));
         else setError(t('report.error.generic'));
@@ -699,7 +728,9 @@ export default function Report() {
         {resumeSend && session && <p className="hint center">{t('report.gate.resumed')}</p>}
         <button type="submit" className="btn btn-primary" aria-disabled={!canSubmit}
           aria-describedby={!submitting && blockReason ? 'submit-hint' : undefined}>{submitting ? t('report.sending') : t('report.submit')}</button>
-        {!submitting && blockReason && <p id="submit-hint" className="hint center" aria-live="polite">{blockReason}</p>}
+        {!submitting && blockReason && <p id="submit-hint" className={`hint center${quotaOut ? ' quota-out' : ''}`} aria-live="polite">{blockReason}</p>}
+        {!submitting && quotaOut && <p className="hint center quota-contact"><a href={`mailto:${BRAND.contactEmail}`}>{t('report.quota.contact')}</a></p>}
+        {!submitting && !blockReason && quotaLine && <p className="hint center quota-line">{quotaLine}</p>}
         {!online && <p className="hint center">{t('report.offlineHint')}</p>}
       </div>
     </form>

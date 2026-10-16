@@ -73,10 +73,20 @@ export interface NearbyResponse { items: NearbyItem[]; }
 /** GET /api/stats — public counters for the home trust line. */
 export interface Stats { filed: number; resolved: number }
 
+/** Reporter quota (docs/quota.md) — server-computed; the app only displays it. Times are ISO UTC. */
+export interface Quota {
+  dayUsed: number; dayLimit: number; weekUsed: number; weekLimit: number;
+  dayResetsAt: string; weekResetsAt: string; nextAllowedAt: string | null; raised: boolean;
+}
+export type QuotaReason = 'gap' | 'day' | 'week' | 'ip';
+
 export class ApiError extends Error {
   status: number; code: string; field?: string; retryAfterSec?: number;
-  constructor(status: number, code: string, field?: string, retryAfterSec?: number) {
+  /** On 429 rate_limited from POST /api/report. */
+  reason?: QuotaReason; quota?: Quota;
+  constructor(status: number, code: string, field?: string, retryAfterSec?: number, extra: { reason?: QuotaReason; quota?: Quota } = {}) {
     super(code);
     this.status = status; this.code = code; this.field = field; this.retryAfterSec = retryAfterSec;
+    this.reason = extra.reason; this.quota = extra.quota;
   }
 }

@@ -24,9 +24,9 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 }
 
 export async function parseError(resp: Response): Promise<ApiError> {
-  let body: { error?: string; field?: string; retryAfterSec?: number } = {};
+  let body: { error?: string; field?: string; retryAfterSec?: number; reason?: ApiError['reason']; quota?: ApiError['quota'] } = {};
   try { body = await resp.json(); } catch { /* non-JSON error */ }
-  return new ApiError(resp.status, body.error ?? `http_${resp.status}`, body.field, body.retryAfterSec);
+  return new ApiError(resp.status, body.error ?? `http_${resp.status}`, body.field, body.retryAfterSec, { reason: body.reason, quota: body.quota });
 }
 
 export function withTimeout(ms: number): { signal: AbortSignal; done: () => void } {
