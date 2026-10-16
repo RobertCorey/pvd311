@@ -9,6 +9,7 @@
  * HTTP:
  *   GET /healthz                         → { ok, paused, pending, awaiting }
  *   GET /canary            (x-canary-token) → portal.canary()  (read-only, zero-draft)
+ *   GET /admin/controls?entityId= (x-canary-token) → an existing record's Step-3 controls + options (read-only)
  *   GET /api/status        (x-canary-token) → engine state + status counts
  *   GET /hitl/approve/:id/:exp/:sig      → verify HMAC + expiry, approve, tiny HTML page
  *   GET /hitl/reject/:id/:exp/:sig       → verify HMAC + expiry, reject, tiny HTML page
@@ -83,6 +84,24 @@ export default {
           saveProof: (name, bytes) => store.putProof(id, name, bytes, 'image/jpeg'),
         });
         return Response.json({ ok: true, ...result });
+      } catch (e) {
+        return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      } finally {
+        await portal.close().catch(() => {});
+      }
+    }
+
+    // Admin: read an existing record's Step-3 controls (with every dropdown's options). Read-only: the drift
+    // canary's Edit-Request → Next → Next path — no new draft, Submit never clicked.
+    if (url.pathname === '/admin/controls') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      const entityId = url.searchParams.get('entityId');
+      if (!entityId || !/^[0-9a-f-]{36}$/i.test(entityId)) return Response.json({ error: 'entityId (GUID) required' }, { status: 400 });
+      const portal = createPortal(env, { auth: createAuthStore(createStore(env)) });
+      try {
+        await portal.launch();
+        const controls = await portal.resumeAndDumpControls(entityId);
+        return Response.json(controls ? { ok: true, controls } : { ok: false, error: 'could not resume the record to Step 3' }, { status: controls ? 200 : 502 });
       } catch (e) {
         return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
       } finally {
