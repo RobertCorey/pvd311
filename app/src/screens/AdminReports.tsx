@@ -63,7 +63,7 @@ export default function AdminReports({ initialQuery = '', initialStatus = '', sa
         </div>
         {err && <div className="notice notice-error" role="alert">{t('admin.loadError')}</div>}
         {items == null ? <p className="muted" aria-busy="true">{t('account.loading')}</p> : items.length === 0 ? <p className="admin-empty">{t('admin.bucket.empty')}</p> : (
-          <table className="admin-table">
+          <table className="admin-table admin-table--rows">
             <thead><tr>
               <th scope="col">{t('admin.col.age')}</th><th scope="col">{t('admin.col.category')}</th><th scope="col">{t('admin.col.address')}</th><th scope="col">{t('admin.col.reporter')}</th>
               <th scope="col">{t('admin.col.status')}</th><th scope="col" className="admin-col-opt">{t('admin.col.case')}</th><th scope="col" className="admin-col-opt">{t('admin.col.cityStatus')}</th><th scope="col" className="admin-col-opt">{t('admin.col.flags')}</th>

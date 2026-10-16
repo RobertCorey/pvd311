@@ -1,0 +1,160 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   /admin on a phone (Rob, 2026-10-16: "I'm using it" — his phone is ~412×915 CSS px).
+   Desktop (Admin.css, 1512×982) stays the primary layout; this layer only applies ≤ 760px.
+   - The rail dissolves (display: contents): a sticky one-row tab strip, the search on Queue only,
+     a one-line engine strip on Overview / Queue / System; title, identity and key hints go.
+   - Row tables become cards (queue, reports, events, accounts, portal, city questions, config):
+     no sideways scrolling, every column still there, labelled where a bare value would be unclear.
+   - The detail pane is a full-screen sheet with a thumb-height action bar.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Keyboard hints mean nothing on a touchscreen. */
+@media (hover: none) {
+  .admin-keys, .admin-pane-actions kbd { display: none; }
+}
+
+@media (max-width: 760px) {
+  /* ── Shell ─────────────────────────────────────────────────────────────── */
+  .admin-shell { display: flex; flex-direction: column; background: none; min-height: 0; }
+  .admin-rail { display: contents; }
+  .admin-rail-title, .admin-rail-foot { display: none; }
+
+  .admin-rail-nav {
+    position: sticky; top: 0; z-index: 10; order: 0;
+    display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .admin-rail-nav::-webkit-scrollbar { display: none; }
+  .admin-rail-tab { flex: none; min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--line); font-size: .92rem; }
+  .admin-rail-tab[aria-selected="true"] { border-color: var(--ink); }
+
+  .admin-rail-search { order: 1; flex: none; display: block; padding: 10px 12px 0; }
+  .admin-rail-search .input { min-height: 44px; font-size: 1rem; } /* 16px+: no zoom-on-focus */
+  .admin-shell:not([data-tab="queue"]) .admin-rail-search { display: none; }
+
+  .admin-rail-engine {
+    order: 2; flex: none; margin: 10px 12px 0; padding: 8px 10px;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 10px;
+  }
+  .admin-rail-engine .admin-meta { grid-column: 1; }
+  .admin-rail-engine .admin-meta + .admin-meta { display: none; } /* mode/trust line: Config + How it works have it */
+  .admin-rail-btn { grid-column: 2; grid-row: 1 / span 2; margin: 0; min-height: 40px; padding: 6px 14px; width: auto; }
+  .admin-shell:not([data-tab="overview"]):not([data-tab="queue"]):not([data-tab="system"]) .admin-rail-engine:not(.is-paused) { display: none; }
+
+  .admin-main { order: 3; flex: none; padding: 12px 12px 40px; }
+  .admin-main-title { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 1.25rem; margin-bottom: 12px; }
+  .admin-main-sub { font-size: .85rem; }
+  .admin-toast { z-index: 60; bottom: calc(16px + env(safe-area-inset-bottom)); }
+
+  /* Controls at thumb size; 16px inputs so the browser doesn't zoom on focus. */
+  .admin .input, .admin .select, .admin .textarea { font-size: 1rem; }
+  .admin-filters { gap: 8px; }
+  .admin-filter { min-width: 0; flex: 1 1 140px; }
+  .admin-filter .input, .admin-filter .select { min-height: 44px; }
+  .admin-filters .admin-refresh, .admin-refresh { min-height: 40px; }
+  .admin-pills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px 10px; padding: 0 12px; }
+  .admin-pills::-webkit-scrollbar { display: none; }
+  .admin-pill { flex: none; min-height: 40px; }
+  .admin-tbl-btn { min-height: 40px; padding: 6px 14px; font-size: .9rem; }
+  .sys-filters .chip, .admin-light { min-height: 36px; }
+  .admin-table thead th { top: 57px; } /* below the sticky tab strip (tables that stay tables) */
+
+  /* ── Row tables → cards ────────────────────────────────────────────────── */
+  .admin-table--rows, .sys-events-table, .acct-table, .portal-table, .cq-table, .cfg-table { display: block; border: 0; background: none; border-radius: 0; table-layout: auto; }
+  .admin-table--rows > tbody, .sys-events-table > tbody, .acct-table > tbody, .portal-table > tbody, .cq-table > tbody, .cfg-table > tbody { display: grid; gap: 8px; }
+  .admin-table--rows > thead, .sys-events-table > thead, .acct-table > thead, .portal-table > thead, .cq-table > thead, .cfg-table > thead, .cq-table > colgroup { display: none; }
+  .admin-table--rows tr, .sys-events-table tr, .acct-table tr, .portal-table tr, .cq-table tr, .cfg-table tr {
+    display: grid; gap: 4px 10px; padding: 10px 12px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px;
+  }
+  .admin-table--rows td, .sys-events-table td, .acct-table td, .portal-table td, .cq-table td, .cq-table th, .cfg-table td, .cfg-table th {
+    display: block; height: auto; padding: 0; border: 0; min-width: 0; max-width: none; width: auto; white-space: normal; background: none !important; box-shadow: none;
+  }
+  .admin-table--rows td:empty, .sys-events-table td:empty, .acct-table td:empty, .portal-table td:empty { display: none; }
+  .admin-table tbody tr:hover td { background: none; }
+  [data-label]::before { content: attr(data-label); display: block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 1px; }
+
+  /* Queue + Reports: category · age / address · case / reporter / flags / status / actions */
+  .admin-table--rows tr { grid-template-columns: minmax(0, 1fr) auto; }
+  .admin-table--rows tr.is-selected { border-color: var(--ember); background: var(--warn-soft); }
+  .admin-table--rows .admin-td-cat { grid-column: 1; grid-row: 1; font-size: 1rem; white-space: normal; overflow: visible; }
+  .admin-table--rows .admin-td-age { grid-column: 2; grid-row: 1; text-align: right; }
+  .admin-table--rows td:not(.admin-td-cat):not(.admin-td-age) { grid-column: 1 / -1; }
+  .admin-table--rows .admin-td-rep { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .admin-table--rows .admin-td-status .admin-ellipsis { white-space: normal; }
+  .admin-table--rows .admin-td-actions { text-align: left; margin-top: 4px; }
+  .admin-queue.has-pane .admin-col-opt { display: block; }
+
+  /* Events (Events tab, Overview, System): time · level · kind / message / report / raw */
+  .sys-events-table tr { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; padding: 8px 10px; }
+  .sys-events-table td:nth-child(3) { justify-self: end; }
+  .sys-events-table td:nth-child(n+4) { grid-column: 1 / -1; }
+  .sys-events-table .sys-time { width: auto; }
+  .sys-events-table .sys-time .admin-meta { display: inline; margin-left: 6px; }
+  .sys-events-table td.sys-msg { font-size: .92rem; }
+  .sys-events-table tr.sys-event--error { border-color: var(--danger); background: var(--danger-soft); }
+  .sys-events-table tr.sys-event--warn { border-color: var(--warn); background: var(--warn-soft); }
+  .sys-events-table tr.admin-raw-row { padding: 0; border: 0; background: none; margin-top: -6px; }
+  .sys-events-table .admin-raw { min-height: 0; max-height: 50vh; }
+
+  /* Accounts: email block, then a 3-up grid of labelled facts */
+  .acct-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
+  .acct-table td.acct-email { grid-column: 1 / -1; min-width: 0; max-width: none; font-size: 1rem; }
+  .acct-table td.acct-num { text-align: left; }
+  .acct-table td.acct-trust-cell { grid-column: span 2; }
+  .acct-toolbar, .acct-filter { min-width: 0; }
+  .acct-filter { flex: 1 1 100%; }
+  .acct-filter .input { min-height: 44px; }
+  .acct-trust { min-height: 36px; }
+
+  /* Portal categories: name + case type, then labelled facts; raw JSON full width */
+  .portal-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
+  .portal-table td.portal-cat, .portal-table td.portal-casetype, .portal-table td.portal-fields, .portal-table td.portal-goldcell { grid-column: 1 / -1; max-width: none; }
+  .portal-table td.portal-num { text-align: left; width: auto; }
+  .portal-table tr.portal-json-row { padding: 0; overflow: hidden; }
+  .portal-json { max-height: 50vh; }
+
+  /* City questions: one card per question; the category header rides on its first question */
+  .cq-table tr { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .cq-table th.cq-cat { grid-column: 1 / -1; border-right: 0; border-bottom: 1px dashed var(--line); padding-bottom: 8px !important; }
+  .cq-table td.cq-q, .cq-table td.cq-choices, .cq-table td.cq-flags { grid-column: 1 / -1; }
+  .cq-table td[colspan] { grid-column: 1 / -1; }
+  .cq-table tbody tr.is-alt { background: color-mix(in srgb, var(--bg) 55%, var(--surface)); }
+  .cq-answered { white-space: normal; }
+  .cq-how { grid-template-columns: 1fr; }
+
+  /* Config: key + value on top, what it does below, help link at the end */
+  .cfg-table tr { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .cfg-table td.cfg-key { grid-column: 1; overflow-wrap: anywhere; white-space: normal; }
+  .cfg-table td.cfg-key code { overflow-wrap: anywhere; }
+  .cfg-table td.cfg-help { grid-column: 2; grid-row: 1; }
+  .cfg-table td.cfg-val, .cfg-table td.cfg-what { grid-column: 1 / -1; white-space: normal; }
+  .cfg-table tr.cfg-group { padding: 6px 2px 0; border: 0; background: none; }
+  .cfg-table tr.cfg-group th { background: none; height: auto; padding: 0; }
+  .cfg-filter { max-width: none; flex: 1 1 100%; min-height: 44px; }
+  .cfg-raw-btn { margin-left: 0; }
+
+  /* ── Detail pane: a full-screen sheet ──────────────────────────────────── */
+  .admin-pane { inset: 0; z-index: 50; }
+  .admin-pane-head { padding: 8px 12px; min-height: 56px; }
+  .admin-pane-close { min-height: 44px; min-width: 44px; }
+  .admin-pane-actions { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .admin-pane-actions .btn { min-height: 48px; flex: 1 1 auto; }
+  .admin-dl--extra { grid-template-columns: 1fr; }
+  .admin-proofs { grid-template-columns: repeat(2, 1fr); }
+  body.is-admin:has(.admin-pane) { overflow: hidden; }
+
+  /* ── Overview / System / Usage / How it works ──────────────────────────── */
+  .admin-ov-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
+  .admin-ov-needs li { min-height: 52px; }
+  .sys-banner .btn { min-height: 40px; }
+  .sys-numbers { grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); }
+  .usage-grid { grid-template-columns: 1fr; }
+  .usage-bar-cell { width: 22%; }
+
+  .explain-toc { margin: 0 -12px; }
+  .explain-toc ul { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 0 12px 4px; }
+  .explain-toc ul::-webkit-scrollbar { display: none; }
+  .explain-toc li { flex: none; }
+  .explain-toc a { white-space: nowrap; border: 1.5px solid var(--line); border-radius: 999px; padding: 8px 14px; color: var(--ink); }
+  .explain-panel { scroll-margin-top: 68px; }
+}

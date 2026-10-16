@@ -115,13 +115,13 @@ function QuestionCells({ q, it, t }: { q: AdminCityQuestion; it: AdminCityQuesti
         <div className="cq-q-label">{q.cityLabel}</div>
         <div><span className="sys-kind">{q.id}</span>{!q.inSeed && <span className="admin-meta"> · {t('admin.cq.notInSeed')}</span>}</div>
       </td>
-      <td className="cq-choices">
+      <td className="cq-choices" data-label={t('admin.cq.col.choices')}>
         {q.type === 'toggle' ? <span className="admin-meta">{t('admin.cq.toggle')}</span>
           : q.cityOptions.length === 0 ? <span className="admin-meta">{t(q.type === 'textarea' ? 'admin.cq.freeTextLong' : 'admin.cq.freeText')}</span>
           : <ul className="cq-opts">{q.cityOptions.map((o) => <li key={o} className="cq-opt">{o}</li>)}</ul>}
         {q.mode === 'app' && q.appOptions && q.cityOptions.length > 0 && <div className="admin-meta cq-appopts">{t('admin.cq.appSends', { v: q.appOptions.join(' · ') })}</div>}
       </td>
-      <td className="cq-answered">
+      <td className="cq-answered" data-label={t('admin.cq.col.answered')}>
         {filed
           ? <div className="cq-counts">
               {app > 0 && <span>{t('admin.cq.count.app', { n: app })}</span>}
@@ -130,12 +130,12 @@ function QuestionCells({ q, it, t }: { q: AdminCityQuestion; it: AdminCityQuesti
             </div>
           : <span className={`cq-mode cq-mode--${q.mode}`} title={t(`admin.cq.mode.${q.mode}.title`)}>{t(`admin.cq.mode.${q.mode}`)}</span>}
       </td>
-      <td className="cq-seen">
+      <td className="cq-seen" data-label={t('admin.cq.col.seen')}>
         {!filed ? <span className="admin-meta">{t('admin.cq.notFiled')}</span>
           : q.lastSeenLive ? <When iso={q.lastSeenLive} t={t} />
           : <span className="admin-meta">{t(q.type === 'toggle' ? 'admin.cq.toggleUnseen' : 'admin.cq.notSeen')}</span>}
       </td>
-      <td className="cq-flags">
+      <td className="cq-flags" data-label={t('admin.cq.col.flags')}>
         {flags.length === 0 ? <span className="admin-meta">—</span> : flags.map((f) => <Flag key={f.kind} f={f} t={t} />)}
       </td>
     </>

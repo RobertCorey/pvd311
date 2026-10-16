@@ -82,13 +82,13 @@ export default function AdminPortal() {
                         {c.portalCaseTypeGuid && <div><span className="sys-kind" title={c.portalCaseTypeGuid}>{c.portalCaseTypeGuid}</span></div>}
                         {c.portalSearchTerm && <div className="admin-meta">{c.portalSearchTerm}</div>}
                       </td>
-                      <td>{c.requestType ? <span className="sys-kind">{c.requestType}</span> : <span className="admin-meta">{t('admin.portal.none')}</span>}</td>
-                      <td><Fields fields={c.fields} t={t} /></td>
-                      <td><YesNo v={c.photoRequired} t={t} /></td>
-                      <td>{c.seasonal ? <span className="sys-kind">{c.seasonal}</span> : <span className="admin-meta">{t('admin.portal.none')}</span>}</td>
-                      <td><Golden g={c.golden} t={t} /></td>
-                      <td className="portal-num">{c.counts.submitted}</td>
-                      <td className="portal-num">{c.counts.rejected}</td>
+                      <td data-label={t('admin.portal.col.requestType')}>{c.requestType ? <span className="sys-kind">{c.requestType}</span> : <span className="admin-meta">{t('admin.portal.none')}</span>}</td>
+                      <td className="portal-fields" data-label={t('admin.portal.col.fields')}><Fields fields={c.fields} t={t} /></td>
+                      <td data-label={t('admin.portal.col.photo')}><YesNo v={c.photoRequired} t={t} /></td>
+                      <td data-label={t('admin.portal.col.seasonal')}>{c.seasonal ? <span className="sys-kind">{c.seasonal}</span> : <span className="admin-meta">{t('admin.portal.none')}</span>}</td>
+                      <td className="portal-goldcell" data-label={t('admin.portal.col.golden')}><Golden g={c.golden} t={t} /></td>
+                      <td className="portal-num" data-label={t('admin.portal.col.submitted')}>{c.counts.submitted}</td>
+                      <td className="portal-num" data-label={t('admin.portal.col.rejected')}>{c.counts.rejected}</td>
                     </tr>
                     {open && (
                       <tr className="portal-json-row">

@@ -20,6 +20,7 @@ import AdminExplain from './AdminExplain';
 import AdminUsage from './AdminUsage';
 import { When } from './adminUtil';
 import './Admin.css';
+import './AdminMobile.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
 const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
@@ -36,6 +37,7 @@ export const ACTIONS: Record<string, AdminAction[]> = { awaiting_review: ['appro
 
 /**
  * /admin — desktop-first ops console (14" MacBook: 1512×982). Left rail (tabs, search, engine, identity) + content.
+ * On a phone (AdminMobile.css, ≤ 760px) the rail becomes a sticky tab strip and row tables become cards.
  * Queue = sortable table with section pills and a right-hand detail pane; System = dashboard grid (AdminSystem).
  * The Worker enforces admin on every call; this screen only routes on /api/me `admin`.
  * Keyboard on the queue: j/k move, Enter/o open, a approve, r reject, Esc close, / search.
@@ -62,6 +64,7 @@ export default function Admin() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const navRef = useRef<HTMLElement>(null);
 
   // Desktop shell: hide the phone chrome (tab bar, footer) and widen main while this route is mounted.
   useEffect(() => { document.body.classList.add('is-admin'); return () => document.body.classList.remove('is-admin'); }, []);
@@ -112,6 +115,26 @@ export default function Admin() {
     catch { say(t('admin.error')); } finally { setBusy(null); }
   }
 
+  // Phone: the tab strip scrolls sideways — keep the current tab in view (no-op on the desktop rail).
+  const firstCenter = useRef(true);
+  useEffect(() => {
+    const center = (behavior: ScrollBehavior) => {
+      const strip = navRef.current;
+      const el = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!strip || !el || strip.scrollWidth <= strip.clientWidth) return;
+      strip.scrollTo({ left: el.offsetLeft - (strip.clientWidth - el.offsetWidth) / 2, behavior });
+    };
+    center(firstCenter.current ? 'auto' : 'smooth');
+    if (navRef.current) firstCenter.current = false;
+    // The display font can land after the first layout and widen every tab: center again when the tabs resize.
+    const strip = navRef.current;
+    if (!strip || typeof ResizeObserver === 'undefined') return;
+    let first = true;
+    const ro = new ResizeObserver(() => { if (first) { first = false; return; } center('auto'); });
+    strip.querySelectorAll('.admin-rail-tab').forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [tab, gate]);
+
   // Keyboard: j/k move the selection, Enter/o open, a approve, r reject (focuses the pane's reason box), Esc close, / search.
   useEffect(() => {
     if (gate !== 'admin' || tab !== 'queue') return;
@@ -146,10 +169,10 @@ export default function Admin() {
   const go = (hash: string) => { if (location.hash === hash) setRoute(parseHash(hash)); else location.hash = hash; };
   const switchTab = (k: Tab) => go(`#${k}`);
   return (
-    <div className="admin admin-shell">
+    <div className="admin admin-shell" data-tab={tab}>
       <aside className="admin-rail" aria-label={t('admin.title')}>
         <div className="admin-rail-title">{t('admin.title')}</div>
-        <nav className="admin-rail-nav" role="tablist" aria-label={t('admin.title')}>
+        <nav className="admin-rail-nav" role="tablist" aria-label={t('admin.title')} ref={navRef}>
           {TABS.map((k) => (
             <button key={k} type="button" role="tab" className="admin-rail-tab" aria-selected={tab === k} onClick={() => switchTab(k)}>
               {t(`admin.tab.${k}`)}
@@ -207,7 +230,7 @@ export default function Admin() {
                     <button type="button" className="btn btn-ghost admin-refresh" onClick={load}>{t('admin.refresh')}</button>
                   </div>
                   {rows.length === 0 ? <p className="admin-empty">{t('admin.bucket.empty')}</p> : (
-                    <table className="admin-table">
+                    <table className="admin-table admin-table--rows">
                       <thead>
                         <tr>
                           <th scope="col" aria-sort={sort === 'oldest' ? 'ascending' : 'descending'}><button type="button" className="admin-sort" onClick={() => setSort((s) => (s === 'oldest' ? 'newest' : 'oldest'))}>{t('admin.col.age')} {sort === 'oldest' ? '↑' : '↓'}</button></th>

@@ -123,23 +123,23 @@ export default function AdminAccounts() {
                     {u.displayName && <div className="admin-meta admin-ellipsis">{u.displayName}</div>}
                     <div className="acct-id admin-ellipsis" title={u.uid}>{u.uid}</div>
                   </td>
-                  <td><span className="sys-kind">{u.provider}</span></td>
-                  <td><YesNo v={u.emailVerified} t={t} /></td>
-                  <td><When iso={u.createdAt} t={t} /></td>
-                  <td><When iso={u.lastSeenAt} t={t} /></td>
-                  <td className="acct-num">{u.submitted}</td>
-                  <td className="acct-num">{u.rejected}</td>
-                  <td className="acct-num">{u.awaitingReview}</td>
-                  <td><YesNo v={u.autoFiles} t={t} /></td>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label={t('admin.accounts.col.provider')}><span className="sys-kind">{u.provider}</span></td>
+                  <td data-label={t('admin.accounts.col.verified')}><YesNo v={u.emailVerified} t={t} /></td>
+                  <td data-label={t('admin.accounts.col.created')}><When iso={u.createdAt} t={t} /></td>
+                  <td data-label={t('admin.accounts.col.lastSeen')}><When iso={u.lastSeenAt} t={t} /></td>
+                  <td className="acct-num" data-label={t('admin.accounts.col.submitted')}>{u.submitted}</td>
+                  <td className="acct-num" data-label={t('admin.accounts.col.rejected')}>{u.rejected}</td>
+                  <td className="acct-num" data-label={t('admin.accounts.col.awaiting')}>{u.awaitingReview}</td>
+                  <td data-label={t('admin.accounts.col.autoFiles')}><YesNo v={u.autoFiles} t={t} /></td>
+                  <td className="acct-trust-cell" data-label={t('admin.accounts.col.trusted')} onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="chip acct-trust" aria-pressed={u.trusted} disabled={busy.has(u.uid)}
                       title={t('admin.accounts.trustHint')} onClick={() => void toggleTrust(u)}>
                       {u.trusted ? t('admin.accounts.trusted') : t('admin.accounts.trust')}
                     </button>
                   </td>
-                  <td className="acct-yn">{u.emailUpdates ? t('admin.accounts.on') : t('admin.accounts.off')}</td>
-                  <td className="acct-num">{u.following}</td>
-                  <td className="acct-num">{u.addresses}</td>
+                  <td className="acct-yn" data-label={t('admin.accounts.col.emailUpdates')}>{u.emailUpdates ? t('admin.accounts.on') : t('admin.accounts.off')}</td>
+                  <td className="acct-num" data-label={t('admin.accounts.col.following')}>{u.following}</td>
+                  <td className="acct-num" data-label={t('admin.accounts.col.addresses')}>{u.addresses}</td>
                 </tr>
               ))}
             </tbody>

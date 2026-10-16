@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    /admin — desktop-first ops console. Target: 14" MacBook, 1512×982 logical.
-   Density: 14px table text, 13px meta. Phone only has to not break (rail → top strip, pane → overlay).
+   Density: 14px table text, 13px meta. Phones (≤ 760px — Rob uses it on his) get their own layer: AdminMobile.css.
    ───────────────────────────────────────────────────────────────────────────── */
 
 /* Shell: while /admin is mounted the body carries .is-admin — widen the app, slim the header, drop phone chrome. */
