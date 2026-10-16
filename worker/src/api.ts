@@ -5,7 +5,7 @@
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
  *   GET  /api/nearby      → dedupe signal (ours + city, last 14 days)
- *   GET  /api/stats       → { filed, resolved } public counters
+ *   GET  /api/stats       → { filed } public counter
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
@@ -22,6 +22,7 @@ import { handleAdmin, isAdmin } from './adminapi.js';
 import { logEvent, markOk } from './health.js';
 import { recordUi } from './ui.js';
 import { checkQuota, type QuotaSlot } from './quota.js';
+import { cityResolutionMessage } from './casedetail.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -246,29 +247,47 @@ export function notFiledReason(r: ReportDoc): { code: string; text: string; dupl
   return null;
 }
 
-/** Tracking projection (no PII). With a viewer (signed-in caller) adds mine/following/editable + the description for owners. */
-function projectReport(r: ReportDoc, viewer?: Viewer) {
+/** A relayed city email's body for the report's owner: plain text as stored, minus lines that are only an inline-image
+ *  placeholder ("[cid:image001.png@…]"), with runs of blank lines collapsed. Nothing else is touched. */
+function cityMessageText(text: string): string {
+  return text.split('\n').filter((l) => !/^\s*\[cid:[^\]]*\]\s*$/i.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+type TimelineItem = { at: string | null; label: string; kind?: 'city_message'; text?: string };
+
+/**
+ * Tracking projection (no PII). With a viewer (signed-in caller) adds mine/following/editable + the description for owners.
+ * `resolutionMessage` is the city's own Resolution Message, verbatim and public (the tracking link is public).
+ * City-email timeline rows carry only their subject publicly; the full `text` (which can quote the reporter's
+ * description and address) goes to the owner, and only on the single-report read (`withMessageText`), not in lists.
+ */
+function projectReport(r: ReportDoc, viewer?: Viewer, opts: { withMessageText?: boolean } = {}) {
   const cat = CATEGORIES[r.category];
   const status = PUBLIC_STATUS[r.status] ?? 'received';
   const mine = !!viewer && !!r.ownerUid && r.ownerUid === viewer.uid;
-  const timeline: { at: string | null; label: string }[] = [{ at: toIso(r.timestamp), label: 'Received' }];
+  const timeline: TimelineItem[] = [{ at: toIso(r.timestamp), label: 'Received' }];
   if (r.portalCaseId) timeline.push({ at: toIso(r.statusUpdatedAt), label: `Filed with the city as ${r.portalCaseId}` });
   // One row per city status the watcher saw (oldest first); reports from before the history field carry only the latest.
   const history = (r.portalStatusHistory ?? []).filter((h) => h && h.status);
   if (history.length) for (const h of history) timeline.push({ at: h.at, label: `City status: ${h.status}` });
   else if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
   if (history.length && r.portalStatus && history[history.length - 1].status !== r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
-  for (const m of (r.cityMessages ?? []).slice(-5)) timeline.push({ at: m.at, label: `Message from the city${m.subject ? `: ${m.subject.replace(/\bPVD311:\d+\b/gi, '').replace(/\bPVD\d{4}-\d+\b/gi, '').trim()}` : ''}`.slice(0, 160) });
+  const ownerText = mine && opts.withMessageText === true;
+  for (const m of (r.cityMessages ?? []).slice(-5)) {
+    const label = `Message from the city${m.subject ? `: ${m.subject.replace(/\bPVD311:\d+\b/gi, '').replace(/\bPVD\d{4}-\d+\b/gi, '').replace(/\s+/g, ' ').trim()}` : ''}`.slice(0, 160);
+    const text = ownerText && typeof m.text === 'string' ? cityMessageText(m.text) : '';
+    timeline.push({ at: m.at, label, kind: 'city_message', ...(text ? { text } : {}) });
+  }
   if (status === 'rejected') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Not filed' });
   if (status === 'needs_attention') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Needs attention — we are looking at it' });
   return {
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
-    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, timeline,
+    portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, resolutionMessage: cityResolutionMessage(r), timeline,
     cancelledByReporter: r.cancelledByReporter === true,
     notFiled: notFiledReason(r),
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
-    nextUpdateHint: status === 'sent' ? 'The city updates this case as crews work it; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
+    nextUpdateHint: status === 'sent' ? 'The city updates this case on its own schedule; we check every 30 minutes.' : status === 'received' ? 'We file reports with the city within a few minutes.' : null,
   };
 }
 
@@ -277,7 +296,7 @@ async function getReport(id: string, { store }: ApiDeps, auth: AuthUser | null):
   if (!r) return json({ error: 'not_found' }, 404);
   let viewer: Viewer | undefined;
   if (auth) { const u = await store.getUser(auth.uid); viewer = { uid: auth.uid, following: new Set(u?.following ?? []) }; }
-  return json(projectReport(r, viewer), 200, { 'cache-control': 'no-store' });
+  return json(projectReport(r, viewer, { withMessageText: true }), 200, { 'cache-control': 'no-store' });
 }
 
 // ── GET /api/photos/:id ─────────────────────────────────────
@@ -313,11 +332,12 @@ function cityFeedItem(it: CityFeed['items'][number]): FeedItem {
   };
 }
 
-// ── GET /api/stats — public social proof: how many reports we've filed / the city has resolved ──
+// ── GET /api/stats — public social proof: how many reports we've filed with the city ──
+// No "resolved" count (Rob, 2026-10-16): the city's Resolved often means referred elsewhere, not fixed.
 
 async function stats({ store }: ApiDeps): Promise<Response> {
-  const [filed, resolved] = await Promise.all([store.countByStatus('submitted').catch(() => 0), store.countResolved().catch(() => 0)]);
-  return json({ filed, resolved }, 200, { 'cache-control': 'public, max-age=300' });
+  const filed = await store.countByStatus('submitted').catch(() => 0);
+  return json({ filed }, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── GET /api/nearby?lat=&lng=&category=&radiusM=75 (ours + city, last 14 days) ──

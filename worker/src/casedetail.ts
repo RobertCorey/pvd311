@@ -5,8 +5,9 @@
  * Why raw: the modal is the only place the city's routing decisions show up (the dispatch emails
  * "PVD 311 → RI Energy", their internal PVD311:nnnnnnn ticket ids, later replies). We do not yet know
  * which parts will matter, so the whole thing is kept (capped) and every change is logged as an event
- * (`watcher.detail_changed`, with the new notes' senders + a preview). Nothing here is shown in the app;
- * /admin's raw JSON has it.
+ * (`watcher.detail_changed`, with the new notes' senders + a preview). The one part the app shows is
+ * the city's own "Resolution Message" form field (adx_resolution), verbatim — see cityResolutionMessage.
+ * Everything else stays in /admin's raw JSON.
  *
  * Cadence (engine.ts): the watcher captures on first sighting and whenever the grid status changes
  * (≤ DETAIL_PER_WATCH per run); runDaily refreshes open (non-terminal) cases oldest-checked first
@@ -22,6 +23,18 @@ export const DETAIL_PER_WATCH = 10;
 export const DETAIL_PER_DAY = 30;
 export const DETAIL_NOTE_CAP = 40;
 export const DETAIL_TEXT_CAP = 6_000;
+
+/** The portal form field that holds the city's "Resolution Message" (e.g. a referral to another department). */
+export const RESOLUTION_FIELD = 'adx_resolution';
+
+/**
+ * The city's Resolution Message from the last detail snapshot, exactly as the city wrote it (trimmed only),
+ * or null when absent/empty. Shown to reporters as the city's own words — never parsed or interpreted.
+ */
+export function cityResolutionMessage(r: Pick<ReportDoc, 'portalDetail'>): string | null {
+  const v = r.portalDetail?.fields?.[RESOLUTION_FIELD]?.value;
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
 
 /** FNV-1a 32-bit over the parts that mean "something changed"; hex. Pure, deterministic. */
 export function hashDetail(fields: PortalCaseDetail['fields'], notes: PortalCaseNote[]): string {

@@ -62,7 +62,7 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
       details: [
         'submitted + caseIdPending = the portal accepted the submission but we could not confirm the number yet; the watcher resolves it (or re-queues if the record is still a Draft).',
         'Reconcile: adopt rows we filed but failed to record; list stranded Drafts older than 24 h tied to dead reports (undeletable, just visible); flag submitted cases that vanished from the grid (only within the scanned window — the grid is paged).',
-        'Terminal city statuses (Resolved, Closed, Completed, Cancelled…) trigger the resolved email, start the 30-day photo retention clock, and count in the public "resolved" stat.',
+        'Terminal city statuses (Resolved, Closed, Completed, Cancelled…) start the 30-day photo retention clock. Every city status change emails the reporter in neutral words (Resolved reads "The city closed your request"), quoting the city\'s Resolution Message verbatim when it has one. There is no public resolved count.',
       ],
     },
     {

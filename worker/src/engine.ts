@@ -17,10 +17,10 @@ import { createStore, createAuthStore } from './firestore.js';
 import { createPortal, type MyRequestRow } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
-import { notifyReport } from './notify.js';
+import { notifyReport, statusChangeEmail } from './notify.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
-import { captureCaseDetails, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
+import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
@@ -294,6 +294,7 @@ export async function runWatcher(env: Env): Promise<void> {
   const portal = createPortal(env, { auth });
   let changes = 0; let rowCount = 0;
   const changedIds = new Set<string>();
+  const statusMail: { report: ReportDoc; caseId: string; to: string }[] = [];
   let detailNote = '';
   try {
     await portal.launch();
@@ -329,12 +330,7 @@ export async function runWatcher(env: Env): Promise<void> {
           changes++;
           changedIds.add(report.id);
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
-          {
-            const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
-            const friendly: Record<string, string> = { Submitted: 'has been received by the city', Assigned: 'was assigned to a city crew', 'In Progress': 'is being worked on by the city', Resolved: 'is marked resolved by the city', Closed: 'was closed by the city', Completed: 'was completed by the city', Cancelled: 'was cancelled by the city', Canceled: 'was cancelled by the city' };
-            await notifyReport(store, mailer, report, `Your report ${caseId} ${friendly[to] ?? `is now ${to}`}`,
-              `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (city case <b>${escHtml(caseId)}</b>) ${escHtml(friendly[to] ?? `is now ${to}`)}.</p><p><a href="${track}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`);
-          }
+          statusMail.push({ report, caseId, to }); // sent after the detail read below, so a closure email can quote the city's note
           if (TERMINAL_PORTAL_STATUS.test(to)) {
             await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`);
           }
@@ -350,6 +346,12 @@ export async function runWatcher(env: Env): Promise<void> {
             console.error('[detail] capture failed:', e instanceof Error ? e.message : e);
             await logEvent(store, { level: 'error', kind: 'watcher.detail_failed', msg: e instanceof Error ? e.message : String(e) });
           }
+        }
+        // Reporter status emails — after the detail read, so they carry the city's Resolution Message when it has one.
+        for (const { report, caseId, to } of statusMail) {
+          const fresh = (await store.fetchReport(report.id).catch(() => null)) ?? report;
+          const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl: `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`, resolution: cityResolutionMessage(fresh) });
+          await notifyReport(store, mailer, fresh, mail.subject, mail.html);
         }
       }
     } else {

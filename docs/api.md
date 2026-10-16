@@ -30,16 +30,19 @@ JSON `{ category|null, description, address, extra?, hasPhoto, appVersion }` →
 Rate-limited 10/min per IP and 1,500/day globally (durable, Firestore meta). The flags are advisory for the client; the Worker re-runs moderation itself before any auto-approval (see HITL). Never suggests a category (the reporter picks). Client shows: `emergency` → 911 notice; `not_311` → notice; others are passed back as `intakeFlags` and force human review server-side.
 
 ## GET /api/reports/:id — tracking (no PII)
-`{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, timeline: [{at, label}], nextUpdateHint|null, hasEmail, owned, cancelledByReporter, notFiled: { code: 'cancelled'|'reviewed'|'duplicate'|'outside'|'no_photo'|'no_address'|'blocked'|'other'|'failed', text, duplicateOf } | null }`
+`{ id, category, categoryLabel, address, lat, lng, photoUrl|null, createdAt, status, portalCaseId|null, portalStatus|null, resolutionMessage|null, timeline: [{at, label, kind?, text?}], nextUpdateHint|null, hasEmail, owned, cancelledByReporter, notFiled: { code: 'cancelled'|'reviewed'|'duplicate'|'outside'|'no_photo'|'no_address'|'blocked'|'other'|'failed', text, duplicateOf } | null }`
 `notFiled` is set whenever the report will not / did not reach the city: reporter-safe text (admin-entered reason when there is one; never the reviewer's identity), and `duplicateOf` = the other report's id for the duplicate case (link "View that report").
 `status`: `received` | `sending` | `sent` | `needs_attention` | `rejected`. `portalStatus` (from the city): `Submitted` | `Assigned` | `Resolved` | `Cancelled`.
 Client label map: received → "Received"; sending → "Sending to the city"; sent → "Sent" + case id; needs_attention → "Needs attention — we're looking at it"; rejected → "Not filed".
+
+`resolutionMessage`: the city's own "Resolution Message" (portal field `adx_resolution`, from the watcher's case-detail snapshot), verbatim (trimmed), public, any status; null when empty. Never parsed — the city's "Resolved" can mean "referred elsewhere" (PVD2026-90091). The app shows it as "The city's note:" and says "The city closed this request" in its own words.
+Timeline rows for relayed city emails carry `kind: 'city_message'` and the subject in `label` (public). `text` (the email's plain-text body, minus `[cid:…]` image-placeholder lines) is added only for the report's owner and only on this single-report read — never public (city emails can quote the reporter's description and address) and never in `/api/me/*` lists.
 
 ## GET /api/photos/:id
 The report's photo bytes (immutable, cacheable).
 
 ## GET /api/stats
-`{ filed, resolved }` — public counters of reports filed with the city; `resolved` = of those, ones the city marked Resolved/Closed/Completed. (The PVD Snow-era rows were archived and purged 2026-09-30, so no date filter is needed.) Cached 5 min. For the home-page trust line.
+`{ filed }` — public counter of reports filed with the city. No resolved count (removed 2026-10-16: the city's Resolved often means referred, not fixed). (The PVD Snow-era rows were archived and purged 2026-09-30, so no date filter is needed.) Cached 5 min. For the home-page trust line.
 
 ## ~~GET /api/public-feed~~ — removed 2026-08-22
 The /map page was cut, and the feed exposed every report's tracking id (the id is the read credential for `/api/reports/:id` and `/api/photos/:id`). Use `/api/nearby` for the dedupe signal.
