@@ -139,6 +139,22 @@ export function parseNoteTime(s: string | null | undefined): string | null {
 
 type AskCandidate = Omit<CityAsk, 'notifiedAt' | 'answers' | 'remindedAt'>;
 
+/** Stored mail carries its kind/department from arrival; older rows get both from the rules on read. */
+export function mailInfo(m: Pick<CityMsg, 'subject' | 'text' | 'kind' | 'dept'>): { kind: CityMailKind; dept: string | null } {
+  if (m.kind) return { kind: m.kind, dept: m.dept ?? null };
+  return classifyCityMail(m.subject ?? '', m.text ?? '');
+}
+
+/** One ask per real question: the email copy wins over the same ask's portal note (it carries the city's subject — the CRM
+ *  token that threads an answer — its sender and Message-ID). Oldest first. */
+export function dedupeAsks<T extends Pick<CityAsk, 'id' | 'at' | 'source'>>(cands: T[]): T[] {
+  const kept: T[] = [];
+  for (const c of [...cands].sort((a, b) => (a.source === b.source ? 0 : a.source === 'email' ? -1 : 1) || a.at.localeCompare(b.at))) {
+    if (!kept.some((k) => sameAsk(k, c))) kept.push(c);
+  }
+  return kept.sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /** Every ask the stored city mail and portal notes contain, oldest first. Own notes (our account's comments) never count. */
 export function askCandidates(report: Pick<ReportDoc, 'cityMessages' | 'portalDetail'>, selfName = 'FixMyPVD'): AskCandidate[] {
   const out: AskCandidate[] = [];
@@ -177,7 +193,7 @@ export function askState(ask: CityAsk, report: Pick<ReportDoc, 'portalStatus' | 
 /** The report's recorded asks — or, before the watcher has recorded them, the asks its stored mail/notes contain (unmailed). */
 export function asksOf(report: Pick<ReportDoc, 'cityAsks' | 'cityMessages' | 'portalDetail'>, selfName?: string): CityAsk[] {
   if (report.cityAsks?.length) return report.cityAsks;
-  return askCandidates(report, selfName).map((c) => ({ ...c, notifiedAt: null, answers: [] }));
+  return dedupeAsks(askCandidates(report, selfName)).map((c) => ({ ...c, notifiedAt: null, answers: [] }));
 }
 
 async function ownerEmail(store: Store, report: ReportDoc): Promise<string | null> {
@@ -226,16 +242,25 @@ export async function syncCityAsks(
   const out = { opened: 0, notified: 0, reminded: 0 };
   try {
     const known: CityAsk[] = (report.cityAsks ?? []).map((a) => ({ ...a }));
-    const candidates = askCandidates(report, env.APP_NAME);
+    const candidates = dedupeAsks(askCandidates(report, env.APP_NAME));
     if (!known.length && !candidates.length) return out; // the common case: the city never asked
     const fresh: CityAsk[] = [];
+    let changed = false;
     for (const c of candidates) {
       if (now - Date.parse(c.at) < (opts.settleMs ?? 0)) continue;
-      if ([...known, ...fresh].some((k) => sameAsk(k, c))) continue;
+      const match = [...known, ...fresh].find((k) => sameAsk(k, c));
+      if (match) {
+        // An ask first recorded from its portal note gets the email's subject/sender/Message-ID when the email shows up.
+        if (match.source === 'portal' && c.source === 'email') {
+          Object.assign(match, { source: c.source, from: c.from, subject: c.subject, messageId: c.messageId, text: c.text || match.text });
+          changed = true;
+        }
+        continue;
+      }
       fresh.push({ ...c, notifiedAt: null, answers: [] });
     }
     const all = [...known, ...fresh].sort((a, b) => a.at.localeCompare(b.at));
-    let changed = fresh.length > 0;
+    if (fresh.length) changed = true;
     const caseId = caseOf(report);
     const url = trackUrl(env, report.id);
     const to = await ownerEmail(deps.store, report);

@@ -24,7 +24,7 @@ import { logEvent, markOk } from './health.js';
 import { recordUi } from './ui.js';
 import { checkQuota, type QuotaSlot } from './quota.js';
 import { cityResolutionMessage, workOrderOf } from './casedetail.js';
-import { answerCityAsk, askState, asksOf, cityText, mailKind, sentAnswers } from './cityask.js';
+import { answerCityAsk, askState, asksOf, cityText, mailInfo, sentAnswers } from './cityask.js';
 import { createMailer } from './email.js';
 import type { Mailer } from './contracts.js';
 
@@ -268,7 +268,10 @@ const ownerMailText = (m: { text?: string }) => (typeof m.text === 'string' ? ci
 
 /** Where the city sent the case: the "Department Assigned:" of its routing email, else the portal timeline's last dispatch. */
 function departmentOf(r: ReportDoc): string | null {
-  for (const m of [...(r.cityMessages ?? [])].reverse()) if (m?.dept) return m.dept;
+  for (const m of [...(r.cityMessages ?? [])].reverse()) {
+    const dept = m ? mailInfo(m).dept : null;
+    if (dept) return dept;
+  }
   const routing = r.portalRouting ?? [];
   return routing.length ? routing[routing.length - 1].dept : null;
 }
@@ -310,7 +313,7 @@ function projectReport(r: ReportDoc, viewer?: Viewer, opts: { withMessageText?: 
   const seen = new Set<string>();
   for (const m of (r.cityMessages ?? []).slice(-8)) {
     if (!m?.at) continue;
-    const kind = mailKind(m);
+    const { kind, dept: mailDept } = mailInfo(m);
     const text = ownerText ? ownerMailText(m) : '';
     const withText = text ? { text } : {};
     if (kind === 'receipt') {
@@ -318,7 +321,7 @@ function projectReport(r: ReportDoc, viewer?: Viewer, opts: { withMessageText?: 
       seen.add('receipt');
       timeline.push({ at: m.at, label: 'The city confirmed it has your request', kind: 'city_receipt', ...withText });
     } else if (kind === 'routed') {
-      const dept = m.dept ?? null;
+      const dept = mailDept;
       timeline.push({ at: m.at, label: dept ? `The city sent it to ${dept}` : 'The city routed your request', kind: 'city_routed', ...(dept ? { vars: { dept } } : {}), ...withText });
     } else if (kind === 'ask') {
       continue; // asks come from the ask list below (one row per ask, whichever channel it arrived on)

@@ -125,6 +125,30 @@ describe('syncCityAsks', () => {
     expect(await syncCityAsks(env, d, d.report!, { now })).toEqual({ opened: 0, notified: 0, reminded: 0 });
     expect(d.mailer.sendTo).toHaveBeenCalledTimes(1);
   });
+  it('PVD2026-90113 as stored (email ask + its portal note a few seconds apart): one ask, from the email — subject, sender, Message-ID', async () => {
+    const note = { postedOn: '10/16/2026 3:53 PM', modifiedOn: '10/16/2026 3:53 PM', from: 'PVD 311', to: 'FixMyPVD fixmypvd.org', createdBy: null, attachments: [], text: ASK.replace(/\[cid:[^\]]+\]\n*/g, '').replace(/\n+/g, ' ') };
+    const r = report({ portalDetail: { capturedAt: '2026-10-16T16:01:54Z', hash: 'h', fields: {}, notes: [note] } });
+    const { asksOf } = await import('../src/cityask');
+    expect(asksOf(r)).toHaveLength(1);
+    expect(asksOf(r)[0]).toMatchObject({ source: 'email', subject: ASK_SUBJ, from: 'pvd311@providenceri.gov' });
+    const d = deps(r);
+    await syncCityAsks(env, d, d.report!, { now });
+    expect(d.report!.cityAsks).toHaveLength(1);
+    expect(d.report!.cityAsks![0]).toMatchObject({ source: 'email', subject: ASK_SUBJ, messageId: '<ask-1@providenceri.gov>' });
+    const pub = await call(deps(r), 'GET', `/api/reports/${ID}`);
+    expect(pub.body.timeline.filter((t: any) => t.kind === 'city_ask')).toHaveLength(1);
+  });
+  it('an ask first found as a portal note takes the email copy when it arrives (answers then thread on the CRM token)', async () => {
+    const note = { postedOn: '10/16/2026 3:53 PM', modifiedOn: '10/16/2026 3:53 PM', from: 'PVD 311', to: null, createdBy: null, attachments: [], text: 'Please respond to this email by providing the address and details of your request.' };
+    const d = deps(report({ cityMessages: [], portalDetail: { capturedAt: '2026-10-16T16:01:54Z', hash: 'h', fields: {}, notes: [note] } }));
+    await syncCityAsks(env, d, d.report!, { now });
+    expect(d.report!.cityAsks![0]).toMatchObject({ source: 'portal', subject: '' });
+    await d.store.patchReport(ID, { cityMessages: [askMsg] });
+    expect((await syncCityAsks(env, d, d.report!, { now })).opened).toBe(0);
+    expect(d.report!.cityAsks).toHaveLength(1);
+    expect(d.report!.cityAsks![0]).toMatchObject({ source: 'email', subject: ASK_SUBJ, from: 'pvd311@providenceri.gov', messageId: '<ask-1@providenceri.gov>' });
+    expect(d.mailer.sendTo).toHaveBeenCalledTimes(1); // no second "the city needs more information"
+  });
   it('the same ask seen as an email and as a portal note is one ask', async () => {
     const note = { postedOn: '10/16/2026 3:53 PM', modifiedOn: '10/16/2026 3:53 PM', from: 'PVD 311', to: 'FixMyPVD fixmypvd.org', createdBy: null, attachments: [], text: ASK.replace(/\[cid:[^\]]+\]\n*/g, '').replace(/\n+/g, ' ') };
     const r = report({ portalDetail: { capturedAt: '2026-10-16T16:01:54Z', hash: 'h', fields: {}, notes: [note] } });
@@ -418,6 +442,12 @@ describe('tracking projection: the progress the city shows', () => {
     const other = await call(deps(r), 'GET', `/api/reports/${ID}`, 'other');
     expect(other.body.cityAsk).toEqual({ askedAt: ASKED_AT, open: false, answered: true, answeredAt: '2026-10-16T21:00:00Z' });
     expect(other.body.timeline.find((t: any) => t.kind === 'city_answer').text).toBeUndefined();
+  });
+  it('a routing email stored before kinds existed still yields its department', async () => {
+    const r = report({ cityMessages: [{ at: '2026-10-16T13:07:13Z', from: 'pvd311@providenceri.gov', subject: ROUTED_SUBJ, text: ROUTED, caseId: 'PVD2026-90090' }] });
+    const { body } = await call(deps(r), 'GET', `/api/reports/${ID}`);
+    expect(body.department).toBe('DPW Sewer');
+    expect(body.timeline.find((t: any) => t.kind === 'city_routed')).toMatchObject({ vars: { dept: 'DPW Sewer' } });
   });
   it('work order history: one row per change the watcher saw', async () => {
     const r = full();
