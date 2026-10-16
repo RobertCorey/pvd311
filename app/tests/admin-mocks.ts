@@ -1,5 +1,7 @@
 // Shared fixtures for the /admin specs (a11y, desktop screenshots). Every /api/admin/* endpoint mocked with rich data.
 import type { Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { CATEGORIES } from '../../shared/categories';
 
 export const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 export const SESSION = { uid: 'u1', email: 'robertbcorey@gmail.com', idToken: 'tok', refreshToken: 'rt', expiresAt: Date.now() + 3_600_000, provider: 'google' };
@@ -83,6 +85,46 @@ export const usage = () => ({
   devices: [['mobile', 330], ['desktop', 74], ['tablet', 8]].map(([device, visitors]) => ({ device, visitors })),
   categories: [['pothole', 80], ['street_light', 41], ['illegal_dumping', 30], ['missed_trash', 22]].map(([category, visitors]) => ({ category, visitors })),
 });
+/** GET /api/admin/city-questions — the real committed seed, with live records for a few categories (shape = worker buildAdminView). */
+const CQ_SEED = JSON.parse(readFileSync(new URL('../../shared/city-questions.seed.json', import.meta.url), 'utf8')) as {
+  generatedAt: string; source: { dump: string }; notes: string[]; categoryNotes: Record<string, string>;
+  categories: Record<string, { id: string; cityLabel: string; cityOptions: string[]; type: string }[]>;
+};
+const APP_SENDS: Record<string, string[]> = {
+  cop_size: ['Small (~4in)', 'Medium (~28in)', 'Large (~36in)', 'Unknown'], cop_cartrequesttype: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'],
+  cop_typeofanimal: ['Wildlife', 'Domestic'], cop_vehicledetails: ['See description and photo'],
+};
+/** category → [filings, { questionId: [app, ai, blank] }, flags] */
+const CQ_LIVE: Record<string, [number, Record<string, [number, number, number]>, unknown[]]> = {
+  tree: [6, { cop_location: [0, 5, 1], cop_treework: [0, 0, 6] }, []],
+  noise: [4, { cop_whereisthenoisefrom: [0, 1, 3] }, [{ kind: 'options_changed', questionId: 'cop_whereisthenoisefrom', label: 'Where is the noise from', added: ['Construction'], removed: ['Car'], firstAt: mins(2900), lastAt: mins(300) }]],
+  graffiti_private: [2, { cop_areyouthepropertyowner: [0, 0, 2], cop_hatespeech: [0, 0, 2], cop_presscharges: [0, 0, 2], cop_surfacetype: [0, 2, 0], cop_typeofproperty: [0, 1, 1], cop_videosurveillanceavailable: [0, 0, 2] }, []],
+  pothole: [9, { cop_size: [9, 0, 0] }, [{ kind: 'app_option_stale', questionId: 'cop_size', label: 'Size', removed: ['Unknown'], firstAt: mins(700), lastAt: mins(700) }]],
+  bins_carts: [3, { cop_cartrequesttype: [3, 0, 0] }, []],
+  street_light: [2, { cop_streetlightrepair: [0, 2, 0] }, [{ kind: 'new_question', questionId: 'cop_streetlightrepair', label: 'Street Light Repair', firstAt: mins(1500), lastAt: mins(90) }]],
+};
+export const cityQuestions = () => {
+  const keys = [...new Set([...Object.keys(CQ_SEED.categories), ...Object.keys(CQ_LIVE)])];
+  const items = keys.map((key) => {
+    const cfg = CATEGORIES[key];
+    const live = CQ_LIVE[key];
+    const seedQs = CQ_SEED.categories[key] ?? [];
+    const extra = key === 'street_light' ? [{ id: 'cop_streetlightrepair', cityLabel: 'Street Light Repair', cityOptions: ['Light is out', 'Light is turning on and off', 'Light is too bright', 'Other (add to description)'], type: 'select' }] : [];
+    const liveOpts: Record<string, string[]> = key === 'noise' ? { cop_whereisthenoisefrom: ['House', 'Business (add name to description)', 'Construction', 'Park (add name to description)', 'Other (add to description)'] } : {};
+    const questions = [...seedQs, ...extra].map((q0) => {
+      const q = liveOpts[q0.id] ? { ...q0, cityOptions: liveOpts[q0.id] } : q0;
+      const c = live?.[1][q.id] ?? [0, 0, 0];
+      const mapped = !!cfg.fields?.[q.id];
+      return { ...q, inSeed: seedQs.includes(q0), lastSeenLive: live && q.type !== 'toggle' ? mins(90 + q.id.length) : null, counts: { app: c[0], ai: c[1], blank: c[2] },
+        mode: mapped ? 'app' : 'ai', appOptions: mapped ? APP_SENDS[q.id] ?? null : null, seedLabel: seedQs.includes(q0) ? q0.cityLabel : null, seedOptions: seedQs.includes(q0) ? q0.cityOptions : null };
+    });
+    const blanks = questions.reduce((n, q) => n + q.counts.blank, 0);
+    const demand = cfg.demand ?? 0;
+    return { category: key, label: cfg.label, demand, caseTypeName: cfg.portalCaseTypeName, caseTypeGuid: cfg.portalCaseTypeGuid, note: CQ_SEED.categoryNotes[key] ?? null,
+      questions, flags: live?.[2] ?? [], lastFiledAt: live ? mins(90) : null, filings: live?.[0] ?? 0, blanks, score: blanks * demand };
+  }).sort((a, b) => b.score - a.score || b.demand - a.demand || a.label.localeCompare(b.label));
+  return { generatedAt: new Date().toISOString(), seed: { generatedAt: CQ_SEED.generatedAt, dump: CQ_SEED.source.dump, notes: CQ_SEED.notes }, items };
+};
 /** Route every /api/admin/* + /api/me to fixtures; abort the primary host so apiFetch falls back to the mocked one. */
 export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
@@ -102,5 +144,6 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/config`, (r) => r.fulfill(json(config())));
   await page.route(`${API}/api/admin/explain`, (r) => r.fulfill(json(explain())));
   await page.route(`${API}/api/admin/usage*`, (r) => r.fulfill(json(usage())));
+  await page.route(`${API}/api/admin/city-questions`, (r) => r.fulfill(json(cityQuestions())));
 }
-export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
+export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;

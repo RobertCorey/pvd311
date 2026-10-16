@@ -105,3 +105,18 @@ export interface AdminUsage {
   categories: { category: string; visitors: number }[];
 }
 export const adminUsage = (days: number) => call<AdminUsage>(`/api/admin/usage?days=${days}`);
+
+/** GET /api/admin/city-questions — docs/city-questions.md phase 1 (read-only). Mirrors worker/src/cityquestions.ts buildAdminView. */
+export type CityQuestionFlagKind = 'new_question' | 'gone' | 'options_changed' | 'app_option_stale';
+export interface AdminCityQuestionFlag { kind: CityQuestionFlagKind; questionId: string; label: string; added?: string[]; removed?: string[]; firstAt: string; lastAt: string }
+export interface AdminCityQuestion {
+  id: string; cityLabel: string; cityOptions: string[]; type: 'select' | 'radio' | 'checkbox' | 'text' | 'textarea' | 'toggle';
+  inSeed: boolean; lastSeenLive: string | null; counts: { app: number; ai: number; blank: number };
+  mode: 'app' | 'ai'; appOptions: string[] | null; seedLabel: string | null; seedOptions: string[] | null;
+}
+export interface AdminCityQuestionsItem {
+  category: string; label: string; demand: number; caseTypeName: string; caseTypeGuid: string; note: string | null;
+  questions: AdminCityQuestion[]; flags: AdminCityQuestionFlag[]; lastFiledAt: string | null; filings: number; blanks: number; score: number;
+}
+export interface AdminCityQuestions { generatedAt: string; seed: { generatedAt: string; dump: string; notes: string[] }; items: AdminCityQuestionsItem[] }
+export const adminCityQuestions = () => call<AdminCityQuestions>('/api/admin/city-questions');

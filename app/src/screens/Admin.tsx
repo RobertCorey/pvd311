@@ -14,6 +14,7 @@ import AdminReports from './AdminReports';
 import AdminEvents from './AdminEvents';
 import AdminAccounts from './AdminAccounts';
 import AdminPortal from './AdminPortal';
+import AdminCityQuestions from './AdminCityQuestions';
 import AdminConfig from './AdminConfig';
 import AdminExplain from './AdminExplain';
 import AdminUsage from './AdminUsage';
@@ -21,7 +22,7 @@ import { When } from './adminUtil';
 import './Admin.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
+const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
 type Tab = typeof TABS[number];
 /** Parse the hash: `#reports?q=x`, `#explain:portal`, `#queue`. Unknown → overview. */
 function parseHash(h: string): { tab: Tab; params: URLSearchParams; anchor: string | null } {
@@ -187,6 +188,7 @@ export default function Admin() {
         {tab === 'events' && <AdminEvents initialReportId={route.params.get('reportId') ?? ''} />}
         {tab === 'accounts' && <AdminAccounts />}
         {tab === 'portal' && <AdminPortal />}
+        {tab === 'questions' && <AdminCityQuestions />}
         {tab === 'config' && <AdminConfig />}
         {tab === 'explain' && <AdminExplain />}
         {tab === 'queue' && (

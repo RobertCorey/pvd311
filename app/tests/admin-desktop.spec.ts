@@ -79,10 +79,48 @@ for (const tab of ['usage', 'accounts', 'portal', 'config', 'explain'] as const)
   });
 }
 
+test('city questions: explainer, ranked category × question table, counts, flags, notes — read-only', async ({ page }) => {
+  await page.goto('/admin#questions');
+  const main = page.locator('.admin-main');
+  await expect(main.locator('h1')).toContainText('City questions');
+  // in-page explainer
+  await expect(main.locator('.cq-how dt')).toHaveText(['Which questions', 'Every live filing', 'Flags', 'Order']);
+  // one band per category: the 27 seeded categories + street_light (a live-only new question)
+  const cats = main.locator('.cq-table tbody th.cq-cat');
+  await expect(cats).toHaveCount(28);
+  // ranked by blanks × demand: tree (7 × 33) > noise (3 × 5) > graffiti_private (9 × 0); then unfiled by demand (missed trash 27/wk first)
+  await expect(cats.nth(0)).toContainText('tree');
+  await expect(cats.nth(1)).toContainText('noise');
+  await expect(cats.nth(2)).toContainText('missed_trash');
+  await expect(main.locator('tr[data-category="missed_trash"]')).toContainText(/no extra questions.*show\/hide script is broken/);
+  // columns + per-question cells
+  await expect(main.locator('.cq-table thead th')).toHaveText(['Category', 'City question', 'Choices', 'How answered', 'Last seen live', 'Flags']);
+  const treework = main.locator('tr', { has: page.locator('.sys-kind', { hasText: /^cop_treework$/ }) }).first();
+  await expect(treework).toContainText('On/off toggle');
+  await expect(treework).toContainText('Blank 6');
+  await expect(treework).toContainText("bot can't see toggles");
+  const noise = main.locator('tr[data-category="noise"]');
+  await expect(noise).toContainText('AI 1');
+  await expect(noise).toContainText('Blank 3');
+  await expect(noise.locator('.admin-flag')).toHaveText('Choices changed');
+  await expect(noise).toContainText('+ Construction');
+  await expect(noise).toContainText('− Car');
+  const pothole = main.locator('tr[data-category="pothole"]');
+  await expect(pothole).toContainText('App 9');
+  await expect(pothole).toContainText('App sends: Small (~4in)');
+  await expect(pothole.locator('.admin-flag')).toHaveText('App choice stale');
+  await expect(main.locator('tr[data-category="street_light"] .admin-flag')).toHaveText('New question');
+  await expect(main.locator('tr[data-category="illegal_housing"]')).toContainText('not yet filed');
+  // read-only: no action buttons in the table
+  await expect(main.locator('.cq-table button')).toHaveCount(0);
+  expect(await noHScroll(page)).toBe(false);
+  await page.screenshot({ path: 'tests/__screenshots__/admin-questions.png' });
+});
+
 test('every tab is reachable from the rail and keeps the hash', async ({ page }) => {
   await page.goto('/admin');
   for (const tab of TABS) {
-    await page.getByRole('tab', { name: new RegExp(`^${tab === 'explain' ? 'How it works' : tab}`, 'i') }).click();
+    await page.getByRole('tab', { name: new RegExp(`^${tab === 'explain' ? 'How it works' : tab === 'questions' ? 'City questions' : tab}`, 'i') }).click();
     await expect(page).toHaveURL(new RegExp(`#${tab}$`));
   }
 });
