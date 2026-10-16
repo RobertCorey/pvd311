@@ -19,6 +19,7 @@
 import { launch, type Browser, type BrowserContext, type Page } from '@cloudflare/playwright';
 import { CATEGORIES, resolveField } from '../../shared/categories.js';
 import type {
+  Step3PageDump,
   AuthStore,
   CaseDetailRaw,
   Env,
@@ -426,6 +427,31 @@ class WorkerPortal implements Portal {
     }
     if (!(await page.$('#description'))) return null;
     return this.dumpControls();
+  }
+
+  async inspectStep3Page(entityId: string): Promise<Step3PageDump | null> {
+    const controls = await this.resumeAndDumpControls(entityId);
+    if (!controls) return null;
+    const extra = await this.getPage().evaluate(async () => {
+      const g = globalThis as any;
+      const doc = g.document;
+      const validators = (g.Page_Validators || []).map((v: any) => ({
+        id: String(v.id ?? ''), control: String(v.controltovalidate ?? ''),
+        fn: v.evaluationfunction ? String(v.evaluationfunction.name || v.evaluationfunction).slice(0, 80) : '',
+        enabled: v.enabled !== false && v.enabled !== 'False', message: String(v.errormessage ?? ''),
+      }));
+      const inlineScripts = Array.from(doc.querySelectorAll('script:not([src])') as ArrayLike<any>).map((s: any) => String(s.textContent || '')).filter((t) => t.trim());
+      const scripts: { src: string; text: string | null }[] = [];
+      for (const s of Array.from(doc.querySelectorAll('script[src]') as ArrayLike<any>)) {
+        const src = String(s.src);
+        // Same-origin only (the city's own form logic); CDN libraries are listed but not fetched.
+        const text = src.startsWith(g.location.origin) ? await fetch(src).then((r: any) => r.text()).then((t: string) => t.slice(0, 300_000)).catch(() => null) : null;
+        scripts.push({ src, text });
+      }
+      const form = doc.querySelector('#EntityFormView') || doc.querySelector('form');
+      return { validators, inlineScripts, scripts, formHtml: String(form?.outerHTML ?? '').slice(0, 600_000) };
+    });
+    return { controls, ...extra };
   }
 
   private async setControl(c: PortalControl, value: string): Promise<void> {

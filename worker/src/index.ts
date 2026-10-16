@@ -9,7 +9,7 @@
  * HTTP:
  *   GET /healthz                         → { ok, paused, pending, awaiting }
  *   GET /canary            (x-canary-token) → portal.canary()  (read-only, zero-draft)
- *   GET /admin/controls?entityId= (x-canary-token) → an existing record's Step-3 controls + options (read-only)
+ *   GET /admin/controls?entityId=[&page=1] (x-canary-token) → an existing record's Step-3 controls + options; page=1 adds validators/scripts/form HTML (read-only)
  *   GET /api/status        (x-canary-token) → engine state + status counts
  *   GET /hitl/approve/:id/:exp/:sig      → verify HMAC + expiry, approve, tiny HTML page
  *   GET /hitl/reject/:id/:exp/:sig       → verify HMAC + expiry, reject, tiny HTML page
@@ -100,8 +100,11 @@ export default {
       const portal = createPortal(env, { auth: createAuthStore(createStore(env)) });
       try {
         await portal.launch();
-        const controls = await portal.resumeAndDumpControls(entityId);
-        return Response.json(controls ? { ok: true, controls } : { ok: false, error: 'could not resume the record to Step 3' }, { status: controls ? 200 : 502 });
+        // ?page=1 adds the page's own validators + scripts + form HTML (which questions are required, and when).
+        const dump = url.searchParams.get('page') === '1'
+          ? await portal.inspectStep3Page(entityId)
+          : await portal.resumeAndDumpControls(entityId).then((controls) => (controls ? { controls } : null));
+        return Response.json(dump ? { ok: true, ...dump } : { ok: false, error: 'could not resume the record to Step 3' }, { status: dump ? 200 : 502 });
       } catch (e) {
         return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
       } finally {

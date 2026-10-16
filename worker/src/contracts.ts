@@ -121,6 +121,14 @@ export interface SubmitOptions {
   onDraft?: (draft: PortalDraft) => Promise<void>;
   saveProof?: (name: string, bytes: Uint8Array) => Promise<string | void>;
 }
+export interface Step3PageDump {
+  controls: PortalControl[];
+  validators: { id: string; control: string; fn: string; enabled: boolean; message: string }[];
+  inlineScripts: string[];
+  scripts: { src: string; text: string | null }[];
+  formHtml: string;
+}
+
 export interface SubmitResult {
   mode: SubmitMode;
   caseId?: string;
@@ -155,6 +163,8 @@ export interface Portal {
   confirmProfileEmail(): Promise<{ ok: boolean; notes: string[] }>;
   /** Drift canary (read-only): resume the designated existing record via Edit-Request and re-dump Step-3 controls WITHOUT submitting. Creates NO new draft; null if it can't resume to Step 3. */
   resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null>;
+  /** resumeAndDumpControls + the page's own validation/visibility logic (Page_Validators, inline and same-origin scripts, form HTML). Read-only. */
+  inspectStep3Page(entityId: string): Promise<Step3PageDump | null>;
   /** Read-only: open one case's detail modal from My Requests (grid search by PVD number → row → iframe) and dump its form fields + timeline. Null if the case is not in the grid. Never clicks Submit/Add comment. */
   readCaseDetail(caseId: string): Promise<CaseDetailRaw | null>;
 }
