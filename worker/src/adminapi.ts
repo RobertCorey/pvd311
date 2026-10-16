@@ -19,6 +19,7 @@
  *   POST /api/admin/canary/golden/:category/rebaseline → JSON { controls? } replaces the live golden; no body clears it (next live dump re-mints)
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
+ *   GET  /api/admin/usage?days=7|30        → first-party usage analytics (ui.ts, Analytics Engine)
  */
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
@@ -28,6 +29,7 @@ import { createMailer } from './email.js';
 import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js';
 import { canaryGoldenStatus, rebaselineGolden } from './canary-golden.js';
 import { explainSystem } from './adminexplain.js';
+import { usage } from './ui.js';
 import type { ReportStatus } from '../../shared/types.js';
 
 const json = (body: unknown, status = 200) =>
@@ -71,6 +73,11 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
   if (!isAdmin(env, auth)) return json({ error: 'forbidden' }, 403);
   const path = url.pathname;
   const m = request.method;
+
+  if (m === 'GET' && path === '/api/admin/usage') {
+    const days = url.searchParams.get('days') === '30' ? 30 : url.searchParams.get('days') === '1' ? 1 : 7;
+    return json(await usage(env, days));
+  }
 
   if (m === 'GET' && path === '/api/admin/overview') {
     const [engine, awaiting, failed, pending, recent] = await Promise.all([

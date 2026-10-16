@@ -7,6 +7,11 @@ compatibility_flags = ["nodejs_compat"]
 # Browser Run (headless Chromium) — requires Workers Paid for meaningful quota.
 browser = { binding = "BROWSER" }
 
+# First-party usage analytics (src/ui.ts). Read back via the SQL API with CF_ACCOUNT_ID + secret CF_ANALYTICS_TOKEN.
+[[analytics_engine_datasets]]
+binding = "UI_EVENTS"
+dataset = "fixmypvd_ui"
+
 # Cron triggers:
 #   "* * * * *"    submit tick (reaper + one submission, HITL-gated)
 #   "*/30 * * * *" status watcher (My Requests diff)
@@ -37,6 +42,7 @@ RELAY_FALLBACK_TO = "robertbcorey@gmail.com"   # verified Email Routing destinat
 PORTAL_NOTIFY_METHOD = "585680002"             # Email → the account's contact address = RELAY_ADDRESS (set 2026-09-28); "585680003" = No Contact Necessary
 # Where signed HITL approve/reject email links point. Update to the custom domain at launch.
 HITL_BASE_URL = "https://api.fixmypvd.org"
+CF_ACCOUNT_ID = "e928246151418c2c353bcc48b2bd5bcb"         # Analytics Engine SQL API (ui.ts)
 
 # Cron ticks can spend a while in Browser Run. cpu_ms is honored on Workers Paid; harmless comment otherwise.
 [limits]
@@ -50,3 +56,4 @@ cpu_ms = 300000
 #   ANTHROPIC_API_KEY         agent scout (unmapped Step-3 fields)
 #   RESEND_API_KEY            outbound email (HITL + alerts + digest)
 #   HITL_SECRET               HMAC secret for signed approve/reject links
+#   CF_ANALYTICS_TOKEN        Cloudflare API token that can read Analytics Engine (/api/admin/usage)

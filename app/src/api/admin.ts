@@ -91,3 +91,17 @@ export interface AdminConfigItem { key: string; value: string | number | boolean
 export const adminConfig = () => call<{ items: AdminConfigItem[] }>('/api/admin/config');
 export interface ExplainSection { key: string; title: string; summary: string; details: string[]; live?: Record<string, string | number | boolean | null>; links?: { label: string; href: string }[] }
 export const adminExplain = () => call<{ sections: ExplainSection[] }>('/api/admin/explain');
+
+/** GET /api/admin/usage — first-party analytics (Worker ui.ts → Analytics Engine). */
+export interface AdminUsage {
+  configured: boolean; days: number;
+  totals: { visitors: number; sessions: number; pageViews: number };
+  funnel: { event: string; visitors: number; count: number }[];
+  daily: { day: string; visitors: number; reports: number }[];
+  pages: { path: string; views: number }[];
+  sources: { source: string; visitors: number }[];
+  countries: { country: string; visitors: number }[];
+  devices: { device: string; visitors: number }[];
+  categories: { category: string; visitors: number }[];
+}
+export const adminUsage = (days: number) => call<AdminUsage>(`/api/admin/usage?days=${days}`);

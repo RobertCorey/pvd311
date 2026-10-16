@@ -223,3 +223,13 @@ body.is-admin main { flex: 1; display: flex; min-height: 0; }
 
 /* Reports table: the pane already shows case/city status/flags — hide those columns while it is open */
 .admin-queue.has-pane .admin-col-opt { display: none; }
+
+/* Usage tab (AdminUsage) */
+.usage-range { display: flex; gap: 4px; }
+.usage-range .is-on { background: var(--ink); color: var(--bg); }
+.admin-usage .admin-section h2 { font-size: 1.05rem; margin: 16px 0 8px; }
+.usage-table td:nth-child(n+2), .usage-table th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+.usage-bar-cell { width: 40%; }
+.usage-bar { display: block; height: 10px; min-width: 2px; border-radius: 5px; background: var(--ember); }
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0 24px; }
+.usage-grid .admin-section + .admin-section { margin-top: 0; }

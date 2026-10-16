@@ -9,6 +9,7 @@
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
+ *   POST /api/ui          → first-party usage event (ui.ts; no auth, always 204)
  */
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
@@ -19,6 +20,7 @@ import { sendSignInLink } from './authmail.js';
 import { moderate } from './moderation.js';
 import { handleAdmin, isAdmin } from './adminapi.js';
 import { logEvent, markOk } from './health.js';
+import { recordUi } from './ui.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
@@ -29,9 +31,11 @@ const INTAKE_PER_DAY_GLOBAL = 1500; // hard cap on AI spend per UTC day, all cal
 
 export interface ApiDeps { store: Store }
 
+const allowedOrigins = (env: Env) => [...DEFAULT_ORIGINS, ...(env.APP_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)];
+const originOk = (env: Env, origin: string | null) => !!origin && (allowedOrigins(env).includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
 function corsHeaders(env: Env, origin: string | null): Record<string, string> {
-  const allowed = [...DEFAULT_ORIGINS, ...(env.APP_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)];
-  const ok = !!origin && (allowed.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
+  const allowed = allowedOrigins(env);
+  const ok = originOk(env, origin);
   return {
     'access-control-allow-origin': ok ? origin! : allowed[0],
     'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
@@ -55,7 +59,8 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     const isCreate = request.method === 'POST' && url.pathname === '/api/report';
     const needsAuth = url.pathname.startsWith('/api/me') || url.pathname.startsWith('/api/admin') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
     const auth = needsAuth || isCreate || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
-    if (isCreate && !auth) resp = json({ error: 'auth_required' }, 401);
+    if (request.method === 'POST' && url.pathname === '/api/ui') resp = await recordUi(request, env, (o) => originOk(env, o));
+    else if (isCreate && !auth) resp = json({ error: 'auth_required' }, 401);
     else if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
     else if (url.pathname.startsWith('/api/admin')) resp = await handleAdmin(request, url, env, deps.store, auth);
     else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport, admin: isAdmin(env, auth) }, auth!);

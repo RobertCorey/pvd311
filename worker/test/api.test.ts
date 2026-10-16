@@ -125,3 +125,32 @@ describe('notFiledReason', () => {
     expect(notFiledReason(report({ status: 'submitted' }))).toBeNull();
   });
 });
+
+describe('first-party usage events (POST /api/ui)', () => {
+  const ui = (body: unknown, o: { origin?: string; ua?: string; dataset?: boolean } = {}) => {
+    const writeDataPoint = vi.fn();
+    const e = { ...env, ...(o.dataset === false ? {} : { UI_EVENTS: { writeDataPoint } }) };
+    const headers: Record<string, string> = { 'content-type': 'text/plain', 'user-agent': o.ua ?? 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile' };
+    if (o.origin !== '') headers.origin = o.origin ?? 'https://fixmypvd.org';
+    const p = handleApi(new Request('https://api.test/api/ui', { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) }), e, { store: mockStore() });
+    return { p, writeDataPoint };
+  };
+  it('writes one data point for a known event, keyed by visitor id, with no auth', async () => {
+    const { p, writeDataPoint } = ui({ e: 'select_category', p: '/', v: 'vid1', s: 'sid1', c: 'pothole', u: 'Reddit', l: 'en' });
+    expect((await p)!.status).toBe(204);
+    expect(writeDataPoint).toHaveBeenCalledWith({ indexes: ['vid1'], blobs: ['select_category', '/', 'pothole', '', '', 'mobile', 'reddit', '', 'sid1', 'en'], doubles: [1] });
+  });
+  it('drops unknown events, missing visitor ids, bots, foreign origins and junk — still 204', async () => {
+    for (const [body, o] of [
+      [{ e: 'evil', v: 'v' }, {}], [{ e: 'page_view' }, {}], [{ e: 'page_view', v: 'v' }, { ua: 'Googlebot/2.1' }],
+      [{ e: 'page_view', v: 'v' }, { origin: 'https://evil.example' }], [{ e: 'page_view', v: 'v' }, { origin: '' }], ['not json', {}], ['x'.repeat(3000), {}],
+    ] as const) {
+      const { p, writeDataPoint } = ui(body, o);
+      expect((await p)!.status).toBe(204);
+      expect(writeDataPoint).not.toHaveBeenCalled();
+    }
+  });
+  it('is a no-op without the binding (tests/dev)', async () => {
+    expect((await ui({ e: 'page_view', v: 'v' }, { dataset: false }).p)!.status).toBe(204);
+  });
+});

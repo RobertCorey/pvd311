@@ -72,6 +72,17 @@ export const explain = () => ({ sections: [
   { key: 'data', title: 'Data & retention', summary: 'What we store and for how long.', details: ['Photos live in Firestore until 90 days after resolution.'], live: { retentionDays: 90 } },
 ] });
 
+export const usage = () => ({
+  configured: true, days: 7, totals: { visitors: 412, sessions: 538, pageViews: 1630 },
+  funnel: [['page_view', 412, 1630], ['select_category', 188, 240], ['photo_added', 121, 150], ['sign_in_gate_shown', 96, 110], ['sign_in_link_sent', 41, 44], ['login', 78, 80], ['report_submitted', 64, 71], ['report_error', 6, 7], ['share', 9, 11]]
+    .map(([event, visitors, count]) => ({ event, visitors, count })),
+  daily: Array.from({ length: 7 }, (_, i) => ({ day: new Date(Date.now() - (6 - i) * 86_400_000).toISOString().slice(0, 10), visitors: [12, 18, 25, 160, 98, 61, 38][i], reports: [1, 2, 3, 24, 17, 9, 5][i] })),
+  pages: [['/', 980], ['/r/:id', 310], ['/my', 160], ['/account', 120], ['/about', 60]].map(([path, views]) => ({ path, views })),
+  sources: [['reddit', 190], ['(direct)', 120], ['nextdoor', 80], ['l.facebook.com', 22]].map(([source, visitors]) => ({ source, visitors })),
+  countries: [['US', 401], ['CA', 6], ['GB', 5]].map(([country, visitors]) => ({ country, visitors })),
+  devices: [['mobile', 330], ['desktop', 74], ['tablet', 8]].map(([device, visitors]) => ({ device, visitors })),
+  categories: [['pothole', 80], ['street_light', 41], ['illegal_dumping', 30], ['missed_trash', 22]].map(([category, visitors]) => ({ category, visitors })),
+});
 /** Route every /api/admin/* + /api/me to fixtures; abort the primary host so apiFetch falls back to the mocked one. */
 export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
@@ -90,5 +101,6 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/categories`, (r) => r.fulfill(json(categories())));
   await page.route(`${API}/api/admin/config`, (r) => r.fulfill(json(config())));
   await page.route(`${API}/api/admin/explain`, (r) => r.fulfill(json(explain())));
+  await page.route(`${API}/api/admin/usage*`, (r) => r.fulfill(json(usage())));
 }
-export const TABS = ['overview', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
+export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;

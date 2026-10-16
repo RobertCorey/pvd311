@@ -16,11 +16,12 @@ import AdminAccounts from './AdminAccounts';
 import AdminPortal from './AdminPortal';
 import AdminConfig from './AdminConfig';
 import AdminExplain from './AdminExplain';
+import AdminUsage from './AdminUsage';
 import { When } from './adminUtil';
 import './Admin.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-const TABS = ['overview', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
+const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'portal', 'events', 'system', 'config', 'explain'] as const;
 type Tab = typeof TABS[number];
 /** Parse the hash: `#reports?q=x`, `#explain:portal`, `#queue`. Unknown → overview. */
 function parseHash(h: string): { tab: Tab; params: URLSearchParams; anchor: string | null } {
@@ -181,6 +182,7 @@ export default function Admin() {
         <h1 className="admin-main-title">{t(`admin.tab.${tab}`)}<span className="admin-meta admin-main-sub">{t(`admin.tabsub.${tab}`)}</span></h1>
         {tab === 'overview' && <AdminOverview queue={data} go={go} />}
         {tab === 'system' && <AdminSystem />}
+        {tab === 'usage' && <AdminUsage />}
         {tab === 'reports' && <AdminReports initialQuery={route.params.get('q') ?? ''} initialStatus={route.params.get('status') ?? ''} say={say} />}
         {tab === 'events' && <AdminEvents initialReportId={route.params.get('reportId') ?? ''} />}
         {tab === 'accounts' && <AdminAccounts />}

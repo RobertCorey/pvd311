@@ -34,6 +34,9 @@ export interface Env {
   CITY_SENDER_DOMAINS?: string;       // var: comma-separated sender domains treated as the city (default providenceri.gov)
   RELAY_FALLBACK_TO?: string;         // var: verified Email Routing destination that receives the raw mail if relay handling throws
   PORTAL_NOTIFY_METHOD?: string;      // var: #cop_methodofupdate value — '585680002' Email (relay live) | '585680003' No Contact Necessary (default)
+  UI_EVENTS?: AnalyticsEngineDataset; // binding: first-party usage analytics (ui.ts)
+  CF_ACCOUNT_ID?: string;             // var: account for the Analytics Engine SQL API (/api/admin/usage)
+  CF_ANALYTICS_TOKEN?: string;        // secret: API token with Account Analytics Read
 }
 
 export type ReportDoc = Report & { id: string };

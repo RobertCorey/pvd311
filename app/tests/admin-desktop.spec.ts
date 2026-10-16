@@ -68,7 +68,7 @@ test('events: filters + raw data toggle', async ({ page }) => {
   await page.screenshot({ path: 'tests/__screenshots__/admin-events.png' });
 });
 
-for (const tab of ['accounts', 'portal', 'config', 'explain'] as const) {
+for (const tab of ['usage', 'accounts', 'portal', 'config', 'explain'] as const) {
   test(`${tab}: renders with data, no horizontal scroll`, async ({ page }) => {
     await page.goto(`/admin#${tab}`);
     await expect(page.locator('.admin-main')).toBeVisible();
