@@ -9,6 +9,7 @@
  *   runDaily(env)      — daily: digest counts + selector canary (drift alert)
  */
 import type { Page } from '@cloudflare/playwright';
+import { deployHoldActive } from './deployhold.js';
 import { TERMINAL_PORTAL_STATUS, type Env, type Portal, type ReportDoc, type Store } from './contracts.js';
 import { appendStatusHistory } from './statushistory.js';
 import type { ReportStatus } from '../../shared/types.js';
@@ -49,6 +50,8 @@ export interface EngineState {
   submissionTimestamps?: number[];
   lastSubmissionTime?: number | null;
   lock?: { until: number } | null;
+  /** Set by the deploy guard (scripts/deploy-guard.mjs → POST /api/deploy-hold): no new submission starts before this. */
+  deployHoldUntil?: number | null;
 }
 
 /** Where signed HITL links point (the deployed Worker). */
@@ -87,6 +90,11 @@ export async function runTick(env: Env, _ctx?: ExecutionContext): Promise<void> 
     if (state.paused) {
       console.log('[tick] engine paused (circuit breaker) — skipping submissions');
       await markOk(store, 'tick', 'paused');
+      return;
+    }
+    if (deployHoldActive(state, now)) {
+      console.log('[tick] deploy hold — skipping submissions');
+      await markOk(store, 'tick', 'deploy hold');
       return;
     }
 

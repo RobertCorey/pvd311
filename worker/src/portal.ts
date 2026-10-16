@@ -79,7 +79,9 @@ class WorkerPortal implements Portal {
   }
 
   async launch(): Promise<void> {
-    this.browser = await launch(this.env.BROWSER);
+    // Browser Run closes a session after 60 s with no CDP traffic. A Submit postback wait (60 s) or a scout call can
+    // sit that long, so keep the session up to the 10-min max; close() still ends it as soon as the tick is done.
+    this.browser = await launch(this.env.BROWSER, { keep_alive: 600_000 });
     const state = await this.deps.auth.load();
     this.context = await this.browser.newContext({
       viewport: { width: 1280, height: 900 },
@@ -748,9 +750,10 @@ class WorkerPortal implements Portal {
    */
   async readCaseDetail(caseId: string): Promise<CaseDetailRaw | null> {
     const page = this.getPage();
-    if (!/\/my-requests\/?$/i.test(new URL(page.url()).pathname)) {
-      await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    }
+    // Always a fresh grid: a detail modal (or its backdrop) the previous read could not close stays over the
+    // grid, and the next row click times out at 30 s with the row "visible, enabled and stable" (2026-10-16:
+    // each watcher run read its first case, then failed every later one — PVD2026-90089/90092).
+    await page.goto(`${this.portal}/my-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     // The grid is a Fluent DetailsList: the header row is in the DOM at once, the data rows and the usable
     // search box render ~2-3 s later. Being on /my-requests/ already (ensureLoggedIn lands there without
     // waiting) therefore proves nothing — wait for the row we want OR the search box, whichever first.

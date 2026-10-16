@@ -23,7 +23,8 @@
  * Controls (for the mutation suite)
  *   GET  /_sim/reset                               reset state to the golden seed
  *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows;
- *                                                  slow-postback&ms=N: Step-3 Submit is a real form POST answered after N ms)
+ *                                                  slow-postback&ms=N: Step-3 Submit is a real form POST answered after N ms;
+ *                                                  sticky-detail-modal: a case-detail modal covers the grid and will not close)
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
  *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
  *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
@@ -479,9 +480,9 @@ function gridRowHtml(r: GridRow): string {
   </div>`;
 }
 
-function myRequestsGridHtml(cases: GridRow[]): string {
+function myRequestsGridHtml(cases: GridRow[], opts: { stickyModal?: boolean } = {}): string {
   const rows = cases.map(gridRowHtml).join('\n');
-  return page('My Requests', `
+  return page('My Requests', `${opts.stickyModal ? '<script>window.__SIM_STICKY_MODAL = true;</script>' : ''}
     <div class="username">test@pvdsnow.org</div>
     <h1>My Requests</h1>
     <div class="entitylist">
@@ -534,7 +535,9 @@ const GRID_MODAL_JS = `
       modal.className = 'modal in'; modal.setAttribute('role','dialog');
       modal.innerHTML = '<div class="modal-dialog"><button type="button" class="close" aria-label="Close">x</button>'
         + '<iframe src="/_portal/modal-form-template-path/sim-form-0001?id=' + encodeURIComponent(btn.getAttribute('data-id')) + '" width="600" height="400"></iframe></div>';
-      modal.querySelector('.close').addEventListener('click', function(){ modal.remove(); });
+      // sticky-detail-modal fault: the modal is a full-page overlay whose close button does nothing.
+      if (window.__SIM_STICKY_MODAL) modal.setAttribute('style', 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:1050;background:rgba(0,0,0,.4)');
+      modal.querySelector('.close').addEventListener('click', function(){ if (!window.__SIM_STICKY_MODAL) modal.remove(); });
       document.body.appendChild(modal);
     });
   });
@@ -675,7 +678,7 @@ export async function startSim(): Promise<Sim> {
 
       // ── My Requests grid ──
       if (path === '/my-requests/' || path === '/my-requests') {
-        return send(res, 200, authed ? myRequestsGridHtml(state.cases) : myRequestsUnauthedHtml());
+        return send(res, 200, authed ? myRequestsGridHtml(state.cases, { stickyModal: state.mutations.has('sticky-detail-modal') }) : myRequestsUnauthedHtml());
       }
 
       // ── Case-detail modal body (iframe): form fields + .notes timeline ──

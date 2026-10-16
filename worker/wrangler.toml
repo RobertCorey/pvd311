@@ -12,6 +12,11 @@ browser = { binding = "BROWSER" }
 binding = "UI_EVENTS"
 dataset = "fixmypvd_ui"
 
+# Deploy guard: runs inside every `wrangler deploy` (local and CI), waits until no submission is in flight and holds new
+# ones, refuses otherwise. A deploy evicts a running cron mid-wizard (2026-10-16 duplicate). No-op for `wrangler dev`.
+[build]
+command = "node scripts/deploy-guard.mjs"
+
 # Cron triggers:
 #   "* * * * *"    submit tick (reaper + one submission, HITL-gated)
 #   "*/30 * * * *" status watcher (My Requests diff)

@@ -275,6 +275,18 @@ describe('portal simulator — happy path', () => {
     await portal.close();
   });
 
+  it('readCaseDetail reads every case in a run even when a detail modal will not close (sticky-detail-modal)', async () => {
+    // 2026-10-16: each watcher run read its first case, then every later row click timed out at 30 s ("visible,
+    // enabled and stable") — the first case's modal was still over the grid. Each read now starts on a fresh grid.
+    sim.mutate('sticky-detail-modal');
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    await portal.launch();
+    await portal.ensureLoggedIn();
+    expect((await portal.readCaseDetail('PVD2026-00098'))?.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
+    expect((await portal.readCaseDetail('PVD2026-00099'))?.fields.title.value).toBe('PVD2026-00099 Missed Trash Day Pick-up Issue');
+    await portal.close();
+  });
+
   it('canary passes against the fresh contract and is non-mutating (no submit, no wizard advance)', async () => {
     const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
     await portal.launch();

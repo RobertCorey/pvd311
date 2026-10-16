@@ -7,7 +7,8 @@
  *   daily 11:00Z  → runDaily    (digest + selector canary; 11:00 UTC = 06:00 EST / 07:00 EDT — crons are UTC-only)
  *
  * HTTP:
- *   GET /healthz                         → { ok, paused, pending, awaiting }
+ *   GET /healthz                         → { ok, paused, pending, awaiting, locked, processing, deployHold }
+ *   POST /api/deploy-hold?seconds=N (x-canary-token) → hold new submissions N s (0 = release) for a deploy; returns engine busy state
  *   GET /canary            (x-canary-token) → portal.canary()  (read-only, zero-draft)
  *   GET /admin/controls?entityId=[&page=1] (x-canary-token) → an existing record's Step-3 controls + options; page=1 adds validators/scripts/form HTML (read-only)
  *   GET /api/status        (x-canary-token) → engine state + status counts
@@ -16,6 +17,7 @@
  */
 import type { Env } from './contracts.js';
 import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
+import { deployHoldActive } from './deployhold.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
 import { handleApi } from './api.js';
@@ -137,12 +139,30 @@ export default {
 
     if (url.pathname === '/healthz') {
       const store = createStore(env);
-      const [state, pending, awaiting] = await Promise.all([
+      const [state, pending, awaiting, processing] = await Promise.all([
         store.getMeta<EngineState>('engine').catch(() => null),
         store.countByStatus('pending').catch(() => -1),
         store.countByStatus('awaiting_review').catch(() => -1),
+        store.countByStatus('processing').catch(() => -1),
       ]);
-      return Response.json({ ok: true, paused: !!state?.paused, pending, awaiting });
+      // locked/processing/deployHold let the deploy guard (scripts/deploy-guard.mjs) see an in-flight submission.
+      const now = Date.now();
+      return Response.json({ ok: true, paused: !!state?.paused, pending, awaiting, processing,
+        locked: !!(state?.lock && state.lock.until > now), deployHold: deployHoldActive(state, now) });
+    }
+
+    if (url.pathname === '/api/deploy-hold' && request.method === 'POST') {
+      if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
+      const store = createStore(env);
+      const seconds = Math.max(0, Math.min(900, Number(url.searchParams.get('seconds') ?? 300) || 0));
+      const now = Date.now();
+      await store.setMeta('engine', { deployHoldUntil: seconds ? now + seconds * 1000 : null });
+      const [state, processing] = await Promise.all([
+        store.getMeta<EngineState>('engine').catch(() => null),
+        store.countByStatus('processing').catch(() => -1),
+      ]);
+      return Response.json({ ok: true, deployHoldUntil: state?.deployHoldUntil ?? null, processing,
+        locked: !!(state?.lock && state.lock.until > now) });
     }
 
     if (url.pathname === '/canary') {
