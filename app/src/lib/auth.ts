@@ -2,6 +2,7 @@
 // Providers: email link (Worker-minted, sent via Resend) and Google (GIS credential → signInWithIdp, when VITE_GOOGLE_CLIENT_ID is set).
 // Session = { idToken, refreshToken, expiresAt, uid, email } in localStorage; refreshed ~5 min before expiry.
 import { useEffect, useState } from 'react';
+import { track } from './analytics';
 
 const API_KEY: string = (import.meta.env.VITE_FIREBASE_API_KEY as string | undefined) ?? 'AIzaSyCPT2YK0Pkao-oj6rvDDdpcZLNhqf_Ga2Q';
 export const GOOGLE_CLIENT_ID: string = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '224841506687-4jjb1vnse4b7t567ur7apd8pahn82kc2.apps.googleusercontent.com';
@@ -83,7 +84,7 @@ export async function completeSignInLink(email: string, url = location.href): Pr
   if (!oobCode) throw new AuthError('INVALID_OOB_CODE');
   const d = await idp<{ localId: string; email: string; idToken: string; refreshToken: string; expiresIn: string }>('signInWithEmailLink', { oobCode, email: email.trim().toLowerCase() });
   try { localStorage.removeItem(PENDING_EMAIL_KEY); } catch { /* ignore */ }
-  const s = fromTokens(d, 'email'); set(s); return s;
+  const s = fromTokens(d, 'email'); set(s); track('login', { method: 'email' }); return s;
 }
 
 // ── Google (GIS) ──
@@ -106,7 +107,7 @@ export async function signInWithGoogleCredential(credential: string): Promise<Se
   const d = await idp<{ localId: string; email: string; idToken: string; refreshToken: string; expiresIn: string }>('signInWithIdp', {
     postBody: `id_token=${encodeURIComponent(credential)}&providerId=google.com`, requestUri: location.origin, returnSecureToken: true, returnIdpCredential: false,
   });
-  const s = fromTokens(d, 'google'); set(s); return s;
+  const s = fromTokens(d, 'google'); set(s); track('login', { method: 'google' }); return s;
 }
 
 // ── Tokens ──

@@ -8,6 +8,7 @@ import CategoryIcon from '../components/CategoryIcon';
 import { neighborhoodAt } from '../lib/neighborhoods';
 import { shortLabel } from '../lib/categories';
 import OwnerActions from '../components/OwnerActions';
+import { track } from '../lib/analytics';
 import './Track.css';
 
 type Tone = 'progress' | 'ok' | 'warn';
@@ -305,6 +306,7 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(trackUrl);
+      track('share', { method: 'copy' });
       setCopied(true); window.setTimeout(() => setCopied(false), 2000);
     } catch {
       const el = linkRef.current;
@@ -317,6 +319,7 @@ function ConfirmHeader({ trackUrl }: { trackUrl: string }) {
 
   const share = useCallback(() => {
     if (typeof navigator.share !== 'function') return;
+    track('share', { method: 'native' });
     navigator.share({ title: BRAND.name, text: t('track.share.text'), url: trackUrl }).catch(() => { /* dismissed */ });
   }, [t, trackUrl]);
 

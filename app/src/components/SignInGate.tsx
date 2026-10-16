@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import { shortLabel } from '../lib/categories';
 import { GOOGLE_CLIENT_ID, authErrorKey, pendingEmail, sendSignInLink } from '../lib/auth';
+import { track } from '../lib/analytics';
 import GoogleSignInButton from './GoogleSignInButton';
 import CategoryIcon from './CategoryIcon';
 import './SignInGate.css';
@@ -46,7 +47,7 @@ export default function SignInGate({ category, returnTo, onBack, onSignedIn }: S
     e?.preventDefault?.();
     if (!email.trim() || phase === 'busy') return;
     setPhase('busy'); setError(null);
-    try { await sendSignInLink(email, returnTo); setPhase('sent'); } catch (err) { fail(err); }
+    try { await sendSignInLink(email, returnTo); setPhase('sent'); track('sign_in_link_sent'); } catch (err) { fail(err); }
   }
 
   return (

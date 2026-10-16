@@ -5,6 +5,9 @@ import './index.css';
 import App from './App';
 import { I18nProvider } from './i18n';
 import { registerSW } from 'virtual:pwa-register';
+import { initAnalytics } from './lib/analytics';
+
+initAnalytics();
 
 // autoUpdate: the virtual module reloads the page when a new service worker
 // takes control; we also poll for updates hourly so long-lived installed PWAs

@@ -4,6 +4,7 @@ import { EXTRA_QUESTIONS, GROUPS, byKey, catchAllFor, facetLabel, groupRows, inS
 import { compressImage, decodeImage, forwardGeocode, inProvidence, readExifGps, reverseGeocode } from '../lib/geo';
 import { getNearby, intake, submitReport } from '../api/client';
 import { signOut, useSession } from '../lib/auth';
+import { track } from '../lib/analytics';
 import { useLocation } from 'react-router-dom';
 import { draftStore } from '../lib/draft';
 import { ApiError, type IntakeResult, type NearbyItem } from '../api/types';
@@ -213,7 +214,7 @@ export default function Report() {
     return () => window.clearTimeout(id);
   }, [turnstileToken, online, turnstileNonce]);
 
-  const pick = (key: string) => { setCategory(key); rememberCategory(key); setExtra({}); setQuery(''); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
+  const pick = (key: string) => { track('select_category', { category: key }); setCategory(key); rememberCategory(key); setExtra({}); setQuery(''); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
   const onPhoto = useCallback(async (file: File | null) => {
     setPhotoError(null);
@@ -226,9 +227,11 @@ export default function Report() {
       return;
     }
     // Pull GPS from the ORIGINAL (compression strips EXIF) before re-encoding.
+    let hasGps = false;
     try {
       const gps = await readExifGps(file);
       if (gps && inProvidence(gps.lat, gps.lng)) {
+        hasGps = true;
         setPhotoHasGps(true);
         setLoc(gps); setOutside(false); setAddrFeedback(null);
         setLocMsg(t('report.location.foundInPhoto'));
@@ -251,6 +254,7 @@ export default function Report() {
     const finalFile = out instanceof File ? out : new File([out], 'photo.jpg', { type: 'image/jpeg' });
     setPhoto(finalFile);
     setPhotoUrl(URL.createObjectURL(finalFile));
+    track('photo_added', { has_gps: hasGps });
   }, [photoUrl, loc, t]);
 
   const detect = useCallback(() => {
@@ -337,6 +341,7 @@ export default function Report() {
       });
       setDraftUnsaved(!saved);
       setGated(true);
+      track('sign_in_gate_shown', { category: cat.key });
       return;
     }
     setSubmitting(true); setError(null);
@@ -354,6 +359,7 @@ export default function Report() {
         setPending((n) => n + 1);
         void draftStore.clear();
         setSubmitting(false); setQueued(true); window.scrollTo({ top: 0 });
+        track('report_submitted', { category: cat.key, has_photo: !!blob, queued: true });
         return;
       }
       if (!turnstileToken || !session) { setSubmitting(false); return; }
@@ -368,12 +374,14 @@ export default function Report() {
         intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined,
         photo: blob,
       }, draftId.current);
+      track('report_submitted', { category: cat.key, has_photo: !!blob, queued: false });
       void draftStore.clear();
       draftId.current = crypto.randomUUID();
       navigate(`/r/${created.id}`, { state: { justSubmitted: true } });
     } catch (err) {
       setSubmitting(false);
       setTurnstileToken(null); setTurnstileNonce((n) => n + 1); // tokens are single-use
+      track('report_error', { code: err instanceof ApiError ? (err.code ?? String(err.status)) : ((err as Error)?.name ?? 'unknown') });
       if (err instanceof ApiError) {
         if (err.status === 401 || err.code === 'auth_required') {
           signOut();

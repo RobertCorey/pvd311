@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { trackPageView } from '../lib/analytics';
 import { BRAND } from '../brand';
 import { useI18n } from '../i18n';
 import BrandMark from './BrandMark';
@@ -11,6 +12,8 @@ import AccountLink from './AccountLink';
 export default function Layout({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
   const { canInstall, install } = useInstallPrompt();
+  const { pathname } = useLocation();
+  useEffect(() => { trackPageView(); }, [pathname]);
   return (
     <div className="app has-tabs">
       <header className="app-header">
