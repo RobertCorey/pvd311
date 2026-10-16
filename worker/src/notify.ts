@@ -6,20 +6,21 @@
  */
 import type { ReportDoc, Store, Mailer } from './contracts.js';
 
-export async function recipientsFor(store: Store, report: ReportDoc): Promise<string[]> {
+export async function recipientsFor(store: Store, report: ReportDoc, opts: { excludeOwner?: boolean } = {}): Promise<string[]> {
   const out = new Set<string>();
   const add = (e: string | null | undefined) => { if (e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.add(e.toLowerCase()); };
   try {
     let ownerOptedOut = false;
-    if (report.ownerUid) {
+    if (report.ownerUid && !opts.excludeOwner) {
       const owner = await store.getUser(report.ownerUid).catch(() => null);
       ownerOptedOut = owner?.prefs?.emailUpdates === false;
     }
-    if (!ownerOptedOut) add(report.reporterEmail);
+    if (!ownerOptedOut && !opts.excludeOwner) add(report.reporterEmail);
+    const ownerEmail = opts.excludeOwner ? report.reporterEmail?.toLowerCase() ?? null : null;
     for (const uid of (report.followerUids ?? []).slice(0, 200)) {
       if (uid === report.ownerUid) continue;
       const u = await store.getUser(uid).catch(() => null);
-      if (u?.email && u.prefs?.emailUpdates !== false) add(u.email);
+      if (u?.email && u.prefs?.emailUpdates !== false && u.email.toLowerCase() !== ownerEmail) add(u.email);
     }
   } catch (e) {
     console.error('[notify] recipients failed', e);
@@ -28,9 +29,9 @@ export async function recipientsFor(store: Store, report: ReportDoc): Promise<st
 }
 
 /** Send one reporter-facing email to everyone who should hear about this report. Gated inside mailer.sendTo. */
-export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string }): Promise<number> {
-  const to = await recipientsFor(store, report);
-  for (const addr of to) await mailer.sendTo(addr, subject, html, opts);
+export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string; excludeOwner?: boolean }): Promise<number> {
+  const to = await recipientsFor(store, report, { excludeOwner: opts?.excludeOwner });
+  for (const addr of to) await mailer.sendTo(addr, subject, html, opts?.replyTo ? { replyTo: opts.replyTo } : undefined);
   return to.length;
 }
 
@@ -43,6 +44,7 @@ const STATUS_PHRASE: Record<string, string> = {
   Submitted: 'The city received your request',
   Assigned: 'The city assigned your request',
   'In Progress': 'The city marked your request in progress',
+  'Department Responded': 'A city department responded to your request',
   Resolved: 'The city closed your request',
   Closed: 'The city closed your request',
   Completed: 'The city closed your request',

@@ -9,8 +9,12 @@
  *       append to report.cityMessages, event relay.forwarded
  *   city sender, no case id / no matching report (after a candidate-number lookup + one 20 s retry, since the
  *       city's ack can beat the engine's portalCaseId write) → Rob (NOTIFY_EMAIL), event relay.unmatched
- *   anyone else (a reporter replying to a forwarded mail, or noise) → Rob, event relay.reply — nothing is
- *       ever sent to the city automatically; a person decides (HITL is launch mode)
+ *   city email that ASKS the reporter for something (cityask.ts) → followers get the usual copy, the owner gets
+ *       "the city needs more information" (reply or answer in the app), report.cityAsks
+ *   the report owner replying in the ask conversation (subject: our ask mail / reminder / receipt, or the city's ask;
+ *       sender = owner's address, DMARC pass; not a bare "stop") → their answer goes to the city (cityask.answerCityAsk)
+ *       and they get a receipt, event relay.answer; unverifiable → app link
+ *   anyone else (a reply about a case with no ask, or noise) → Rob, event relay.reply — nothing goes to the city
  *   auto-replies / our own domain / bounces → dropped, event relay.dropped (loop guard)
  *
  * Privacy holds: the city only ever sees the project account; reporters only ever see updates@fixmypvd.org.
@@ -18,6 +22,8 @@
 import PostalMime from 'postal-mime';
 import type { Env, Store, Mailer, ReportDoc } from './contracts.js';
 import { notifyReport } from './notify.js';
+import { classifyInbound, syncCityAsks, isOwnerAddress, answerCityAsk, asksOf, extractReplyText, isAnswerSubject, isNotAnAnswer, answerOutcomeEmail, unverifiedReplyEmail } from './cityask.js';
+import type { CityMailKind } from '../../shared/types.js';
 import { markOk, markError, logEvent } from './health.js';
 
 export const CASE_ID_RE = /\bPVD\d{4}-\d{4,7}\b/i;
@@ -38,7 +44,7 @@ export interface InboundMail {
   attachments: number;
 }
 
-export interface CityMessage { at: string; from: string; subject: string; text: string; caseId: string | null }
+export interface CityMessage { at: string; from: string; subject: string; text: string; caseId: string | null; kind: CityMailKind; dept: string | null; by: 'rule' | 'ai'; messageId: string | null }
 
 /** Minimal shape of Cloudflare's ForwardableEmailMessage that we consume (tests pass a literal). */
 export interface InboundMessage {
@@ -53,6 +59,7 @@ export type RelayOutcome =
   | { kind: 'forwarded'; caseId: string; reportId: string; recipients: number }
   | { kind: 'unmatched'; caseId: string | null }
   | { kind: 'reply'; caseId: string | null }
+  | { kind: 'answer'; caseId: string; reportId: string; outcome: string }
   | { kind: 'dropped'; reason: string };
 
 // ── Parsing ───────────────────────────────────────────────────────────────────────────
@@ -128,7 +135,15 @@ export async function handleInbound(
   }
 
   if (!isCitySender(mail, env)) {
-    // A reporter (or anyone) wrote to the relay address — a person handles it; nothing goes to the city.
+    // The owner answering a city ask (their reply to our "the city needs more information" mail) → the city.
+    // Only replies in that conversation (by subject), and never a bare "stop" or "thanks": status mail says "Reply to stop updates".
+    if (caseId && isAnswerSubject(mail.subject) && !isNotAnAnswer(extractReplyText(mail.text))) {
+      const found = await lookup(store, caseId);
+      // asksOf: an ask the watcher has not recorded yet still counts (answerCityAsk records it with the answer).
+      const asked = found ? { ...found, cityAsks: asksOf(found, env.APP_NAME) } : null;
+      if (asked?.cityAsks.length && await isOwnerAddress(store, asked, mail.from)) return ownerAnswer(env, deps, asked, mail, caseId);
+    }
+    // Anyone else (or a reply about a case the city never asked about) — a person reads it; nothing goes to the city.
     await mailer.alert(
       `Reply to relay${caseId ? ` re ${caseId}` : ''} from ${mail.from}`,
       `<p><b>${escHtml(mail.fromName ?? mail.from)}</b> &lt;${escHtml(mail.from)}&gt; wrote to ${escHtml(mail.to)}${caseId ? ` about <b>${escHtml(caseId)}</b>` : ''}. Nothing was sent to the city.</p>`
@@ -151,7 +166,7 @@ export async function handleInbound(
     return { kind: 'unmatched', caseId };
   }
 
-  const recipients = await forwardToReporter(env, store, mailer, report, mail, caseId!);
+  const recipients = await forwardToReporter(env, deps, report, mail, caseId!);
   return { kind: 'forwarded', caseId: caseId!, reportId: report.id, recipients };
 }
 
@@ -160,18 +175,43 @@ export async function handleInbound(
  *  PVD2026-89374 on 2026-09-29, arrived 3 s early and went to Rob as unmatched). So: portalCaseId, then the
  *  candidate number read from the draft, then one more round after a short wait. */
 export const MATCH_RETRY_MS = 20_000;
+const lookup = async (store: Store, caseId: string) =>
+  (await store.findByPortalCaseId(caseId).catch(() => null))
+  ?? (await store.findByPortalCaseIdCandidate(caseId).catch(() => null));
 async function findReport(store: Store, caseId: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ReportDoc | null> {
-  const lookup = async () =>
-    (await store.findByPortalCaseId(caseId).catch(() => null))
-    ?? (await store.findByPortalCaseIdCandidate(caseId).catch(() => null));
-  const first = await lookup();
+  const first = await lookup(store, caseId);
   if (first) return first;
   await sleep(MATCH_RETRY_MS);
-  return lookup();
+  return lookup(store, caseId);
 }
 
-async function forwardToReporter(env: Env, store: Store, mailer: Mailer, report: ReportDoc, mail: InboundMail, caseId: string): Promise<number> {
+/** The owner's emailed answer to a city ask. DMARC must pass (the From is otherwise forgeable): then it goes to the city,
+ *  and the owner gets a receipt either way. Unverified → a pointer to the tracking page, nothing to the city. */
+async function ownerAnswer(env: Env, deps: { store: Store; mailer: Mailer }, report: ReportDoc, mail: InboundMail, caseId: string): Promise<RelayOutcome> {
+  const { store, mailer } = deps;
+  const track = `${(env.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '')}/r/${report.id}`;
+  const to = report.reporterEmail ?? mail.from;
+  if (mail.dmarc !== 'pass') {
+    const m = unverifiedReplyEmail({ caseId, trackUrl: track });
+    await mailer.sendTo(to, m.subject, m.html);
+    await logEvent(store, { level: 'warn', kind: 'relay.answer', reportId: report.id, msg: `${caseId}: emailed answer not sent — sender not verified (DMARC ${mail.dmarc}); pointed the reporter to the app`, data: { caseId, outcome: 'unverified', dmarc: mail.dmarc } });
+    await markOk(store, 'relay', `${caseId} answer unverified`);
+    return { kind: 'answer', caseId, reportId: report.id, outcome: 'unverified' };
+  }
+  const text = extractReplyText(mail.text);
+  const result = await answerCityAsk(env, deps, report, { text, via: 'email' });
+  const m = answerOutcomeEmail({ result, caseId, trackUrl: track, text, attachments: mail.attachments });
+  await mailer.sendTo(to, m.subject, m.html);
+  const outcome = result.ok ? 'sent' : result.error;
+  await logEvent(store, { level: result.ok ? 'info' : 'warn', kind: 'relay.answer', reportId: report.id, msg: `${caseId}: emailed answer from the reporter — ${outcome}`, data: { caseId, outcome } });
+  await markOk(store, 'relay', `${caseId} answer ${outcome}`);
+  return { kind: 'answer', caseId, reportId: report.id, outcome };
+}
+
+async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer }, report: ReportDoc, mail: InboundMail, caseId: string): Promise<number> {
+  const { store, mailer } = deps;
   const at = new Date().toISOString();
+  const cls = await classifyInbound(env, mail.subject, mail.text);
   const track = `${(env.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '')}/r/${report.id}`;
   const subjectTail = cleanSubject(mail.subject, caseId);
   const subject = `Providence 311 on your report ${caseId}${subjectTail ? `: ${subjectTail}` : ''}`;
@@ -183,14 +223,17 @@ async function forwardToReporter(env: Env, store: Store, mailer: Mailer, report:
     + `<p><a href="${track}">Track this report</a>. Replying to this email reaches the FixMyPVD team, not the city.</p>`
     + `<p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`;
 
-  const recipients = await notifyReport(store, mailer, report, subject, html, { replyTo: env.RELAY_ADDRESS ?? undefined });
+  // An ask goes to the owner as "the city needs more information" (syncCityAsks below); followers get the usual copy.
+  const ask = cls.kind === 'ask';
+  let recipients = await notifyReport(store, mailer, report, subject, html, { replyTo: env.RELAY_ADDRESS ?? undefined, excludeOwner: ask });
 
-  const entry: CityMessage = { at, from: mail.from, subject: mail.subject.slice(0, 300), text: mail.text.slice(0, MAX_TEXT), caseId };
-  const prev = (report.cityMessages ?? []).slice(-(MAX_STORED - 1));
+  const entry: CityMessage = { at, from: mail.from, subject: mail.subject.slice(0, 300), text: mail.text.slice(0, MAX_TEXT), caseId, kind: cls.kind, dept: cls.dept, by: cls.by, messageId: mail.messageId };
+  const messages = [...(report.cityMessages ?? []).slice(-(MAX_STORED - 1)), entry];
   // cityCaseId: the case number the city itself acknowledged — lets the watcher confirm a submit whose number
   // the driver could not read, and stops it re-queuing a report the city already has (2026-10-16 duplicate).
-  await store.patchReport(report.id, { cityMessages: [...prev, entry], lastCityEmailAt: at, cityCaseId: report.cityCaseId ?? caseId }).catch((e) => console.error('[relay] patch failed', e));
-  await logEvent(store, { level: 'info', kind: 'relay.forwarded', msg: `City email on ${caseId} forwarded to ${recipients} recipient${recipients === 1 ? '' : 's'}: ${subjectTail || mail.subject}`.slice(0, 300), reportId: report.id, data: { caseId, recipients } });
+  await store.patchReport(report.id, { cityMessages: messages, lastCityEmailAt: at, cityCaseId: report.cityCaseId ?? caseId }).catch((e) => console.error('[relay] patch failed', e));
+  if (ask) recipients += (await syncCityAsks(env, deps, { ...report, cityMessages: messages, cityCaseId: report.cityCaseId ?? caseId })).notified;
+  await logEvent(store, { level: 'info', kind: 'relay.forwarded', msg: `City email on ${caseId} (${cls.kind}${cls.by === 'ai' ? ', AI-read' : ''}) forwarded to ${recipients} recipient${recipients === 1 ? '' : 's'}: ${subjectTail || mail.subject}`.slice(0, 300), reportId: report.id, data: { caseId, recipients, kind: cls.kind, by: cls.by } });
   await markOk(store, 'relay', `${caseId} → ${recipients}`);
   return recipients;
 }

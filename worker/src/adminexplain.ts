@@ -67,13 +67,24 @@ export function explainSystem(env: Env, live: Record<string, unknown>): ExplainS
     },
     {
       key: 'email', title: 'Email',
-      summary: 'All mail goes out through Resend from updates@fixmypvd.org. Admin mail goes to NOTIFY_EMAIL (rob@fixmypvd.org → your Gmail via Cloudflare Email Routing, auto-labelled FixMyPVD).',
+      summary: 'Mail goes out through Resend: to reporters and you from updates@fixmypvd.org, to the city only from cases@fixmypvd.org (a reporter\'s answer to a city question). Admin mail goes to NOTIFY_EMAIL (rob@fixmypvd.org → your Gmail via Cloudflare Email Routing, auto-labelled FixMyPVD).',
       details: [
         'Reporters get: sign-in links (minted by the Worker through Firebase Identity Toolkit), "filed with the city" with the case number, each city status change, and a kind note if a report is not filed.',
-        'Relay: the portal account\'s contact address (RELAY_ADDRESS, cases@fixmypvd.org) is routed to this Worker. A city email whose subject or body carries a PVD case id we filed is forwarded to that report\'s reporter and followers (Reply-To = the relay address) and kept on the report as cityMessages. City mail with no matching case, and anything a reporter writes back, goes to you — nothing is ever sent to the city automatically.',
+        'Relay: the portal account\'s contact address (RELAY_ADDRESS, cases@fixmypvd.org) is routed to this Worker. A city email whose subject or body carries a PVD case id we filed is forwarded to that report\'s reporter and followers (Reply-To = the relay address) and kept on the report as cityMessages, tagged receipt / routed (with its "Department Assigned") / ask / update. City mail with no matching case, and replies about cases the city never asked about, go to you. The one thing that reaches the city automatically is the reporter\'s answer to a city question — see "When the city asks the reporter".',
         'You get: review requests, reaper/breaker/canary alerts, and the daily digest (sent only when queue counts change).',
       ],
       live: { notifyEmail: env.NOTIFY_EMAIL ?? null, from: env.NOTIFY_FROM ?? null },
+    },
+    {
+      key: 'asks', title: 'When the city asks the reporter',
+      summary: 'The city sometimes asks for more information ("PVD311 needs more information…"). We email the reporter, they answer by replying or on the tracking page, and the answer goes to the city — no step for you.',
+      details: [
+        'Detect: city mail is tagged at arrival — rules on the city\'s templates first; a non-template staff email is read by the AI only to decide "does this ask the resident for something?". The watcher also checks the stored portal timeline notes every 30 minutes, so an ask the relay missed is still found. The same ask arriving as an email and as a portal note is one ask.',
+        'Tell the reporter: the owner (not followers) gets "The city needs more information about your report", with the city\'s words, even if they turned status emails off — the case stalls without an answer. One reminder after 48 hours. Asks found more than 7 days late, or on a closed case, are recorded without mail. The tracking page headline becomes "The city needs more information from you" and My reports shows "City needs info".',
+        'Answer: on the tracking page (signed-in owner) or by replying to that email (sender must be the owner\'s address and pass DMARC — otherwise they get a link to the page instead). Moderation blocks spam and abuse only. Up to 3 answers per ask, 60 seconds apart, while the case is open and for 14 days.',
+        'Send: from cases@fixmypvd.org to the city address that asked (pvd311@providenceri.gov for a portal-only ask), subject "RE: <the city\'s subject>" so the city CRM token (PVD311:nnnnnnn) threads it onto the case, plus the case number, the answer, and the original address/map link/description. A failed send emails you and the reporter can retry.',
+        'Events: city.ask, city.ask_reminder, city.answer_sent, city.answer_blocked, city.answer_failed, relay.answer. Everything is on the report as cityAsks (raw JSON in the detail pane).',
+      ],
     },
     {
       key: 'health', title: 'What the health lights mean',

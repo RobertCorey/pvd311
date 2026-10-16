@@ -34,6 +34,7 @@ export interface Env {
   RELAY_ADDRESS?: string;             // var: the portal account's contact address, routed to email() (relay.ts); default cases@fixmypvd.org
   CITY_SENDER_DOMAINS?: string;       // var: comma-separated sender domains treated as the city (default providenceri.gov)
   RELAY_FALLBACK_TO?: string;         // var: verified Email Routing destination that receives the raw mail if relay handling throws
+  CITY_REPLY_ADDRESS?: string;        // var: where an answer to a portal-only city ask goes (default pvd311@providenceri.gov)
   PORTAL_NOTIFY_METHOD?: string;      // var: #cop_methodofupdate value — '585680002' Email (relay live) | '585680003' No Contact Necessary (default)
   UI_EVENTS?: AnalyticsEngineDataset; // binding: first-party usage analytics (ui.ts)
   CF_ACCOUNT_ID?: string;             // var: account for the Analytics Engine SQL API (/api/admin/usage)
@@ -189,4 +190,7 @@ export interface Mailer {
   send(subject: string, html: string): Promise<string | null>;
   alert(subject: string, html: string): Promise<void>;   // never throws
   sendTo(to: string, subject: string, html: string, opts?: { replyTo?: string }): Promise<void>; // reporter-facing; gated; never throws
+  /** City-facing: FROM the portal account's contact address (RELAY_ADDRESS), so the city's CRM matches our contact and its
+   *  replies come back through relay.ts. Only cityask.ts calls it, only to a city address. Never throws. */
+  sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null }): Promise<{ ok: boolean; id: string | null; error: string | null }>;
 }

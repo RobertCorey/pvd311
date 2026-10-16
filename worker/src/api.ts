@@ -8,6 +8,7 @@
  *   GET  /api/stats       → { filed } public counter
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
+ *   POST /api/reports/:id/answer → the owner's answer to the city's request for more information (cityask.ts)
  *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
  *   POST /api/ui          → first-party usage event (ui.ts; no auth, always 204)
  */
@@ -22,14 +23,17 @@ import { handleAdmin, isAdmin } from './adminapi.js';
 import { logEvent, markOk } from './health.js';
 import { recordUi } from './ui.js';
 import { checkQuota, type QuotaSlot } from './quota.js';
-import { cityResolutionMessage } from './casedetail.js';
+import { cityResolutionMessage, workOrderOf } from './casedetail.js';
+import { answerCityAsk, askState, asksOf, cityText, mailKind, sentAnswers } from './cityask.js';
+import { createMailer } from './email.js';
+import type { Mailer } from './contracts.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
 const PVD_BBOX = { minLat: 41.70, maxLat: 41.92, minLng: -71.52, maxLng: -71.33 };
 const INTAKE_PER_MIN = 10;        // per IP per minute (durable, Firestore meta)
 const INTAKE_PER_DAY_GLOBAL = 1500; // hard cap on AI spend per UTC day, all callers
 
-export interface ApiDeps { store: Store }
+export interface ApiDeps { store: Store; mailer?: Mailer; moderate?: (env: Env, report: ReportDoc, text: string) => Promise<string[]> }
 
 const allowedOrigins = (env: Env) => [...DEFAULT_ORIGINS, ...(env.APP_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean)];
 const originOk = (env: Env, origin: string | null) => !!origin && (allowedOrigins(env).includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
@@ -55,7 +59,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   try {
     let resp: Response;
-    const reportId = /^\/api\/reports\/([A-Za-z0-9_-]{10,64})(\/cancel)?$/.exec(url.pathname);
+    const reportId = /^\/api\/reports\/([A-Za-z0-9_-]{10,64})(\/cancel|\/answer)?$/.exec(url.pathname);
     const isCreate = request.method === 'POST' && url.pathname === '/api/report';
     const needsAuth = url.pathname.startsWith('/api/me') || url.pathname.startsWith('/api/admin') || !!(reportId && (request.method === 'PATCH' || (request.method === 'POST' && reportId[2])));
     const auth = needsAuth || isCreate || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
@@ -65,7 +69,8 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (url.pathname.startsWith('/api/admin')) resp = await handleAdmin(request, url, env, deps.store, auth);
     else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport, admin: isAdmin(env, auth) }, auth!);
     else if (request.method === 'PATCH' && reportId && !reportId[2]) resp = await editReport(reportId[1], request, deps.store, auth!);
-    else if (request.method === 'POST' && reportId?.[2]) resp = await cancelReport(reportId[1], deps.store, auth!);
+    else if (request.method === 'POST' && reportId?.[2] === '/cancel') resp = await cancelReport(reportId[1], deps.store, auth!);
+    else if (request.method === 'POST' && reportId?.[2] === '/answer') resp = await answerCity(reportId[1], request, env, deps, auth!);
     else if (isCreate) resp = await createReport(request, env, deps, auth!);
     else if (request.method === 'POST' && url.pathname === '/api/auth/link') resp = await sendSignInLink(request, env, deps.store);
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env, deps);
@@ -253,7 +258,34 @@ function cityMessageText(text: string): string {
   return text.split('\n').filter((l) => !/^\s*\[cid:[^\]]*\]\s*$/i.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-type TimelineItem = { at: string | null; label: string; kind?: 'city_message'; text?: string };
+/** `kind` lets the app render a row in its own words; `label` is the English fallback. `text` = the city's (or the owner's)
+ *  words — owner only, single-report read only. */
+type TimelineKind = 'city_message' | 'city_receipt' | 'city_routed' | 'city_ask' | 'city_answer' | 'work_order';
+type TimelineItem = { at: string | null; label: string; kind?: TimelineKind; text?: string; vars?: Record<string, string> };
+
+/** Owner-only city mail body: the stored plain text, minus image placeholders; for an ask, the cleaned city words. */
+const ownerMailText = (m: { text?: string }) => (typeof m.text === 'string' ? cityMessageText(cityText(m.text)) : '');
+
+/** Where the city sent the case: the "Department Assigned:" of its routing email, else the portal timeline's last dispatch. */
+function departmentOf(r: ReportDoc): string | null {
+  for (const m of [...(r.cityMessages ?? [])].reverse()) if (m?.dept) return m.dept;
+  const routing = r.portalRouting ?? [];
+  return routing.length ? routing[routing.length - 1].dept : null;
+}
+
+/** The newest city ask as the tracking page shows it. Public: that the city asked, and whether it was answered. Owner: the words + answers. */
+function projectAsk(r: ReportDoc, mine: boolean, ownerText: boolean, now = Date.now()) {
+  const asks = asksOf(r);
+  const ask = asks.length ? asks[asks.length - 1] : null;
+  if (!ask) return null;
+  const st = askState(ask, r, now);
+  const sent = sentAnswers(ask);
+  return {
+    askedAt: ask.at, open: st.open, answered: sent.length > 0, answeredAt: sent.length ? sent[sent.length - 1].at : null,
+    ...(mine ? { id: ask.id, canAnswer: st.answerable, expiresAt: st.expiresAt } : {}),
+    ...(ownerText ? { text: ask.text, answers: (ask.answers ?? []).map((a) => ({ at: a.at, via: a.via, status: a.status, text: a.text })) } : {}),
+  };
+}
 
 /**
  * Tracking projection (no PII). With a viewer (signed-in caller) adds mine/following/editable + the description for owners.
@@ -273,10 +305,38 @@ function projectReport(r: ReportDoc, viewer?: Viewer, opts: { withMessageText?: 
   else if (r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
   if (history.length && r.portalStatus && history[history.length - 1].status !== r.portalStatus) timeline.push({ at: toIso(r.portalStatusUpdatedAt), label: `City status: ${r.portalStatus}` });
   const ownerText = mine && opts.withMessageText === true;
-  for (const m of (r.cityMessages ?? []).slice(-5)) {
-    const label = `Message from the city${m.subject ? `: ${m.subject.replace(/\bPVD311:\d+\b/gi, '').replace(/\bPVD\d{4}-\d+\b/gi, '').replace(/\s+/g, ' ').trim()}` : ''}`.slice(0, 160);
-    const text = ownerText && typeof m.text === 'string' ? cityMessageText(m.text) : '';
-    timeline.push({ at: m.at, label, kind: 'city_message', ...(text ? { text } : {}) });
+  // City mail in the city's own categories: its receipt and routing templates read as steps, not as raw subjects.
+  const asks = asksOf(r);
+  const seen = new Set<string>();
+  for (const m of (r.cityMessages ?? []).slice(-8)) {
+    if (!m?.at) continue;
+    const kind = mailKind(m);
+    const text = ownerText ? ownerMailText(m) : '';
+    const withText = text ? { text } : {};
+    if (kind === 'receipt') {
+      if (seen.has('receipt')) continue;
+      seen.add('receipt');
+      timeline.push({ at: m.at, label: 'The city confirmed it has your request', kind: 'city_receipt', ...withText });
+    } else if (kind === 'routed') {
+      const dept = m.dept ?? null;
+      timeline.push({ at: m.at, label: dept ? `The city sent it to ${dept}` : 'The city routed your request', kind: 'city_routed', ...(dept ? { vars: { dept } } : {}), ...withText });
+    } else if (kind === 'ask') {
+      continue; // asks come from the ask list below (one row per ask, whichever channel it arrived on)
+    } else {
+      const label = `Message from the city${m.subject ? `: ${m.subject.replace(/\bPVD311:\d+\b/gi, '').replace(/\bPVD\d{4}-\d+\b/gi, '').replace(/\s+/g, ' ').trim()}` : ''}`.slice(0, 160);
+      timeline.push({ at: m.at, label, kind: 'city_message', ...withText });
+    }
+  }
+  for (const a of asks) {
+    timeline.push({ at: a.at, label: 'The city asked for more information', kind: 'city_ask', ...(ownerText && a.text ? { text: a.text } : {}) });
+    for (const ans of sentAnswers(a)) timeline.push({ at: ans.at, label: 'Answer sent to the city', kind: 'city_answer', ...(ownerText ? { text: ans.text } : {}) });
+  }
+  // The city's work order: each change the watcher saw, or the current one.
+  const wo = r.portalDetail ? workOrderOf(r.portalDetail.fields) : null;
+  const woRows = r.workOrderHistory?.length ? r.workOrderHistory : wo ? [{ ...wo, at: r.portalDetail!.capturedAt }] : [];
+  for (const w of woRows) {
+    const at = /complete/i.test(w.status) && w.completedAt ? w.completedAt : w.at;
+    timeline.push({ at, label: `City work order${w.number ? ` ${w.number}` : ''}${w.status ? `: ${w.status}` : ''}`, kind: 'work_order', vars: { number: w.number ?? '', status: w.status } });
   }
   if (status === 'rejected') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Not filed' });
   if (status === 'needs_attention') timeline.push({ at: toIso(r.statusUpdatedAt), label: 'Needs attention — we are looking at it' });
@@ -284,6 +344,7 @@ function projectReport(r: ReportDoc, viewer?: Viewer, opts: { withMessageText?: 
     id: r.id, category: r.category, categoryLabel: cat?.label ?? r.category, address: r.address, lat: r.lat, lng: r.lng,
     photoUrl: r.photo && /^https?:/.test(r.photo) ? r.photo : null, createdAt: toIso(r.timestamp), status,
     portalCaseId: r.portalCaseId ?? null, portalStatus: r.portalStatus ?? null, resolutionMessage: cityResolutionMessage(r), timeline,
+    workOrder: wo, department: departmentOf(r), cityAsk: projectAsk(r, mine, ownerText),
     cancelledByReporter: r.cancelledByReporter === true,
     notFiled: notFiledReason(r),
     ...(viewer ? { mine, following: viewer.following.has(r.id), editable: mine && (r.status === 'pending' || r.status === 'awaiting_review'), description: mine ? (r.description ?? null) : undefined } : {}),
@@ -297,6 +358,25 @@ async function getReport(id: string, { store }: ApiDeps, auth: AuthUser | null):
   let viewer: Viewer | undefined;
   if (auth) { const u = await store.getUser(auth.uid); viewer = { uid: auth.uid, following: new Set(u?.following ?? []) }; }
   return json(projectReport(r, viewer, { withMessageText: true }), 200, { 'cache-control': 'no-store' });
+}
+
+// ── POST /api/reports/:id/answer ─────────────────────────────
+
+const ANSWER_STATUS: Record<string, number> = { invalid_text: 400, no_ask: 409, case_closed: 409, expired: 409, too_many: 409, too_soon: 429, blocked: 422, send_failed: 502 };
+
+/** The owner's answer to the city's request for more information → the city (cityask.answerCityAsk). */
+async function answerCity(id: string, request: Request, env: Env, deps: ApiDeps, auth: AuthUser): Promise<Response> {
+  const r = await deps.store.fetchReport(id);
+  if (!r) return json({ error: 'not_found' }, 404);
+  if (r.ownerUid !== auth.uid) return json({ error: 'not_owner' }, 403);
+  const body = (await request.json().catch(() => null)) as { text?: unknown; askId?: unknown } | null;
+  if (!body || typeof body.text !== 'string') return json({ error: 'invalid_text' }, 400);
+  const report = { ...r, cityAsks: asksOf(r, env.APP_NAME) };
+  const result = await answerCityAsk(env, { store: deps.store, mailer: deps.mailer ?? createMailer(env), moderate: deps.moderate }, report,
+    { text: body.text, via: 'app', askId: typeof body.askId === 'string' ? body.askId : null });
+  if (result.ok) return json({ ok: true, answer: { at: result.answer.at, via: result.answer.via, status: result.answer.status, text: result.answer.text } });
+  const extra = result.retryAfterSec ? { 'retry-after': String(result.retryAfterSec) } : undefined;
+  return json({ error: result.error, ...(result.retryAfterSec ? { retryAfterSec: result.retryAfterSec } : {}), ...(result.flags ? { flags: result.flags } : {}) }, ANSWER_STATUS[result.error] ?? 400, extra);
 }
 
 // ── GET /api/photos/:id ─────────────────────────────────────

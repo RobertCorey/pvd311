@@ -21,6 +21,7 @@ import { notifyReport, statusChangeEmail } from './notify.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
+import { syncCityAsks, ASK_SETTLE_MS } from './cityask.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
 import type { Mailer } from './contracts.js';
 import type { PortalControl } from './scout.js';
@@ -296,6 +297,10 @@ export async function runWatcher(env: Env): Promise<void> {
   const mailer = createMailer(env);
   const tracked = await store.listSubmittedWithCaseId();
 
+  // City asks (cityask.ts) from what we already stored — relay mail + portal notes: record, mail the reporter, remind at
+  // 48 h. No portal needed, so it runs even when the portal is down. Mail younger than ASK_SETTLE_MS is relay.ts's.
+  await syncAsks(env, store, mailer, tracked);
+
   const auth = createAuthStore(store);
   const portal = createPortal(env, { auth });
   let changes = 0; let rowCount = 0;
@@ -346,6 +351,8 @@ export async function runWatcher(env: Env): Promise<void> {
         if (targets.length) {
           try {
             const sum = await captureCaseDetails(store, portal, targets, { max: DETAIL_PER_WATCH, selfName: env.APP_NAME, reason: changedIds.size ? 'status_change' : 'first' });
+            // A city question can first show up as a portal note (relay missed the mail): pick it up now, not in 30 min.
+            await syncAsks(env, store, mailer, (await Promise.all(targets.map((t) => store.fetchReport(t.id).catch(() => null)))).filter((x): x is ReportDoc => !!x));
             detailNote = `, detail ${sum.checked} read/${sum.changed} changed${sum.unavailable ? `/${sum.unavailable} missing` : ''}${sum.failed ? `/${sum.failed} failed` : ''}`;
             console.log(`[detail]${detailNote.slice(1)} (${targets.length} targets)`);
           } catch (e) {
@@ -395,6 +402,15 @@ export async function runWatcher(env: Env): Promise<void> {
   } finally {
     await portal.close().catch(() => {});
   }
+}
+
+async function syncAsks(env: Env, store: Store, mailer: Mailer, reports: ReportDoc[]): Promise<void> {
+  let opened = 0; let reminded = 0;
+  for (const r of reports) {
+    const s = await syncCityAsks(env, { store, mailer }, r, { settleMs: ASK_SETTLE_MS });
+    opened += s.opened; reminded += s.reminded;
+  }
+  if (opened || reminded) console.log(`[watcher] city asks: ${opened} new, ${reminded} reminded`);
 }
 
 // ── Reconcile pass (P1, flagged RECONCILE_ENABLED) ─────────────────────────────────────

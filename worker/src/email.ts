@@ -47,13 +47,35 @@ export function createMailer(env: Env): Mailer {
     } catch (e) { console.error('[email] reporter mail error', e); await health(false, e); }
   }
 
+  /** City-facing mail from the relay address (cityask.ts). Threads onto the city's message when we know its Message-ID. Never throws. */
+  async function sendAsRelay(o: { to: string; subject: string; text: string; html: string; inReplyTo?: string | null }): Promise<{ ok: boolean; id: string | null; error: string | null }> {
+    if (!env.RESEND_API_KEY) { console.log(`[email] (no RESEND_API_KEY) city mail to=${o.to} ${o.subject}`); return { ok: false, id: null, error: 'email disabled' }; }
+    const relay = env.RELAY_ADDRESS ?? 'cases@fixmypvd.org';
+    const headers = o.inReplyTo ? { 'In-Reply-To': o.inReplyTo, References: o.inReplyTo } : undefined;
+    try {
+      const resp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ from: `${env.APP_NAME || 'FixMyPVD'} <${relay}>`, to: [o.to], reply_to: relay, subject: o.subject, text: o.text, html: o.html, ...(headers ? { headers } : {}) }),
+      });
+      const data = (await resp.json().catch(() => ({}))) as { id?: string; message?: string };
+      if (!resp.ok) { const error = `Resend ${resp.status}: ${data.message ?? 'send failed'}`; await health(false, `${error} (city: ${o.subject})`); return { ok: false, id: null, error }; }
+      await health(true, `city: ${o.subject}`);
+      return { ok: true, id: data.id ?? null, error: null };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      await health(false, e);
+      return { ok: false, id: null, error };
+    }
+  }
+
   /** Fire-and-forget alert; never throws. Subject is prefixed [FixMyPVD]. */
   async function alert(subject: string, html: string): Promise<void> {
     try { await send(`[FixMyPVD] ${subject}`, html); }
     catch (e) { console.error('[email] alert failed:', e); }
   }
 
-  return { send, alert, sendTo };
+  return { send, alert, sendTo, sendAsRelay };
 }
 
 /** Plain-text alternative for a small HTML mail: tags → newlines, entities decoded. */

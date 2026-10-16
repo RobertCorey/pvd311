@@ -37,6 +37,36 @@ export interface PortalCaseDetail {
   truncated?: boolean;
 }
 
+/** What a city email / portal note is, by the city's own templates (cityask.ts). */
+export type CityMailKind = 'receipt' | 'routed' | 'ask' | 'update';
+
+/** One answer the reporter gave to a city ask. `sent` = mailed to the city; `blocked` = moderation stopped it; `failed` = the send failed. */
+export interface CityAskAnswer { at: string; via: 'app' | 'email'; text: string; status: 'sent' | 'blocked' | 'failed'; reason?: string | null; emailId?: string | null }
+
+/** The city asked the reporter for more information (a city email or portal note). Answers go back to `from` as "RE: <subject>". */
+export interface CityAsk {
+  id: string;
+  /** When the city asked (ISO) */
+  at: string;
+  source: 'email' | 'portal';
+  /** The city's sender address; answers go here. Null for a portal-only ask (→ the default 311 address). */
+  from: string | null;
+  /** The city's subject, verbatim — carries the CRM token (PVD311:nnnnnnn) that threads a reply onto the case */
+  subject: string;
+  /** The city's words (image placeholders removed) */
+  text: string;
+  messageId?: string | null;
+  /** Rules matched a city template, or the AI read a non-template staff email as a question to the resident */
+  by: 'rule' | 'ai';
+  /** When we emailed the reporter about it (null: not emailed — stale or the case was already closed) */
+  notifiedAt: string | null;
+  remindedAt?: string | null;
+  answers?: CityAskAnswer[];
+}
+
+/** The city's work order (portal fields cop_workordernumber / cop_workorderstatus / cop_workcompletedon) when it changed. */
+export interface WorkOrderSighting { number: string | null; status: string; completedAt: string | null; at: string }
+
 export interface PortalRouting {
   dept: string;
   at: string | null;
@@ -97,8 +127,13 @@ export interface Report {
   portalDetailCheckedAt?: string | null;
   /** Departments the city dispatched this case to, derived from the timeline (PVD 311 → <dept> emails); oldest first */
   portalRouting?: PortalRouting[] | null;
-  /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20 */
-  cityMessages?: { at: string; from: string; subject: string; text: string; caseId: string | null }[] | null;
+  /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20.
+   *  kind/dept/by: cityask.classifyCityMail at arrival (older rows carry none — classified on read by the rules). */
+  cityMessages?: { at: string; from: string; subject: string; text: string; caseId: string | null; kind?: CityMailKind; dept?: string | null; by?: 'rule' | 'ai'; messageId?: string | null }[] | null;
+  /** Times the city asked the reporter for more information, and the answers we sent back (cityask.ts); oldest first */
+  cityAsks?: CityAsk[] | null;
+  /** The city's work order for this case as the watcher saw it change (casedetail.ts); oldest first */
+  workOrderHistory?: WorkOrderSighting[] | null;
   lastCityEmailAt?: string | null;
   cityCaseId?: string | null;        // case number named by the city's own receipt email (relay) — confirms a submit we could not read back
 

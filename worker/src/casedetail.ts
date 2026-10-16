@@ -16,7 +16,7 @@
  */
 
 import type { CaseDetailRaw, Portal, ReportDoc, Store } from './contracts.js';
-import type { PortalCaseDetail, PortalCaseNote, PortalRouting } from '../../shared/types.js';
+import type { PortalCaseDetail, PortalCaseNote, PortalRouting, WorkOrderSighting } from '../../shared/types.js';
 import { logEvent } from './health.js';
 
 export const DETAIL_PER_WATCH = 10;
@@ -34,6 +34,30 @@ export const RESOLUTION_FIELD = 'adx_resolution';
 export function cityResolutionMessage(r: Pick<ReportDoc, 'portalDetail'>): string | null {
   const v = r.portalDetail?.fields?.[RESOLUTION_FIELD]?.value;
   return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+/** The city's work order on the case (cop_workordernumber / cop_workorderstatus / cop_workcompletedon), verbatim; null when none.
+ *  Its status is the work order's, not the case's — a case can show "Department Responded" with its work order "Completed". */
+export function workOrderOf(fields: PortalCaseDetail['fields'] | null | undefined): { number: string | null; status: string; completedAt: string | null } | null {
+  const v = (k: string) => {
+    const x = fields?.[k]?.value;
+    return typeof x === 'string' && x.trim() && x.trim() !== 'Select' ? x.trim() : null;
+  };
+  const number = v('cop_workordernumber');
+  const status = v('cop_workorderstatus');
+  if (!number && !status) return null;
+  const done = v('cop_workcompletedon');
+  const doneMs = done ? Date.parse(done) : NaN;
+  return { number, status: status ?? '', completedAt: Number.isFinite(doneMs) ? new Date(doneMs).toISOString() : null };
+}
+
+/** Append a sighting when the work order's number or status changed since the last one. Pure. */
+export function nextWorkOrderHistory(prev: WorkOrderSighting[] | null | undefined, fields: PortalCaseDetail['fields'], at: string): WorkOrderSighting[] | null {
+  const wo = workOrderOf(fields);
+  if (!wo) return null;
+  const last = prev?.length ? prev[prev.length - 1] : null;
+  if (last && last.number === wo.number && last.status === wo.status) return null;
+  return [...(prev ?? []), { ...wo, at }].slice(-20);
 }
 
 /** FNV-1a 32-bit over the parts that mean "something changed"; hex. Pure, deterministic. */
@@ -136,7 +160,8 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
     const routing = deriveRouting(next.notes, opts.selfName);
     const prevRouting = report.portalRouting ?? [];
     const newDepts = routing.filter((r) => !prevRouting.some((p) => p.dept === r.dept && p.ticket === r.ticket)).map((r) => r.dept);
-    await store.patchReport(report.id, { portalDetail: next, portalDetailCheckedAt: at, portalRouting: routing });
+    const workOrderHistory = nextWorkOrderHistory(report.workOrderHistory, next.fields, next.capturedAt);
+    await store.patchReport(report.id, { portalDetail: next, portalDetailCheckedAt: at, portalRouting: routing, ...(workOrderHistory ? { workOrderHistory } : {}) });
     sum.changed++;
     const cityNotes = newNotes.filter((n) => !isOwnNote(n, opts.selfName));
     const preview = newNotes.slice(0, 5).map((n) => ({ from: n.from, to: n.to, at: n.modifiedOn, text: n.text.slice(0, 160), attachments: n.attachments.length }));
