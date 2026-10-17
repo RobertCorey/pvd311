@@ -115,7 +115,7 @@ export const cityQuestions = () => {
       const c = live?.[1][q.id] ?? [0, 0, 0];
       const mapped = !!cfg.fields?.[q.id];
       return { ...q, inSeed: seedQs.includes(q0), lastSeenLive: live && q.type !== 'toggle' ? mins(90 + q.id.length) : null, counts: { app: c[0], ai: c[1], blank: c[2] },
-        mode: mapped ? 'app' : 'ai', appOptions: mapped ? APP_SENDS[q.id] ?? null : null, seedLabel: seedQs.includes(q0) ? q0.cityLabel : null, seedOptions: seedQs.includes(q0) ? q0.cityOptions : null };
+        mode: mapped ? 'app' : 'blank', appOptions: mapped ? APP_SENDS[q.id] ?? null : null, seedLabel: seedQs.includes(q0) ? q0.cityLabel : null, seedOptions: seedQs.includes(q0) ? q0.cityOptions : null };
     });
     const blanks = questions.reduce((n, q) => n + q.counts.blank, 0);
     const demand = cfg.demand ?? 0;

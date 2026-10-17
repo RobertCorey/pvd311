@@ -34,7 +34,7 @@
 .cq-answered { white-space: nowrap; }
 .cq-mode { display: inline-block; font-size: .72rem; font-weight: 700; padding: .05rem .45rem; border-radius: 999px; border: 1.5px solid var(--line); }
 .cq-mode--app { background: var(--success-soft); border-color: var(--success); }
-.cq-mode--ai { background: var(--bg); }
+.cq-mode--blank { background: var(--bg); }
 .cq-counts { display: flex; gap: 8px; font-size: var(--admin-meta); font-variant-numeric: tabular-nums; }
 .cq-blank { font-weight: 700; }
 .cq-seen { font-size: var(--admin-meta); }

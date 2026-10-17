@@ -15,8 +15,8 @@
  * English used in emails and admin.
  *
  * `fields` maps Step-3 control ids (cop_*) to a value source. Controls that are visible on the
- * portal but have no mapping here are handled by the agent scout at submit time (worker/src/scout.ts)
- * — never pre-crawled.
+ * portal but have no mapping here are left blank at submit time and named in the description —
+ * no AI fills them (Rob, 2026-10-17).
  */
 
 export type FieldSource =
@@ -130,8 +130,8 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Noise or Sound Disturbances',
     portalCaseTypeGuid: '18e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Noise*',
+    fields: { cop_whereisthenoisefrom: { from: 'extra.noiseSource' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
-    // conditional fields (e.g. "Where is the noise from") are handled by the agent scout until mapped
   },
   graffiti: {
     group: 'property', object: 'graffiti', facet: { q: 'where3', a: 'city' }, demand: 0, synonyms: ['tag', 'spray paint', 'vandalism'],
@@ -139,6 +139,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Graffiti on City-Owned Property',
     portalCaseTypeGuid: '92e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Graffiti on City*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' } }, // asked in the app; a skip leaves it blank
   },
   sidewalk_repair: {
     group: 'streets', object: 'sidewalk', facet: { q: 'sidewalkCause', a: 'other' }, demand: 9, synonyms: ['cracked sidewalk', 'uneven sidewalk', 'trip hazard', 'broken curb'],
@@ -153,7 +154,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Tree Related Issue(s)',
     portalCaseTypeGuid: '070b1e94-b7f3-ef11-be20-001dd804ed86',
     portalSearchTerm: '*Tree Related*',
-    // conditional field (Tree Work: Prune/Remove/...) handled by the scout until mapped
+    // conditional toggle (Tree Work) — the bot can't set toggles; left blank
   },
   street_flooding: {
     group: 'streets', demand: 0, synonyms: ['flooded street', 'standing water', 'puddle'],
@@ -168,8 +169,8 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Traffic Signal Malfunction',
     portalCaseTypeGuid: 'b1c3d9d8-cd3f-ef11-8409-001dd800f706',
     portalSearchTerm: '*Traffic Signal*',
+    fields: { cop_trafficlightissue: { from: 'extra.trafficLightIssue' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
-    // conditional select (cop_trafficlightissue) handled by the scout until mapped
   },
   dead_animal: {
     group: 'animals', demand: 2, synonyms: ['roadkill', 'dead cat', 'dead squirrel'],
@@ -177,7 +178,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Dead Animal on Roadway or Sidewalk',
     portalCaseTypeGuid: '4ce8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Dead Animal*',
-    // No default: a skipped answer goes to the scout, which sees the photo (PVD2026-90139 was a groundhog).
+    // No default: a skipped answer is left blank (PVD2026-90139 was a groundhog).
     fields: { cop_typeofanimal: { from: 'extra.animalType' } },
     photoRequired: false,
   },
@@ -204,6 +205,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Trash on Private Property or Sidewalk',
     portalCaseTypeGuid: '68e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Private Property or Sidewalk*',
+    fields: { cop_propertyoccupiedby: { from: 'extra.occupiedBy' } }, // asked in the app; a skip leaves it blank
   },
   trash_public: {
     group: 'trash', object: 'trash_ground', facet: { q: 'where2', a: 'public' }, demand: 6, synonyms: ['litter', 'overflowing trash can', 'garbage on the street'],
@@ -252,7 +254,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
   // ── Added 2026-10-01: full coverage of the reportable types (Rob: "a UI that guides the user to the correct category").
   // Trigger: PVD2026-89374 (a knocked-down city streetlight pole) went out as "Downed Wire or Leaning Utility Pole" and
   // Verizon bounced it — the portal has a dedicated "Report a Leaning City Streetlight Pole" type we didn't map.
-  // Step-3 fields for all of these are scouted at submit time until mapped.
+  // Step-3 questions for these are left blank unless mapped in `fields`.
 
   // Trash & recycling
   bins_left_out: {
@@ -510,6 +512,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Decorative Street Light Issue',
     portalCaseTypeGuid: 'd4e7b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Decorative Street Light*',
+    fields: { cop_streetlightrepair: { from: 'extra.lightProblem' }, cop_polenumberrequested: { from: 'extra.poleNumber' } }, // asked in the app; a skip leaves it blank
   },
 
   // Water, sewer & gas
@@ -533,6 +536,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Report Sewage Backup',
     portalCaseTypeGuid: '44e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Sewage Backup*',
+    fields: { cop_locationofbackup: { from: 'extra.backupLocation' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
   },
   raw_sewage: {
@@ -541,6 +545,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Faulty Plumbing or Raw Sewage',
     portalCaseTypeGuid: 'e4e7b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Raw Sewage*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' } }, // asked in the app; a skip leaves it blank
   },
   gas_smell: {
     group: 'water', demand: 0, synonyms: ['gas leak', 'smell gas', 'rotten egg smell', 'natural gas'],
@@ -582,6 +587,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Request Rodent Baiting Information',
     portalCaseTypeGuid: '9714e369-5b9a-ef11-8a6a-001dd830140a',
     portalSearchTerm: '*Rodent*',
+    fields: { cop_propertyoccupiedby: { from: 'extra.occupiedBy' }, cop_typeofrodentrequest: { from: 'extra.rodentRequest' } }, // asked in the app; a skip leaves it blank
     requestType: '1',
     photoRequired: false,
   },
@@ -593,6 +599,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Graffiti on Private Property',
     portalCaseTypeGuid: '7ae8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Graffiti on Private*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' } }, // asked in the app; a skip leaves it blank
   },
   graffiti_park: {
     group: 'property', object: 'graffiti', facet: { q: 'where3', a: 'park' }, demand: 0, synonyms: ['tag', 'spray paint', 'vandalism', 'graffiti in a park', 'graffiti on playground'],
@@ -614,6 +621,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Abandoned or Vacant City Owned Property Concerns',
     portalCaseTypeGuid: 'bae7b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Vacant City*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' } }, // asked in the app; a skip leaves it blank
   },
   reboarding: {
     group: 'property', demand: 0, synonyms: ['boards removed', 'open vacant house', 'unboarded', 'board up'],
@@ -621,6 +629,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Request Reboarding of Abandoned Property',
     portalCaseTypeGuid: '3ce8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Reboarding*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' } }, // asked in the app; a skip leaves it blank
     requestType: '3',
   },
   building_code: {
@@ -637,6 +646,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Substandard Housing Code Issues or Violations',
     portalCaseTypeGuid: 'c6e7b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Substandard Housing*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' }, cop_typeofviolation: { from: 'extra.violationType' }, cop_nameandnumberoflandlord: { from: 'extra.landlord' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
   },
   illegal_housing: {
@@ -645,6 +655,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Illegal Housing Issues or Concerns',
     portalCaseTypeGuid: '04e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Illegal Housing*',
+    fields: { cop_typeofillegalhousing: { from: 'extra.illegalHousingType' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
   },
   zoning: {
@@ -668,6 +679,7 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Permit Issues at a Construction Site',
     portalCaseTypeGuid: '22e8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Permit Issues*',
+    fields: { cop_typeofproperty: { from: 'extra.propertyType' }, cop_typeofpermit: { from: 'extra.permitWhose' } }, // asked in the app; a skip leaves it blank
     photoRequired: false,
   },
   city_property_maintenance: {
@@ -769,6 +781,18 @@ export const EXTRA_QUESTIONS: Record<string, { type: 'choice' | 'text'; options?
   cartIssue: { type: 'choice', options: ['I did not receive my new carts.', 'My old carts were not removed', 'Other'] },
   animalType: { type: 'choice', options: ['Wildlife', 'Domestic'] },
   vehicleDetails: { type: 'text' },
+  noiseSource: { type: 'choice', options: ["House", "Business (add name to description)", "Car", "Park (add name to description)", "Other (add to description)"] },
+  propertyType: { type: 'choice', options: ["Commercial (my own)", "Commercial (someone else's property)", "Residential (that I own or rent)", "Residential (someone else's property)", "City Property (add to description)"] },
+  violationType: { type: 'choice', options: ["Internal", "External"] },
+  landlord: { type: 'text' },
+  permitWhose: { type: 'choice', options: ["Your Own", "Another Person's"] },
+  trafficLightIssue: { type: 'choice', options: ["Signals not synchronized", "Timing issue", "Pole knocked down", "Walk signal not working", "Red light flashing", "Signal not detecting vehicles"] },
+  occupiedBy: { type: 'choice', options: ["Owner", "Tenant"] },
+  lightProblem: { type: 'choice', options: ["Light is out", "Light is turning on and off", "Light is too bright", "Other (add to description)"] },
+  poleNumber: { type: 'text' },
+  backupLocation: { type: 'choice', options: ["Inside (Shower, toilet, etc)", "Outside (add location to description)"] },
+  rodentRequest: { type: 'choice', options: ["Baiting", "Rebaiting"] },
+  illegalHousingType: { type: 'choice', options: ["Apartment", "Home", "Residing in Commercial Building"] },
 };
 
 export type Category = keyof typeof CATEGORIES;

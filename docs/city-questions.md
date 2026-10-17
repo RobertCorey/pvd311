@@ -1,5 +1,7 @@
 # City questions that heal themselves — plan (Rob, 2026-10-16)
 
+> **2026-10-17:** no AI answers city questions any more (Rob: "I really don't like the AI automatically filling things in"). The reporter answers in the app (21 reporter-only questions now asked across 16 categories), a fixed default applies, or the question is left blank and named in the description. Mentions of the scout / `ai` mode below are history.
+
 **Goal.** Every live filing teaches us about that category's city form. The system compares what it learned against how the app handles that category, shows the gaps, and lets one click turn a gap into an in-app question. No per-category code. ("Every time a reporter triggers a noise complaint run we have more data about noise complaints; check it against the app and update.")
 
 ## What we already have

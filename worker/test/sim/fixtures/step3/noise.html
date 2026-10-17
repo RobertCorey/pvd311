@@ -1,19 +1,16 @@
 <!--
-  Step-3 conditional controls for "Noise or Sound Disturbances" (case type 18e8b671-...).
-  cop_noisesource has NO static mapping in shared/categories.ts (noise has no `fields`),
-  so dumpControls() reports it as unmapped and, in live mode, the agent scout fills it.
-  Used to prove the scout IS invoked on an unmapped-but-known control (with the Anthropic
-  client stubbed), and — with an empty ANTHROPIC_API_KEY and the real scout — that an
-  unmapped control fails loud as NEEDS_MAPPING.
+  Step-3 conditional controls for "Noise or Sound Disturbances" (case type 18e8b671-...), matching the live
+  form (city-questions seed, 2026-10-16). The app asks it (extra.noiseSource); a reporter who skips it leaves
+  it blank — no AI fills it (2026-10-17).
 -->
 <div class="form-group">
-  <label for="cop_noisesource">Where is the noise coming from?</label>
-  <select id="cop_noisesource" name="ctl00$ContentContainer$cop_noisesource" aria-label="Where is the noise coming from?">
+  <label for="cop_whereisthenoisefrom">Where is the noise from</label>
+  <select id="cop_whereisthenoisefrom" name="ctl00$ContentContainer$cop_whereisthenoisefrom" aria-label="Where is the noise from">
     <option value="">Select</option>
-    <option value="585680000">Residence</option>
-    <option value="585680001">Business</option>
-    <option value="585680002">Street or Public Space</option>
-    <option value="585680003">Construction</option>
-    <option value="585680004">Other</option>
+    <option value="585680000">House</option>
+    <option value="585680001">Business (add name to description)</option>
+    <option value="585680002">Car</option>
+    <option value="585680003">Park (add name to description)</option>
+    <option value="585680004">Other (add to description)</option>
   </select>
 </div>

@@ -4,7 +4,7 @@
  * Modes (env.HITL_MODE):
  *   review — every report needs a tap before it goes to the city (launch mode)
  *   ramp   — an account's first ACCOUNT_TRUST_N reports need taps; after that a clean history auto-approves
- *   auto   — nothing waits for a human (goal state; the agent scout still handles unmapped fields)
+ *   auto   — nothing waits for a human (goal state; unanswered city questions are left blank)
  *
  * Approvals arrive as signed HTTP GETs to /hitl/approve|reject (see index.ts) — no polling.
  */

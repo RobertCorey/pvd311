@@ -644,7 +644,7 @@ export default function Report() {
               {q.type === 'choice' ? (
                 <select id={id} className="select" value={extra[k] ?? ''} onChange={(e) => setExtra({ ...extra, [k]: e.target.value })}>
                   <option value="">{t('report.details.choose')}</option>
-                  {q.options!.map((o) => <option key={o} value={o}>{o}</option>)}
+                  {q.options!.map((o) => { const lk = `extra.${k}.opt.${o}`; const l = t(lk); return <option key={o} value={o}>{l === lk ? o : l}</option>; })}
                 </select>
               ) : (
                 <input id={id} className="input" placeholder={t(`extra.${k}.placeholder`)} value={extra[k] ?? ''} onChange={(e) => setExtra({ ...extra, [k]: e.target.value })} />

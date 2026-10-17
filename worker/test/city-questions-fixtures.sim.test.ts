@@ -27,9 +27,6 @@ const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), 'sim', 'fixtur
 
 /** `<category>`: ["<flag kind>:<control id>", …] — drift we know about. Each needs a TODO. */
 const KNOWN_DRIFT: Record<string, string[]> = {
-  // TODO(city-questions phase 3): the noise fixture predates the live form — live is cop_whereisthenoisefrom
-  // ("Where is the noise from": House / Business / Car / Park / Other), the fixture still has cop_noisesource.
-  noise: ['new_question:cop_noisesource', 'gone:cop_whereisthenoisefrom'],
   // TODO(city-questions phase 3): live radio options read "Request Type <option>" (the collector keeps the
   // aria-label prefix); the fixture's aria-labels are the bare option text.
   bins_carts: ['options_changed:cop_cartrequesttype'],

@@ -6,10 +6,8 @@
  * case id — and NEVER report a green submit. The invariant checked in every case is
  * `casesCreated === 0`: the sim recorded no successfully-created city case.
  *
- * Runs the same mocked-launch + real-Chromium seam as portal.sim.test.ts. The mutations that surface
- * an unexpected control lean on the REAL scout with an empty ANTHROPIC_API_KEY, which fails closed as
- * NEEDS_MAPPING with zero network — exactly what production does when drift outruns the static map and
- * no scout key is configured.
+ * Runs the same mocked-launch + real-Chromium seam as portal.sim.test.ts. A renamed app-answered control
+ * or an unseen required control parks the report as NEEDS_MAPPING (portal.ts fillStep3) — no AI fills it.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
@@ -33,7 +31,7 @@ afterAll(async () => { await sim?.close(); });
 beforeEach(() => { sim.reset(); });
 
 /**
- * Drive one live submit end-to-end with no injected scout (so the REAL scout runs). Returns whichever
+ * Drive one live submit end-to-end. Returns whichever
  * of {result, error} happened.
  *
  * Note on the read-before-close: the driver arms a navigation-wait promise just before clicking Submit
@@ -44,7 +42,7 @@ beforeEach(() => { sim.reset(); });
  * failure path — noted for the driver owner — not a test artifact.)
  */
 async function runMutation(report = makeReport()): Promise<{ result?: SubmitResult; error?: Error }> {
-  const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() }); // real scout, empty ANTHROPIC_API_KEY
+  const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
   await portal.launch();
   let result: SubmitResult | undefined;
   let error: Error | undefined;
@@ -59,7 +57,7 @@ async function runMutation(report = makeReport()): Promise<{ result?: SubmitResu
 }
 
 describe('portal simulator — mutation / drift suite (must fail loud, never a green submit)', () => {
-  it('rename a Step-3 control id → unmapped control → NEEDS_MAPPING (scout fails closed, no key)', async () => {
+  it('rename a Step-3 control id the app answers → NEEDS_MAPPING (never drop the reporter\'s answer)', async () => {
     sim.mutate('rename-control', { from: 'cop_size', to: 'cop_size_renamed' });
     const { error } = await runMutation(makeReport({ category: 'pothole' }));
     expect(error?.message).toMatch(/NEEDS_MAPPING/);
@@ -119,7 +117,7 @@ describe('portal simulator — mutation / drift suite (must fail loud, never a g
 
   it('lookup-modal pager stalls (page 2 never renders) → listCaseTypes throws, never a short list', async () => {
     sim.mutate('lookup-pager-stall');
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     await expect(portal.listCaseTypes()).rejects.toThrow(/pager stalled going to page 2 \(10 types read so far\)/);
     await portal.close();

@@ -120,6 +120,30 @@ test('picker remembers the last type as a quick pick', async ({ page }) => {
   await expect(page.locator('.quick-chip--last[data-category="tree"]')).toBeVisible();
 });
 
+test('city question asked in the app (noise → "Where is the noise coming from?"): the answer is sent as the city\'s own option', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await pickType(page, 'nuisance', 'noise');
+  const q = page.getByLabel('Where is the noise coming from?');
+  await expect(q).toBeVisible();
+  await expect(q.locator('option')).toHaveText(['Choose…', 'House', 'Business (add name to description)', 'Car', 'Park (add name to description)', 'Other (add to description)']);
+  await q.selectOption('Car');
+  await page.fill('#address', '25 Dorrance St');
+  await page.locator('#address').blur();
+  const [req] = await Promise.all([page.waitForRequest(`${API}/api/report`), page.getByRole('button', { name: 'Send to Providence 311' }).click()]);
+  expect(req.postData() ?? '').toContain('{"noiseSource":"Car"}');
+});
+
+test('city question in Spanish: labels and choices translated, the value sent is still the city\'s option', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await mockApi(page);
+  await page.goto('/');
+  await pickType(page, 'property', 'substandard_housing');
+  const q = page.getByLabel('¿El problema está dentro o fuera del edificio?');
+  await expect(q.locator('option[value="Internal"]')).toHaveText('Dentro');
+  await expect(page.getByLabel('Nombre y teléfono del dueño o casero (si los sabes)')).toBeVisible();
+});
+
 test('photo-optional category: address → submit → tracking page (no bot check: the sign-in is the check)', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');

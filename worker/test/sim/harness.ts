@@ -12,7 +12,7 @@ export function makeEnv(portalBaseUrl: string, over: Partial<Env> = {}): Env {
     APP_NAME: 'PVD311 sim',
     PORTAL_EMAIL: 'test@pvdsnow.org',
     PORTAL_PASSWORD: 'hunter2',
-    ANTHROPIC_API_KEY: '', // empty by default → the real scout fails loud (NEEDS_MAPPING) with no network
+    ANTHROPIC_API_KEY: '', // empty: no AI calls from the sim
     BROWSER: {} as unknown as Fetcher, // unused: @cloudflare/playwright.launch is mocked in the test
     ...over,
   } as Env;

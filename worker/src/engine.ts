@@ -44,7 +44,7 @@ const RETRY_BACKOFF_MS = 10 * 60_000;
 const DUP_WINDOW_HOURS = 24;
 const DUP_DISTANCE_M = 50;
 const BREAKER_THRESHOLD = 3;
-const LOCK_MS = 12 * 60_000; // must exceed the longest submission (login + wizard + scout + photo); ticks skip while locked
+const LOCK_MS = 12 * 60_000; // must exceed the longest submission (login + wizard + photo); ticks skip while locked
 const STRANDED_DRAFT_AGE_MS = 24 * 60 * 60_000; // a Draft older than this whose report is dead is "stranded" (undeletable)
 
 export interface EngineState {
@@ -196,7 +196,7 @@ async function submitOne(
     await store.updateReportStatus(report.id, 'submitted', detail, result.caseId);
     await store.patchReport(report.id, { caseIdPending: !result.caseId, portalEntityId: result.entityId ?? report.portalDraft?.entityId ?? null, portalCaseIdCandidate: result.caseIdCandidate ?? report.portalDraft?.caseId ?? null });
     if (result.alreadyFiled) await logEvent(store, { level: 'warn', kind: 'submit.already_filed', msg: detail, reportId: report.id });
-    if (result.leftBlank?.length) await logEvent(store, { level: 'warn', kind: 'submit.left_blank', msg: `Filed with city question(s) left blank (scout unsure): ${result.leftBlank.join(', ')}`, reportId: report.id, data: { leftBlank: result.leftBlank } });
+    if (result.leftBlank?.length) await logEvent(store, { level: 'warn', kind: 'submit.left_blank', msg: `Filed with city question(s) left blank (no answer from the reporter): ${result.leftBlank.join(', ')}`, reportId: report.id, data: { leftBlank: result.leftBlank } });
     if (!result.caseId) await logEvent(store, { level: 'warn', kind: 'submit.unconfirmed', msg: 'Portal accepted the submission but no case number was read; watcher will reconcile', reportId: report.id });
     await store.setMeta('engine', {
       submissionTimestamps: [...stamps, Date.now()].slice(-50),

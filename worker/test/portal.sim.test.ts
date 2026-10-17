@@ -7,7 +7,7 @@
  * bundled playwright-core cannot spawn a local browser, so we mock the module and route launch()
  * to a real Playwright Chromium resolved from the repo (see ./sim/browser.ts). Everything else —
  * ensureLoggedIn, fillStep1 (incl. honeypot + case-type modal), fillStep2, fillStep3
- * (dumpControls/setControl/scout), submit, extractCaseId, readMyRequests/parseRow, canary — is
+ * (dumpControls/setControl), submit, extractCaseId, readMyRequests/parseRow, canary — is
  * the production code path unchanged.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -22,7 +22,7 @@ vi.mock('@cloudflare/playwright', () => ({
 import { createPortal } from '../src/portal';
 import { loadRealChromium } from './sim/browser';
 import { startSim, type Sim } from './sim/server';
-import { makeEnv, memAuthStore, makeReport, TINY_JPEG_DATA_URL } from './sim/harness';
+import { makeEnv, memAuthStore, makeReport } from './sim/harness';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -43,10 +43,9 @@ describe('portal simulator — happy path', () => {
     expect(source).toMatch(/node_modules\/playwright(-core)?\/index\.js$/);
   });
 
-  it('logs in, runs the full wizard, and returns a confirmed PVD case id (scout NOT called — all controls mapped)', async () => {
-    const scout = vi.fn(); // spy: pothole's only Step-3 control (cop_size) is statically mapped
+  it('logs in, runs the full wizard, and returns a confirmed PVD case id', async () => {
     const auth = memAuthStore();
-    const portal = createPortal(makeEnv(sim.url), { auth, scout });
+    const portal = createPortal(makeEnv(sim.url), { auth });
     await portal.launch();
     const drafts: any[] = [];
     const res = await portal.submitReport(makeReport(), { mode: 'live', onDraft: async (d) => { drafts.push(d); } });
@@ -55,7 +54,7 @@ describe('portal simulator — happy path', () => {
     expect(res.mode).toBe('live');
     expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
     expect(res.caseIdConfirmed).toBe(true); // matched OUR draft's row in the grid, left Draft
-    expect(scout).not.toHaveBeenCalled();
+    expect(res.leftBlank).toBeUndefined(); // pothole's only Step-3 control (cop_size) is asked in the app
     // Drafts were persisted after Step 1 (step 2) and Step 2 (step 3); the PVD is read off the draft
     // (Edit-Request input#title) so each carries the assigned case id.
     expect(drafts.some((d) => d.step === 2)).toBe(true);
@@ -76,7 +75,7 @@ describe('portal simulator — happy path', () => {
     const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: 'Dorrance St', LongLabel: 'Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'StreetName' } })));
     globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
     try {
-      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
       await portal.launch();
       const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
       await portal.close();
@@ -94,7 +93,7 @@ describe('portal simulator — happy path', () => {
     const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: '30 Dorrance St', LongLabel: '30 Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'PointAddress' } })));
     globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
     try {
-      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
       await portal.launch();
       const res = await portal.submitReport(makeReport({ address: '30 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
       await portal.close();
@@ -109,7 +108,7 @@ describe('portal simulator — happy path', () => {
     const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: '30 Dorrance St', LongLabel: '30 Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'StreetAddress' } })));
     globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
     try {
-      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
       await portal.launch();
       const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
       await portal.close();
@@ -119,21 +118,9 @@ describe('portal simulator — happy path', () => {
     }
   });
 
-  it('the scout is shown the report photo (PVD2026-90139: a groundhog, no description, "Type of Animal" left blank)', async () => {
-    sim.mutate('rename-control', { from: 'cop_size', to: 'cop_size_renamed' }); // pothole's one control → unmapped → scout
-    const scout = vi.fn(async () => ({ values: { cop_size_renamed: 'Large (~36in)' }, confidence: 0.9, notes: '' }));
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout });
-    await portal.launch();
-    const res = await portal.submitReport(makeReport(), { mode: 'live' });
-    await portal.close();
-    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
-    expect(scout).toHaveBeenCalledTimes(1);
-    expect((scout.mock.calls[0] as any)[0].photo).toEqual({ base64: TINY_JPEG_DATA_URL.split(',')[1], mimeType: 'image/jpeg' });
-  });
-
   it('check-before-create: a retry whose draft already converted returns alreadyFiled without re-running the wizard', async () => {
     // First: a clean submit produces a Submitted grid row with a real PVD number.
-    const p1 = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const p1 = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await p1.launch();
     const first = await p1.submitReport(makeReport(), { mode: 'live' });
     await p1.close();
@@ -142,7 +129,7 @@ describe('portal simulator — happy path', () => {
     expect(before.casesCreated).toBe(1);
 
     // Then: a retry carrying that draft's caseId sees it already filed (non-Draft) and short-circuits.
-    const p2 = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const p2 = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await p2.launch();
     const retry = await p2.submitReport(
       makeReport({ portalDraft: { url: `${sim.url}/my-requests/New-Request/?stepid=step3&id=x`, entityId: 'x', step: 3, savedAt: new Date().toISOString(), caseId } as any }),
@@ -160,7 +147,7 @@ describe('portal simulator — happy path', () => {
 
   it('slow Submit postback (> 10 s; PVD2026-90089/90090 on 2026-10-16): the click times out but the case IS filed — return the confirmed PVD, never throw', async () => {
     sim.mutate('slow-postback', { ms: '12000' });
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const res = await portal.submitReport(makeReport(), { mode: 'live' });
     await portal.close();
@@ -175,7 +162,7 @@ describe('portal simulator — happy path', () => {
 
   it('hung Submit postback (no answer in 60 s): recorded as filed with the case number unconfirmed (draft PVD as candidate) — a throw would retry and file it twice', async () => {
     sim.mutate('slow-postback', { ms: '75000' });
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const drafts: any[] = [];
     const res = await portal.submitReport(makeReport(), { mode: 'live', onDraft: async (d) => { drafts.push(d); } });
@@ -191,7 +178,7 @@ describe('portal simulator — happy path', () => {
 
   it('a stale draft that will not resume → a fresh draft is filed and the result describes the FRESH one (2026-10-16 duplicate root cause)', async () => {
     const stale = { url: `${sim.url}/my-requests/New-Request/?stepid=step2&id=gone`, entityId: 'stale-guid', step: 2, savedAt: new Date().toISOString(), caseId: null };
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const drafts: any[] = [];
     const res = await portal.submitReport(makeReport({ portalDraft: stale as any }), { mode: 'live', onDraft: async (d) => { drafts.push(d); } });
@@ -211,7 +198,7 @@ describe('portal simulator — happy path', () => {
     const report = makeReport();
 
     // Pass 1: inspect mode drives the wizard to Step 3 (creating the draft entity) but never submits.
-    const p1 = createPortal(makeEnv(sim.url), { auth, scout: vi.fn() });
+    const p1 = createPortal(makeEnv(sim.url), { auth });
     await p1.launch();
     const drafts: any[] = [];
     const r1 = await p1.submitReport(report, { mode: 'inspect', onDraft: async (d) => { drafts.push(d); } });
@@ -228,7 +215,7 @@ describe('portal simulator — happy path', () => {
     expect(s.signInPosts).toBe(1);
 
     // Pass 2: a new driver instance resumes from the persisted draft and submits.
-    const p2 = createPortal(makeEnv(sim.url), { auth, scout: vi.fn() });
+    const p2 = createPortal(makeEnv(sim.url), { auth });
     await p2.launch();
     const r2 = await p2.submitReport({ ...report, portalDraft: step3Draft } as any, { mode: 'live' });
     await p2.close();
@@ -245,7 +232,7 @@ describe('portal simulator — happy path', () => {
   });
 
   it('readMyRequests parses the grid: the Draft row (no PVD; keyed by GUID) and the converted (Submitted) row', async () => {
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     await portal.ensureLoggedIn();
     const rows = await portal.readMyRequests();
@@ -264,7 +251,7 @@ describe('portal simulator — happy path', () => {
   });
 
   it('readCaseDetail: search → row → modal iframe → fields + timeline (routing emails); closes + clears; null for unknown', async () => {
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     await portal.ensureLoggedIn();
     const before = sim.snapshot();
@@ -291,7 +278,7 @@ describe('portal simulator — happy path', () => {
     // and then captureCaseDetails. The live grid (Fluent DetailsList) renders its rows ~2-3 s later, so a driver
     // that trusts "already on /my-requests/" sees an empty grid and logs "not found in My Requests" (2026-10-01/02,
     // PVD2026-89374). The second ensureLoggedIn below is the already-signed-in shape; the sim holds rows back.
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     await portal.ensureLoggedIn();
     await portal.ensureLoggedIn(); // signed in → goto /my-requests/, .username present, return immediately
@@ -306,7 +293,7 @@ describe('portal simulator — happy path', () => {
     // 2026-10-16: each watcher run read its first case, then every later row click timed out at 30 s ("visible,
     // enabled and stable") — the first case's modal was still over the grid. Each read now starts on a fresh grid.
     sim.mutate('sticky-detail-modal');
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     await portal.ensureLoggedIn();
     expect((await portal.readCaseDetail('PVD2026-00098'))?.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
@@ -315,7 +302,7 @@ describe('portal simulator — happy path', () => {
   });
 
   it('canary passes against the fresh contract and is non-mutating (no submit, no wizard advance)', async () => {
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const c = await portal.canary();
     await portal.close();
@@ -331,7 +318,7 @@ describe('portal simulator — happy path', () => {
   });
 
   it('listCaseTypes reads EVERY page of the lookup modal (126 types over 13 pages; the table empties while a page loads) and is non-mutating', async () => {
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const types = await portal.listCaseTypes();
     await portal.close();
@@ -345,28 +332,9 @@ describe('portal simulator — happy path', () => {
     expect(s.casesCreated).toBe(0);
   });
 
-  it('scout fills an unmapped control (noise → cop_noisesource) and the value is applied on submit', async () => {
-    const scout = vi.fn(async () => ({ values: { cop_noisesource: 'Residence' }, confidence: 0.9, notes: 'residential complaint' }));
-    const report = makeReport({ category: 'noise', extra: null, photo: null });
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout });
-    await portal.launch();
-    const res = await portal.submitReport(report, { mode: 'live' });
-    await portal.close();
-
-    expect(scout).toHaveBeenCalledTimes(1);
-    const call = scout.mock.calls[0][0];
-    expect(call.controls.map((c: any) => c.id)).toContain('cop_noisesource');
-    expect(call.caseTypeName).toBe('Noise or Sound Disturbances');
-    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
-    expect(res.leftBlank).toBeUndefined();
-    expect(sim.snapshot().casesCreated).toBe(1);
-    expect(sim.snapshot().lastSubmit?.fields.cop_noisesource).toBeTruthy();
-  });
-
-  it('scout unsure (confidence < 0.7; PVD2026-90091 stalled this way): files anyway — the question is left blank and named in the description', async () => {
-    const scout = vi.fn(async () => ({ values: { cop_noisesource: 'Residence' }, confidence: 0.4, notes: 'source not stated' }));
-    const report = makeReport({ category: 'noise', extra: null, photo: null });
-    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout });
+  it('no AI fill (Rob, 2026-10-17): a city question the reporter skipped is left blank and named in the description; the report still files', async () => {
+    const report = makeReport({ category: 'noise', extra: null, photo: null }); // noise asks "Where is the noise from" in the app; skipped here
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
     await portal.launch();
     const res = await portal.submitReport(report, { mode: 'live' });
     await portal.close();
@@ -376,8 +344,19 @@ describe('portal simulator — happy path', () => {
     expect(res.leftBlank).toHaveLength(1);
     const s = sim.snapshot();
     expect(s.casesCreated).toBe(1);
-    expect(s.lastSubmit?.fields.cop_noisesource ?? '').toBe(''); // the unsure guess never reached the city
+    expect(s.lastSubmit?.fields.cop_whereisthenoisefrom ?? '').toBe('');
     expect(s.lastSubmit?.description).toContain(`Not specified by the reporter: ${res.leftBlank![0]}.`);
+  });
+
+  it('the reporter\'s in-app answer goes to the city verbatim (noise → "Where is the noise from")', async () => {
+    const report = makeReport({ category: 'noise', extra: { noiseSource: 'Car' }, photo: null });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
+    await portal.launch();
+    const res = await portal.submitReport(report, { mode: 'live' });
+    await portal.close();
+    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+    expect(res.leftBlank).toBeUndefined();
+    expect(sim.snapshot().lastSubmit?.fields.cop_whereisthenoisefrom).toBeTruthy();
   });
 
   it('exposes the /_sim control endpoints over HTTP', async () => {

@@ -9,8 +9,8 @@
  * bot actually saw (SubmitResult.controls, VISIBLE only) with the seed for that category and records how this filing
  * answered each question:
  *   app    — a category `fields` mapping set it (the reporter answered in the app, or its default);
- *   ai     — the scout set a value (SubmitResult.scouted);
- *   blank  — nothing set it (scout unsure → SubmitResult.leftBlank, or it returned no value; or an on/off toggle,
+ *   ai     — the AI scout set a value (SubmitResult.scouted) — filings before 2026-10-17 only; the scout is gone;
+ *   blank  — nothing set it (not asked / skipped → SubmitResult.leftBlank; or an on/off toggle,
  *            which the bot's control collector never sees, so it stays at the city's default).
  * Flags (vs the seed, plus the app's own options):
  *   new_question      — visible live, not in the seed;
@@ -242,8 +242,8 @@ export async function auditCityQuestions(
 // ── Admin view ─────────────────────────────────────────────────────────────────────────
 
 export interface AdminQuestionRow extends QuestionRecord {
-  /** How the engine answers it today: 'app' = a category `fields` mapping; 'ai' = the scout (blank when unsure). */
-  mode: 'app' | 'ai';
+  /** How the engine answers it today: 'app' = a category `fields` mapping (asked in the app); 'blank' = not asked, left blank (no AI fill since 2026-10-17). */
+  mode: 'app' | 'blank';
   appOptions: string[] | null;
   seedLabel: string | null;
   seedOptions: string[] | null;
@@ -271,7 +271,7 @@ export function buildAdminView(records: CityQuestionsDoc[], seed: CityQuestionsS
     for (const q of rec?.questions ?? []) qs.set(q.id, { ...q, inSeed: seedQs.some((s) => s.id === q.id), counts: { ...zero(), ...q.counts } });
     const questions: AdminQuestionRow[] = [...qs.values()].map((q) => {
       const s = seedQs.find((x) => x.id === q.id) ?? null;
-      return { ...q, mode: q.id in mapped ? 'app' : 'ai', appOptions: mapped[q.id] ?? null, seedLabel: s?.cityLabel ?? null, seedOptions: s?.cityOptions ?? null };
+      return { ...q, mode: q.id in mapped ? 'app' : 'blank', appOptions: mapped[q.id] ?? null, seedLabel: s?.cityLabel ?? null, seedOptions: s?.cityOptions ?? null };
     });
     const blanks = questions.reduce((n, q) => n + q.counts.blank, 0);
     const demand = cfg.demand ?? 0;

@@ -30,8 +30,9 @@ import type {
   SubmitOptions,
   SubmitResult,
 } from './contracts.js';
-import { scoutFields as defaultScoutFields, type PortalControl } from './scout.js';
+import type { PortalControl } from './scout.js';
 import { chooseStep2Source, buildDescription } from './address.js';
+import { SEED } from './cityquestions.js';
 
 declare const document: any;
 declare const window: any;
@@ -44,7 +45,6 @@ const UA =
  *  relay inbox (relay.ts) once PORTAL_NOTIFY_METHOD is set; default '585680003' No Contact Necessary. */
 const DEFAULT_NOTIFICATION_METHOD = '585680003';
 /** Scout confidence below this leaves the unsure questions blank (named in the description) rather than guessing. */
-const SCOUT_MIN_CONFIDENCE = 0.7;
 
 const STEP1_SELECTORS: Record<string, string> = {
   requestType: '#casetypecode',
@@ -59,7 +59,6 @@ type SetInputFilesArg = Parameters<Page['setInputFiles']>[1];
 
 export interface PortalDeps {
   auth: AuthStore;
-  scout?: typeof defaultScoutFields;
 }
 
 export function createPortal(env: Env, deps: PortalDeps): Portal {
@@ -79,7 +78,7 @@ class WorkerPortal implements Portal {
   }
 
   async launch(): Promise<void> {
-    // Browser Run closes a session after 60 s with no CDP traffic. A Submit postback wait (60 s) or a scout call can
+    // Browser Run closes a session after 60 s with no CDP traffic. A Submit postback wait (60 s) can
     // sit that long, so keep the session up to the 10-min max; close() still ends it as soon as the tick is done.
     this.browser = await launch(this.env.BROWSER, { keep_alive: 600_000 });
     const state = await this.deps.auth.load();
@@ -499,7 +498,7 @@ class WorkerPortal implements Portal {
     const description = buildDescription(report, this.env.APP_NAME);
     await page.fill('#description', description);
 
-    // Conditional fields: known mappings first, then the agent scout for anything left visible.
+    // Conditional fields: the reporter's answers / fixed defaults (cat.fields); anything else is left blank.
     // dumpControls() now returns hidden controls too (for the drift canary); only fill the ones the
     // portal is actually SHOWING for this case type — a hidden control is not applicable here.
     const controls = await this.dumpControls();
@@ -517,34 +516,24 @@ class WorkerPortal implements Portal {
       }
     }
 
-    // Loaded once: the scout looks at it and the wizard attaches it.
     const photo = report.photo ? await this.loadPhoto(report.photo) : null;
 
-    let scouted: Record<string, string> | undefined;
+    // No AI fill (Rob, 2026-10-17: "I really don't like the AI automatically filling things in"): a city question
+    // gets the reporter's answer (or a fixed default) from `cat.fields`, else it is left blank and named in the
+    // description. The city marks none of its Step-3 questions required; if one ever is, park the report
+    // (NEEDS_MAPPING) rather than submit a form the city would reject.
     let leftBlank: string[] | undefined;
     if (unmapped.length && mode === 'live') {
-      const scout = this.deps.scout ?? defaultScoutFields;
-      const result = await scout({
-        apiKey: this.env.ANTHROPIC_API_KEY,
-        category: report.category,
-        caseTypeName: cat.portalCaseTypeName,
-        report,
-        controls: unmapped,
-        photo: photo ? { base64: photo.base64, mimeType: photo.mimeType } : undefined,
-      });
-      if (result.confidence >= SCOUT_MIN_CONFIDENCE) {
-        scouted = result.values;
-        for (const c of unmapped) {
-          const v = scouted[c.id];
-          if (v !== undefined) await this.setControl(c, v);
-        }
-      } else {
-        // File first, quality later (Rob, 2026-10-16): the city marks none of its Step-3 questions required
-        // (only max-length validators; its show/hide script never sets one), so an unsure guess is left
-        // blank and named in the description instead of parking the report (PVD2026-90091 stalled this way).
-        leftBlank = unmapped.map((c) => c.label || c.id);
-        await page.fill('#description', `${description}\n\nNot specified by the reporter: ${leftBlank.join(', ')}.`);
-      }
+      // A question we ask in the app is gone AND the form shows one we've never seen: most likely the city renamed
+      // it. Park rather than drop the reporter's answer (the city-questions audit names the drift).
+      const seedIds = new Set((SEED.categories[report.category] ?? []).map((q) => q.id));
+      const lost = Object.keys(cat.fields ?? {}).filter((id) => !controls.some((c) => c.visible && c.id === id));
+      const unknown = unmapped.filter((c) => !seedIds.has(c.id));
+      if (lost.length && unknown.length) throw new Error(`NEEDS_MAPPING: ${lost.join(', ')} no longer on the form; new: ${unknown.map((c) => c.id).join(', ')}`);
+      const required = unmapped.filter((c) => c.required);
+      if (required.length) throw new Error(`NEEDS_MAPPING: required city question(s) with no answer: ${required.map((c) => c.id).join(', ')}`);
+      leftBlank = unmapped.map((c) => c.label || c.id);
+      await page.fill('#description', `${description}\n\nNot specified by the reporter: ${leftBlank.join(', ')}.`);
     }
 
     // Capture the PVD number from the wizard BEFORE submitting (also in inspect mode, so the capture path is exercised without a submit) (input#title carries it once the draft exists).
@@ -561,7 +550,7 @@ class WorkerPortal implements Portal {
 
     if (mode === 'inspect') {
       const proofPath = await this.saveProof(opts, report.id, 'inspect');
-      return { mode, controls, proofPath, scouted };
+      return { mode, controls, proofPath };
     }
 
     // Submit, distinguishing validation failure (button stays "Submit") from a slow postback ("Processing...").
@@ -606,11 +595,11 @@ class WorkerPortal implements Portal {
       // unconfirmed (engine: submitted + caseIdPending); the watcher confirms it by the draft's PVD number, and
       // requeues it if the portal still shows a Draft. Throwing here would retry and could file it twice.
       const proofPath = await this.saveProof(opts, report.id, 'submit-unconfirmed');
-      return { mode, proofPath, controls, scouted, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: false, caseIdCandidate: candidate ?? undefined };
+      return { mode, proofPath, controls, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: false, caseIdCandidate: candidate ?? undefined };
     }
     const caseId = await this.extractCaseId(candidate);
     const proofPath = await this.saveProof(opts, report.id, caseId ?? 'submitted');
-    return { mode, caseId, proofPath, controls, scouted, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };
+    return { mode, caseId, proofPath, controls, leftBlank, entityId: entityId ?? undefined, caseIdConfirmed: !!caseId, caseIdCandidate: candidate ?? undefined };
   }
 
   // ── Proof ──────────────────────────────────────────────────
@@ -1057,7 +1046,7 @@ export function collectStep3Controls(): PortalControl[] {
     // Step 3 renders the WHOLE conditional control set and toggles per case type via display:none;
     // offsetParent is null when the element (or an ancestor) is display:none. We keep hidden controls too,
     // flagged visible:false, so the drift canary watches the shared set — not just this case type's fields.
-    // (Only visible controls are filled/scouted at submit time — see fillStep3.)
+    // (Only visible controls are filled at submit time — see fillStep3.)
     const visible = !!el.offsetParent;
     if (el.type === 'radio') {
       // Collapse a radio group into one control keyed by its group name (e.g. cop_cartrequesttype).

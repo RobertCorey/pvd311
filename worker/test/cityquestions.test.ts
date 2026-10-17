@@ -57,12 +57,12 @@ describe('seed (shared/city-questions.seed.json)', () => {
 
 describe('auditFiling', () => {
   it('a filing that matches the seed: no flags; app / ai / blank counted per question; toggles count blank', () => {
-    // graffiti_private: 2 selects + 4 toggles in the seed. Scout sets surface type only.
+    // graffiti_private: 2 selects + 4 toggles in the seed. Type of property is asked in the app; an older filing's scout set surface type.
     const out = auditFiling({ category: 'graffiti_private', reportId: 'r1', at: AT1, prev: null, controls: [...liveFromSeed('graffiti_private'), ...hiddenNoise], scouted: { cop_surfacetype: 'Brick' } });
     expect(out.flags).toEqual([]);
     const by = Object.fromEntries(out.doc.questions.map((q) => [q.id, q]));
     expect(by.cop_surfacetype.counts).toEqual({ app: 0, ai: 1, blank: 0 });
-    expect(by.cop_typeofproperty.counts).toEqual({ app: 0, ai: 0, blank: 1 });
+    expect(by.cop_typeofproperty.counts).toEqual({ app: 1, ai: 0, blank: 0 });
     expect(by.cop_presscharges.counts).toEqual({ app: 0, ai: 0, blank: 1 }); // toggle
     expect(by.cop_presscharges.lastSeenLive).toBeNull();                     // the dump never sees toggles
     expect(by.cop_surfacetype.lastSeenLive).toBe(AT1);
@@ -71,12 +71,14 @@ describe('auditFiling', () => {
     expect(out.doc).toMatchObject({ category: 'graffiti_private', filings: 1, lastFiledAt: AT1, auditedIds: ['r1'] });
   });
 
-  it('app-mapped controls count as app; scout values the scout was unsure of (leftBlank) count blank', () => {
+  it('app-mapped controls count as app; unasked questions (leftBlank) count blank', () => {
     const app = auditFiling({ category: 'pothole', reportId: 'r1', at: AT1, prev: null, controls: liveFromSeed('pothole') });
     expect(app.doc.questions[0].counts).toEqual({ app: 1, ai: 0, blank: 0 });
     expect(app.answered).toEqual({ cop_size: 'app' });
-    const unsure = auditFiling({ category: 'noise', reportId: 'r2', at: AT1, prev: null, controls: liveFromSeed('noise'), scouted: null, leftBlank: ['Where is the noise from'] });
-    expect(unsure.answered).toEqual({ cop_whereisthenoisefrom: 'blank' });
+    const unasked = auditFiling({ category: 'scooter', reportId: 'r2', at: AT1, prev: null, controls: liveFromSeed('scooter'), leftBlank: ['Device Owner', 'Location'] });
+    expect(unasked.answered).toEqual({ cop_deviceowner: 'blank', cop_location: 'blank' });
+    const noise = auditFiling({ category: 'noise', reportId: 'r3', at: AT1, prev: null, controls: liveFromSeed('noise') }); // asked in the app since 2026-10-17
+    expect(noise.answered).toEqual({ cop_whereisthenoisefrom: 'app' });
   });
 
   it('new_question: visible live but not in the seed (also for a category with no seed questions)', () => {
@@ -96,8 +98,8 @@ describe('auditFiling', () => {
   it('options_changed: added and removed vs the seed (order does not matter)', () => {
     const live = [ctl('cop_whereisthenoisefrom', 'Where is the noise from', ['Car', 'House', 'Business (add name to description)', 'Park (add name to description)', 'Construction'])];
     const out = auditFiling({ category: 'noise', reportId: 'r1', at: AT1, prev: null, controls: live });
-    expect(out.flags).toHaveLength(1);
-    expect(out.flags[0]).toMatchObject({ kind: 'options_changed', questionId: 'cop_whereisthenoisefrom', added: ['Construction'], removed: ['Other (add to description)'] });
+    expect(out.flags.map((f) => f.kind).sort()).toEqual(['app_option_stale', 'options_changed']); // the app offers "Other (add to description)"
+    expect(out.flags.find((f) => f.kind === 'options_changed')).toMatchObject({ kind: 'options_changed', questionId: 'cop_whereisthenoisefrom', added: ['Construction'], removed: ['Other (add to description)'] });
     expect(out.doc.questions[0].cityOptions).toContain('Construction'); // the record shows the latest live choices
     const reordered = auditFiling({ category: 'noise', reportId: 'r2', at: AT1, prev: null, controls: [ctl('cop_whereisthenoisefrom', 'x', [...SEED.categories.noise[0].cityOptions].reverse())] });
     expect(reordered.flags).toEqual([]);
@@ -114,17 +116,17 @@ describe('auditFiling', () => {
   });
 
   it('idempotent per report id; merges across filings; keeps firstAt; drops a flag once it clears', () => {
-    const drift = [ctl('cop_whereisthenoisefrom', 'Where is the noise from', ['House'])];
-    const a = auditFiling({ category: 'noise', reportId: 'r1', at: AT1, prev: null, controls: drift, scouted: { cop_whereisthenoisefrom: 'House' } });
-    const again = auditFiling({ category: 'noise', reportId: 'r1', at: AT2, prev: a.doc, controls: drift, scouted: { cop_whereisthenoisefrom: 'House' } });
+    const drift = [ctl('cop_deviceowner', 'Device Owner', ['Bird (Blue/Grey)']), ...liveFromSeed('scooter').filter((c) => c.id === 'cop_location')];
+    const a = auditFiling({ category: 'scooter', reportId: 'r1', at: AT1, prev: null, controls: drift, scouted: { cop_deviceowner: 'Bird (Blue/Grey)' } });
+    const again = auditFiling({ category: 'scooter', reportId: 'r1', at: AT2, prev: a.doc, controls: drift, scouted: { cop_deviceowner: 'Bird (Blue/Grey)' } });
     expect(again.skipped).toBe(true);
     expect(again.doc).toBe(a.doc);
-    const b = auditFiling({ category: 'noise', reportId: 'r2', at: AT2, prev: a.doc, controls: drift, leftBlank: ['Where is the noise from'] });
+    const b = auditFiling({ category: 'scooter', reportId: 'r2', at: AT2, prev: a.doc, controls: drift, leftBlank: ['Device Owner', 'Location'] });
     expect(b.doc.filings).toBe(2);
-    expect(b.doc.questions[0].counts).toEqual({ app: 0, ai: 1, blank: 1 });
+    expect(b.doc.questions.find((q) => q.id === 'cop_deviceowner')!.counts).toEqual({ app: 0, ai: 1, blank: 1 }); // ai: an older (pre-2026-10-17) filing
     expect(b.flags[0]).toMatchObject({ kind: 'options_changed', firstAt: AT1, lastAt: AT2 });
     expect(b.newFlags).toEqual([]);
-    const c = auditFiling({ category: 'noise', reportId: 'r3', at: AT2, prev: b.doc, controls: liveFromSeed('noise') });
+    const c = auditFiling({ category: 'scooter', reportId: 'r3', at: AT2, prev: b.doc, controls: liveFromSeed('scooter') });
     expect(c.flags).toEqual([]);
     expect(c.doc.auditedIds).toEqual(['r1', 'r2', 'r3']);
   });
@@ -147,7 +149,7 @@ describe('auditCityQuestions (engine hook)', () => {
   it('persists cityQuestions/{category}; logs questions.drift (warn) only when there are flags', async () => {
     const { store, docs, events } = memStore();
     await auditCityQuestions(store, { category: 'noise', reportId: 'r1', controls: liveFromSeed('noise'), scouted: { cop_whereisthenoisefrom: 'Car' }, at: AT1 });
-    expect(docs.noise.questions[0].counts.ai).toBe(1);
+    expect(docs.noise.questions[0].counts.app).toBe(1); // asked in the app — a stray scouted value doesn't count
     expect(events).toEqual([]);
     await auditCityQuestions(store, { category: 'noise', reportId: 'r2', controls: [ctl('cop_noisesource', 'Where is the noise coming from?', ['Residence'])], at: AT2 });
     expect(events).toHaveLength(1);
@@ -186,7 +188,8 @@ describe('admin view + digest', () => {
     const pothole = view.items.find((i) => i.category === 'pothole')!;
     expect(pothole.questions[0]).toMatchObject({ id: 'cop_size', mode: 'app', lastSeenLive: null, counts: { app: 0, ai: 0, blank: 0 } });
     expect(pothole.questions[0].appOptions).toContain('Unknown');
-    expect(view.items.find((i) => i.category === 'noise')!.questions[0].mode).toBe('ai');
+    expect(view.items.find((i) => i.category === 'noise')!.questions[0].mode).toBe('app');
+    expect(view.items.find((i) => i.category === 'scooter')!.questions.map((q) => q.mode)).toEqual(['blank', 'blank']); // not asked → left blank (no AI)
   });
 
   it('digest: new flags and new blanks mail once', () => {
