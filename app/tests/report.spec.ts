@@ -406,8 +406,14 @@ test('human check is a labelled step; trouble help appears if the token never ar
   await expect(page.getByText("Quick check that you're a person")).toBeVisible();
   await page.fill('#address', '25 Dorrance St');
   await expect(page.locator('.submit-bar .hint')).toHaveText("Checking you're a real person…");
-  await expect(page.locator('.human-check').getByText('Trouble loading the check?')).toBeVisible({ timeout: 4000 });
+  await expect(page.locator('.human-check').getByText('Check stuck? Try it again')).toBeVisible({ timeout: 4000 });
   await expect(page.locator('.human-check').getByText('rob@fixmypvd.org')).toBeVisible();
+  // It re-runs the check once on its own, and "Try the check again" re-runs it without a reload.
+  let loads = 0;
+  await page.route('https://challenges.cloudflare.com/**', (r) => { loads++; return r.abort(); });
+  await page.locator('.human-check').getByRole('button', { name: 'Try the check again' }).click();
+  await expect.poll(() => loads).toBeGreaterThan(0);
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
 });
 
 test('typed address that geocodes to nothing shows an inline check-the-street message', async ({ page }) => {
@@ -484,15 +490,18 @@ test('offline queued screen tells you to sign in online to send it', async ({ pa
 });
 
 // ---- P2 #11: draft autosave across reload ----
-test('reload restores an autosaved draft with a dismissible notice; the photo is re-asked', async ({ page }) => {
+test('reload restores an autosaved draft with a dismissible notice, photo included', async ({ page }) => {
   await mockApi(page);
   await page.addInitScript(() => { (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ = 30; });
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
   await page.fill('#description', 'bins not collected on my street');
+  await page.setInputFiles('#photoLibrary', { name: 'photo.png', mimeType: 'image/png', buffer: PNG_1x1 });
+  await expect(page.locator('.photo-preview')).toBeVisible();
   await page.waitForTimeout(200); // let the debounced autosave persist to IndexedDB
   await page.reload();
+  await expect(page.locator('.photo-preview')).toBeVisible(); // the photo survives the reload
   await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
   await expect(page.locator('#description')).toHaveValue('bins not collected on my street');
   const notice = page.locator('.restored-notice');

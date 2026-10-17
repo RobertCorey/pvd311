@@ -169,26 +169,25 @@ export default function Report() {
       if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
       geocodedFor.current = d.address;
       if (resume) setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: Turnstile + intent)
-      else setRestored(true); // reload: tell the user we brought their draft back (photo re-asked)
+      else setRestored(true); // reload: tell the user we brought their draft back
     });
   }, []);
   // Autosave the in-progress report while composing, so an accidental reload doesn't
-  // lose it (#11). The photo is intentionally dropped — it can't survive a reload
-  // cheaply, so we re-ask. Stops while gated/queued so it can't clobber the sign-in
+  // lose it (#11) — photo included (already compressed to ≤300 KB). Stops while gated/queued so it can't clobber the sign-in
   // park (which keeps the photo) or resurrect an already-queued report.
   useEffect(() => {
     if (!cat || gated || queued) return;
-    const hasContent = address.trim() !== '' || description.trim() !== '' || Object.keys(extra).length > 0;
+    const hasContent = !!photo || address.trim() !== '' || description.trim() !== '' || Object.keys(extra).length > 0;
     if (!hasContent) return;
     const delay = (window as unknown as { __DRAFT_AUTOSAVE_MS__?: number }).__DRAFT_AUTOSAVE_MS__ ?? 800;
     const id = window.setTimeout(() => {
       void draftStore.save({
         category: cat.key, address: address.trim(), lat: loc?.lat ?? null, lng: loc?.lng ?? null,
-        extra, description, descriptionOriginal: wordingApplied, photo: null, reason: 'autosave',
+        extra, description, descriptionOriginal: wordingApplied, photo, reason: 'autosave',
       });
     }, delay);
     return () => window.clearTimeout(id);
-  }, [cat, gated, queued, address, loc, extra, description, wordingApplied]);
+  }, [cat, gated, queued, photo, address, loc, extra, description, wordingApplied]);
   useEffect(() => { if (session && gated) setGated(false); }, [session, gated]);
   const closeGate = useCallback(() => { setGated(false); void draftStore.clear(); }, []);
 
@@ -226,12 +225,16 @@ export default function Report() {
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
 
-  // If the human-check widget hasn't produced a token after ~10s, surface a way out.
+  // If the human-check widget hasn't produced a token after ~10s, re-run it once on
+  // its own and surface a "try again" button — a reload used to be the only way out.
+  const turnstileAutoRetried = useRef(false);
   useEffect(() => {
-    setTurnstileSlow(false);
-    if (turnstileToken || !online) return;
+    if (turnstileToken || !online) { setTurnstileSlow(false); return; }
     const delay = (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ ?? 10_000;
-    const id = window.setTimeout(() => setTurnstileSlow(true), delay);
+    const id = window.setTimeout(() => {
+      setTurnstileSlow(true);
+      if (!turnstileAutoRetried.current) { turnstileAutoRetried.current = true; setTurnstileNonce((n) => n + 1); }
+    }, delay);
     return () => window.clearTimeout(id);
   }, [turnstileToken, online, turnstileNonce]);
 
@@ -709,7 +712,10 @@ export default function Report() {
         <p className="hint">{t('report.human.hint')}</p>
         <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
         {turnstileSlow && !turnstileToken && online && (
-          <p className="hint">{t('report.human.trouble', { email: BRAND.contactEmail })}</p>
+          <div className="human-trouble">
+            <p className="hint">{t('report.human.trouble', { email: BRAND.contactEmail })}</p>
+            <button type="button" className="btn btn-secondary" onClick={() => setTurnstileNonce((n) => n + 1)}>{t('report.human.retry')}</button>
+          </div>
         )}
       </section>
       <section className="section">

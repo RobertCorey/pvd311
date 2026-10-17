@@ -20,7 +20,9 @@ function loadScript(): Promise<void> {
     loading = new Promise((res, rej) => {
       const s = document.createElement('script');
       s.src = SCRIPT; s.async = true; s.defer = true;
-      s.onload = () => res(); s.onerror = () => rej(new Error('turnstile script failed'));
+      s.onload = () => res();
+      // A failed load is forgotten so the next mount ("try again") fetches it afresh.
+      s.onerror = () => { s.remove(); loading = null; rej(new Error('turnstile script failed')); };
       document.head.appendChild(s);
     });
   }

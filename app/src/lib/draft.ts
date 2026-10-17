@@ -1,6 +1,6 @@
 // One composed-but-unsent report, persisted across the sign-in round trip
 // (email-link opens a new page) and across an accidental reload. Photo is stored
-// as a Blob for the sign-in park; autosave omits it (a reload just re-asks).
+// as a Blob in both cases, so a reload keeps it.
 import { idbTx, type StoreSpec } from './idb';
 
 const SPEC: StoreSpec = { db: 'fixmypvd-draft', store: 'draft' };
@@ -18,7 +18,7 @@ export interface Draft {
   photo: Blob | null;
   /**
    * Why it was parked. 'sign_in' = the send round trip (photo kept);
-   * 'autosave' = debounced while composing, restored on reload (photo dropped).
+   * 'autosave' = debounced while composing, restored on reload (photo kept).
    */
   reason: 'sign_in' | 'autosave';
 }
