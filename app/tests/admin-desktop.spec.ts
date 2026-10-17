@@ -134,14 +134,15 @@ test('every tab is reachable from the rail and keeps the hash', async ({ page })
 test('email: every mail in and out, filterable; a row opens it with its report and people', async ({ page }) => {
   await page.goto('/admin#email');
   const rows = page.locator('.email-table tbody tr');
-  await expect(rows).toHaveCount(7);
-  await expect(page.locator('.email-totals')).toContainText('7 shown · 5 sent · 2 received');
+  await expect(rows).toHaveCount(6);
+  await expect(page.locator('.email-totals')).toContainText('6 shown · 4 sent · 2 received');
+  await expect(page.locator('select option[value="signin_link"]')).toHaveCount(0); // sign-in link emails are not in the log
   await expect(page.locator('.email-trouble')).toHaveText('1 failed or bounced');
   await expect(rows.filter({ hasText: 'Your report was filed' }).locator('.email-pill')).toHaveText('Bounced');
   await page.getByRole('button', { name: 'Received', exact: true }).click();
   await expect(rows).toHaveCount(2);
   await page.getByRole('button', { name: 'All', exact: true }).click();
-  await expect(rows).toHaveCount(7);
+  await expect(rows).toHaveCount(6);
   await rows.filter({ hasText: 'needs more information about your report' }).click();
   await expect(page).toHaveURL(/#email:rs_ask$/);
   const pane = page.locator('.email-pane');

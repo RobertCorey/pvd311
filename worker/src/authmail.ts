@@ -7,7 +7,6 @@
  * Rate-limited per email (3 / 15 min) and per IP (12 / hour). Always answers 200 {sent:true} for a well-formed email
  * so the endpoint can't be used to enumerate accounts.
  */
-import { logEmail, newOutId, record } from './emaillog.js';
 import { markOk, markError, logEvent } from './health.js';
 import type { Env, Store } from './contracts.js';
 import { getAccessToken } from './firestore.js';
@@ -83,12 +82,7 @@ export async function sendSignInLink(request: Request, env: Env, store: Store): 
     method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify({ from, to: [email], subject: copy.subject, html, text }),
   });
-  // Email log (emaillog.ts): the link itself is redacted out of the stored text — the log never holds a working credential.
-  const sent = m.ok ? ((await m.clone().json().catch(() => ({}))) as { id?: string }).id ?? null : null;
-  await logEmail(store, record({
-    id: newOutId(sent), at: new Date().toISOString(), dir: 'out', kind: 'signin_link', from, to: [email], subject: copy.subject, text,
-    status: m.ok ? 'sent' : 'failed', error: m.ok ? null : `Resend ${m.status}`, resendId: sent, lastEvent: undefined, source: 'live',
-  }));
+  // Not in the email log: sign-in link emails are left out on purpose (emaillog.ts UNLOGGED_KINDS).
   if (!m.ok) { console.error('[authmail] resend failed', m.status, await m.text().catch(() => '')); await markError(store, 'auth_mail', `Resend ${m.status}`); return Response.json({ error: 'internal' }, { status: 500 }); }
   await markOk(store, 'auth_mail', `link sent (${email.split('@')[1]})`);
   await logEvent(store, { level: 'info', kind: 'auth.link_sent', msg: `Sign-in link sent (@${email.split('@')[1]})` });

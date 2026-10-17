@@ -133,7 +133,6 @@ export const emails = () => ({ items: [
   em('in_ask', { at: mins(9), dir: 'in', kind: 'city_in', from: 'pvd311@providenceri.gov', to: ['cases@fixmypvd.org'], subject: 'PVD311 needs more information regarding your service request PVD311:0250715', status: 'received', lastEvent: null, cityKind: 'ask', outcome: 'forwarded to 1 recipient (asks the reporter for information)' }),
   em('rs_city', { at: mins(20), kind: 'to_city', from: 'cases@fixmypvd.org', to: ['pvd311@providenceri.gov'], subject: 'RE: PVD311 needs more information PVD311:0250715 (PVD2026-90412)', lastEvent: 'delivered' }),
   em('rs_bounce', { at: mins(60), kind: 'filed', subject: 'Your report was filed with Providence 311 (PVD2026-90412)', to: ['typo@exmaple.com'], lastEvent: 'bounced' }),
-  em('rs_signin', { at: mins(90), kind: 'signin_link', subject: 'Your FixMyPVD sign-in link', reportId: null, caseId: null, lastEvent: 'delivered' }),
   em('rs_review', { at: mins(120), kind: 'admin_review', to: ['rob@fixmypvd.org'], subject: '[FixMyPVD] Review: Pothole @ 120 Benefit St', lastEvent: 'delivered' }),
   em('in_reply', { at: mins(200), dir: 'in', kind: 'reply_in', from: 'resident0@example.com', to: ['cases@fixmypvd.org'], subject: 'Re: thanks', status: 'received', lastEvent: null, reportId: null, outcome: 'sent to you (nothing went to the city)' }),
 ], next: null });

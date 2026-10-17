@@ -6,7 +6,7 @@
 // only get a missing body and the delivery state.
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-const { record, redact, toText, inferKind, caseIdIn, newOutId } = await import(new URL('../worker/src/emaillog.ts', import.meta.url).href);
+const { record, redact, toText, inferKind, caseIdIn, newOutId, UNLOGGED_KINDS } = await import(new URL('../worker/src/emaillog.ts', import.meta.url).href);
 
 const PROJECT = 'pvd-snow-report';
 const env = { NOTIFY_EMAIL: 'rob@fixmypvd.org', CITY_SENDER_DOMAINS: 'providenceri.gov' };
@@ -55,6 +55,7 @@ for (let page = 0; page < 50; page++) {
   const list = await rs(`/emails?limit=100${after ? `&after=${after}` : ''}`);
   for (const it of list.data) {
     seen++;
+    if (UNLOGGED_KINDS.has(inferKind(it.subject, it.to.map((a) => a.toLowerCase()), env))) continue; // sign-in link emails stay out of the log
     const id = newOutId(it.id);
     const have = await get(id);
     const full = await rs(`/emails/${it.id}`);

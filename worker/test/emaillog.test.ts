@@ -146,13 +146,13 @@ describe('syncFromResend', () => {
     mem.set('rs_have', { id: 'rs_have', lastEvent: 'sent' });
     fetchMock
       .mockResolvedValueOnce(ok({ data: [item('new1', 'The city received your request (PVD2026-90124)'), item('have', 'x')], has_more: true }))
-      .mockResolvedValueOnce(ok({ data: [item('new2', 'Your FixMyPVD sign-in link')], has_more: false }));
+      .mockResolvedValueOnce(ok({ data: [item('new2', '[FixMyPVD] Daily digest', 'rob@fixmypvd.org')], has_more: false }));
     const store = { ...fakeStore, findByPortalCaseId: vi.fn(async (c: string) => (c === 'PVD2026-90124' ? { id: 'rep124' } : null)) } as unknown as Store;
     const r = await syncFromResend(env, store, { now: new Date('2026-10-16T22:00:00Z') });
     expect(r).toEqual({ scanned: 3, imported: 2, updated: 1 });
     expect(String(fetchMock.mock.calls[1][0])).toContain('after=have');
     expect(mem.get('rs_new1')).toMatchObject({ kind: 'status', reportId: 'rep124', caseId: 'PVD2026-90124', at: '2026-10-16T19:31:34.043Z', text: null, lastEvent: 'delivered', source: 'import' });
-    expect(mem.get('rs_new2')).toMatchObject({ kind: 'signin_link', reportId: null });
+    expect(mem.get('rs_new2')).toMatchObject({ kind: 'admin_digest', reportId: null });
     expect(mem.get('rs_have')).toMatchObject({ lastEvent: 'delivered' });
   });
 });
@@ -262,5 +262,18 @@ describe('Resend delivery webhook', () => {
   it('a send-only Resend key: the sync reports unreadable instead of failing', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 }));
     expect(await syncFromResend(env, fakeStore as unknown as Store)).toEqual({ scanned: 0, imported: 0, updated: 0, unreadable: true });
+  });
+});
+
+describe('sign-in link emails stay out of the log (Rob, 2026-10-17)', () => {
+  it('a sign-in email sent through the Mailer, imported from Resend, or seen by the webhook is never stored', async () => {
+    fetchMock.mockResolvedValueOnce(ok({ id: 'si1' }));
+    await createMailer(env).sendTo('r@example.com', 'Your FixMyPVD sign-in link', '<p>x</p>');
+    expect(mem.has('rs_si1')).toBe(false);
+    fetchMock.mockResolvedValueOnce(ok({ data: [{ id: 'si2', to: ['r@example.com'], from: 'FixMyPVD <updates@fixmypvd.org>', created_at: '2026-10-16 19:02:15.425000+00', subject: 'Tu enlace para entrar a FixMyPVD', last_event: 'delivered' }], has_more: false }));
+    expect(await syncFromResend(env, { ...fakeStore, findByPortalCaseId: vi.fn(async () => null) } as unknown as Store)).toMatchObject({ scanned: 1, imported: 0 });
+    expect(mem.has('rs_si2')).toBe(false);
+    await handleResendWebhook(await signed(ev('email.delivered', 'si3', 'Your FixMyPVD sign-in link')), hookEnv, { ...fakeStore, findByPortalCaseId: vi.fn(async () => null) } as unknown as Store);
+    expect(mem.has('rs_si3')).toBe(false);
   });
 });

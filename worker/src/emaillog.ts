@@ -2,14 +2,14 @@
  * emaillog.ts — one record per email, in or out (Rob, 2026-10-16: "I want to look at the system from different angles"
  * — by user, by report, by email). Firestore `emails/{id}`, admin-only, kept EMAIL_RETENTION_DAYS.
  *
- *   out: every Mailer send (email.ts logs it) + the sign-in link (authmail.ts) — kind, recipients, subject, plain text,
+ *   out: every Mailer send (email.ts logs it) — kind, recipients, subject, plain text,
  *        Resend id + delivery state (last_event, refreshed when the email is opened in /admin and by the daily sync)
  *   in:  every message relay.ts handles — city mail (matched or not), replies, drops — with what we did with it
  *
  * Each record carries reportId / caseId when it is about a report and `addrs` (every address on it, lowercased) so a
  * person's mail is one array-contains query. Ids: `rs_<resend id>` for anything Resend sent (so a live record and the
- * Resend import never duplicate), `in_<hash>` for inbound. Sign-in links and HITL action links are cut from stored
- * text — the log never holds a working credential.
+ * Resend import never duplicate), `in_<hash>` for inbound. Sign-in link emails are never logged (Rob, 2026-10-17: "we
+ * don't need sign in link messages"); HITL action links are cut from stored text — the log never holds a working credential.
  */
 import type { Env, Store } from './contracts.js';
 
@@ -123,10 +123,13 @@ export function record(r: Omit<EmailRecord, 'addrs'> & { addrs?: string[] }): Em
   return { ...r, from, to, addrs: [...new Set([from, ...to].filter(Boolean))], text: r.text == null ? null : redact(r.text) };
 }
 
-/** Write one record. Never throws (a log write must never break a send). */
-export async function logEmail(store: Pick<Store, 'putEmail'> | null | undefined, r: EmailRecord): Promise<void> {
-  if (!store) return;
-  try { await store.putEmail(r); } catch (e) { console.error('[emaillog] write failed:', e instanceof Error ? e.message : e); }
+/** Kinds the log leaves out entirely: sign-in link emails (Rob, 2026-10-17: "we don't need sign in link messages"). */
+export const UNLOGGED_KINDS: ReadonlySet<EmailKind> = new Set<EmailKind>(['signin_link']);
+
+/** Write one record (false: a kind the log leaves out). Never throws — a log write must never break a send. */
+export async function logEmail(store: Pick<Store, 'putEmail'> | null | undefined, r: EmailRecord): Promise<boolean> {
+  if (!store || UNLOGGED_KINDS.has(r.kind)) return false;
+  try { await store.putEmail(r); return true; } catch (e) { console.error('[emaillog] write failed:', e instanceof Error ? e.message : e); return false; }
 }
 
 // ── Resend: import what it sent, refresh delivery state ─────────────────────────────
@@ -198,12 +201,12 @@ async function syncPages(env: Env, store: Store, opts: { maxPages?: number; now?
         if (!reportByCase.has(caseId)) reportByCase.set(caseId, (await store.findByPortalCaseId(caseId).catch(() => null))?.id ?? null);
         reportId = reportByCase.get(caseId) ?? null;
       }
-      await logEmail(store, record({
+      const stored = await logEmail(store, record({
         id, at: resendIso(it.created_at), dir: 'out', kind: inferKind(it.subject ?? '', to, env), from: it.from, to, subject: it.subject ?? '', text: null,
         status: 'sent', resendId: it.id, lastEvent: it.last_event ?? null, lastEventAt: now, reportId, caseId,
         replyTo: it.reply_to?.[0] ?? null, source: 'import',
       }));
-      out.imported++;
+      if (stored) out.imported++;
     }
     if (!r?.has_more || !items.length) break;
     after = items[items.length - 1].id;
