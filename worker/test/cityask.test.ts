@@ -34,7 +34,7 @@ const REFERRAL = `Dear FixMyPVD fixmypvd.org﻿\nWe are writing to provide an up
 
 const env = {
   RELAY_ADDRESS: 'cases@fixmypvd.org', CITY_SENDER_DOMAINS: 'providenceri.gov', APP_BASE_URL: 'https://fixmypvd.org', APP_NAME: 'FixMyPVD',
-  NOTIFY_EMAIL: 'rob@fixmypvd.org', TURNSTILE_SECRET: '', ALLOW_NO_TURNSTILE: '1', ANTHROPIC_API_KEY: '',
+  NOTIFY_EMAIL: 'rob@fixmypvd.org', ANTHROPIC_API_KEY: '',
 } as unknown as Env;
 
 const ID = 'm3hPCS9K2-UfxNBB6Fscbg';

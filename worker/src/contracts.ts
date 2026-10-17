@@ -23,9 +23,7 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   RESEND_API_KEY: string;
   HITL_SECRET: string;
-  TURNSTILE_SECRET: string;
   APP_ORIGINS?: string;               // var: comma-separated allowed CORS origins (optional)
-  ALLOW_NO_TURNSTILE?: string;        // var: '1' opens report creation without Turnstile (tests/dev ONLY; prod fails closed)
   APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://fixmypvd.org)
   ACCOUNT_TRUST_N?: string;           // var: per-account HITL ramp threshold (default 3)
   ADMIN_EMAILS?: string;              // var: comma-separated admin emails for /api/admin/* + in-app /admin (Google sign-in required)

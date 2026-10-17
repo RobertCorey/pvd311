@@ -44,7 +44,7 @@ function store(r: ReportDoc, extra: Partial<Store> = {}): Store {
     ...extra,
   } as unknown as Store;
 }
-const env = { TURNSTILE_SECRET: '', ALLOW_NO_TURNSTILE: '1' } as any;
+const env = {} as any;
 async function get(path: string, s: Store, token?: string) {
   const headers: Record<string, string> = { origin: 'https://fixmypvd.org' };
   if (token) headers.authorization = `Bearer ${token}`;

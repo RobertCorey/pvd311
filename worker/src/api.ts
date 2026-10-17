@@ -1,6 +1,6 @@
 /**
  * Public app API — the ONLY thing the client talks to. No Firebase SDK in the client.
- *   POST /api/report      multipart → creates the report (account REQUIRED: Firebase ID token; Turnstile-verified; reporter quota per mailbox + IP, quota.ts)
+ *   POST /api/report      multipart → creates the report (account REQUIRED: Firebase ID token — the sign-in is the human check; reporter quota per mailbox + IP, quota.ts)
  *   POST /api/auth/link   JSON → Worker-minted sign-in link by email (authmail.ts)
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
@@ -43,7 +43,7 @@ function corsHeaders(env: Env, origin: string | null): Record<string, string> {
   return {
     'access-control-allow-origin': ok ? origin! : allowed[0],
     'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
-    'access-control-allow-headers': 'content-type,x-turnstile-token,authorization',
+    'access-control-allow-headers': 'content-type,authorization',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -97,17 +97,6 @@ function newId(): string {
 }
 const clientIp = (r: Request) => r.headers.get('cf-connecting-ip') ?? '0.0.0.0';
 
-async function verifyTurnstile(env: Env, token: string | null, ip: string): Promise<boolean> {
-  if (!env.TURNSTILE_SECRET) return env.ALLOW_NO_TURNSTILE === '1'; // fail CLOSED unless explicitly opened (tests/dev)
-  if (!token) return false;
-  const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
-  });
-  const d = (await r.json().catch(() => ({}))) as { success?: boolean };
-  return !!d.success;
-}
-
 export { paceIdentity } from './quota.js'; // re-exported: tests + older imports
 
 const intakeHits = new Map<string, number[]>();
@@ -138,8 +127,6 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   const form = await request.formData();
   const f = (k: string) => { const v = form.get(k); return typeof v === 'string' ? v.trim() : ''; };
   const ip = clientIp(request);
-
-  if (!(await verifyTurnstile(env, f('turnstileToken') || null, ip))) return json({ error: 'turnstile_failed' }, 403);
 
   // Idempotency: the client's outbox reuses the same clientId on retry — never create a second report for it.
   const clientId = f('clientId').slice(0, 64) || null;

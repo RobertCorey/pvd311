@@ -22,7 +22,7 @@ function mockStore(over: Partial<Store> = {}): Store {
   };
   return { ...base, ...over } as Store;
 }
-const env = { TURNSTILE_SECRET: '', ANTHROPIC_API_KEY: '', ALLOW_NO_TURNSTILE: '1' } as any;
+const env = { ANTHROPIC_API_KEY: '' } as any;
 const get = (path: string) => handleApi(new Request(`https://api.test${path}`, { headers: { origin: 'https://fixmypvd.org' } }), env, { store: mockStore() });
 
 describe('tracking projection', () => {
@@ -97,11 +97,10 @@ describe('hardening', () => {
     expect(paceIdentity('uid1', 'r.o.b+x@gmail.com')).toBe('rob@gmail.com');
     expect(paceIdentity('uid1', null)).toBe('uid1');
   });
-  it('report creation fails closed when Turnstile is not configured', async () => {
+  it('report creation still needs a verified account (the sign-in is the human check)', async () => {
     const fd = new FormData(); fd.set('category', 'pothole'); fd.set('address', '25 Dorrance St');
-    const closed = { ...env, ALLOW_NO_TURNSTILE: undefined };
-    const r = await handleApi(new Request('https://api.test/api/report', { method: 'POST', body: fd, headers: { authorization: 'Bearer nope' } }), closed, { store: mockStore() });
-    expect([401, 403]).toContain(r!.status); // 401 from the (unverifiable) token, never 201
+    const r = await handleApi(new Request('https://api.test/api/report', { method: 'POST', body: fd, headers: { authorization: 'Bearer nope' } }), env, { store: mockStore() });
+    expect(r!.status).toBe(401);
   });
 });
 

@@ -38,7 +38,7 @@ function memStore() {
   return { store: store as unknown as Store, meta, users, reports, events };
 }
 
-const env = { TURNSTILE_SECRET: '', ALLOW_NO_TURNSTILE: '1', ADMIN_EMAILS: 'rob@example.com' } as any;
+const env = { ADMIN_EMAILS: 'rob@example.com' } as any;
 const at = (iso: string) => vi.setSystemTime(new Date(iso));
 
 function post(s: ReturnType<typeof memStore>, token: string, ip = '203.0.113.7') {
