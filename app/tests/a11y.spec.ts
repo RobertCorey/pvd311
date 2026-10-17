@@ -7,7 +7,7 @@ const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 
 async function mocks(page: Page) {
-  await page.addInitScript(() => { (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'x'; });
+  await page.addInitScript(() => { });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/demo`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'demo', category: 'pothole', categoryLabel: 'Pothole', address: '120 Benefit St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-1', portalStatus: 'Assigned', timeline: [{ at: new Date().toISOString(), label: 'Received' }], nextUpdateHint: null }) }));
   await page.route(`${API}/api/reports/closed1234`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'closed1234', category: 'pothole', categoryLabel: 'Pothole', address: '120 Benefit St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-2', portalStatus: 'Resolved', resolutionMessage: 'Complaint (CODE-26-1465) has been received and logged into the system for review.', mine: true, timeline: [{ at: new Date().toISOString(), label: 'Received' }, { at: new Date().toISOString(), label: 'Message from the city: Your request has been updated', kind: 'city_message', text: 'Hello,\n\nYour request has been updated.' }], nextUpdateHint: null }) }));

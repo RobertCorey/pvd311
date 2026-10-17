@@ -14,7 +14,6 @@ Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 40
 | `lat`, `lng` | both or neither; inside Providence bbox (41.70–41.92, −71.52–−71.33) |
 | `extra` | JSON object string, ≤ 8 keys (per-category answers, e.g. `{"size":"Medium (~28in)"}`) |
 | `name` | optional |
-| `turnstileToken` | required (Cloudflare Turnstile, sitekey `0x4AAAAAAEYpfrjTLnEgk7-y`) |
 | `deviceId` | random uuid persisted on the device (recorded for abuse forensics; pacing is per account + IP) |
 | `appVersion` | string |
 | `clientId` | uuid generated once per report attempt and reused on outbox retries → idempotent: a repeat returns the existing `{id,…}` with 200 and `idempotent:true` |
@@ -22,7 +21,7 @@ Errors: `{ "error": "<code>", "field"?: "<name>", "retryAfterSec"?: n }` with 40
 | `photo` | image/*, ≤ 5 MB; required unless the category has `photoRequired:false`. Client should compress to ≤ ~300 KB. |
 
 201 → `{ id, trackingUrl: "/r/{id}", category, createdAt }`. `id` is the tracking token (22 chars, unguessable).
-Errors: `auth_required` (401), `invalid_category`, `invalid_address`, `too_long`, `lat_lng_pair`, `invalid_coords`, `outside_providence`, `invalid_extra`, `photo_required`, `invalid_photo`, `turnstile_failed` (403), `rate_limited` (429: `{ error, reason: 'gap'|'day'|'week'|'ip', retryAfterSec, quota }`, `quota` as in `GET /api/me`).
+Errors: `auth_required` (401), `invalid_category`, `invalid_address`, `too_long`, `lat_lng_pair`, `invalid_coords`, `outside_providence`, `invalid_extra`, `photo_required`, `invalid_photo`, `rate_limited` (429: `{ error, reason: 'gap'|'day'|'week'|'ip', retryAfterSec, quota }`, `quota` as in `GET /api/me`).
 
 ## POST /api/intake — moderation + optional wording cleanup (AI)
 JSON `{ category|null, description, address, extra?, hasPhoto, appVersion }` →
@@ -97,7 +96,7 @@ The portal account's contact email is `cases@fixmypvd.org` (Cloudflare Email Rou
 - `PORTAL_NOTIFY_METHOD` var — `#cop_methodofupdate` value used on Step 1 (`585680002` Email once the relay is the profile address; default `585680003` No Contact Necessary).
 
 ## HITL (ops, not app-facing)
-Review emails carry signed links `GET /hitl/approve/:id/:exp/:sig` and `/hitl/reject/:id/:exp/:sig` (HMAC-SHA256 over `action:id:exp`, 30-day expiry; path form so a quoted-printable mis-decode in transit can't corrupt them). Any intake flag — client-reported or from the Worker's own moderation pass, which runs once per report before auto-approval — forces human review regardless of account trust. Report creation fails closed if `TURNSTILE_SECRET` is unset (set `ALLOW_NO_TURNSTILE=1` only in tests/dev). Pacing is per mailbox (plus-tags and gmail dots collapsed) and per IP.
+Review emails carry signed links `GET /hitl/approve/:id/:exp/:sig` and `/hitl/reject/:id/:exp/:sig` (HMAC-SHA256 over `action:id:exp`, 30-day expiry; path form so a quoted-printable mis-decode in transit can't corrupt them). Any intake flag — client-reported or from the Worker's own moderation pass, which runs once per report before auto-approval — forces human review regardless of account trust. No Turnstile: the required sign-in is the human check (since 2026-10-17). Pacing is per mailbox (plus-tags and gmail dots collapsed) and per IP.
 
 ## Admin — `/api/admin/*` (in-app /admin screen)
 Requires a Firebase ID token whose email is in the Worker var `ADMIN_EMAILS`, verified, **Google provider** (an email-link account for the same address is refused). `GET /api/me` returns `admin: true` for such a caller so the client can show the route.

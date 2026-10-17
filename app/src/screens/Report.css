@@ -24,9 +24,6 @@
 .chip:disabled { opacity: 0.6; }
 .detect-chip { margin-bottom: 12px; }
 .compose-title { font-size: 1.35rem; font-weight: 800; line-height: 1.15; margin: 0 0 6px; }
-.human-check { display: flex; flex-direction: column; gap: 8px; }
-.human-check h2 { margin: 0; }
-.human-check .hint { margin: 0; }
 .photo-card { border: 2px dashed var(--line); border-radius: var(--radius); padding: 20px; text-align: center; }
 .photo-compressing .hint { margin: 0; }
 
@@ -58,7 +55,6 @@
 .emergency-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .emergency-banner span { flex: 1 1 12ch; line-height: 1.4; }
 .btn-emergency { flex: none; min-height: var(--tap); padding: 8px 16px; background: var(--danger, #b3261e); color: #fff; border: 0; border-radius: var(--radius); font-weight: 700; text-decoration: none; white-space: nowrap; }
-.turnstile { margin: 10px 0; }
 .notice { margin-bottom: 12px; }
 .hint.center { text-align: center; }
 .submit-bar { position: sticky; bottom: 0; z-index: 5; background: var(--bg); border-top: 2px solid var(--line); padding: 10px 0 max(16px, env(safe-area-inset-bottom)); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }

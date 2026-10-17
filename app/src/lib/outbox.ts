@@ -1,7 +1,6 @@
 // Offline outbox: reports composed while offline are stored in IndexedDB (photo
-// Blob included) and sent when the app is next open online. Turnstile tokens
-// expire, so queued items are re-verified at send time with a fresh token —
-// the flush therefore runs from the Report screen where a widget can mount.
+// Blob included) and sent from the Report screen when the app is next open
+// online and signed in.
 import type { ReportSubmission } from '../api/types';
 
 import { idbTx, type StoreSpec } from './idb';
@@ -14,7 +13,7 @@ export interface OutboxItem {
   clientId: string;
   attempts: number;
   lastError?: string;
-  report: Omit<ReportSubmission, 'turnstileToken'>;
+  report: ReportSubmission;
 }
 export const MAX_ATTEMPTS = 3;
 

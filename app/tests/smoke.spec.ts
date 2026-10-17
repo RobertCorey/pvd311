@@ -16,7 +16,6 @@ const ROUTES: Array<[string, RegExp]> = [
 test('footer disclaimer is localized to Spanish on / and /about', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('fixmypvd.lang', 'es');
-    (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'x';
   });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
@@ -31,7 +30,7 @@ for (const lang of ['en', 'es']) {
   test(`all routes render in ${lang} without page errors`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.addInitScript((l) => { localStorage.setItem('fixmypvd.lang', l); (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'x'; }, lang);
+    await page.addInitScript((l) => { localStorage.setItem('fixmypvd.lang', l); }, lang);
     await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
     await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
     await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));

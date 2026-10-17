@@ -26,7 +26,7 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: '/index.html',
-        // Never cache the API or Turnstile.
+        // Never cache the API.
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
       },

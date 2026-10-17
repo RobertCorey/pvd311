@@ -5,7 +5,6 @@ const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 const SESSION = { uid: 'u1', email: 'me@example.com', idToken: 'tok', refreshToken: 'rt', expiresAt: Date.now() + 3_600_000, provider: 'email' };
 
 async function mockApi(page: Page, opts: { intake?: object; reportStatus?: number; reportBody?: object; signedIn?: boolean } = {}) {
-  await page.addInitScript(() => { (window as unknown as { __TURNSTILE_TOKEN__: string }).__TURNSTILE_TOKEN__ = 'test-token'; });
   if (opts.signedIn !== false) await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/intake`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.intake ?? { polishedDescription: null, flags: [], note: null, model: 'mock' }) }));
@@ -121,7 +120,7 @@ test('picker remembers the last type as a quick pick', async ({ page }) => {
   await expect(page.locator('.quick-chip--last[data-category="tree"]')).toBeVisible();
 });
 
-test('photo-optional category: address + turnstile → submit → tracking page', async ({ page }) => {
+test('photo-optional category: address → submit → tracking page (no bot check: the sign-in is the check)', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
@@ -135,7 +134,8 @@ test('photo-optional category: address + turnstile → submit → tracking page'
   const body = req.postData() ?? '';
   expect(body).toContain('name="category"');
   expect(body).toContain('missed_trash');
-  expect(body).toContain('name="turnstileToken"');
+  expect(body).not.toContain('turnstileToken');
+  expect(req.headers()['authorization']).toBe('Bearer tok');
   expect(body).toMatch(/name="clientId"\r?\n\r?\n[0-9a-f-]{36}/);
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
@@ -235,11 +235,8 @@ test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides 
   await expect(card).toHaveCount(0);
 });
 
-test('cold offline start: can queue without a Turnstile token', async ({ page, context }) => {
+test('cold offline start: can queue a report', async ({ page, context }) => {
   await mockApi(page);
-  // No test token this time: simulate the widget script failing offline.
-  await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; });
-  await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
@@ -396,24 +393,17 @@ test('no sign-in disclosure on compose — the gate appears only at Send', async
   await expect(page.getByText(/sign-in — no password/i)).toHaveCount(0);
 });
 
-test('human check is a labelled step; trouble help appears if the token never arrives', async ({ page }) => {
+test('no human-check step: Send is ready once the photo/address are in, and nothing loads from Cloudflare', async ({ page }) => {
   await mockApi(page);
-  // Remove the injected test token and block the widget script so no token ever arrives.
-  await page.addInitScript(() => { delete (window as unknown as { __TURNSTILE_TOKEN__?: string }).__TURNSTILE_TOKEN__; (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ = 300; });
-  await page.route('https://challenges.cloudflare.com/**', (r) => r.abort());
+  let cf = 0;
+  await page.route('https://challenges.cloudflare.com/**', (r) => { cf++; return r.abort(); });
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
-  await expect(page.getByText("Quick check that you're a person")).toBeVisible();
   await page.fill('#address', '25 Dorrance St');
-  await expect(page.locator('.submit-bar .hint')).toHaveText("Checking you're a real person…");
-  await expect(page.locator('.human-check').getByText('Check stuck? Try it again')).toBeVisible({ timeout: 4000 });
-  await expect(page.locator('.human-check').getByText('rob@fixmypvd.org')).toBeVisible();
-  // It re-runs the check once on its own, and "Try the check again" re-runs it without a reload.
-  let loads = 0;
-  await page.route('https://challenges.cloudflare.com/**', (r) => { loads++; return r.abort(); });
-  await page.locator('.human-check').getByRole('button', { name: 'Try the check again' }).click();
-  await expect.poll(() => loads).toBeGreaterThan(0);
-  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
+  await page.locator('#address').blur();
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeEnabled();
+  await expect(page.getByText("Quick check that you're a person")).toHaveCount(0);
+  expect(cf).toBe(0);
 });
 
 test('typed address that geocodes to nothing shows an inline check-the-street message', async ({ page }) => {

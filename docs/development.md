@@ -6,7 +6,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 
 ## How it works
 
-1. **Resident** opens the app, taps a category (8 big tiles; "Other" opens the full sheet), snaps a photo (EXIF fills the location) or types the address, adds a description, and taps Send. **An account is required to send** (email link or Google — no password); the draft is kept across the sign-in round trip. Turnstile gates bots; an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
+1. **Resident** opens the app, taps a category (8 big tiles; "Other" opens the full sheet), snaps a photo (EXIF fills the location) or types the address, adds a description, and taps Send. **An account is required to send** (email link or Google — no password); the draft is kept across the sign-in round trip. The sign-in is the human check (no Turnstile); an AI pass (Claude) only moderates and offers clearer wording — the reporter approves every change. Offline? The report waits in an IndexedDB outbox.
 2. **Worker** (`worker/`, Cloudflare) validates, rate-limits per device, stores the report + photo, and returns an unguessable tracking id (`/r/:id`).
 3. **Review** — HITL at launch: the operator gets an email and approves/rejects from `/admin`; full-auto with an agent in the loop is the goal.
 4. **Portal submit** — the Worker drives the city's 311 portal with a headless browser (Browser Rendering): case type by census GUID, conditional fields (unmapped → an LLM "scout" reads the live controls), submit, case id.
@@ -16,7 +16,7 @@ Relaunched August 2026 from the winter-only PVD Snow project (same repo, see git
 
 | Layer | Tech |
 |---|---|
-| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Firebase Auth over REST (email link via Worker+Resend, Google), Leaflet (compose/tracking mini-pin only), Cloudflare Turnstile, Playwright + axe tests. Talks only to the Worker API (api.fixmypvd.org). |
+| Client (`app/`) | Vite + React + TypeScript, installable PWA (vite-plugin-pwa), react-router, Firebase Auth over REST (email link via Worker+Resend, Google), Leaflet (compose/tracking mini-pin only), Playwright + axe tests. Talks only to the Worker API (api.fixmypvd.org). |
 | Worker (`worker/`) | Cloudflare Workers + Browser Rendering + cron; Firestore (Admin) as the store; Resend email; Claude for intake/scout |
 | Shared | `shared/categories.ts` (category registry → portal GUIDs/fields) |
 | Legacy | `automation/` (laptop engine, reference only). The old `public/` PWA was removed after cutover (git history before a0f7776) |
@@ -45,7 +45,7 @@ firebase.json      hosting → app/dist
 # Client
 npm run dev                      # Vite dev server on :5173 (talks to the prod Worker; localhost is allow-listed)
 npm run test                     # Playwright, mobile emulation, API mocked
-npm run preview:app              # build + Firebase Hosting preview channel (view-only: Turnstile/CORS not allow-listed there)
+npm run preview:app              # build + Firebase Hosting preview channel (view-only: CORS not allow-listed there)
 npm run deploy                   # manual app deploy (build + Firebase Hosting). Normal path: push to main → .github/workflows/deploy-app.yml
 
 # Worker
@@ -53,7 +53,7 @@ cd worker && npx wrangler dev    # alice owns worker/; see wrangler.toml + src/
 
 ```
 
-Headless browsers cannot pass Turnstile (by design) — real end-to-end submits are done from a real browser.
+Real end-to-end submits need a signed-in account — do them from a real browser.
 
 ## Engineering rules
 

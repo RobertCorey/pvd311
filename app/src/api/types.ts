@@ -11,7 +11,6 @@ export interface ReportSubmission {
   lat?: number | null;
   lng?: number | null;
   extra?: Record<string, string> | null;
-  turnstileToken: string;
   descriptionOriginal?: string;
   intakeFlags?: IntakeFlag[];
   photo?: Blob | null;

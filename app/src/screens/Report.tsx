@@ -12,7 +12,6 @@ import { getMe } from '../api/me';
 import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox';
 import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
-import Turnstile from '../components/Turnstile';
 import CategoryIcon from '../components/CategoryIcon';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
@@ -113,9 +112,6 @@ export default function Report() {
   }, [loc, category]);
 
   // --- submit ---
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const [turnstileNonce, setTurnstileNonce] = useState(0);
-  const [turnstileSlow, setTurnstileSlow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
@@ -168,7 +164,7 @@ export default function Report() {
       if (d.descriptionOriginal != null) setWordingApplied(d.descriptionOriginal);
       if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
       geocodedFor.current = d.address;
-      if (resume) setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: Turnstile + intent)
+      if (resume) setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: intent)
       else setRestored(true); // reload: tell the user we brought their draft back
     });
   }, []);
@@ -196,26 +192,24 @@ export default function Report() {
   const [pending, setPending] = useState(0);
   const [outboxNotice, setOutboxNotice] = useState<string | null>(null);
   // After a failed flush we stop until the next 'online' event / app open, so a
-  // report the server keeps rejecting can't loop and burn Turnstile tokens.
+  // report the server keeps rejecting can't loop.
   const [flushPaused, setFlushPaused] = useState(false);
   const refreshPending = useCallback(() => outbox.pending().then((p) => setPending(p.length)).catch(() => {}), []);
   useEffect(() => { refreshPending(); }, [refreshPending]);
   useEffect(() => {
-    if (!pending || !turnstileToken || !online || flushPaused || isOutboxPaused() || !session) return; // signed out: stay queued
+    if (!pending || !online || flushPaused || isOutboxPaused() || !session) return; // signed out: stay queued
     let cancelled = false;
-    // One queued item per Turnstile token (tokens are single-use); on success the
-    // widget re-mounts for the next one.
+    // One queued item per pass; `pending` changing re-runs this for the next one.
     flushOutbox(async (r, clientId) => {
-      await submitReport({ ...r, turnstileToken }, clientId);
+      await submitReport(r, clientId);
     }, 1).then(async ({ sent, failed, remaining }) => {
       if (failed) setFlushPaused(true);
       setPending(remaining);
       if (cancelled) return;
       if (sent) setOutboxNotice(t('report.outbox.sent'));
-      if (sent) { setTurnstileToken(null); setTurnstileNonce((n) => n + 1); }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [pending, turnstileToken, online, flushPaused, session, t]);
+  }, [pending, online, flushPaused, session, t]);
   useEffect(() => {
     const onOnline = () => { setOnline(true); resumeOutbox(); setFlushPaused(false); refreshPending(); };
     const onOffline = () => setOnline(false);
@@ -224,19 +218,6 @@ export default function Report() {
   }, [refreshPending]);
 
   useEffect(() => () => { if (photoUrl) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
-
-  // If the human-check widget hasn't produced a token after ~10s, re-run it once on
-  // its own and surface a "try again" button — a reload used to be the only way out.
-  const turnstileAutoRetried = useRef(false);
-  useEffect(() => {
-    if (turnstileToken || !online) { setTurnstileSlow(false); return; }
-    const delay = (window as unknown as { __TURNSTILE_HELP_MS__?: number }).__TURNSTILE_HELP_MS__ ?? 10_000;
-    const id = window.setTimeout(() => {
-      setTurnstileSlow(true);
-      if (!turnstileAutoRetried.current) { turnstileAutoRetried.current = true; setTurnstileNonce((n) => n + 1); }
-    }, delay);
-    return () => window.clearTimeout(id);
-  }, [turnstileToken, online, turnstileNonce]);
 
   const pick = (key: string) => { track('select_category', { category: key }); setCategory(key); rememberCategory(key); setExtra({}); setQuery(''); draftId.current = crypto.randomUUID(); window.scrollTo({ top: 0 }); };
 
@@ -328,11 +309,11 @@ export default function Report() {
     const timer = setTimeout(async () => {
       intakeKey.current = key;
       setIntakeBusy(true);
-      const r = await intake({ category, description: text, address: address.trim(), extra, hasPhoto: !!photo }, turnstileToken);
+      const r = await intake({ category, description: text, address: address.trim(), extra, hasPhoto: !!photo });
       if (intakeKey.current === key) { setIntakeRes(r); setIntakeBusy(false); }
     }, 1200);
     return () => clearTimeout(timer);
-  }, [description, category, address, extra, photo, turnstileToken, wordingApplied]);
+  }, [description, category, address, extra, photo, wordingApplied]);
 
   const applyWording = () => {
     if (!intakeRes?.polishedDescription) return;
@@ -344,7 +325,7 @@ export default function Report() {
   // Independent of the AI check: a client-side keyword scan (#13).
   const emergencyKeyword = useMemo(() => isEmergencyText(description), [description]);
   const photoRequired = cat ? cat.photoRequired : true;
-  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && (!!turnstileToken || !online) && !submitting && !outside && !quotaOut;
+  const canSubmit = !!cat && address.trim().length >= 3 && (!!photo || !photoRequired) && !submitting && !outside && !quotaOut;
   // First unmet requirement, shown under the disabled Send so nobody sits on a grey button.
   const blockReason = !cat ? null
     : quotaOut === 'week' ? t('report.quota.outWeek', { limit: quota!.weekLimit })
@@ -353,7 +334,6 @@ export default function Report() {
     : photoRequired && !photo ? t('report.block.photo')
     : address.trim().length < 3 ? t('report.block.address')
     : outside ? t('report.block.outside')
-    : !turnstileToken && online ? t('report.waitingSpamCheck')
     : null;
 
   async function onSubmit(e: React.FormEvent) {
@@ -389,14 +369,13 @@ export default function Report() {
         track('report_submitted', { category: cat.key, has_photo: !!blob, queued: true });
         return;
       }
-      if (!turnstileToken || !session) { setSubmitting(false); return; }
+      if (!session) { setSubmitting(false); return; }
       const created = await submitReport({
         category: cat.key,
         description: description.trim(),
         address: address.trim(),
         lat: loc?.lat ?? null, lng: loc?.lng ?? null,
         extra: Object.keys(extra).length ? extra : null,
-        turnstileToken,
         descriptionOriginal: wordingApplied !== null && wordingApplied.trim() !== description.trim() ? wordingApplied.trim() : undefined,
         intakeFlags: intakeRes?.flags.length ? intakeRes.flags : undefined,
         photo: blob,
@@ -407,7 +386,6 @@ export default function Report() {
       navigate(`/r/${created.id}`, { state: { justSubmitted: true } });
     } catch (err) {
       setSubmitting(false);
-      setTurnstileToken(null); setTurnstileNonce((n) => n + 1); // tokens are single-use
       track('report_error', { code: err instanceof ApiError ? (err.code ?? String(err.status)) : ((err as Error)?.name ?? 'unknown') });
       if (err instanceof ApiError) {
         if (err.status === 401 || err.code === 'auth_required') {
@@ -425,7 +403,6 @@ export default function Report() {
           // day / week / ip → the submit bar shows the limit state (draft kept); a gap (or an older Worker) → the short wait message.
           if (err.reason !== 'day' && err.reason !== 'week' && err.reason !== 'ip') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
         }
-        else if (err.code === 'turnstile_failed') setError(t('report.error.turnstile'));
         else if (err.status === 400) setError(err.field ? t('report.error.field', { field: err.field }) : t('report.error.badRequest'));
         else setError(t('report.error.generic'));
       } else if ((err as Error)?.name === 'AbortError') setError(t('report.error.timeout'));
@@ -460,13 +437,12 @@ export default function Report() {
         {pending > 0 && (
           <div className="card outbox-card" role="status">
             <p className="hint">{t(pending === 1 ? 'report.outbox.pending' : 'report.outbox.pendingPlural', { count: pending })}</p>
-            {session ? <Turnstile key={`ob-${turnstileNonce}`} onToken={setTurnstileToken} />
-              : (
-                <>
-                  <p className="hint">{t('report.outbox.signInPending')}</p>
-                  <Link className="btn btn-ghost" to="/account?returnTo=%2F">{t('report.outbox.signIn')}</Link>
-                </>
-              )}
+            {!session && (
+              <>
+                <p className="hint">{t('report.outbox.signInPending')}</p>
+                <Link className="btn btn-ghost" to="/account?returnTo=%2F">{t('report.outbox.signIn')}</Link>
+              </>
+            )}
           </div>
         )}
         {/* The level-1 hero and the search box sit OUTSIDE the branch below so their DOM nodes persist across
@@ -706,18 +682,6 @@ export default function Report() {
         )}
       </section>
 
-      {/* Human check — a labelled form step above Send, not a post-tap failure */}
-      <section className="section human-check" aria-labelledby="human-check-title">
-        <h2 id="human-check-title">{t('report.human.title')}</h2>
-        <p className="hint">{t('report.human.hint')}</p>
-        <Turnstile key={turnstileNonce} onToken={setTurnstileToken} />
-        {turnstileSlow && !turnstileToken && online && (
-          <div className="human-trouble">
-            <p className="hint">{t('report.human.trouble', { email: BRAND.contactEmail })}</p>
-            <button type="button" className="btn btn-secondary" onClick={() => setTurnstileNonce((n) => n + 1)}>{t('report.human.retry')}</button>
-          </div>
-        )}
-      </section>
       <section className="section">
         <p className="public-record">{t('report.publicRecord')}</p>
         {error && <div className="notice notice-error" role="alert">{error}</div>}

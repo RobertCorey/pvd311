@@ -58,7 +58,6 @@ export const categories = () => ({ items: [
 export const config = () => ({ items: [
   { key: 'HITL_MODE', value: 'ramp', what: 'review = every report needs a tap; ramp = first ACCOUNT_TRUST_N per account, then auto; auto = nothing waits.' },
   { key: 'ACCOUNT_TRUST_N', value: 3, what: 'Reports an account must get filed cleanly before it auto-approves.' },
-  { key: 'TURNSTILE', value: 'enforced', what: 'Cloudflare bot check on report creation; fails closed without the secret.' },
   { key: 'AI_DAILY_CAP', value: 1500, what: 'Max intake/moderation calls per day before the AI steps aside.' },
   { key: 'PORTAL_BASE_URL', value: 'https://311.providenceri.gov', what: 'The city portal the headless browser drives.' },
   { key: 'RETENTION_DAYS', value: 90, what: 'Photos are deleted this long after the city marks a case resolved.' },
@@ -66,7 +65,7 @@ export const config = () => ({ items: [
 export const explain = () => ({ sections: [
   { key: 'pipeline', title: 'The pipeline, end to end', summary: 'A report goes app → Worker → review gate → headless browser → the city portal → status watcher.', details: ['The app posts `multipart/form-data` to `/api/report`; the Worker validates, paces, and stores it as `pending`.', 'Every minute the tick picks the oldest eligible report.', 'Human review or the trust ramp decides whether it waits.'], live: { pending: 1, awaiting_review: 3, submitted: 101 }, links: [{ label: 'Queue', href: '#queue' }, { label: 'docs/api.md', href: 'https://github.com/RobertCorey/pvd311/blob/main/docs/api.md' }] },
   { key: 'hitl', title: 'Human in the loop', summary: 'Who decides, and when the machine decides alone.', details: ['`HITL_MODE=ramp`: the first 3 reports per account are reviewed.', 'Any intake flag forces review regardless of trust.'], live: { mode: 'ramp', trustN: 3, trustedAccounts: 1 } },
-  { key: 'moderation', title: 'Moderation & abuse gates', summary: 'Turnstile, pacing, AI intake.', details: ['Pacing: one report per 3 min per account, 5 per day, plus per-IP.'], live: { intakeToday: 9, dailyCap: 1500 } },
+  { key: 'moderation', title: 'Moderation & abuse gates', summary: 'Sign-in, pacing, AI intake.', details: ['Pacing: one report per 3 min per account, 5 per day, plus per-IP.'], live: { intakeToday: 9, dailyCap: 1500 } },
   { key: 'portal', title: 'Driving the city portal', summary: 'A headless Chromium walks the 3-step wizard.', details: ['Step 1 creates a draft the city cannot delete.', 'Step 3 fields come from the category registry.'], live: { categories: 3, drifted: 0 } },
   { key: 'sync', title: 'Staying in sync with the city', summary: 'The watcher and the nightly reconcile.', details: ['Every 30 min the watcher diffs My Requests.'], live: { caseIdPending: 1 } },
   { key: 'email', title: 'Email', summary: 'Resend for reporters and admins.', details: ['Sign-in links are minted by the Worker.'], live: { enabled: true } },

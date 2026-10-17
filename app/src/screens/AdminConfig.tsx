@@ -5,14 +5,13 @@ import './Admin.css';
 import './AdminConfig.css';
 
 /** Visual grouping of the settings table by key prefix. Order = display order; only non-empty groups render. */
-const GROUP_ORDER = ['hitl', 'account', 'turnstile', 'ai', 'app', 'email', 'other'] as const;
+const GROUP_ORDER = ['hitl', 'account', 'ai', 'app', 'email', 'other'] as const;
 type Group = (typeof GROUP_ORDER)[number];
 
 function groupOf(key: string): Group {
   const k = key.toUpperCase();
   if (k.startsWith('HITL_')) return 'hitl';
   if (k.startsWith('ACCOUNT_')) return 'account';
-  if (k.startsWith('TURNSTILE')) return 'turnstile';
   if (k.startsWith('AI') || k.startsWith('ANTHROPIC')) return 'ai';
   if (k.startsWith('APP') || k.startsWith('PORTAL')) return 'app';
   if (k.startsWith('RESEND') || k.startsWith('EMAIL') || k.startsWith('NOTIFY') || k.startsWith('AUTH_FROM')) return 'email';
@@ -23,7 +22,7 @@ function groupOf(key: string): Group {
 function guessSection(key: string): string {
   const k = key.toUpperCase();
   if (k.startsWith('HITL') || k.startsWith('ACCOUNT_TRUST')) return 'hitl';
-  if (k.startsWith('TURNSTILE') || k.startsWith('PACE') || k.startsWith('RATE') || k.startsWith('INTAKE') || k.startsWith('AI') || k.startsWith('ANTHROPIC')) return 'moderation';
+  if (k.startsWith('PACE') || k.startsWith('RATE') || k.startsWith('INTAKE') || k.startsWith('AI') || k.startsWith('ANTHROPIC')) return 'moderation';
   if (k.startsWith('PORTAL') || k.startsWith('CANARY') || k.startsWith('GOLDEN')) return 'portal';
   if (k.startsWith('RESEND') || k.startsWith('EMAIL') || k.startsWith('NOTIFY') || k.startsWith('AUTH_FROM')) return 'email';
   if (k.startsWith('SYNC') || k.startsWith('RECONCILE') || k.startsWith('WATCHER')) return 'sync';

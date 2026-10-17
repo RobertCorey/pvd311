@@ -43,7 +43,6 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
   fd.set('address', r.address);
   if (r.lat != null && r.lng != null) { fd.set('lat', String(r.lat)); fd.set('lng', String(r.lng)); }
   if (r.extra && Object.keys(r.extra).length) fd.set('extra', JSON.stringify(r.extra));
-  fd.set('turnstileToken', r.turnstileToken);
   fd.set('appVersion', APP_VERSION);
   if (r.descriptionOriginal) fd.set('descriptionOriginal', r.descriptionOriginal);
   if (r.intakeFlags?.length) fd.set('intakeFlags', JSON.stringify(r.intakeFlags));
@@ -57,11 +56,10 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
 }
 
 /** Moderation + optional polish. Never throws — null means "no suggestion". */
-export async function intake(req: Omit<IntakeRequest, 'appVersion'>, turnstileToken?: string | null): Promise<IntakeResult | null> {
+export async function intake(req: Omit<IntakeRequest, 'appVersion'>): Promise<IntakeResult | null> {
   const t = withTimeout(6_000);
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (turnstileToken) headers['X-Turnstile-Token'] = turnstileToken;
     const resp = await apiFetch(`/api/intake`, {
       method: 'POST', headers, signal: t.signal,
       body: JSON.stringify({ ...req, appVersion: APP_VERSION } satisfies IntakeRequest),
