@@ -62,9 +62,14 @@ describe('Step 2 address choice (PVD2026-89374 went to the city as "India St" wh
     expect(hasHouseNumber('')).toBe(false);
     expect(hasHouseNumber(null)).toBe(false);
   });
-  it('pin wins when its reverse geocode has a house number, or the reporter typed none', () => {
+  it('pin wins when the reporter typed no house number, or the same one', () => {
     expect(chooseStep2Source('201 India street', '201 India St')).toBe('pin');
     expect(chooseStep2Source('India St near the park', 'India St')).toBe('pin');
+    expect(chooseStep2Source('India St near the park', '201 India St')).toBe('pin');
+    expect(chooseStep2Source('12A Hope St', '12a Hope St')).toBe('pin');
+  });
+  it('typed address first (pin as fallback) when the reporter corrected the house number', () => {
+    expect(chooseStep2Source('217 Medway', '258 Medway St')).toBe('typed-then-pin');
   });
   it('typed address first (pin as fallback) when ArcGIS returned only a street name', () => {
     expect(chooseStep2Source('201 India street', 'India St')).toBe('typed-then-pin');

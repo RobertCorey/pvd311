@@ -33,6 +33,9 @@ export interface ScoutInput {
   caseTypeName: string;
   report: Report & { id: string };
   controls: PortalControl[];
+  /** The reporter's photo (base64, no data: prefix). Often the only evidence: PVD2026-90139 had no description
+   * and a photo of a groundhog, and the scout — given only hasPhoto — left "Type of Animal" blank. */
+  photo?: { base64: string; mimeType: string };
 }
 
 export interface ScoutResult {
@@ -42,14 +45,16 @@ export interface ScoutResult {
 }
 
 const SYSTEM = `You fill in the remaining fields of a Providence, RI 311 service-request form on behalf of a resident.
-You are given the resident's report (category, description, address, any structured answers) and the list of
-form controls the city's portal rendered for this case type that we do not have a static mapping for.
+You are given the resident's report (category, description, address, any structured answers), usually their photo,
+and the list of form controls the city's portal rendered for this case type that we do not have a static mapping for.
 
 Rules:
 - For a select/radio control, choose EXACTLY one of its listed options (verbatim). Prefer the option the report supports.
   If nothing in the report supports a choice, pick the conservative catch-all ("Unknown", "Other (add to description)", etc.)
   and lower your confidence.
-- For free-text controls, write a short factual value using ONLY information present in the report. Never invent
+- The photo is evidence: answer from what is clearly visible in it (e.g. a groundhog or squirrel is wildlife), but
+  never read details off it that you cannot see plainly.
+- For free-text controls, write a short factual value using ONLY information present in the report or plainly visible in the photo. Never invent
   plates, names, numbers, or details. If the report has nothing relevant, leave the control out of \`values\`
   unless it is required — then use a brief honest placeholder like "See description and photo".
 - Never fill controls you were not given. Never fill anything labeled "Leave this field blank".
@@ -92,12 +97,18 @@ export async function scoutFields(input: ScoutInput): Promise<ScoutResult> {
   }
   const client = new Anthropic({ apiKey: input.apiKey });
   const r = input.report;
+  // The Messages API takes these four; anything else (or > 5 MB) goes without the image rather than failing the filing.
+  const mt = input.photo?.mimeType.toLowerCase().replace('image/jpg', 'image/jpeg');
+  const image = mt && /^image\/(jpeg|png|gif|webp)$/.test(mt) && input.photo!.base64.length * 0.75 < 5_000_000
+    ? (mt as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp') : null;
+
   const payload = {
     caseType: input.caseTypeName,
     category: input.category,
     description: r.description,
     address: r.address,
     hasPhoto: !!r.photo,
+    photoAttached: !!image,
     structuredAnswers: r.extra ?? {},
     controls: input.controls.map((c) => ({
       id: c.id, label: c.label, kind: c.tag === 'select' ? 'select' : c.type === 'radio' ? 'radio' : c.tag === 'textarea' ? 'text' : c.type || 'text',
@@ -112,7 +123,10 @@ export async function scoutFields(input: ScoutInput): Promise<ScoutResult> {
     system: SYSTEM,
     tools: [TOOL],
     tool_choice: { type: 'tool', name: 'propose_field_values' },
-    messages: [{ role: 'user', content: JSON.stringify(payload, null, 2) }],
+    messages: [{ role: 'user', content: [
+      ...(image ? [{ type: 'image' as const, source: { type: 'base64' as const, media_type: image, data: input.photo!.base64 } }] : []),
+      { type: 'text' as const, text: JSON.stringify(payload, null, 2) },
+    ] }],
   });
 
   const block = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');

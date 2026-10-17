@@ -10,14 +10,23 @@ export function hasHouseNumber(street: string | null | undefined): boolean {
   return /^\s*\d+[A-Za-z]?(?:-\d+)?\s+\S/.test(street ?? '');
 }
 
+/** Leading house number, lowercased ("217 Medway" → "217", "12A Hope St" → "12a"); null when there is none. */
+function houseNumber(street: string | null | undefined): string | null {
+  const m = /^\s*(\d+[A-Za-z]?(?:-\d+)?)\s+\S/.exec(street ?? '');
+  return m ? m[1].toLowerCase() : null;
+}
+
 /**
- * Which address goes into Step 2. The pin's reverse geocode wins when it carries a house number
- * (it is what the reporter stood at). When ArcGIS only returns a street name and the reporter typed a
- * house number, the typed address is the better record — try it first, pin as the fallback.
+ * Which address goes into Step 2. The app pre-fills the address from the same ArcGIS reverse geocode, so
+ * a typed house number that differs from the pin's is the reporter correcting it — and ArcGIS's number is
+ * often interpolated from a block range: PVD2026-90139 went to the city as "258 Medway St" (range 232-272)
+ * when Rob typed "217 Medway". The typed address goes first whenever it carries a house number the pin
+ * lacks or disagrees with; the city's autocomplete resolves it, and the pin is the fallback.
  */
 export function chooseStep2Source(typed: string, pinStreet: string | null): 'pin' | 'typed-then-pin' | 'typed' {
   if (pinStreet == null) return 'typed';
-  if (hasHouseNumber(pinStreet) || !hasHouseNumber(typed)) return 'pin';
+  const t = houseNumber(typed);
+  if (!t || t === houseNumber(pinStreet)) return 'pin';
   return 'typed-then-pin';
 }
 

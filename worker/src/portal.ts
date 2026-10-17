@@ -517,6 +517,9 @@ class WorkerPortal implements Portal {
       }
     }
 
+    // Loaded once: the scout looks at it and the wizard attaches it.
+    const photo = report.photo ? await this.loadPhoto(report.photo) : null;
+
     let scouted: Record<string, string> | undefined;
     let leftBlank: string[] | undefined;
     if (unmapped.length && mode === 'live') {
@@ -527,6 +530,7 @@ class WorkerPortal implements Portal {
         caseTypeName: cat.portalCaseTypeName,
         report,
         controls: unmapped,
+        photo: photo ? { base64: photo.base64, mimeType: photo.mimeType } : undefined,
       });
       if (result.confidence >= SCOUT_MIN_CONFIDENCE) {
         scouted = result.values;
@@ -553,7 +557,7 @@ class WorkerPortal implements Portal {
       }
     }
 
-    if (report.photo) await this.uploadPhoto(report.photo);
+    if (photo) await this.uploadPhoto(photo);
 
     if (mode === 'inspect') {
       const proofPath = await this.saveProof(opts, report.id, 'inspect');
@@ -627,28 +631,28 @@ class WorkerPortal implements Portal {
 
   // ── Photo upload ───────────────────────────────────────────
 
-  private async uploadPhoto(photoSource: string): Promise<void> {
-    const page = this.getPage();
+  /** The report photo as base64 (data: URL or our /api/photos URL); null when unreadable — never throws. */
+  private async loadPhoto(photoSource: string): Promise<{ base64: string; mimeType: string; name: string } | null> {
     try {
-      let name = 'report-photo.jpg';
-      let mimeType = 'image/jpeg';
-      let buffer: unknown;
-
       if (photoSource.startsWith('data:')) {
         const matches = photoSource.match(/^data:image\/(\w+);base64,(.+)$/);
-        if (!matches) return; // invalid data URL — skip photo
-        const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-        name = `report-photo.${ext}`;
-        mimeType = `image/${matches[1]}`;
-        buffer = nodeBufferFrom(matches[2], 'base64');
-      } else {
-        const resp = await fetch(photoSource);
-        if (!resp.ok) return; // fetch failed — skip photo
-        mimeType = resp.headers.get('content-type') || 'image/jpeg';
-        buffer = nodeBufferFrom(new Uint8Array(await resp.arrayBuffer()));
+        if (!matches) return null; // invalid data URL — skip photo
+        return { base64: matches[2], mimeType: `image/${matches[1]}`, name: `report-photo.${matches[1] === 'jpeg' ? 'jpg' : matches[1]}` };
       }
+      const resp = await fetch(photoSource);
+      if (!resp.ok) return null; // fetch failed — skip photo
+      const buf = nodeBufferFrom(new Uint8Array(await resp.arrayBuffer())) as { toString(enc: string): string };
+      return { base64: buf.toString('base64'), mimeType: resp.headers.get('content-type') || 'image/jpeg', name: 'report-photo.jpg' };
+    } catch {
+      return null;
+    }
+  }
 
-      await page.setInputFiles('#AttachFile', { name, mimeType, buffer } as unknown as SetInputFilesArg);
+  private async uploadPhoto(photo: { base64: string; mimeType: string; name: string }): Promise<void> {
+    const page = this.getPage();
+    try {
+      const buffer = nodeBufferFrom(photo.base64, 'base64');
+      await page.setInputFiles('#AttachFile', { name: photo.name, mimeType: photo.mimeType, buffer } as unknown as SetInputFilesArg);
       // The portal stages the chosen file via a page hook before the postback picks it up.
       await page.evaluate(() => {
         if (typeof window.chooseAttachment === 'function') window.chooseAttachment();

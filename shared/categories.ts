@@ -177,6 +177,8 @@ export const CATEGORIES: Record<string, CategoryConfig> = {
     portalCaseTypeName: 'Dead Animal on Roadway or Sidewalk',
     portalCaseTypeGuid: '4ce8b671-7a2e-ef11-840a-001dd8039400',
     portalSearchTerm: '*Dead Animal*',
+    // No default: a skipped answer goes to the scout, which sees the photo (PVD2026-90139 was a groundhog).
+    fields: { cop_typeofanimal: { from: 'extra.animalType' } },
     photoRequired: false,
   },
   unshoveled_sidewalk: {

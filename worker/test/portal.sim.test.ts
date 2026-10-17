@@ -22,7 +22,7 @@ vi.mock('@cloudflare/playwright', () => ({
 import { createPortal } from '../src/portal';
 import { loadRealChromium } from './sim/browser';
 import { startSim, type Sim } from './sim/server';
-import { makeEnv, memAuthStore, makeReport } from './sim/harness';
+import { makeEnv, memAuthStore, makeReport, TINY_JPEG_DATA_URL } from './sim/harness';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -89,19 +89,46 @@ describe('portal simulator — happy path', () => {
     }
   });
 
-  it('pin whose reverse geocode has a house number → the pin address goes to the city', async () => {
+  it('pin whose reverse geocode has the house number the reporter kept → the pin address goes to the city', async () => {
     const realFetch = globalThis.fetch;
     const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: '30 Dorrance St', LongLabel: '30 Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'PointAddress' } })));
     globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
     try {
       const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
       await portal.launch();
-      const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
+      const res = await portal.submitReport(makeReport({ address: '30 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
       await portal.close();
       expect(sim.snapshot().cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted', street: '30 Dorrance St' });
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+
+  it('reporter corrected the pin\'s house number (PVD2026-90139: typed 217, pin said 258) → the typed address goes to the city', async () => {
+    const realFetch = globalThis.fetch;
+    const arcgis = vi.fn(async () => new Response(JSON.stringify({ address: { Address: '30 Dorrance St', LongLabel: '30 Dorrance St, Providence, RI, 02903, USA', City: 'Providence', RegionAbbr: 'RI', Postal: '02903', CountryCode: 'USA', Addr_type: 'StreetAddress' } })));
+    globalThis.fetch = ((input: any, init?: any) => (String(input).includes('geocode.arcgis.com') ? arcgis() : realFetch(input, init))) as any;
+    try {
+      const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout: vi.fn() });
+      await portal.launch();
+      const res = await portal.submitReport(makeReport({ address: '25 Dorrance St', lat: 41.8239, lng: -71.4128 }), { mode: 'live' });
+      await portal.close();
+      expect(sim.snapshot().cases.find((c) => c.pvd === res.caseId)).toMatchObject({ status: 'Submitted', street: '25 Dorrance St' });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('the scout is shown the report photo (PVD2026-90139: a groundhog, no description, "Type of Animal" left blank)', async () => {
+    sim.mutate('rename-control', { from: 'cop_size', to: 'cop_size_renamed' }); // pothole's one control → unmapped → scout
+    const scout = vi.fn(async () => ({ values: { cop_size_renamed: 'Large (~36in)' }, confidence: 0.9, notes: '' }));
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore(), scout });
+    await portal.launch();
+    const res = await portal.submitReport(makeReport(), { mode: 'live' });
+    await portal.close();
+    expect(res.caseId).toMatch(/^PVD2026-\d{5}$/);
+    expect(scout).toHaveBeenCalledTimes(1);
+    expect((scout.mock.calls[0] as any)[0].photo).toEqual({ base64: TINY_JPEG_DATA_URL.split(',')[1], mimeType: 'image/jpeg' });
   });
 
   it('check-before-create: a retry whose draft already converted returns alreadyFiled without re-running the wizard', async () => {
