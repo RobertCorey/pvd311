@@ -18,8 +18,7 @@
  * (≤ FOLLOWUP_PER_DAY) so long-running cases still get their resolution. Writes are change-only:
  * one index doc (meta/cityCasesIdx) plus cityCases/{guid} for new or changed cases.
  *
- * Privacy: free-text answers that name people or vehicles (licence plate, landlord name and number) are
- * public on the city's form but are not stored here.
+ * Everything the public form shows is stored, licence plates and landlord names included (Rob, 2026-10-17).
  */
 import type { Env, Store } from './contracts.js';
 import { GRID_CONFIG_META, mapCategory } from './cityfeed.js';
@@ -38,8 +37,6 @@ const DETAIL_FORM_PATH = '/_portal/modal-form-template-path/07a4fc2f-c349-ef11-a
 const DETAIL_ENTITY_FORM = '9f5af76f-2897-46df-99b0-0b6aed8ccee9';
 const UA = 'FixMyPVD/1.0 (+https://fixmypvd.org; public-requests reader)';
 const TERMINAL = new Set(['Resolved', 'Cancelled', 'Closed']);
-/** Public on the form, but they name a person or a vehicle — never stored. */
-const PRIVATE_FIELDS = new Set(['cop_vehicledetails', 'cop_nameandnumberoflandlord']);
 
 export interface GridConfig { url: string; body: Record<string, unknown>; at: string }
 
@@ -62,10 +59,14 @@ export interface CityCaseDetail {
   resolution: string | null;
   /** Other city fields with a value: dropdown label, text, or true for a "Yes" radio. */
   answers: Record<string, string | true>;
+  /** The form's own label for each answered field ("Type of Animal"). */
+  labels: Record<string, string>;
 }
 
-/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO. */
-interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string }
+/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read. */
+interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number }
+/** Bump when parseDetailHtml stores more, so already-read cases are read again (2: plates/landlords + labels). */
+const DETAIL_VERSION = 2;
 type Index = Record<string, IdxEntry>;
 
 // ── Parsing (pure) ───────────────────────────────────────────────────────────────────────
@@ -151,9 +152,14 @@ export function parseDetailHtml(html: string): CityCaseDetail {
     resolutionDate: take('adx_resolutiondate'),
     resolution: take('adx_resolution'),
     answers: {},
+    labels: {},
   };
   take('createdon'); take('cop_casetype_name'); // already on the row
-  for (const [k, v] of Object.entries(raw)) if (!PRIVATE_FIELDS.has(k)) out.answers[k] = v;
+  for (const [k, v] of Object.entries(raw)) {
+    out.answers[k] = v;
+    const lab = html.match(new RegExp(`<label\\b[^>]*\\bid="${k}_label"[^>]*>([^<]*)</label>`, 'i'));
+    if (lab && decodeEntities(lab[1]).trim()) out.labels[k] = decodeEntities(lab[1]).trim();
+  }
   return out;
 }
 
@@ -220,10 +226,10 @@ async function readDetail(http: CityHttp, id: string): Promise<CityCaseDetail> {
 
 const statusKey = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '_') || 'unknown';
 
-/** Which cases need a detail read this run: never read, or the list status moved since the last read. Oldest first. */
+/** Which cases need a detail read this run: never read, the list status moved since the last read, or read by an older parser. Oldest first. */
 export function pickDetailReads(index: Index, limit: number): string[] {
   return Object.entries(index)
-    .filter(([, e]) => e.ds === undefined || e.ds !== e.s)
+    .filter(([, e]) => e.ds === undefined || e.ds !== e.s || (e.ds !== undefined && (e.dv ?? 1) < DETAIL_VERSION))
     .sort(([, a], [, b]) => (a.c ?? '').localeCompare(b.c ?? ''))
     .slice(0, limit).map(([id]) => id);
 }
@@ -303,11 +309,11 @@ async function readAndStoreDetail(http: CityHttp, store: Store, index: Index, id
     const s = followUp && d.status ? d.status : e.s;
     if (s !== e.s) { fields.status = s; fields.statusAt = nowIso; fields[`statusSeen.${statusKey(s)}`] = nowIso; }
     await store.patchCityCase(id, fields);
-    index[id] = { ...e, s, ds: s, dc: nowIso };
+    index[id] = { ...e, s, ds: s, dc: nowIso, dv: DETAIL_VERSION };
     return true;
   } catch (err) {
     console.warn('[citycases] detail failed:', err instanceof Error ? err.message : err);
-    index[id] = { ...e, dc: nowIso, ds: e.s }; // retried on the next status change, not every run
+    index[id] = { ...e, dc: nowIso, ds: e.s, dv: DETAIL_VERSION }; // retried on the next status change, not every run
     return false;
   }
 }

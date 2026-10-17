@@ -177,6 +177,19 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/config`, (r) => r.fulfill(json(config())));
   await page.route(`${API}/api/admin/explain`, (r) => r.fulfill(json(explain())));
   await page.route(`${API}/api/admin/usage*`, (r) => r.fulfill(json(usage())));
+  await page.route(`${API}/api/admin/city-cases*`, (r) => r.fulfill(json(cityCases())));
   await page.route(`${API}/api/admin/city-questions`, (r) => r.fulfill(json(cityQuestions())));
 }
-export const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
+/** GET /api/admin/city-cases — shape = worker citycases.ts records. Made-up cases. */
+function cityCases() {
+  return { syncedAt: mins(4), tracked: 231, next: null, items: [
+    { id: 'c1', caseType: 'Abandoned Vehicle to Report', category: 'abandoned_vehicle', street: '10 Example St', status: 'Assigned', createdAt: mins(60 * 44), detailAt: mins(30),
+      statusSeen: { Submitted: mins(60 * 43), Assigned: mins(60 * 20) },
+      detail: { status: 'Assigned', address: '10 Example St, Providence, RI, 02900, USA', receivedOn: mins(60 * 22), routedOn: mins(60 * 22), workCompletedOn: null, resolutionDate: null, resolution: null,
+        answers: { cop_vehicledetails: 'TEST123' }, labels: { cop_vehicledetails: 'Vehicle Details' } } },
+    { id: 'c2', caseType: 'Encampment Concern(s)', category: 'unsure', street: 'Sample Ave', status: 'Resolved', createdAt: mins(60 * 47), detailAt: mins(50),
+      detail: { status: 'Resolved', address: 'Sample Ave, Providence, RI, 02900, USA', receivedOn: mins(60 * 46), routedOn: mins(60 * 46), workCompletedOn: mins(60 * 40), resolutionDate: null, resolution: 'Reported to HHS', answers: {}, labels: {} } },
+    { id: 'c3', caseType: 'Pothole Report', category: 'pothole', street: '20 Test St', status: 'Submitted', createdAt: mins(15) },
+  ] };
+}
+export const TABS = ['overview', 'usage', 'queue', 'reports', 'cases', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;

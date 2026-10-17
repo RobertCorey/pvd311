@@ -202,6 +202,23 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     return json({ items, next: rows.length >= limit && last ? toIso(last.timestamp) : null });
   }
 
+  if (m === 'GET' && path === '/api/admin/city-cases') {
+    // Every case on the city's public feed (citycases.ts). Filters run in memory over a wider window, like /reports.
+    const p = url.searchParams;
+    const [status, category, before] = ['status', 'category', 'before'].map((k) => (p.get(k) || '').trim() || null);
+    const q = (p.get('q') || '').trim().toLowerCase();
+    const limit = Math.min(200, Math.max(1, Number(p.get('limit')) || 50));
+    const filtered = !!(status || category || q);
+    const scan = filtered ? Math.min(1000, limit * 10) : limit;
+    const rows = await store.listCityCases({ before, limit: scan });
+    const hit = (c: Record<string, unknown>) => (!status || c.status === status) && (!category || c.category === category)
+      && (!q || JSON.stringify([c.id, c.caseType, c.street, c.detail]).toLowerCase().includes(q));
+    const items = rows.filter(hit).slice(0, limit);
+    const last = rows[rows.length - 1];
+    const idx = await store.getMeta<{ at?: string; cases?: Record<string, unknown> }>('cityCasesIdx').catch(() => null);
+    return json({ items, next: rows.length >= scan && last ? (last.createdAt as string) : null, syncedAt: idx?.at ?? null, tracked: idx?.cases ? Object.keys(idx.cases).length : 0 });
+  }
+
   if (m === 'GET' && path === '/api/admin/users') {
     const before = url.searchParams.get('before') || null;
     const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));

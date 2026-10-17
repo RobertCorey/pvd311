@@ -68,6 +68,17 @@ export const adminReports = (p: AdminReportsQuery = {}) => {
   for (const [k, v] of Object.entries(p)) if (v != null && v !== '') q.set(k, String(v));
   return call<Paged<AdminReport>>(`/api/admin/reports?${q}`);
 };
+export interface AdminCityCase {
+  id: string; caseType: string; category: string; street: string; status: string; createdAt: string | null; firstSeenAt?: string; detailAt?: string;
+  statusSeen?: Record<string, string>;
+  detail?: { status: string | null; address: string | null; receivedOn: string | null; routedOn: string | null; workCompletedOn: string | null;
+    resolutionDate: string | null; resolution: string | null; answers: Record<string, string | true>; labels?: Record<string, string> };
+}
+export const adminCityCases = (p: AdminReportsQuery = {}) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) if (v != null && v !== '') q.set(k, String(v));
+  return call<Paged<AdminCityCase> & { syncedAt: string | null; tracked: number }>(`/api/admin/city-cases?${q}`);
+};
 export interface AdminAccount {
   uid: string; email: string | null; displayName: string | null; provider: string; emailVerified: boolean;
   createdAt: string | null; lastSeenAt: string | null; trusted: boolean; emailUpdates: boolean; following: number; addresses: number;

@@ -21,16 +21,14 @@ describe('parseDetailHtml', () => {
   const d = parseDetailHtml(DETAIL);
   it('reads the public form fields', () => {
     expect(d.status).toBe('Assigned');
-    expect(d.address).toBe('24 Ruggles St, Providence, RI, 02908, USA');
+    expect(d.address).toBe('10 Example St, Providence, RI, 02908, USA');
     expect(d.receivedOn).toBe('2026-10-16T12:58:18.0000000Z');
     expect(d.routedOn).toBe('2026-10-16T12:58:33.0000000Z');
     expect(d.resolution).toBeNull();
   });
-  it('never stores the licence plate or landlord name, and skips the pre-checked "No" radios', () => {
-    expect(JSON.stringify(d)).not.toContain('TEST123');
-    expect(d.answers).not.toHaveProperty('cop_vehicledetails');
-    expect(Object.values(d.answers)).not.toContain('Select');
-    expect(d.answers).toEqual({});
+  it('keeps the licence plate with its form label, and skips the pre-checked "No" radios and empty dropdowns', () => {
+    expect(d.answers).toEqual({ cop_vehicledetails: 'TEST123' });
+    expect(d.labels).toEqual({ cop_vehicledetails: 'Vehicle Details' });
   });
   it('reads a dropdown answer, a Yes radio and the resolution message', () => {
     const html = `<span id="statuscode" class="status">Resolved</span>
@@ -41,17 +39,18 @@ describe('parseDetailHtml', () => {
     const x = parseDetailHtml(html);
     expect(x.status).toBe('Resolved');
     expect(x.resolution).toBe('Reported to HHS');
-    expect(x.answers).toEqual({ cop_typeofanimal: 'Raccoon', cop_presscharges: true });
+    expect(x.answers).toEqual({ cop_typeofanimal: 'Raccoon', cop_presscharges: true, cop_nameandnumberoflandlord: 'Jane 401-555-0100' });
   });
 });
 
 describe('pickDetailReads', () => {
   it('picks never-read cases and cases whose status moved, oldest first', () => {
     expect(pickDetailReads({
-      a: { s: 'Assigned', ds: 'Assigned', c: '2026-10-10' },
+      a: { s: 'Assigned', ds: 'Assigned', c: '2026-10-10', dv: 2 },
+      d: { s: 'Assigned', ds: 'Assigned', c: '2026-10-09' }, // read by the v1 parser
       b: { s: 'Resolved', ds: 'Assigned', c: '2026-10-12' },
       c: { s: 'Submitted', c: '2026-10-11' },
-    }, 5)).toEqual(['c', 'b']);
+    }, 5)).toEqual(['d', 'c', 'b']);
   });
 });
 
@@ -94,7 +93,7 @@ describe('syncCityCases', () => {
     expect(JSON.parse(post.body!)).toMatchObject({ base64SecureConfiguration: 'cfg', page: 1, pageSize: 50 });
     const c = cases['fa4943b8-08c8-f111-a3d0-001dd8050b66'];
     expect(c).toMatchObject({ caseType: 'Overflowing Dumpster', street: '481 Angell St', firstSeenAt: '2026-10-17T15:00:00.000Z' });
-    expect((c.detail as any).address).toContain('Ruggles'); // the fixture detail
+    expect((c.detail as any).address).toContain('Example St'); // the fixture detail
 
     // Second run, same list: no case writes, no detail reads — one token GET + one list POST.
     const writes = (store.patchCityCase as any).mock.calls.length;

@@ -19,12 +19,13 @@ import AdminConfig from './AdminConfig';
 import AdminExplain from './AdminExplain';
 import AdminUsage from './AdminUsage';
 import AdminEmail from './AdminEmail';
+import AdminCityCases from './AdminCityCases';
 import { When } from './adminUtil';
 import './Admin.css';
 import './AdminMobile.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-const TABS = ['overview', 'usage', 'queue', 'reports', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
+const TABS = ['overview', 'usage', 'queue', 'reports', 'cases', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
 type Tab = typeof TABS[number];
 /** Parse the hash: `#reports?q=x`, `#explain:portal`, `#queue`. Unknown → overview. */
 function parseHash(h: string): { tab: Tab; params: URLSearchParams; anchor: string | null } {
@@ -209,6 +210,7 @@ export default function Admin() {
         {tab === 'system' && <AdminSystem />}
         {tab === 'usage' && <AdminUsage />}
         {tab === 'reports' && <AdminReports initialQuery={route.params.get('q') ?? ''} initialStatus={route.params.get('status') ?? ''} say={say} />}
+        {tab === 'cases' && <AdminCityCases />}
         {tab === 'events' && <AdminEvents initialReportId={route.params.get('reportId') ?? ''} />}
         {tab === 'accounts' && <AdminAccounts openUid={route.anchor} go={go} />}
         {tab === 'email' && <AdminEmail openId={route.anchor} go={go} />}

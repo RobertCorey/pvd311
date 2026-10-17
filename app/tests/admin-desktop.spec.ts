@@ -121,10 +121,28 @@ test('city questions: explainer, ranked category × question table, counts, flag
   await page.screenshot({ path: 'tests/__screenshots__/admin-questions.png' });
 });
 
+test('city cases: everyone\'s public-feed cases; a row opens the city\'s detail form fields, plate included', async ({ page }) => {
+  await page.goto('/admin#cases');
+  const main = page.locator('.admin-main');
+  await expect(main.locator('h1')).toContainText('City cases');
+  await expect(main.locator('tbody tr')).toHaveCount(3);
+  await expect(main).toContainText('231 tracked');
+  await expect(main.locator('tbody tr').nth(1)).toContainText('Reported to HHS');
+  await main.locator('tbody tr').first().click();
+  const pane = page.locator('.admin-pane');
+  await expect(pane).toContainText('10 Example St, Providence, RI, 02900, USA');
+  await expect(pane).toContainText('Vehicle Details');
+  await expect(pane).toContainText('TEST123');
+  await expect(pane).toContainText('Routed');
+  await main.locator('tbody tr').nth(2).click();
+  await expect(pane).toContainText('City detail form not read yet');
+  await page.screenshot({ path: 'tests/__screenshots__/admin-cases.png' });
+});
+
 test('every tab is reachable from the rail and keeps the hash', async ({ page }) => {
   await page.goto('/admin');
   for (const tab of TABS) {
-    await page.getByRole('tab', { name: new RegExp(`^${tab === 'explain' ? 'How it works' : tab === 'questions' ? 'City questions' : tab}`, 'i') }).click();
+    await page.getByRole('tab', { name: new RegExp(`^${tab === 'explain' ? 'How it works' : tab === 'questions' ? 'City questions' : tab === 'cases' ? 'City cases' : tab}`, 'i') }).click();
     await expect(page).toHaveURL(new RegExp(`#${tab}$`));
   }
 });
