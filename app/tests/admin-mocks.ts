@@ -177,7 +177,7 @@ export async function mockAdmin(page: Page, opts: { events?: number } = {}) {
   await page.route(`${API}/api/admin/config`, (r) => r.fulfill(json(config())));
   await page.route(`${API}/api/admin/explain`, (r) => r.fulfill(json(explain())));
   await page.route(`${API}/api/admin/usage*`, (r) => r.fulfill(json(usage())));
-  await page.route(`${API}/api/admin/city-cases*`, (r) => r.fulfill(json(cityCases())));
+  await page.route(`${API}/api/admin/city-cases**`, (r) => r.fulfill(json(new URL(r.request().url()).pathname.endsWith('/insights') ? cityInsights() : cityCases())));
   await page.route(`${API}/api/admin/city-questions`, (r) => r.fulfill(json(cityQuestions())));
 }
 /** GET /api/admin/city-cases — shape = worker citycases.ts records. Made-up cases. */
@@ -191,5 +191,16 @@ function cityCases() {
       detail: { status: 'Resolved', address: 'Sample Ave, Providence, RI, 02900, USA', receivedOn: mins(60 * 46), routedOn: mins(60 * 46), workCompletedOn: mins(60 * 40), resolutionDate: null, resolution: 'Reported to HHS', answers: {}, labels: {} } },
     { id: 'c3', caseType: 'Pothole Report', category: 'pothole', street: '20 Test St', status: 'Submitted', createdAt: mins(15) },
   ] };
+}
+function oc(o: Partial<Record<string, number>>) { return { work_done: 0, enforcement: 0, referred: 0, logged_elsewhere: 0, info_only: 0, no_action: 0, cancelled: 0, open: 0, ...o }; }
+/** GET /api/admin/city-cases/insights — shape = worker cityinsights.ts buildInsights. */
+function cityInsights() {
+  const trees = { caseType: 'Tree Related Issue(s)', n: 14, routed: 9, medRouteHours: 6.9, closed: 6, medCloseDays: 2.5, closeSample: 2, openOver7d: 1,
+    outcomes: oc({ work_done: 4, no_action: 1, cancelled: 1, open: 8 }), examples: [{ text: 'Pick up completed', n: 2 }, { text: 'Branch picked up', n: 1 }] };
+  const parking = { caseType: 'Parking Issues to Report', n: 6, routed: 3, medRouteHours: 17.3, closed: 3, medCloseDays: null, closeSample: 0, openOver7d: 0,
+    outcomes: oc({ referred: 3, open: 3 }), examples: [{ text: 'Instructed to call PPD Non-Emergency Line.', n: 3 }] };
+  const { caseType: _a, examples: _b, ...tg } = trees; const { caseType: _c, examples: _d, ...pg } = parking;
+  return { at: mins(5), days: 30, since: mins(43200), trackedSince: mins(60 * 30), total: { n: 20, routed: 12, medRouteHours: 0.4, closed: 9, medCloseDays: 2.5, closeSample: 2, openOver7d: 1, outcomes: oc({ work_done: 4, referred: 3, no_action: 1, cancelled: 1, open: 11 }) },
+    groups: [{ group: 'trees', ...tg, types: [trees] }, { group: 'traffic', ...pg, types: [parking] }] };
 }
 export const TABS = ['overview', 'usage', 'queue', 'reports', 'cases', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;

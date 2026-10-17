@@ -79,6 +79,13 @@ export const adminCityCases = (p: AdminReportsQuery = {}) => {
   for (const [k, v] of Object.entries(p)) if (v != null && v !== '') q.set(k, String(v));
   return call<Paged<AdminCityCase> & { syncedAt: string | null; tracked: number }>(`/api/admin/city-cases?${q}`);
 };
+export type CityOutcome = 'work_done' | 'enforcement' | 'referred' | 'logged_elsewhere' | 'info_only' | 'no_action' | 'cancelled' | 'open';
+export interface CityStats { n: number; routed: number; medRouteHours: number | null; closed: number; medCloseDays: number | null; closeSample: number; openOver7d: number; outcomes: Record<CityOutcome, number> }
+export interface CityInsights {
+  at: string; days: number; since: string; trackedSince: string | null; total: CityStats;
+  groups: (CityStats & { group: string; types: (CityStats & { caseType: string; examples: { text: string; n: number }[] })[] })[];
+}
+export const adminCityInsights = (days: number) => call<CityInsights>(`/api/admin/city-cases/insights?days=${days}`);
 export interface AdminAccount {
   uid: string; email: string | null; displayName: string | null; provider: string; emailVerified: boolean;
   createdAt: string | null; lastSeenAt: string | null; trusted: boolean; emailUpdates: boolean; following: number; addresses: number;

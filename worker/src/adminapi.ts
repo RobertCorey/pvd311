@@ -26,7 +26,10 @@
  *   GET  /api/admin/emails/:id             → one email: full text (fetched from Resend when not stored) + delivery state + linked report/accounts
  *   POST /api/admin/emails/sync            → import Resend's sent mail + stored city mail we have no record of; refresh delivery states
  *   GET  /api/admin/users/:uid/profile     → one person: account + their reports + their email
+ *   GET  /api/admin/city-cases             → everyone's cases on the city's public feed (citycases.ts)
+ *   GET  /api/admin/city-cases/insights?days= → how the city handles them: routing / closing times + what closing meant (cityinsights.ts)
  */
+import { buildInsights, type CaseLike, type Insights } from './cityinsights.js';
 import { CATEGORIES } from '../../shared/categories.js';
 import type { Env, Store, ReportDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
@@ -200,6 +203,18 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     const items = rows.filter(hit).slice(0, limit).map(adminProjection);
     const last = rows[rows.length - 1];
     return json({ items, next: rows.length >= limit && last ? toIso(last.timestamp) : null });
+  }
+
+  if (m === 'GET' && path === '/api/admin/city-cases/insights') {
+    // "How it gets done" over the stored record; one full read per window per hour (meta cache).
+    const days = [7, 30, 90, 365].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
+    const key = `cityInsights_${days}`;
+    const cached = await store.getMeta<Insights>(key).catch(() => null);
+    if (cached?.at && Date.now() - Date.parse(cached.at) < 3_600_000 && url.searchParams.get('fresh') !== '1') return json(cached);
+    const rows = await store.listCityCases({ limit: 5000 });
+    const ins = buildInsights(rows as unknown as CaseLike[], { days });
+    await store.setMeta(key, ins as unknown as Record<string, unknown>).catch(() => {});
+    return json(ins);
   }
 
   if (m === 'GET' && path === '/api/admin/city-cases') {

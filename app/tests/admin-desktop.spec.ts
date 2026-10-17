@@ -139,6 +139,24 @@ test('city cases: everyone\'s public-feed cases; a row opens the city\'s detail 
   await page.screenshot({ path: 'tests/__screenshots__/admin-cases.png' });
 });
 
+test('city cases → how it gets done: tiles, outcome bars with counts in text, a case type opens its cases', async ({ page }) => {
+  await page.goto('/admin#cases');
+  await page.getByRole('button', { name: 'How it gets done' }).click();
+  const main = page.locator('.admin-main');
+  await expect(main.locator('.ci-tiles')).toContainText('Closed with work done');
+  await expect(main.locator('.ci-tiles')).toContainText('44%'); // 4 work done of 9 closed
+  await expect(main.locator('.ci-legend li')).toHaveCount(8);
+  const trees = main.locator('tr.ci-group', { hasText: 'Trees, parks & yards' });
+  await expect(trees).toContainText('Work done 4');
+  await expect(trees.locator('.ci-bar')).toHaveAttribute('aria-label', /Work done 4, Nothing found \/ no note 1, Cancelled or merged 1, Still open 8/);
+  await trees.click();
+  await expect(main.locator('tr.ci-type')).toContainText('“Pick up completed” ×2');
+  await page.screenshot({ path: 'tests/__screenshots__/admin-cases-insights.png' });
+  await main.locator('tr.ci-type').click();
+  await expect(main.locator('input[type="search"]')).toHaveValue('Tree Related Issue(s)');
+  await expect(page.getByRole('button', { name: 'Cases', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('every tab is reachable from the rail and keeps the hash', async ({ page }) => {
   await page.goto('/admin');
   for (const tab of TABS) {

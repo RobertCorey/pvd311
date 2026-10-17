@@ -1,0 +1,41 @@
+/* "How it gets done" (AdminCityInsights.tsx). Outcome colours: dataviz reference categorical order, validated on
+   --surface #FFFCF7 (adjacent CVD ΔE ≥ 9.1, normal ≥ 19.6). Three slots sit under 3:1, so every bar carries its
+   counts as text beside it and in its label. "Open" is the neutral remainder, not a category hue. */
+.ci { --oc-work_done: #2a78d6; --oc-enforcement: #eb6834; --oc-referred: #1baf7a; --oc-logged_elsewhere: #eda100;
+  --oc-info_only: #e87ba4; --oc-no_action: #008300; --oc-cancelled: #6250d6; --oc-open: #d8d2c6; }
+.ci-oc-work_done { background: var(--oc-work_done); } .ci-oc-enforcement { background: var(--oc-enforcement); }
+.ci-oc-referred { background: var(--oc-referred); } .ci-oc-logged_elsewhere { background: var(--oc-logged_elsewhere); }
+.ci-oc-info_only { background: var(--oc-info_only); } .ci-oc-no_action { background: var(--oc-no_action); }
+.ci-oc-cancelled { background: var(--oc-cancelled); } .ci-oc-open { background: var(--oc-open); }
+
+.ci-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.ci-tiles > div { background: var(--surface); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.ci-tiles dt { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-family: var(--font-display); font-weight: 700; }
+.ci-tiles dd { margin: 4px 0 0; font-size: 1.35rem; font-weight: 700; color: var(--ink); }
+
+.ci-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0; margin: 0 0 10px; font-size: .82rem; color: var(--ink); }
+.ci-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ci-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.ci-table th[scope="row"] { font-weight: 600; text-align: left; padding: 8px 10px; }
+.ci-table td, .ci-table th { height: auto; padding-top: 8px; padding-bottom: 8px; }
+.ci-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ci-group th[scope="row"] { font-family: var(--font-display); font-weight: 700; }
+.ci-type th[scope="row"] { font-weight: 500; padding-left: 30px; }
+.ci-caret { display: inline-block; width: 1em; color: var(--muted); }
+.ci-bar-col { width: 34%; min-width: 180px; }
+.ci-bar { display: flex; gap: 2px; height: 12px; width: 100%; }
+.ci-seg { min-width: 3px; height: 100%; }
+.ci-seg:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.ci-seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.ci-top { margin-top: 4px; }
+.ci-ex { list-style: none; padding: 0; margin: 4px 0 0; font-size: .78rem; font-weight: 400; color: var(--muted); }
+.ci-foot { margin-top: 10px; max-width: 70ch; }
+
+.cc-views { display: inline-flex; gap: 4px; margin-bottom: 10px; }
+.cc-views .btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+/* Row-label cells are <th>; give them the same striping/hover as the row's <td>s (Admin.css styles td only). */
+.ci-table tbody tr:nth-child(even) th { background: color-mix(in srgb, var(--bg) 55%, var(--surface)); }
+.ci-table tbody tr:hover th { background: color-mix(in srgb, var(--warn-soft) 50%, var(--surface)); }
+.ci-table tbody th { border-bottom: 1px solid var(--line); }
+.ci-table tbody tr:last-child th { border-bottom: 0; }

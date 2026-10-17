@@ -4,15 +4,18 @@ import { adminCityCases, type AdminCityCase } from '../api/admin';
 import CategoryIcon from '../components/CategoryIcon';
 import { ALL_CATEGORIES } from '../lib/categories';
 import { When, abs } from './adminUtil';
+import AdminCityInsights from './AdminCityInsights';
 
 const STATUSES = ['', 'Draft', 'Submitted', 'Assigned', 'In Progress', 'Department Responded', 'Resolved', 'Cancelled'];
 
 /**
  * City cases tab — every case on the city's public feed, anyone's (worker citycases.ts), newest first.
  * Row → side pane with what the city's public detail form shows: address, dates, resolution message, answers.
+ * "How it gets done" view: AdminCityInsights (a case type there opens this list searched for it).
  */
 export default function AdminCityCases() {
   const t = useT();
+  const [view, setView] = useState<'list' | 'insights'>('list');
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
@@ -36,9 +39,17 @@ export default function AdminCityCases() {
   useEffect(() => { setSelected(null); void load(); }, [load]);
 
   const current = items?.find((c) => c.id === selected) ?? null;
+  const views = (
+    <div className="cc-views" role="group" aria-label={t('admin.cc.views')}>
+      <button type="button" className="btn btn-ghost" aria-pressed={view === 'list'} onClick={() => setView('list')}>{t('admin.cc.viewList')}</button>
+      <button type="button" className="btn btn-ghost" aria-pressed={view === 'insights'} onClick={() => setView('insights')}>{t('admin.cc.viewInsights')}</button>
+    </div>
+  );
+  if (view === 'insights') return <div>{views}<AdminCityInsights onType={(ty) => { setQ(ty); setQuery(ty); setStatus(''); setCategory(''); setView('list'); }} /></div>;
   return (
     <div className={`admin-queue${current ? ' has-pane' : ''}`}>
       <div className="admin-table-wrap">
+        {views}
         <div className="admin-filters">
           <label className="admin-filter"><span className="label">{t('admin.col.status')}</span>
             <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{s || t('admin.reports.any')}</option>)}</select></label>
