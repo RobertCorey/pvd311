@@ -3,7 +3,7 @@
  *
  * Cron triggers (wrangler.toml [triggers]):
  *   every minute  → runTick    (submit one pending report, with reaper + HITL gate)
- *   every 30 min  → runWatcher  (diff My Requests vs submitted reports)
+ *   every 30 min  → runWatcher  (diff My Requests vs submitted reports), then runCityCases (public-feed record, plain HTTP)
  *   daily 11:00Z  → runDaily    (digest + selector canary; 11:00 UTC = 06:00 EST / 07:00 EDT — crons are UTC-only)
  *
  * HTTP:
@@ -16,7 +16,7 @@
  *   GET /hitl/reject/:id/:exp/:sig       → verify HMAC + expiry, reject, tiny HTML page
  */
 import type { Env } from './contracts.js';
-import { runTick, runWatcher, runDaily, type EngineState } from './engine.js';
+import { runTick, runWatcher, runDaily, runCityCases, type EngineState } from './engine.js';
 import { deployHoldActive } from './deployhold.js';
 import { createStore, createAuthStore } from './firestore.js';
 import { createPortal } from './portal.js';
@@ -36,7 +36,7 @@ export default {
         break;
       case '*/30 * * * *':
       case '0 */6 * * *':
-        ctx.waitUntil(runWatcher(env));
+        ctx.waitUntil(runWatcher(env).finally(() => runCityCases(env)));
         break;
       case '0 11 * * *':
         ctx.waitUntil(runDaily(env));
@@ -66,7 +66,7 @@ export default {
       if (request.headers.get('x-canary-token') !== env.CANARY_TOKEN) return new Response('unauthorized', { status: 401 });
       const t0 = Date.now();
       try {
-        if (url.pathname === '/admin/watch') await runWatcher(env); else await runDaily(env);
+        if (url.pathname === '/admin/watch') await runWatcher(env).finally(() => runCityCases(env)); else await runDaily(env);
         return Response.json({ ok: true, ms: Date.now() - t0 });
       } catch (e) { return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 }, { status: 500 }); }
     }

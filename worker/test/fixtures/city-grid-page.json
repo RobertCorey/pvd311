@@ -1,0 +1,255 @@
+{
+ "Records": [
+  {
+   "Id": "fa4943b8-08c8-f111-a3d0-001dd8050b66",
+   "EntityName": "incident",
+   "Attributes": [
+    {
+     "Name": "statecode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 1,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Resolved",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Resolved",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "createdon",
+     "Type": "System.DateTime",
+     "Value": "/Date(1792007521000)/",
+     "FormattedValue": "10/14/2026 7:52 PM",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "2026-10-14T19:52:01Z",
+     "DateTimeBehavior": {
+      "Value": "UserLocal",
+      "ExtensionData": {}
+     }
+    },
+    {
+     "Name": "cop_casetype",
+     "Type": "Microsoft.Xrm.Sdk.EntityReference",
+     "Value": {
+      "Id": "0e8e7734-cc3f-ef11-8409-001dd800f706",
+      "LogicalName": "cop_casetype",
+      "Name": "Overflowing Dumpster",
+      "KeyAttributes": [],
+      "RowVersion": null,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Overflowing Dumpster",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Overflowing Dumpster",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "statuscode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 5,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Resolved",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Resolved",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "cop_street1",
+     "Type": "System.String",
+     "Value": "481 Angell St",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "481 Angell St",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "incidentid",
+     "Type": "System.Guid",
+     "Value": "fa4943b8-08c8-f111-a3d0-001dd8050b66",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "fa4943b8-08c8-f111-a3d0-001dd8050b66",
+     "DateTimeBehavior": null
+    }
+   ],
+   "CanRead": false,
+   "CanWrite": false,
+   "CanDelete": false,
+   "CanAppend": false,
+   "CanAppendTo": false,
+   "StateCode": 0,
+   "StatusCode": 0
+  },
+  {
+   "Id": "ab400112-05c8-f111-a3d0-001dd804b975",
+   "EntityName": "incident",
+   "Attributes": [
+    {
+     "Name": "statecode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 0,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Active",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Active",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "createdon",
+     "Type": "System.DateTime",
+     "Value": "/Date(1792005953000)/",
+     "FormattedValue": "10/14/2026 7:25 PM",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "2026-10-14T19:25:53Z",
+     "DateTimeBehavior": {
+      "Value": "UserLocal",
+      "ExtensionData": {}
+     }
+    },
+    {
+     "Name": "cop_casetype",
+     "Type": "Microsoft.Xrm.Sdk.EntityReference",
+     "Value": {
+      "Id": "5f0efb0b-0454-ef11-a317-001dd8068673",
+      "LogicalName": "cop_casetype",
+      "Name": "Pothole Report",
+      "KeyAttributes": [],
+      "RowVersion": null,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Pothole Report",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Pothole Report",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "statuscode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 1,
+      "ExtensionData": null
+     },
+     "FormattedValue": "In Progress",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "In Progress",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "cop_street1",
+     "Type": "System.String",
+     "Value": "66 Wayne St",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "66 Wayne St",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "incidentid",
+     "Type": "System.Guid",
+     "Value": "ab400112-05c8-f111-a3d0-001dd804b975",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "ab400112-05c8-f111-a3d0-001dd804b975",
+     "DateTimeBehavior": null
+    }
+   ],
+   "CanRead": false,
+   "CanWrite": false,
+   "CanDelete": false,
+   "CanAppend": false,
+   "CanAppendTo": false,
+   "StateCode": 0,
+   "StatusCode": 0
+  },
+  {
+   "Id": "f8c0745a-04c8-f111-aaae-001dd8038269",
+   "EntityName": "incident",
+   "Attributes": [
+    {
+     "Name": "statecode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 0,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Active",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Active",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "createdon",
+     "Type": "System.DateTime",
+     "Value": "/Date(1792005651000)/",
+     "FormattedValue": "10/14/2026 7:20 PM",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "2026-10-14T19:20:51Z",
+     "DateTimeBehavior": {
+      "Value": "UserLocal",
+      "ExtensionData": {}
+     }
+    },
+    {
+     "Name": "cop_casetype",
+     "Type": "Microsoft.Xrm.Sdk.EntityReference",
+     "Value": {
+      "Id": "63411634-181e-f011-9989-001dd80947ed",
+      "LogicalName": "cop_casetype",
+      "Name": "General Question or Concern DPW related",
+      "KeyAttributes": [],
+      "RowVersion": null,
+      "ExtensionData": null
+     },
+     "FormattedValue": "General Question or Concern DPW related",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "General Question or Concern DPW related",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "statuscode",
+     "Type": "Microsoft.Xrm.Sdk.OptionSetValue",
+     "Value": {
+      "Value": 769160002,
+      "ExtensionData": null
+     },
+     "FormattedValue": "Assigned",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Assigned",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "cop_street1",
+     "Type": "System.String",
+     "Value": "Pitman St",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "Pitman St",
+     "DateTimeBehavior": null
+    },
+    {
+     "Name": "incidentid",
+     "Type": "System.Guid",
+     "Value": "f8c0745a-04c8-f111-aaae-001dd8038269",
+     "FormattedValue": "",
+     "DateTimeFormat": "DateAndTime",
+     "DisplayValue": "f8c0745a-04c8-f111-aaae-001dd8038269",
+     "DateTimeBehavior": null
+    }
+   ],
+   "CanRead": false,
+   "CanWrite": false,
+   "CanDelete": false,
+   "CanAppend": false,
+   "CanAppendTo": false,
+   "StateCode": 0,
+   "StatusCode": 0
+  }
+ ],
+ "ItemCount": 229,
+ "MoreRecords": false
+}

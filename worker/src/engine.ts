@@ -30,6 +30,7 @@ import { diffCaseTypes, caseTypesChanged, summarizeCaseTypes, caseTypesHtml, ass
 import { normalizeControls, diffControls, hasDrift, driftFieldCount, summarizeDrift, GOLDEN_SCHEMA, type GoldenSnapshot, type DriftDelta } from './drift.js';
 import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
+import { syncCityCases, followUpCityCases } from './citycases.js';
 import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
 // Providence bounding box (same as Node engine).
@@ -406,6 +407,11 @@ export async function runWatcher(env: Env): Promise<void> {
   }
 }
 
+/** After the watcher (same 30-min cron): record every public-feed case over plain HTTP — no browser session. */
+export async function runCityCases(env: Env): Promise<void> {
+  await syncCityCases(env, createStore(env));
+}
+
 async function syncAsks(env: Env, store: Store, mailer: Mailer, reports: ReportDoc[]): Promise<void> {
   let opened = 0; let reminded = 0;
   for (const r of reports) {
@@ -637,6 +643,9 @@ export async function runDaily(env: Env): Promise<void> {
     await syncFromResend(env, store, { maxPages: 2 }).then((r) => console.log(`[daily] email log: ${r.imported} imported, ${r.updated} delivery updates`))
       .catch((e) => console.error('[daily] email log sync failed:', e instanceof Error ? e.message : e));
   } catch (e) { console.error('[retention] failed:', e); await markError(store, 'daily', e); }
+
+  // City cases (citycases.ts): one detail check for open cases that left the public feed's 7-day window.
+  await followUpCityCases(env, store).catch((e) => console.error('[daily] city cases follow-up failed:', e instanceof Error ? e.message : e));
 
   // Digest: only mail when the queue snapshot differs from the last one we sent (meta/digest).
   // A month of identical "101 / 0 / 0 / 0 / 0" mails trains the inbox to ignore the real alerts.

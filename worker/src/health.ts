@@ -7,12 +7,13 @@
  */
 import type { Store } from './contracts.js';
 
-export type Subsystem = 'tick' | 'submit' | 'watcher' | 'cityfeed' | 'canary' | 'daily' | 'email' | 'ai' | 'auth_mail' | 'api' | 'relay';
+export type Subsystem = 'tick' | 'submit' | 'watcher' | 'cityfeed' | 'citycases' | 'canary' | 'daily' | 'email' | 'ai' | 'auth_mail' | 'api' | 'relay';
 export const SUBSYSTEMS: { key: Subsystem; label: string; freshMs: number | null; staleMs: number | null; what: string; expected: string | null }[] = [
   { key: 'tick', label: 'Engine tick', freshMs: 3 * 60_000, staleMs: 10 * 60_000, what: 'Cron every minute: reaper, gates, review, submit' , expected: 'every minute' },
   { key: 'submit', label: 'Portal submit', freshMs: null, staleMs: null, what: 'Headless browser filing reports on 311.providenceri.gov' , expected: null },
   { key: 'watcher', label: 'Status watcher', freshMs: 45 * 60_000, staleMs: 2 * 3_600_000, what: 'Every 30 min: diff My Requests, email reporters' , expected: 'every 30 min' },
   { key: 'cityfeed', label: 'City feed scrape', freshMs: 45 * 60_000, staleMs: 3 * 3_600_000, what: 'Public-requests feed + geocoding (nearby dedupe)' , expected: 'every 30 min' },
+  { key: 'citycases', label: 'City cases record', freshMs: 45 * 60_000, staleMs: 3 * 3_600_000, what: 'Every public-feed case (plain HTTP): status changes + detail form, stored in cityCases' , expected: 'every 30 min' },
   { key: 'canary', label: 'Portal canary', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Daily zero-draft check that the city form has not changed' , expected: 'daily, 7 am' },
   { key: 'daily', label: 'Daily job', freshMs: 26 * 3_600_000, staleMs: 50 * 3_600_000, what: 'Digest, retention, event cleanup' , expected: 'daily, 7 am' },
   { key: 'email', label: 'Email (Resend)', freshMs: null, staleMs: null, what: 'Reporter + admin mail' , expected: null },

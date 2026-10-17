@@ -479,6 +479,10 @@ export function createStore(env: Env): Store {
       await patchDoc(env, `cityQuestions/${encodeURIComponent(category)}`, data);
     },
 
+    async patchCityCase(id, fields): Promise<void> {
+      await patchDoc(env, `cityCases/${encodeURIComponent(id)}`, fields);
+    },
+
     async listCityQuestions() {
       const docs = await runQuery(env, { from: [{ collectionId: 'cityQuestions' }], limit: 500 });
       return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as CityQuestionsDoc), category: d.name.split('/').pop() as string }));

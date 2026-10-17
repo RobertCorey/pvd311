@@ -122,6 +122,8 @@ export interface Store {
   getCityQuestions(category: string): Promise<CityQuestionsDoc | null>;
   setCityQuestions(category: string, doc: Record<string, unknown>): Promise<void>;
   listCityQuestions(): Promise<CityQuestionsDoc[]>;
+  /** cityCases/{guid} — every case on the city's public feed (citycases.ts). Merge of the given top-level (or dotted) fields. */
+  patchCityCase(id: string, fields: Record<string, unknown>): Promise<void>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

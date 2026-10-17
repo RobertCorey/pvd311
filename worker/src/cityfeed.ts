@@ -36,6 +36,8 @@ export interface CityFeed {
   items: CityFeedItem[];
 }
 
+/** meta doc holding the grid's captured data request (read by citycases.ts). */
+export const GRID_CONFIG_META = 'cityGridConfig';
 const MAX_ITEMS = 200;
 const MAX_GEOCODES_PER_RUN = 80; // bound ArcGIS calls on a cold cache; cache makes later runs ~free
 // Loose RI/Providence guard so a bad geocode can't drop a pin in another state.
@@ -53,7 +55,7 @@ interface RawRow {
  * categories, and persist meta/cityFeed. Returns the persisted feed (handy for a local run).
  */
 export async function fetchCityFeed(env: Env, page: Page, store: Store): Promise<CityFeed> {
-  const rows = await scrapeCityGrid(env, page);
+  const rows = await scrapeCityGrid(env, page, store);
 
   // Geocode each distinct street once (cache-aware).
   const geo = new Map<string, { lat: number; lng: number } | null>();
@@ -93,7 +95,30 @@ export async function fetchCityFeed(env: Env, page: Page, store: Store): Promise
 
 // ── Grid scrape ────────────────────────────────────────────────────────────────────────
 
-async function scrapeCityGrid(env: Env, page: Page): Promise<RawRow[]> {
+async function scrapeCityGrid(env: Env, page: Page, store: Store): Promise<RawRow[]> {
+  // The grid's own data request carries the opaque view config citycases.ts needs for plain-HTTP reads; keep it.
+  let gridReq: { url: string; body: string } | null = null;
+  const onReq = (r: { url(): string; method(): string; postData(): string | null }) => {
+    if (!gridReq && r.method() === 'POST' && r.url().includes('/_services/entity-grid-data.json/')) gridReq = { url: r.url(), body: r.postData() ?? '' };
+  };
+  page.on('request', onReq);
+  try {
+    return await readCityGrid(env, page);
+  } finally {
+    page.off('request', onReq);
+    const g = gridReq as { url: string; body: string } | null;
+    if (g) {
+      try {
+        const body = JSON.parse(g.body) as Record<string, unknown>;
+        if (typeof body.base64SecureConfiguration === 'string') {
+          await store.setMeta(GRID_CONFIG_META, { url: g.url, body, at: new Date().toISOString() });
+        }
+      } catch { /* unparseable body: keep the last good config */ }
+    }
+  }
+}
+
+async function readCityGrid(env: Env, page: Page): Promise<RawRow[]> {
   await page.goto(`${env.PORTAL_BASE_URL}/public-requests/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForSelector('[role="grid"] [role="row"], table tbody tr', { timeout: 30_000 }).catch(() => {});
   await page.waitForTimeout(3_000); // lazy PCF grid render
