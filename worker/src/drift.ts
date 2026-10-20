@@ -160,7 +160,12 @@ export function diffControls(golden: GoldenControl[], live: GoldenControl[]): Dr
     if (g.label !== l.label) delta.labelChanged.push({ id, from: g.label, to: l.label });
     if (g.required !== l.required) delta.requiredChanged.push({ id, label: l.label, from: g.required, to: l.required });
     if (g.visible !== l.visible) delta.visibilityChanged.push({ id, label: l.label, from: g.visible, to: l.visible });
-    if (!sameOptionSet(g.options, l.options)) {
+    // Options of a control hidden in BOTH dumps aren't drift: the bot never fills a hidden control, and a
+    // hidden select's options can be unpopulated at capture time (golden_pothole 2026-10-02 caught the
+    // scooter cop_deviceowner with [] → false "options-changed" alert 2026-10-20). Once it turns visible,
+    // visibilityChanged fires and its options are compared from then on.
+    const hiddenBoth = !g.visible && !l.visible;
+    if (!hiddenBoth && !sameOptionSet(g.options, l.options)) {
       const { added, removed } = optionDiff(g.options, l.options);
       delta.optionsChanged.push({ id, label: l.label, added, removed });
     }

@@ -184,6 +184,21 @@ describe('diffControls', () => {
     expect(summarizeDrift('pothole', d)).toContain('visibility-changed');
   });
 
+  it('options change on a control hidden in both dumps → no drift (2026-10-20 pothole cop_deviceowner [] → 3 scooter companies)', () => {
+    const dev = (options: string[], visible = false) => g({ id: 'cop_deviceowner', label: 'Device Owner', required: false, visible, options });
+    const d = diffControls([g(), dev([])], [g(), dev(['Bird (Blue/Grey)', 'Spin - Scooters', 'VeoRide (Green)'])]);
+    expect(d.optionsChanged).toEqual([]);
+    expect(hasDrift(d)).toBe(false);
+  });
+
+  it('options still compared when the control is visible in either dump (hidden → shown with new options = both deltas)', () => {
+    const dev = (options: string[], visible: boolean) => g({ id: 'cop_deviceowner', label: 'Device Owner', required: false, visible, options });
+    expect(diffControls([dev(['Bird'], true)], [dev(['Bird', 'Lime'], true)]).optionsChanged).toEqual([{ id: 'cop_deviceowner', label: 'Device Owner', added: ['Lime'], removed: [] }]);
+    const flip = diffControls([dev([], false)], [dev(['Bird'], true)]);
+    expect(flip.visibilityChanged).toHaveLength(1);
+    expect(flip.optionsChanged).toEqual([{ id: 'cop_deviceowner', label: 'Device Owner', added: ['Bird'], removed: [] }]);
+  });
+
   it('empty golden vs empty live (missed_trash: no extra controls) → no drift', () => {
     expect(hasDrift(diffControls([], []))).toBe(false);
   });
