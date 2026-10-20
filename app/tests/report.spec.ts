@@ -317,6 +317,46 @@ test('signed out: Send parks the draft and shows the sign-in gate; after sign-in
   await expect(page).toHaveURL(/\/r\/abc123xyz$/);
 });
 
+// 2026-10-20 lost report (mobile): sign-in round trip with a photo, then three Sends all failed with a bare
+// client TypeError. On WebKit a Blob read from IndexedDB stays backed by the record, and the compose autosave
+// rewrote that record ~800 ms after restore, so fetch could not read the body. The restore now
+// copies the photo into memory; Playwright's WebKit can't store Blobs in IDB, so these run on Chromium.
+async function parkWithPhotoAndResume(page: Page) {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/');
+  await pickType(page, 'trash', 'missed_trash');
+  await page.setInputFiles('#photoLibrary', { name: 'photo.png', mimeType: 'image/png', buffer: PNG_1x1 });
+  await expect(page.locator('.photo-preview img')).toBeVisible();
+  await page.fill('#address', '25 Dorrance St');
+  await page.fill('#description', 'bins not collected');
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.locator('.gate-slot')).toBeVisible();
+  await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
+  await page.goto('/?resume=1');
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St');
+  await expect(page.locator('.photo-preview img')).toBeVisible();
+  await page.waitForTimeout(1500); // the compose autosave rewrites the parked record
+}
+
+test('signed out with a photo: after sign-in and an autosave tick, Send still uploads the photo', async ({ page }) => {
+  await parkWithPhotoAndResume(page);
+  const [req] = await Promise.all([page.waitForRequest(`${API}/api/report`), page.getByRole('button', { name: 'Send to Providence 311' }).click()]);
+  expect(req.postDataBuffer()?.includes('name="photo"')).toBe(true);
+  await expect(page).toHaveURL(/\/r\/abc123xyz$/);
+});
+
+test('an unreadable photo at Send (dead IndexedDB Blob) asks for the photo again instead of failing blind', async ({ page }) => {
+  await parkWithPhotoAndResume(page);
+  let posted = false;
+  page.on('request', (r) => { if (r.url() === `${API}/api/report`) posted = true; });
+  await page.evaluate(() => { Blob.prototype.arrayBuffer = () => Promise.reject(new DOMException('gone', 'NotReadableError')); });
+  await page.getByRole('button', { name: 'Send to Providence 311' }).click();
+  await expect(page.getByText("Your photo didn't come through")).toBeVisible();
+  await expect(page.locator('.photo-preview')).toHaveCount(0); // photo step is back
+  await expect(page.locator('#address')).toHaveValue('25 Dorrance St'); // rest of the draft kept
+  expect(posted).toBe(false);
+});
+
 // Sentry JAVASCRIPT-8 (2026-10-16, DuckDuckGo on iOS): IndexedDB is stubbed. Signed-out Send must still reach
 // the sign-in gate — no uncaught error, no hang — whether the stub hands back no result or never answers at all.
 for (const [name, stub] of [

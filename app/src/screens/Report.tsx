@@ -157,12 +157,17 @@ export default function Report() {
     // or an accidental reload mid-compose (?c= still in the URL). Any other entry —
     // a fresh visit, or a reload of the bare grid — starts clean and drops the draft.
     if (!resume && !(isReload && composing)) { void draftStore.clear(); return; }
-    draftStore.load().then((d) => {
+    draftStore.load().then(async (d) => {
       if (!d) return;
+      // Copy the photo out of IndexedDB into memory first. On WebKit (iOS Safari) a Blob read from IDB stays
+      // backed by the stored record, and the compose autosave below rewrites that record
+      // ~800 ms later — after which that Blob can be unreadable and Send fails with a bare TypeError ("Load failed").
+      // Lost report 2026-10-20. Unreadable already → drop it; the photo step re-asks.
+      const photoBytes = d.photo ? await d.photo.arrayBuffer().catch(() => null) : null;
       setCategory(d.category, { replace: true }); setAddress(d.address); setLoc(d.lat != null && d.lng != null ? { lat: d.lat, lng: d.lng } : null);
       setExtra(d.extra); setDescription(d.description);
       if (d.descriptionOriginal != null) setWordingApplied(d.descriptionOriginal);
-      if (d.photo) { const f = new File([d.photo], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
+      if (d.photo && photoBytes) { const f = new File([photoBytes], 'photo.jpg', { type: d.photo.type || 'image/jpeg' }); setPhoto(f); setPhotoUrl(URL.createObjectURL(f)); }
       geocodedFor.current = d.address;
       if (resume) setResumeSend(true); // signed in now? the user just taps Send once more (no auto-submit: intent)
       else setRestored(true); // reload: tell the user we brought their draft back
@@ -403,6 +408,7 @@ export default function Report() {
           // day / week / ip → the submit bar shows the limit state (draft kept); a gap (or an older Worker) → the short wait message.
           if (err.reason !== 'day' && err.reason !== 'week' && err.reason !== 'ip') setError(err.retryAfterSec ? t('report.error.rateLimitedIn', { minutes: Math.max(1, Math.ceil(err.retryAfterSec / 60)) }) : t('report.error.rateLimited'));
         }
+        else if (err.code === 'photo_unreadable') { setPhoto(null); setPhotoUrl(null); setError(t('report.error.photoUnreadable')); }
         else if (err.status === 400) setError(err.field ? t('report.error.field', { field: err.field }) : t('report.error.badRequest'));
         else setError(t('report.error.generic'));
       } else if ((err as Error)?.name === 'AbortError') setError(t('report.error.timeout'));

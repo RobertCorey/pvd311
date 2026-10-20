@@ -46,7 +46,13 @@ export async function submitReport(r: ReportSubmission, clientId?: string): Prom
   fd.set('appVersion', APP_VERSION);
   if (r.descriptionOriginal) fd.set('descriptionOriginal', r.descriptionOriginal);
   if (r.intakeFlags?.length) fd.set('intakeFlags', JSON.stringify(r.intakeFlags));
-  if (r.photo) fd.set('photo', r.photo, 'photo.jpg');
+  if (r.photo) {
+    // A Blob whose backing store is gone (WebKit IndexedDB) makes fetch() reject with a bare TypeError on
+    // every retry. Read it up front: in-memory bytes always upload, and a dead one gets its own error code.
+    const bytes = await r.photo.arrayBuffer().catch(() => null);
+    if (!bytes) throw new ApiError(0, 'photo_unreadable');
+    fd.set('photo', new Blob([bytes], { type: r.photo.type || 'image/jpeg' }), 'photo.jpg');
+  }
   const t = withTimeout(45_000);
   try {
     const resp = await apiFetch(`/api/report`, { method: 'POST', body: fd, signal: t.signal, headers: await authHeaders() }); // bearer only when signed in
