@@ -22,3 +22,6 @@ service-account*.json
 
 # Local data archives (PII) — never commit
 _archive/
+
+# Self-hosted basemap, built by scripts/fetch-basemap.sh (16 MB, not for git)
+app/public/map/

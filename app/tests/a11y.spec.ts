@@ -16,6 +16,7 @@ async function mocks(page: Page) {
   await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
   await page.route(`${API}/api/street/map*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed()) }));
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
 }
 
 async function violations(page: Page): Promise<string[]> {

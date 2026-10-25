@@ -203,17 +203,18 @@ export default function Report() {
   useEffect(() => { refreshPending(); }, [refreshPending]);
   useEffect(() => {
     if (!pending || !online || flushPaused || isOutboxPaused() || !session) return; // signed out: stay queued
-    let cancelled = false;
-    // One queued item per pass; `pending` changing re-runs this for the next one.
+    // One queued item per pass; `pending` changing re-runs this for the next one. No cancellation flag: a report
+    // that was sent must always get its notice, even when a dependency (the session object after a token
+    // refresh) re-runs this effect mid-flush — a cancelled-guard would drop the "Sent a saved report" line in that
+    // race. A concurrent re-run finds the outbox already empty and reports nothing. setState after unmount is a
+    // no-op in React 18+.
     flushOutbox(async (r, clientId) => {
       await submitReport(r, clientId);
-    }, 1).then(async ({ sent, failed, remaining }) => {
+    }, 1).then(({ sent, failed, remaining }) => {
       if (failed) setFlushPaused(true);
       setPending(remaining);
-      if (cancelled) return;
       if (sent) setOutboxNotice(t('report.outbox.sent'));
     }).catch(() => {});
-    return () => { cancelled = true; };
   }, [pending, online, flushPaused, session, t]);
   useEffect(() => {
     const onOnline = () => { setOnline(true); resumeOutbox(); setFlushPaused(false); refreshPending(); };

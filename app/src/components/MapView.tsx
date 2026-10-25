@@ -60,11 +60,41 @@ export interface MapViewProps {
 const DEFAULT_CENTER: [number, number] = [41.824, -71.4128];
 const DEFAULT_ZOOM = 13;
 
-/** Basemap: OpenStreetMap's standard tiles. CARTO's free raster basemaps started serving an "API KEY REQUIRED"
- *  watermark tile instead of map imagery (seen live 2026-09-29 on the report screen's location picker at z17), so
- *  we no longer use them. OSM's tile policy is fine for our volume; keep the attribution and never bulk-download. */
+/** Basemap (2026-10-25): a self-hosted Protomaps vector extract of the Providence area, rendered by protomaps-leaflet in
+ *  its "light" flavour — the clean, Zillow-like look Rob asked about, with no vendor account and no per-load cost
+ *  (one 16 MB static file on Firebase Hosting, which serves byte ranges; scripts/fetch-basemap.sh builds it and writes
+ *  /map/basemap.json with the versioned URL, because PMTiles readers cache ranges and the data must never change under
+ *  a cached URL). The renderer is a separate chunk loaded only when a map mounts. If the manifest or the archive is
+ *  missing (a dev checkout without the script run, a bad deploy), the map falls back to OpenStreetMap's raster tiles.
+ *  CARTO's free raster basemaps are NOT usable: they serve an "API KEY REQUIRED" watermark tile (seen live 2026-09-29). */
+const BASEMAP_MANIFEST = '/map/basemap.json';
+const BASEMAP_MAX_DATA_ZOOM = 15;   // the extract's deepest zoom; vector tiles overzoom to MAX_ZOOM
+const MAX_ZOOM = 19;
+const VECTOR_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot; <a href="https://protomaps.com">Protomaps</a>';
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+/** Add the vector basemap, or the raster fallback when it cannot be had. Resolves once a layer is on the map. */
+async function addBasemap(map: L.Map, alive: () => boolean): Promise<'vector' | 'raster'> {
+  try {
+    const m = await fetch(BASEMAP_MANIFEST, { cache: 'no-cache' });
+    if (!m.ok) throw new Error(`manifest ${m.status}`);
+    const { url } = (await m.json()) as { url?: string };
+    if (!url) throw new Error('manifest has no url');
+    // The SPA rewrite answers a missing archive with index.html (200), so check the PMTiles magic, not the status.
+    const head = await fetch(url, { headers: { Range: 'bytes=0-6' } });
+    if (!head.ok || !(await head.text()).startsWith('PMTiles')) throw new Error('not a PMTiles archive');
+    const { leafletLayer } = await import('protomaps-leaflet');
+    if (!alive()) return 'vector';
+    leafletLayer({ url, flavor: 'light', lang: 'en', maxDataZoom: BASEMAP_MAX_DATA_ZOOM, maxZoom: MAX_ZOOM, attribution: VECTOR_ATTRIBUTION }).addTo(map);
+    return 'vector';
+  } catch (e) {
+    if (!alive()) return 'raster';
+    console.warn('[map] vector basemap unavailable, using OSM raster:', e instanceof Error ? e.message : e);
+    L.tileLayer(TILE_URL, { maxZoom: MAX_ZOOM, attribution: TILE_ATTRIBUTION }).addTo(map);
+    return 'raster';
+  }
+}
 
 const VIEW_DEBOUNCE_MS = 150;
 const DRAW_PAD = 0.25;
@@ -443,7 +473,8 @@ export default function MapView(props: MapViewProps) {
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', ariaLabel);
 
-    L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+    let alive = true;
+    void addBasemap(map, () => alive);
 
     const ctl = createController(map, propsRef);
     ctlRef.current = ctl;
@@ -456,6 +487,7 @@ export default function MapView(props: MapViewProps) {
     propsRef.current.onReady?.(map);
 
     return () => {
+      alive = false;
       window.clearTimeout(t);
       ctl.dispose();
       map.remove();

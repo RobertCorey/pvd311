@@ -234,6 +234,7 @@ test('language switch to Español persists and translates the picker', async ({ 
 test('typed address geocodes → mini-map with draggable pin appears', async ({ page }) => {
   await mockApi(page);
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');
@@ -266,6 +267,7 @@ test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides 
     { id: 'near1', source: 'ours', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', lat: 41.8241, lng: -71.4129, address: '27 Dorrance St, Providence, RI', createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), status: 'sent', portalStatus: 'Submitted', distanceM: 18 },
   ] }) }));
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   await page.goto('/');
   await pickType(page, 'trash', 'missed_trash');
   await page.fill('#address', '25 Dorrance St');

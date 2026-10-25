@@ -513,3 +513,19 @@ test('fixture sanity: the default feed has the stack, the unplaced case and the 
   expect(DEFAULT_ITEMS.filter((c) => c.lat == null)).toHaveLength(126);
   expect(DEFAULT_ITEMS).toHaveLength(1234);
 });
+
+test('the self-hosted basemap renders vector tiles and credits Protomaps; a missing manifest falls back to OSM raster', async ({ page }) => {
+  await setup(page, { basemap: true });
+  let archive = 0;
+  page.on('request', (r) => { if (/\/map\/pvd-\d+\.pmtiles$/.test(r.url())) archive++; });
+  await page.goto(POINT);
+  await expect(page.locator('.mapview canvas.leaflet-tile').first()).toBeAttached({ timeout: 20_000 });
+  await expect(page.locator('.mapview .leaflet-control-attribution')).toContainText('Protomaps');
+  expect(archive).toBeGreaterThan(0);
+  expect(await page.locator('.mapview img.leaflet-tile').count()).toBe(0);
+  // Fallback: the default suite setup 404s the manifest → raster tiles, OSM credit, no archive reads.
+  await setup(page);
+  await page.goto(POINT);
+  await expect(page.locator('.mapview img.leaflet-tile').first()).toBeAttached({ timeout: 20_000 });
+  await expect(page.locator('.mapview .leaflet-control-attribution')).not.toContainText('Protomaps');
+});

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "../scripts/fetch-basemap.sh",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "playwright test",
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "leaflet": "^1.9.4",
+    "protomaps-leaflet": "^5.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

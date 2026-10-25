@@ -102,6 +102,8 @@ export interface SetupOpts {
   items?: Case[]; items90?: Case[]; signedIn?: boolean; me?: Record<string, unknown>;
   /** Respond to /api/street/map with this status (per call count) — e.g. () => 500 for the error state. */
   status?: (n: number, days: number) => number;
+  /** Let the page load the real self-hosted basemap (vector tiles) instead of the stubbed raster fallback. */
+  basemap?: boolean;
 }
 
 /** Route everything the page talks to: the API (feed, me, addresses), OSM tiles, ArcGIS. Returns the call log. */
@@ -109,6 +111,8 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
   const calls: Call[] = [];
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
+  // No vector basemap in the suite (deterministic, fast): a 404 manifest makes MapView fall back to the stubbed raster.
+  if (!o.basemap) await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   let n = 0;
   await page.route(`${API}/api/street/map*`, (r) => {
     const u = new URL(r.request().url());

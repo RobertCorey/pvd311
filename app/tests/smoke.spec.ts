@@ -21,6 +21,7 @@ test('footer disclaimer is localized to Spanish on / and /about', async ({ page 
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   for (const path of ['/', '/about']) {
     await page.goto(path);
     await expect(page.locator('.app-footer .disclaimer')).toContainText('no está afiliado');
@@ -35,6 +36,7 @@ for (const lang of ['en', 'es']) {
     await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
     await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
     await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
     for (const [path, expected] of ROUTES) {
       await page.goto(path);
       await expect(page.locator('main')).toContainText(expected, { timeout: 10_000 });
@@ -51,6 +53,7 @@ test('Sentry is not loaded on localhost', async ({ page }) => {
   page.on('request', (r) => { if (SENTRY.test(new URL(r.url()).hostname)) hits.push(r.url()); });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
+  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   await page.goto('/');
   await expect(page.locator('main')).toBeVisible();
   await page.waitForLoadState('networkidle');
