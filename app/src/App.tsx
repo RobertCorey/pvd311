@@ -12,6 +12,7 @@ const NotFound = lazy(() => import('./screens/NotFound'));
 const MyReports = lazy(() => import('./screens/MyReports'));
 const Account = lazy(() => import('./screens/Account'));
 const Admin = lazy(() => import('./screens/Admin'));
+const Street = lazy(() => import('./screens/Street'));
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/" element={<Report />} />
           <Route path="/r/:id" element={<Track />} />
           <Route path="/my" element={<MyReports />} />
+          <Route path="/street" element={<Street />} />
           <Route path="/account" element={<Account />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/about" element={<About />} />

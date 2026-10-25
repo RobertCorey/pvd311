@@ -235,6 +235,15 @@ async function geocodeStreet(street: string): Promise<{ lat: number; lng: number
 
 interface GeoCache { lat: number | null; lng: number | null }
 
+/** Cache-first geocode of a street ("481 Angell St"): one ArcGIS call per distinct street, ever (negatives cached too). */
+export async function geocodeStreetCached(store: Store, street: string): Promise<{ lat: number; lng: number } | null> {
+  const cached = await getCachedGeo(store, street).catch(() => null);
+  if (cached) return cached.lat != null && cached.lng != null ? { lat: cached.lat, lng: cached.lng } : null;
+  const g = await geocodeStreet(street);
+  await setCachedGeo(store, street, g).catch(() => {});
+  return g;
+}
+
 async function getCachedGeo(store: Store, street: string): Promise<GeoCache | null> {
   return store.getMeta<GeoCache>('geo_' + (await sha1Hex(street)));
 }

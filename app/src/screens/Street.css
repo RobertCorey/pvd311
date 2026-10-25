@@ -1,0 +1,29 @@
+.street h1 { margin-bottom: .25rem; }
+.street-intro { margin-top: 0; }
+.street-search { display: grid; grid-template-columns: 1fr auto; gap: .5rem; }
+.street-search .btn { min-height: var(--tap); padding: 10px 16px; }
+.street-actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.street-actions .saved-addresses { margin: 0; }
+.street-msg { margin-top: 0; }
+.street-where { font-size: 1.2rem; margin: 1rem 0 .4rem; overflow-wrap: anywhere; }
+.street-radius { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.street-radius .chip { border-color: var(--line); color: var(--muted); }
+.street-radius .chip[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--ink-soft); }
+.street-summary { font-family: var(--font-display); font-weight: 700; margin: 0 0 .5rem; }
+.street-results[aria-busy="true"] { opacity: .6; }
+.street-h { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1rem 0 .4rem; }
+.street-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.street-row { display: grid; grid-template-columns: auto 1fr auto; gap: .6rem; align-items: start; }
+.street-icon { display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center; border-radius: 10px; background: var(--ink-soft); }
+.street-main { display: grid; gap: .1rem; min-width: 0; }
+.street-type { font-family: var(--font-display); line-height: 1.25; }
+.street-addr, .street-when { font-size: .85rem; color: var(--muted); }
+.street-note { margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; white-space: pre-wrap; color: var(--ink); }
+.street-none { padding-top: 8px; }
+.street-digest { margin-top: 1.25rem; display: grid; gap: .5rem; }
+.street-digest h3 { margin: 0; }
+.street-digest p { margin: 0; }
+.street-digest .btn-secondary { text-decoration: none; }
+.street-digest-on { display: grid; gap: .5rem; }
+.street-digest-on .notice-ok { margin: 0; }
+.street-source { margin-top: 1rem; }

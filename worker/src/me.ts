@@ -52,7 +52,7 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
 function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
   return {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
-    prefs: { emailUpdates: u.prefs?.emailUpdates !== false }, addresses: u.addresses ?? [], following: u.following ?? [], createdAt: u.createdAt,
+    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [], createdAt: u.createdAt,
     quota,
   };
 }
@@ -68,7 +68,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   if (path === '/api/me') {
     if (m === 'GET') return json(projectMe(user, !!deps.admin, await meQuota(store, user)));
     if (m === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown } } | null;
+      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown; streetDigest?: unknown } } | null;
       if (!body) return json({ error: 'invalid_body' }, 400);
       const patch: Record<string, unknown> = {};
       if ('displayName' in body) {
@@ -76,6 +76,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
         patch.displayName = body.displayName ? String(body.displayName).trim().slice(0, 80) || null : null;
       }
       if (body.prefs && typeof body.prefs === 'object' && 'emailUpdates' in body.prefs) patch['prefs.emailUpdates'] = body.prefs.emailUpdates === true;
+      if (body.prefs && typeof body.prefs === 'object' && 'streetDigest' in body.prefs) patch['prefs.streetDigest'] = body.prefs.streetDigest === true;
       if (Object.keys(patch).length) await store.patchUser(user.uid, patch);
       const fresh = (await store.getUser(user.uid)) ?? user;
       return json(projectMe(fresh, !!deps.admin, await meQuota(store, fresh)));

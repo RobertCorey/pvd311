@@ -53,7 +53,7 @@ export interface UserDoc {
   provider: string;
   createdAt: string;
   lastSeenAt: string;
-  prefs: { emailUpdates: boolean };       // city-status emails for own + followed reports
+  prefs: { emailUpdates: boolean; streetDigest?: boolean }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses
   addresses: SavedAddress[];               // ≤ 10
   following: string[];                     // report ids (≤ 200)
   trusted?: boolean;                       // admin override for the per-account trust ramp
@@ -126,6 +126,10 @@ export interface Store {
   patchCityCase(id: string, fields: Record<string, unknown>): Promise<void>;
   /** Newest first by the city's created time; `before` = createdAt ISO cursor. */
   listCityCases(opts: { before?: string | null; limit: number }): Promise<Record<string, unknown>[]>;
+  /** Cases created at or after `since` (ISO), newest first — the "My street" window (street.ts). */
+  listCityCasesSince(since: string, limit: number): Promise<Record<string, unknown>[]>;
+  /** Accounts that opted into the weekly street digest (prefs.streetDigest == true). */
+  listStreetDigestUsers(limit: number): Promise<UserDoc[]>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

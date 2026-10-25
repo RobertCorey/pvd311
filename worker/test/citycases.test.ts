@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseDetailHtml, parseGridRecord, pickDetailReads, syncCityCases, followUpCityCases } from '../src/citycases.js';
+import { parseDetailHtml, parseGridRecord, pickDetailReads, syncCityCases, followUpCityCases, backfillCityCaseGeo } from '../src/citycases.js';
 import type { Env, Store } from '../src/contracts.js';
 
 // Captured from the live /public-requests/ grid and a row's detail form (2026-10-17); the plate is replaced.
@@ -74,6 +74,7 @@ describe('syncCityCases', () => {
       if (url.endsWith('/_layout/tokenhtml')) return new Response('<input name="__RequestVerificationToken" type="hidden" value="tok" />', { headers: { 'set-cookie': 'sess=1; path=/' } });
       if (url.includes('entity-grid-data')) return Response.json(GRID);
       if (url.includes('modal-form-template-path')) return new Response(DETAIL);
+      if (url.includes('geocode.arcgis.com')) return Response.json({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100 }] });
       return new Response('nope', { status: 404 });
     }));
   });
@@ -94,6 +95,10 @@ describe('syncCityCases', () => {
     const c = cases['fa4943b8-08c8-f111-a3d0-001dd8050b66'];
     expect(c).toMatchObject({ caseType: 'Overflowing Dumpster', street: '481 Angell St', firstSeenAt: '2026-10-17T15:00:00.000Z' });
     expect((c.detail as any).address).toContain('Example St'); // the fixture detail
+    // Each street is geocoded once (meta/geo_* cache + `g` in the index) so "My street" can find the case.
+    expect(c).toMatchObject({ lat: 41.8282, lng: -71.4005 });
+    expect(calls.filter((x) => x.url.includes('geocode.arcgis.com'))).toHaveLength(3);
+    expect(Object.keys(meta).filter((k) => k.startsWith('geo_'))).toHaveLength(3);
 
     // Second run, same list: no case writes, no detail reads — one token GET + one list POST.
     const writes = (store.patchCityCase as any).mock.calls.length;
@@ -128,5 +133,24 @@ describe('syncCityCases', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('down', { status: 503 })));
     const { store } = makeStore({ cityGridConfig: { url: 'https://city.test/g', body: { base64SecureConfiguration: 'x' } } });
     expect(await syncCityCases(env, store, { gapMs: 0 })).toBeNull();
+  });
+});
+
+describe('backfillCityCaseGeo', () => {
+  it('geocodes stored cases that never got coordinates, bounded, and leaves geocoded ones alone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ candidates: [{ location: { x: -71.41, y: 41.83 }, score: 100 }] })));
+    const { store, cases } = makeStore();
+    const rows = [
+      { id: 'a', street: '1 Hope St', createdAt: '2026-10-01T00:00:00Z' },
+      { id: 'b', street: '2 Hope St', createdAt: '2026-10-02T00:00:00Z', lat: 41.8, lng: -71.4 },
+      { id: 'c', street: '3 Hope St', createdAt: '2026-10-03T00:00:00Z', lat: null, lng: null }, // geocoder had nothing: not retried
+      { id: 'd', street: '4 Hope St', createdAt: '2026-10-04T00:00:00Z' },
+    ];
+    (store as any).listCityCasesSince = vi.fn(async () => rows);
+    try {
+      expect(await backfillCityCaseGeo(store, { limit: 1 })).toBe(1);
+      expect(Object.keys(cases)).toEqual(['a']);
+      expect(cases.a).toEqual({ lat: 41.83, lng: -71.41 });
+    } finally { vi.unstubAllGlobals(); }
   });
 });

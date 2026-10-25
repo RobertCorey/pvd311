@@ -19,9 +19,13 @@
  * one index doc (meta/cityCasesIdx) plus cityCases/{guid} for new or changed cases.
  *
  * Everything the public form shows is stored, licence plates and landlord names included (Rob, 2026-10-17).
+ *
+ * Each case's street is geocoded once (cityfeed.geocodeStreetCached → lat/lng on the doc; `g` in the index) so the
+ * public "My street" page (street.ts) can find cases near an address. Cases stored before this got lat/lng get
+ * one daily backfill pass (backfillCityCaseGeo).
  */
 import type { Env, Store } from './contracts.js';
-import { GRID_CONFIG_META, mapCategory } from './cityfeed.js';
+import { GRID_CONFIG_META, geocodeStreetCached, mapCategory } from './cityfeed.js';
 import { logEvent, markError, markOk } from './health.js';
 
 const INDEX_META = 'cityCasesIdx';
@@ -29,6 +33,8 @@ const PAGE_SIZE = 50;
 const MAX_LIST_PAGES = 8;            // 7-day window is ~5 pages at 50
 export const DETAIL_PER_RUN = 25;
 export const FOLLOWUP_PER_DAY = 40;
+export const GEOCODES_PER_RUN = 40;   // new ArcGIS lookups per sync (the meta/geo_* cache makes repeats free)
+export const GEO_BACKFILL_PER_DAY = 400;
 const REQUEST_GAP_MS = 1_500;
 const WINDOW_MS = 7 * 24 * 3_600_000;
 const KEEP_OPEN_MS = 60 * 24 * 3_600_000; // stop following an open case after 60 days
@@ -63,8 +69,8 @@ export interface CityCaseDetail {
   labels: Record<string, string>;
 }
 
-/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read. */
-interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number }
+/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read, g = 1 once the street was geocoded (lat/lng on the doc, null when the geocoder had nothing). */
+interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number; g?: 1 }
 /** Bump when parseDetailHtml stores more, so already-read cases are read again (2: plates/landlords + labels). */
 const DETAIL_VERSION = 2;
 type Index = Record<string, IdxEntry>;
@@ -244,18 +250,28 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
   try {
     const { rows, total, complete } = await listAll(http, cfg);
     const index: Index = (await store.getMeta<{ cases?: Index }>(INDEX_META).catch(() => null))?.cases ?? {};
-    let added = 0; let changed = 0;
+    let added = 0; let changed = 0; let geocodes = 0;
     for (const r of rows) {
       const e = index[r.id];
-      if (e && e.s === r.status) continue;
-      const fields: Record<string, unknown> = {
-        id: r.id, caseType: r.caseType, caseTypeId: r.caseTypeId, category: mapCategory(r.caseType),
-        street: r.street, status: r.status, createdAt: r.createdAt, statusAt: nowIso,
-        [`statusSeen.${statusKey(r.status)}`]: nowIso,
-      };
-      if (!e) { fields.firstSeenAt = nowIso; added++; } else changed++;
+      const fields: Record<string, unknown> = {};
+      if (!e || e.s !== r.status) {
+        Object.assign(fields, {
+          id: r.id, caseType: r.caseType, caseTypeId: r.caseTypeId, category: mapCategory(r.caseType),
+          street: r.street, status: r.status, createdAt: r.createdAt, statusAt: nowIso,
+          [`statusSeen.${statusKey(r.status)}`]: nowIso,
+        });
+        if (!e) { fields.firstSeenAt = nowIso; added++; } else changed++;
+      }
+      let g: 1 | undefined = e?.g;
+      if (!g && geocodes < GEOCODES_PER_RUN) {
+        geocodes++;
+        const hit = await geocodeStreetCached(store, r.street);
+        fields.lat = hit?.lat ?? null; fields.lng = hit?.lng ?? null;
+        g = 1;
+      }
+      if (!Object.keys(fields).length) continue;
       await store.patchCityCase(r.id, fields);
-      index[r.id] = { ...e, s: r.status, c: r.createdAt };
+      index[r.id] = { ...e, s: r.status, c: r.createdAt, ...(g ? { g } : {}) };
     }
 
     let details = 0;
@@ -265,7 +281,7 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
 
     pruneIndex(index, now);
     await store.setMeta(INDEX_META, { cases: index, at: nowIso });
-    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${http.requests} requests`;
+    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded, ${http.requests} requests`;
     console.log(`[citycases] ${note}`);
     await markOk(store, 'citycases', note);
     return { listed: rows.length, added, changed, details, requests: http.requests };
@@ -275,6 +291,21 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
     await logEvent(store, { level: 'warn', kind: 'citycases.failed', msg: e instanceof Error ? e.message : String(e) });
     return null;
   }
+}
+
+/** Daily: give lat/lng to stored cases that never got geocoded (older than the sync's `g` flag). Returns how many were patched. */
+export async function backfillCityCaseGeo(store: Store, opts: { limit?: number; days?: number } = {}): Promise<number> {
+  const since = new Date(Date.now() - (opts.days ?? 120) * 86_400_000).toISOString();
+  const rows = await store.listCityCasesSince(since, 3000);
+  const todo = rows.filter((c) => !('lat' in c) && typeof c.street === 'string' && c.street);
+  let n = 0;
+  for (const c of todo.slice(0, opts.limit ?? GEO_BACKFILL_PER_DAY)) {
+    const hit = await geocodeStreetCached(store, c.street as string);
+    await store.patchCityCase(c.id as string, { lat: hit?.lat ?? null, lng: hit?.lng ?? null });
+    n++;
+  }
+  if (todo.length) console.log(`[citycases] geo backfill: ${n} of ${todo.length} without coordinates`);
+  return n;
 }
 
 /** Daily: one detail check for open cases that left the 7-day list window (their status no longer shows there). */

@@ -12,7 +12,7 @@ import { CATEGORIES } from '../../shared/categories.js';
 export const OUTCOMES = ['work_done', 'enforcement', 'referred', 'logged_elsewhere', 'info_only', 'no_action', 'cancelled', 'open'] as const;
 export type Outcome = typeof OUTCOMES[number];
 
-const CLOSED = new Set(['Resolved', 'Closed', 'Cancelled', 'Merged']);
+export const CLOSED = new Set(['Resolved', 'Closed', 'Cancelled', 'Merged']);
 
 /** The city's Resolution Message → what closing meant. Order matters: the first match wins. */
 export function classifyResolution(msg: string | null | undefined): Exclude<Outcome, 'cancelled' | 'open'> {
@@ -65,7 +65,7 @@ const t = (iso: string | null | undefined): number | null => {
 };
 
 /** When the case closed, if we can say: the city's resolution date, else a close we watched happen. */
-function closedAt(c: CaseLike): number | null {
+export function closedAt(c: CaseLike): number | null {
   const r = t(c.detail?.resolutionDate);
   if (r != null) return r;
   const first = t(c.firstSeenAt);

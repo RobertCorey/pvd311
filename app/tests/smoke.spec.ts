@@ -7,6 +7,7 @@ const ROUTES: Array<[string, RegExp]> = [
   ['/about', /About|Acerca/],
   ['/privacy', /Privacy|Privacidad/],
   ['/my', /My reports|Mis reportes/],
+  ['/street', /My street|Mi calle/],
   ['/account', /Your account|Tu cuenta/],
   ['/admin', /Admin/],
   ['/r/nope', /can't find|no encontramos|no existe|no pudimos encontrar/i],

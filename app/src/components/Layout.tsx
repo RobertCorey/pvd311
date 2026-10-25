@@ -21,6 +21,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="header-actions">
           <Link to="/about" className="microtag">{t('header.notTheCity')}</Link>
           {canInstall && <button type="button" className="header-link header-btn" onClick={() => { void install(); }}>{t('header.install')}</button>}
+          <Link to="/street" className="header-link header-street">{t('nav.street')}</Link>
           <Link to="/my" className="header-link header-my">{t('header.myReports')}</Link>
           <AccountLink className="header-link" />
         </div>

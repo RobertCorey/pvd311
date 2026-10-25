@@ -8,7 +8,7 @@ type Tr = ReturnType<typeof useT>;
 
 /** Who the mail is about, in one word group: To people · To the city · To you · Inbound. */
 export const KIND_GROUPS: { key: string; kinds: AdminEmailRow['kind'][] }[] = [
-  { key: 'people', kinds: ['filed', 'status', 'city_copy', 'ask', 'ask_reminder', 'answer_receipt', 'not_sent', 'reporter_other'] },
+  { key: 'people', kinds: ['filed', 'status', 'city_copy', 'ask', 'ask_reminder', 'answer_receipt', 'not_sent', 'street_digest', 'reporter_other'] },
   { key: 'city', kinds: ['to_city'] },
   { key: 'you', kinds: ['admin_review', 'admin_alert', 'admin_digest'] },
   { key: 'inbound', kinds: ['city_in', 'reply_in', 'unmatched_in', 'dropped_in'] },

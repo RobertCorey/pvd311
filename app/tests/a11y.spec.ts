@@ -13,6 +13,10 @@ async function mocks(page: Page) {
   await page.route(`${API}/api/reports/closed1234`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'closed1234', category: 'pothole', categoryLabel: 'Pothole', address: '120 Benefit St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-2', portalStatus: 'Resolved', resolutionMessage: 'Complaint (CODE-26-1465) has been received and logged into the system for review.', mine: true, timeline: [{ at: new Date().toISOString(), label: 'Received' }, { at: new Date().toISOString(), label: 'Message from the city: Your request has been updated', kind: 'city_message', text: 'Hello,\n\nYour request has been updated.' }], nextUpdateHint: null }) }));
   await page.route(`${API}/api/reports/asked12345`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'asked12345', category: 'noise', categoryLabel: 'Noise', address: '25 Dorrance St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-90113', portalStatus: 'Department Responded', mine: true, department: 'DPW Sewer', workOrder: { number: '0000206909', status: 'Completed', completedAt: new Date().toISOString() }, cityAsk: { askedAt: new Date().toISOString(), open: true, answered: false, answeredAt: null, id: 'a1', canAnswer: true, expiresAt: new Date().toISOString(), text: 'Please respond to this email by providing the address.', answers: [{ at: new Date().toISOString(), via: 'app', status: 'blocked', text: 'x' }] }, timeline: [{ at: new Date().toISOString(), label: 'The city asked for more information', kind: 'city_ask', text: 'Please respond.' }], nextUpdateHint: null }) }));
   await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
+  await page.route(`${API}/api/street*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ radiusM: 300, days: 30, at: new Date().toISOString(), items: [
+    { id: 'c1', caseType: 'Pothole', category: 'pothole', street: '10 Angell St', status: 'Assigned', open: true, createdAt: new Date().toISOString(), closedAt: null, resolution: null, lat: 41.8283, lng: -71.4006, distanceM: 40 },
+    { id: 'c2', caseType: 'Street Light Out', category: 'street_light', street: '22 Thayer St', status: 'Resolved', open: false, createdAt: new Date(Date.now() - 5 * 86400000).toISOString(), closedAt: new Date().toISOString(), resolution: 'Bulb replaced.', lat: 41.8284, lng: -71.4007, distanceM: 60 },
+  ] }) }));
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
 }
 
@@ -34,6 +38,7 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['track-ask', async (p) => { await p.goto('/r/asked12345'); await p.click('#answer button[type="submit"]'); }],
   ['about', (p) => p.goto('/about')],
   ['my', (p) => p.goto('/my')],
+  ['street', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St')],
 ];
 
 for (const scheme of ['light'] as const) {

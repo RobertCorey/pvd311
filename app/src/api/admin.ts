@@ -141,7 +141,7 @@ export const adminCityQuestions = () => call<AdminCityQuestions>('/api/admin/cit
 
 // ── Email log (worker/src/emaillog.ts) ─────────────────────────────────────────────
 export type EmailKind =
-  | 'signin_link' | 'filed' | 'status' | 'city_copy' | 'ask' | 'ask_reminder' | 'answer_receipt' | 'not_sent' | 'reporter_other'
+  | 'signin_link' | 'filed' | 'status' | 'city_copy' | 'ask' | 'ask_reminder' | 'answer_receipt' | 'not_sent' | 'street_digest' | 'reporter_other'
   | 'to_city' | 'admin_review' | 'admin_alert' | 'admin_digest' | 'city_in' | 'reply_in' | 'unmatched_in' | 'dropped_in';
 /** List row: everything but the body (a preview instead). `lastEvent` = Resend delivery state (delivered / bounced …). */
 export interface AdminEmailRow {

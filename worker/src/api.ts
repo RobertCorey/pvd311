@@ -5,6 +5,7 @@
  *   POST /api/intake      JSON → moderation flags + optional wording cleanup (AI; never blocks submit)
  *   GET  /api/reports/:id → tracking projection (no PII)
  *   GET  /api/nearby      → dedupe signal (ours + city, last 14 days)
+ *   GET  /api/street      → "My street": city cases near a point (street.ts)
  *   GET  /api/stats       → { filed } public counter
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
@@ -26,6 +27,7 @@ import { checkQuota, type QuotaSlot } from './quota.js';
 import { cityResolutionMessage, workOrderOf } from './casedetail.js';
 import { answerCityAsk, askState, asksOf, cityText, mailInfo, sentAnswers } from './cityask.js';
 import { createMailer } from './email.js';
+import { handleStreet } from './street.js';
 import type { Mailer } from './contracts.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
@@ -76,6 +78,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'POST' && url.pathname === '/api/intake') resp = await intake(request, env, deps);
     else if (request.method === 'GET' && /^\/api\/reports\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getReport(url.pathname.split('/').pop()!, deps, auth);
     else if (request.method === 'GET' && url.pathname === '/api/nearby') resp = await nearby(url, deps);
+    else if (request.method === 'GET' && url.pathname === '/api/street') resp = await handleStreet(url, deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/stats') resp = await stats(deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);
