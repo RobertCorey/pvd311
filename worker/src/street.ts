@@ -8,6 +8,8 @@
  *
  *   GET /api/street?lat&lng[&radiusM=300][&days=30]  public, cached 5 min per isolate + HTTP
  *     → { items: StreetCase[], radiusM, days, at }   newest activity first (created or closed inside the window)
+ *   GET /api/street/city[?days=7]  citywide: counts, busiest case types, newest 20 — the page's landing state and
+ *     what a quiet street shows instead of nothing (Rob, 2026-10-25: "ideally we want to show something")
  *
  *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
  *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
@@ -79,6 +81,59 @@ export function nearbyCases(rows: Row[], o: { lat: number; lng: number; radiusM:
   }
   out.sort((a, b) => b.activity - a.activity);
   return out.map(({ activity: _a, ...rest }) => rest);
+}
+
+// ── Citywide overview (the landing state, and the fallback when a street is quiet) ────────
+
+export interface CityOverview {
+  days: number; total: number; open: number; closed: number; located: number;
+  topTypes: { caseType: string; category: string; n: number }[];
+  latest: Omit<StreetCase, 'lat' | 'lng' | 'distanceM'>[];
+  at: string;
+}
+
+/** Everything created or closed in the last `days`, citywide — counts, the busiest case types, the newest activity. Pure. */
+export function cityOverview(rows: Row[], o: { days: number; now?: number; latestN?: number }): CityOverview {
+  const now = o.now ?? Date.now();
+  const since = now - o.days * 86_400_000;
+  const types = new Map<string, { caseType: string; category: string; n: number }>();
+  const latest: (Omit<StreetCase, 'lat' | 'lng' | 'distanceM'> & { activity: number })[] = [];
+  let open = 0; let closed = 0; let located = 0;
+  for (const c of rows) {
+    if (/^draft$/i.test(String(c.status ?? ''))) continue;
+    const status = String(c.status ?? '');
+    const isOpen = !CLOSED.has(status);
+    const created = parse(c.createdAt);
+    const closedAtMs = isOpen ? null : closedAt(c as unknown as CaseLike);
+    const activity = Math.max(created ?? 0, closedAtMs ?? 0);
+    if (!activity || activity < since) continue;
+    if (isOpen) open++; else closed++;
+    if (typeof c.lat === 'number') located++;
+    const caseType = String(c.caseType ?? '');
+    const t = types.get(caseType) ?? { caseType, category: String(c.category ?? 'unsure'), n: 0 };
+    t.n++; types.set(caseType, t);
+    const detail = (c.detail ?? null) as { resolution?: string | null } | null;
+    latest.push({
+      id: String(c.id), caseType, category: String(c.category ?? 'unsure'), street: String(c.street ?? ''), status, open: isOpen,
+      createdAt: created != null ? new Date(created).toISOString() : null,
+      closedAt: closedAtMs != null ? new Date(closedAtMs).toISOString() : null,
+      resolution: detail?.resolution?.trim() || null, activity,
+    });
+  }
+  latest.sort((a, b) => b.activity - a.activity);
+  return {
+    days: o.days, total: open + closed, open, closed, located,
+    topTypes: [...types.values()].sort((a, b) => b.n - a.n).slice(0, 5),
+    latest: latest.slice(0, o.latestN ?? 20).map(({ activity: _a, ...rest }) => rest),
+    at: new Date(now).toISOString(),
+  };
+}
+
+export async function handleStreetCity(url: URL, store: Store): Promise<Response> {
+  const d = Number(url.searchParams.get('days'));
+  const days = Math.min(MAX_DAYS, Math.max(1, Number.isFinite(d) && d > 0 ? Math.round(d) : 7));
+  const rows = await loadCases(store, days);
+  return json(cityOverview(rows, { days }), 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── Loading (one Firestore read per window per 5 minutes per isolate) ─────────────────────

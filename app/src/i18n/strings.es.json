@@ -1146,7 +1146,7 @@
   "street.denied": "La ubicación está desactivada para este sitio. Escribe una dirección.",
   "street.unsupported": "Este navegador no puede compartir tu ubicación. Escribe una dirección.",
   "street.here": "Donde estás",
-  "street.empty": "Escribe una dirección o usa tu ubicación para ver qué se ha reportado alrededor.",
+  "street.empty": "Escribe una dirección o usa tu ubicación para ver qué se ha reportado alrededor. Mientras tanto, toda la ciudad:",
   "street.radius.block": "Esta cuadra",
   "street.radius.blocks": "Unas cuadras",
   "street.radius.hood": "El vecindario",
@@ -1181,5 +1181,13 @@
   "street.digest.off": "Desactivar",
   "street.digest.error": "No se pudo guardar. Inténtalo de nuevo.",
   "street.digest.defaultLabel": "Mi calle",
-  "street.source": "De la lista pública de solicitudes del 311 de Providence, leída cada media hora. La ciudad no publica descripciones ni fotos, y algunas direcciones no se pueden ubicar en el mapa."
+  "street.source": "De la lista pública de solicitudes del 311 de Providence, leída cada media hora. La ciudad no publica descripciones ni fotos, y algunas direcciones no se pueden ubicar en el mapa.",
+  "street.noStreet": "Sin calle indicada",
+  "street.widened": "Nada a unas cuadras, así que te mostramos el vecindario.",
+  "street.city.title": "Esta semana en Providence",
+  "street.city.meanwhile": "Mientras tanto, en toda la ciudad esta semana",
+  "street.city.summary": "{total} solicitudes · {closed} cerradas",
+  "street.city.top": "Lo más reportado",
+  "street.city.latest": "Lo último",
+  "street.city.quiet": "La lista de la ciudad está tranquila esta semana."
 }

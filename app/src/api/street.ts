@@ -7,6 +7,17 @@ export interface StreetCase {
   lat: number; lng: number; distanceM: number;
 }
 export interface StreetResponse { items: StreetCase[]; radiusM: number; days: number; at: string }
+export type CityCase = Omit<StreetCase, 'lat' | 'lng' | 'distanceM'>;
+export interface CityOverview { days: number; total: number; open: number; closed: number; located: number; topTypes: { caseType: string; category: string; n: number }[]; latest: CityCase[]; at: string }
+
+export async function getStreetCity(days = 7): Promise<CityOverview> {
+  const t = withTimeout(15_000);
+  try {
+    const resp = await apiFetch(`/api/street/city?days=${days}`, { signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    return (await resp.json()) as CityOverview;
+  } finally { t.done(); }
+}
 
 export async function getStreet(lat: number, lng: number, o: { radiusM?: number; days?: number } = {}): Promise<StreetResponse> {
   const t = withTimeout(15_000);

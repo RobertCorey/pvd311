@@ -281,7 +281,8 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
 
     pruneIndex(index, now);
     await store.setMeta(INDEX_META, { cases: index, at: nowIso });
-    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded, ${http.requests} requests`;
+    const bf = await backfillCityCaseGeoIfPending(store, GEOCODES_PER_RUN * 2).catch((e) => { console.error('[citycases] geo backfill failed:', e instanceof Error ? e.message : e); return null; });
+    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded${bf ? `, backfill ${bf.patched} (${bf.remaining} left)` : ''}, ${http.requests} requests`;
     console.log(`[citycases] ${note}`);
     await markOk(store, 'citycases', note);
     return { listed: rows.length, added, changed, details, requests: http.requests };
@@ -293,19 +294,32 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
   }
 }
 
-/** Daily: give lat/lng to stored cases that never got geocoded (older than the sync's `g` flag). Returns how many were patched. */
-export async function backfillCityCaseGeo(store: Store, opts: { limit?: number; days?: number } = {}): Promise<number> {
-  const since = new Date(Date.now() - (opts.days ?? 120) * 86_400_000).toISOString();
+const GEO_BACKFILL_META = 'cityGeoBackfill';
+
+/** Give lat/lng to stored cases that never got geocoded (older than the sync's `g` flag); a blank street gets null outright.
+ *  Daily, and from each sync (smaller batch) until a pass finds nothing left — then meta/cityGeoBackfill.doneAt skips the scan. */
+export async function backfillCityCaseGeo(store: Store, opts: { limit?: number; days?: number; now?: number } = {}): Promise<{ patched: number; remaining: number }> {
+  const now = opts.now ?? Date.now();
+  const since = new Date(now - (opts.days ?? 120) * 86_400_000).toISOString();
   const rows = await store.listCityCasesSince(since, 3000);
-  const todo = rows.filter((c) => !('lat' in c) && typeof c.street === 'string' && c.street);
-  let n = 0;
+  const todo = rows.filter((c) => !('lat' in c) || (c.lat != null && !/[A-Za-z]{2,}/.test(String(c.street ?? ''))));
+  let patched = 0;
   for (const c of todo.slice(0, opts.limit ?? GEO_BACKFILL_PER_DAY)) {
-    const hit = await geocodeStreetCached(store, c.street as string);
+    const hit = await geocodeStreetCached(store, String(c.street ?? ''));
     await store.patchCityCase(c.id as string, { lat: hit?.lat ?? null, lng: hit?.lng ?? null });
-    n++;
+    patched++;
   }
-  if (todo.length) console.log(`[citycases] geo backfill: ${n} of ${todo.length} without coordinates`);
-  return n;
+  const remaining = todo.length - patched;
+  if (todo.length) console.log(`[citycases] geo backfill: ${patched} of ${todo.length} without coordinates`);
+  await store.setMeta(GEO_BACKFILL_META, { at: new Date(now).toISOString(), patched, remaining, ...(remaining === 0 ? { doneAt: new Date(now).toISOString() } : {}) }).catch(() => {});
+  return { patched, remaining };
+}
+
+/** Sync-time backfill: skipped once a pass has found nothing left (the sync geocodes every new case itself). */
+export async function backfillCityCaseGeoIfPending(store: Store, limit: number): Promise<{ patched: number; remaining: number } | null> {
+  const m = await store.getMeta<{ doneAt?: string }>(GEO_BACKFILL_META).catch(() => null);
+  if (m?.doneAt) return null;
+  return backfillCityCaseGeo(store, { limit });
 }
 
 /** Daily: one detail check for open cases that left the 7-day list window (their status no longer shows there). */

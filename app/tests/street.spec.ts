@@ -12,10 +12,21 @@ const ITEMS = [
   { id: 'c3', caseType: 'Overflowing Dumpster', category: 'trash_private', street: '481 Angell St', status: 'In Progress', open: true, createdAt: daysAgo(0), closedAt: null, resolution: null, lat: 41.8282, lng: -71.4005, distanceM: 3 },
 ];
 
+const CITY = { days: 7, total: 212, open: 115, closed: 97, located: 180, at: new Date().toISOString(),
+  topTypes: [{ caseType: 'Pothole', category: 'pothole', n: 41 }, { caseType: 'Missed Trash Pickup', category: 'missed_pickup', n: 30 }, { caseType: 'Street Light Out', category: 'street_light', n: 12 }, { caseType: 'Graffiti', category: 'graffiti', n: 5 }],
+  latest: [
+    { id: 'z1', caseType: 'Abandoned Vehicle', category: 'abandoned_vehicle', street: '9 Hope St', status: 'Submitted', open: true, createdAt: daysAgo(0), closedAt: null, resolution: null },
+    { id: 'z2', caseType: 'Pothole', category: 'pothole', street: '', status: 'Resolved', open: false, createdAt: daysAgo(4), closedAt: daysAgo(0), resolution: 'Filled.' },
+  ] };
+
 async function setup(page: Page, o: { items?: unknown[]; signedIn?: boolean; me?: Record<string, unknown> } = {}) {
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   const calls: { method: string; url: string; body: unknown }[] = [];
-  await page.route(`${API}/api/street*`, (r) => {
+  await page.route(`${API}/api/street/city*`, (r) => {
+    calls.push({ method: 'GET', url: r.request().url(), body: null });
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CITY) });
+  });
+  await page.route(`${API}/api/street?*`, (r) => {
     calls.push({ method: 'GET', url: r.request().url(), body: null });
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: o.items ?? ITEMS, radiusM: 300, days: 30, at: new Date().toISOString() }) });
   });
@@ -41,12 +52,20 @@ async function setup(page: Page, o: { items?: unknown[]; signedIn?: boolean; me?
   return calls;
 }
 
-test('no point yet: the prompt, no list, and the tab bar has the Street tab', async ({ page }) => {
-  await setup(page);
+test('no point yet: the prompt plus the citywide week, so there is always something to look at', async ({ page }) => {
+  const calls = await setup(page);
   await page.goto('/street');
   await expect(page.locator('main h1')).toHaveText('My street');
   await expect(page.locator('.street-empty')).toContainText('Type an address');
-  await expect(page.locator('.street-row')).toHaveCount(0);
+  const city = page.locator('.street-city');
+  await expect(city.locator('.street-city-h')).toHaveText('This week in Providence');
+  await expect(city.locator('.street-summary')).toHaveText('212 requests · 97 closed');
+  await expect(city.locator('.street-top-item')).toHaveCount(3);
+  await expect(city.locator('.street-top-item').first()).toContainText('Pothole41');
+  await expect(city.locator('.street-row')).toHaveCount(2);
+  await expect(city.locator('.street-row').nth(1)).toContainText('Street not given');
+  await expect(city.locator('.street-row').nth(1)).not.toContainText('m away');
+  expect(calls.map((c) => c.url)).toEqual([`${API}/api/street/city?days=7`]);
   await expect(page.locator('.tabbar a[href="/street"]')).toHaveText('My street');
 });
 
@@ -68,15 +87,35 @@ test('a point in the URL lists open then closed cases, with distance, status, an
   expect(calls[0].url).toContain('lat=41.82820&lng=-71.40050&radiusM=300&days=30');
 });
 
-test('the radius chips re-query; an empty answer shows the quiet-street state with a Report link', async ({ page }) => {
+test('nothing within a few blocks → widens to the neighborhood by itself; still nothing → quiet street + Report + the citywide week', async ({ page }) => {
   const calls = await setup(page, { items: [] });
   await page.goto(POINT);
   await expect(page.locator('.street-none')).toContainText('Nothing reported within this distance');
-  await expect(page.locator('.street-none a.btn')).toHaveAttribute('href', '/');
-  await page.getByRole('button', { name: 'The neighborhood' }).click();
-  await expect.poll(() => calls.length).toBe(2);
-  expect(calls[1].url).toContain('radiusM=800');
+  const street = calls.filter((c) => c.url.includes('/api/street?')).map((c) => c.url);
+  expect(street[0]).toContain('radiusM=300');
+  expect(street[1]).toContain('radiusM=800');
   await expect(page.getByRole('button', { name: 'The neighborhood' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.street-none a.btn')).toHaveAttribute('href', '/');
+  await expect(page.locator('.street-none .street-city-h')).toHaveText('Meanwhile, across the city this week');
+  await expect(page.locator('.street-none .street-row')).toHaveCount(2);
+  // A chip the visitor taps is honoured even when empty — no bouncing back out.
+  await page.getByRole('button', { name: 'This block' }).click();
+  await expect.poll(() => calls.filter((c) => c.url.includes('radiusM=150')).length).toBe(1);
+  await expect(page.getByRole('button', { name: 'This block' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.street-none')).toBeVisible();
+});
+
+test('a quiet few blocks but a busy neighborhood: widened list with a note, no citywide fallback', async ({ page }) => {
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  await page.route(`${API}/api/street/city*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CITY) }));
+  await page.route(`${API}/api/street?*`, (r) => {
+    const wide = r.request().url().includes('radiusM=800');
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: wide ? ITEMS : [], radiusM: wide ? 800 : 300, days: 30, at: new Date().toISOString() }) });
+  });
+  await page.goto(POINT);
+  await expect(page.locator('.street-widened')).toHaveText("Nothing within a few blocks, so here's the neighborhood.");
+  await expect(page.locator('.street-row')).toHaveCount(3);
+  await expect(page.locator('.street-city')).toHaveCount(0);
 });
 
 test('typing an address geocodes it and puts the point in the URL', async ({ page }) => {

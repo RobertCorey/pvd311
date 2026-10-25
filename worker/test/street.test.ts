@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { nearbyCases, handleStreet, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl } from '../src/street.js';
+import { nearbyCases, handleStreet, handleStreetCity, cityOverview, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl } from '../src/street.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
 // Angell St / Thayer St corner (41.8282, -71.4005) as "home"; cases are placed by hand around it.
@@ -60,6 +60,31 @@ describe('GET /api/street', () => {
     // The load window reaches back past the asked-for days so a case closed this month but opened in August still shows.
     const since = (s.listCityCasesSince as any).mock.calls[0][0] as string;
     expect(Date.parse(since)).toBeLessThan(Date.now() - 80 * 86_400_000);
+  });
+});
+
+describe('citywide overview', () => {
+  beforeEach(() => resetStreetCache());
+  it('counts the week, ranks case types, lists the newest activity, and does not need coordinates', () => {
+    const rows = [
+      row('a', { lat: null, lng: null }),
+      row('b', { caseType: 'Pothole' }),
+      row('c', { caseType: 'Street Light Out', status: 'Resolved', detail: { resolutionDate: daysAgo(1), resolution: 'Fixed' } }),
+      row('old', { createdAt: daysAgo(20) }),
+      row('draft', { status: 'Draft' }),
+    ];
+    const o = cityOverview(rows, { days: 7, now: NOW, latestN: 2 });
+    expect(o).toMatchObject({ days: 7, total: 3, open: 2, closed: 1, located: 2 });
+    expect(o.topTypes).toEqual([{ caseType: 'Pothole', category: 'pothole', n: 2 }, { caseType: 'Street Light Out', category: 'pothole', n: 1 }]);
+    expect(o.latest.map((c) => c.id)).toEqual(['c', 'a']);
+    expect(o.latest[0]).toMatchObject({ open: false, resolution: 'Fixed' });
+    expect(o.latest[0]).not.toHaveProperty('distanceM');
+  });
+  it('GET /api/street/city defaults to 7 days and is cacheable', async () => {
+    const s = { listCityCasesSince: vi.fn(async () => [row('a')]) } as unknown as Store;
+    const r = await handleStreetCity(new URL('https://api.test/api/street/city'), s);
+    expect(r.headers.get('cache-control')).toContain('max-age=300');
+    expect(await r.json()).toMatchObject({ days: 7, total: 1 });
   });
 });
 

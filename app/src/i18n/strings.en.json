@@ -1080,7 +1080,7 @@
   "street.denied": "Location is off for this site. Type an address instead.",
   "street.unsupported": "This browser can't share your location. Type an address instead.",
   "street.here": "Where you are",
-  "street.empty": "Type an address or use your location to see what's been reported around it.",
+  "street.empty": "Type an address or use your location to see what's been reported around it. Until then, the whole city:",
   "street.radius.block": "This block",
   "street.radius.blocks": "A few blocks",
   "street.radius.hood": "The neighborhood",
@@ -1115,5 +1115,13 @@
   "street.digest.off": "Turn off",
   "street.digest.error": "Couldn't save that. Try again.",
   "street.digest.defaultLabel": "My street",
-  "street.source": "From Providence 311's public request list, read every half hour. The city doesn't publish descriptions or photos, and some addresses can't be placed on the map."
+  "street.source": "From Providence 311's public request list, read every half hour. The city doesn't publish descriptions or photos, and some addresses can't be placed on the map.",
+  "street.noStreet": "Street not given",
+  "street.widened": "Nothing within a few blocks, so here's the neighborhood.",
+  "street.city.title": "This week in Providence",
+  "street.city.meanwhile": "Meanwhile, across the city this week",
+  "street.city.summary": "{total} requests · {closed} closed",
+  "street.city.top": "Most reported",
+  "street.city.latest": "Latest",
+  "street.city.quiet": "The city's list is quiet this week."
 }

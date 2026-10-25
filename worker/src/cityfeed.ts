@@ -212,17 +212,22 @@ export function mapCategory(caseTypeName: string): string {
 
 // ── Geocoding (ArcGIS findAddressCandidates) + Firestore cache ───────────────────────────
 
+// A blank or junk street would geocode to the city centroid (seen 2026-10-25: a "Parking Issues" case with street ""
+// landed on Dorrance St). Only keep address-level matches that scored well.
+const VAGUE_ADDR_TYPES = new Set(['Locality', 'Postal', 'PostalExt', 'PostalLoc', 'Region', 'Subregion', 'Country', 'Neighborhood', 'City']);
 async function geocodeStreet(street: string): Promise<{ lat: number; lng: number } | null> {
   try {
+    if (!/[A-Za-z]{2,}/.test(street)) return null;
     const single = encodeURIComponent(`${street}, Providence, RI`);
     const url =
       `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates` +
-      `?SingleLine=${single}&f=json&maxLocations=1&outFields=Match_addr&outSR=4326&countryCode=USA`;
+      `?SingleLine=${single}&f=json&maxLocations=1&outFields=Match_addr,Addr_type,Score&outSR=4326&countryCode=USA`;
     const resp = await fetch(url);
     if (!resp.ok) return null;
-    const data = (await resp.json()) as { candidates?: { location?: { x: number; y: number }; score?: number }[] };
+    const data = (await resp.json()) as { candidates?: { location?: { x: number; y: number }; score?: number; attributes?: { Addr_type?: string } }[] };
     const c = data.candidates?.[0];
     if (!c?.location) return null;
+    if ((c.score ?? 100) < 80 || VAGUE_ADDR_TYPES.has(c.attributes?.Addr_type ?? '')) return null;
     const lat = c.location.y;
     const lng = c.location.x;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -237,6 +242,7 @@ interface GeoCache { lat: number | null; lng: number | null }
 
 /** Cache-first geocode of a street ("481 Angell St"): one ArcGIS call per distinct street, ever (negatives cached too). */
 export async function geocodeStreetCached(store: Store, street: string): Promise<{ lat: number; lng: number } | null> {
+  if (!/[A-Za-z]{2,}/.test(street)) return null;
   const cached = await getCachedGeo(store, street).catch(() => null);
   if (cached) return cached.lat != null && cached.lng != null ? { lat: cached.lat, lng: cached.lng } : null;
   const g = await geocodeStreet(street);

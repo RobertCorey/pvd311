@@ -139,18 +139,24 @@ describe('syncCityCases', () => {
 describe('backfillCityCaseGeo', () => {
   it('geocodes stored cases that never got coordinates, bounded, and leaves geocoded ones alone', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ candidates: [{ location: { x: -71.41, y: 41.83 }, score: 100 }] })));
-    const { store, cases } = makeStore();
+    const { store, cases, meta } = makeStore();
     const rows = [
       { id: 'a', street: '1 Hope St', createdAt: '2026-10-01T00:00:00Z' },
       { id: 'b', street: '2 Hope St', createdAt: '2026-10-02T00:00:00Z', lat: 41.8, lng: -71.4 },
       { id: 'c', street: '3 Hope St', createdAt: '2026-10-03T00:00:00Z', lat: null, lng: null }, // geocoder had nothing: not retried
       { id: 'd', street: '4 Hope St', createdAt: '2026-10-04T00:00:00Z' },
     ];
-    (store as any).listCityCasesSince = vi.fn(async () => rows);
+    // (2026-10-25) a blank street geocoded to the downtown centroid: it must be nulled, not kept.
+    rows.push({ id: 'e', street: '', createdAt: '2026-10-05T00:00:00Z', lat: 41.8239, lng: -71.4128 } as any);
+    (store as any).listCityCasesSince = vi.fn(async () => rows.map((r) => ({ ...r, ...(cases[r.id] ?? {}) })));
     try {
-      expect(await backfillCityCaseGeo(store, { limit: 1 })).toBe(1);
+      expect(await backfillCityCaseGeo(store, { limit: 1 })).toEqual({ patched: 1, remaining: 2 });
       expect(Object.keys(cases)).toEqual(['a']);
       expect(cases.a).toEqual({ lat: 41.83, lng: -71.41 });
+      expect(meta.cityGeoBackfill.doneAt).toBeUndefined();
+      expect(await backfillCityCaseGeo(store)).toEqual({ patched: 2, remaining: 0 });
+      expect(cases.e).toEqual({ lat: null, lng: null });
+      expect(meta.cityGeoBackfill.doneAt).toBeTruthy();
     } finally { vi.unstubAllGlobals(); }
   });
 });

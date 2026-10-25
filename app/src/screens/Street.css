@@ -19,7 +19,18 @@
 .street-type { font-family: var(--font-display); line-height: 1.25; }
 .street-addr, .street-when { font-size: .85rem; color: var(--muted); }
 .street-note { margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; white-space: pre-wrap; color: var(--ink); }
-.street-none { padding-top: 8px; }
+.street-empty { margin: .25rem 0 1rem; }
+.street-none { display: grid; gap: .75rem; justify-items: start; }
+.street-none > p { margin: 0; }
+.street-none .btn-secondary { text-decoration: none; width: auto; }
+.street-widened { margin: 0 0 .5rem; }
+.street-city { display: grid; gap: .5rem; width: 100%; margin-top: .5rem; }
+.street-city-h { font-size: 1.1rem; margin: .5rem 0 0; }
+.street-city .street-summary { margin: 0; }
+.street-top { list-style: none; margin: 0; padding: 0; display: flex; gap: .4rem; flex-wrap: wrap; }
+.street-top-item { display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .7rem .3rem .5rem; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); font-size: .85rem; }
+.street-top-item b { font-family: var(--font-display); }
+.street-city .street-h { margin-top: .5rem; }
 .street-digest { margin-top: 1.25rem; display: grid; gap: .5rem; }
 .street-digest h3 { margin: 0; }
 .street-digest p { margin: 0; }
