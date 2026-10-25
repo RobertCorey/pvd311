@@ -7,6 +7,8 @@ export interface SavedAddress { id: string; label: string; address: string; lat:
 export interface Me {
   uid: string; email: string | null; emailVerified: boolean; displayName: string | null; provider: string;
   prefs: { emailUpdates: boolean; streetDigest?: boolean }; addresses: SavedAddress[]; following: string[]; createdAt: string;
+  /** City case GUIDs this account follows (cityCases, newest first, ≤ 100). Read it with `?? []`: an older Worker omits it. */
+  cityFollowing: string[];
   /** True for an allow-listed Google-verified email (docs/api.md Admin). */
   admin?: boolean;
   /** Reporter quota (docs/quota.md); absent from an older Worker. */
@@ -14,6 +16,14 @@ export interface Me {
 }
 /** ReportView plus the signed-in extras the Worker adds. */
 export interface MyReportView extends ReportView { mine?: boolean; following?: boolean; editable?: boolean; description?: string | null; owned?: boolean }
+/** One followed city case as GET /api/me/city returns it: the case's current state plus when it was followed.
+ *  `open` = status ∉ {Resolved, Closed, Cancelled, Merged}; `closedAt` = the city's resolutionDate, else the watched
+ *  close; `resolution` = the city's own Resolution Message; `updatedAt` = statusAt. lat/lng null when unplaced. */
+export interface FollowedCase {
+  id: string; caseType: string; category: string; street: string; status: string; open: boolean;
+  createdAt: string | null; closedAt: string | null; resolution: string | null; lat: number | null; lng: number | null;
+  followedAt: string | null; updatedAt: string | null;
+}
 
 async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<T> {
   const t = withTimeout(timeoutMs);
@@ -31,6 +41,12 @@ export const myReports = () => call<{ items: MyReportView[] }>('/api/me/reports'
 export const followingReports = () => call<{ items: MyReportView[] }>('/api/me/following');
 export const follow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'PUT' });
 export const unfollow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Follow / unfollow one of the city's public cases (cityCases/{guid}); both idempotent, 204. The Worker mails the
+ *  account once per status change (kind city_follow) while followed. */
+export const followCity = (guid: string) => call<void>(`/api/me/city/${encodeURIComponent(guid)}`, { method: 'PUT' });
+export const unfollowCity = (guid: string) => call<void>(`/api/me/city/${encodeURIComponent(guid)}`, { method: 'DELETE' });
+/** The followed city cases with their current status, in cityFollowing order (vanished cases skipped). */
+export const followedCases = () => call<{ items: FollowedCase[] }>('/api/me/city');
 export const saveAddress = (a: Partial<SavedAddress> & { address: string }) => call<{ addresses: SavedAddress[] }>('/api/me/addresses', { method: 'PUT', body: JSON.stringify(a) });
 export const deleteAddress = (id: string) => call<{ addresses: SavedAddress[] }>(`/api/me/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });
 /** Owner-only, while the report is still pending. */

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { API, DEFAULT_ITEMS, NEAR, POINT, PT, STACK, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf } from './street-mocks';
+import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
 
 // /street — the map-first "My street" page (.claude/street-map-spec.md): one mocked GET /api/street/map, everything else
 // (bbox, counts, clusters, hoods, URL) computed in the browser. Mobile project = iPhone 13 (390×664); one desktop describe.
@@ -225,12 +225,49 @@ test('selection via pin and deep link: a pin tap raises peek → half; ?case= op
   await expect(page.locator('.map-pin--selected')).toHaveCount(1);
   await expect(title(page)).toHaveText('Pothole');
 
+  // A case the city's record no longer has: asked for by itself (404) → the gone line, no card, case= dropped.
+  const calls = await setup(page);
   await page.goto(`${POINT}&case=unknown`);
   await waitForMap(page);
-  await expect(page.locator('.street-gone')).toContainText("That request isn't in the last 30 days anymore.");
-  await expect(page.locator('.street-gone').getByRole('button', { name: 'Look back 90 days' })).toBeVisible();
+  await expect(page.locator('.street-gone')).toContainText("We couldn't find that request");
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(rows(page)).toHaveCount(3);
+  expect(calls.filter((c) => c.url.includes('/api/street/case/')).map((c) => c.url.split('/').pop())).toEqual(['unknown']);
+});
+
+test('deep link to a case older than the window (the follow mail, a /my row): fetched by itself, card + pin, the window untouched', async ({ page }) => {
+  const old: Case = { id: 'old1', t: 6, status: 'Assigned', createdDaysAgo: 140, lat: 41.83, lng: -71.41, street: '5 Elm St' };
+  const unplaced: Case = { id: 'old2', t: 0, status: 'Resolved', createdDaysAgo: 200, closedDaysAgo: 120, lat: null, lng: null, street: '', res: 'Filled.' };
+  const calls = await setup(page, { extraCases: [old, unplaced] });
+  const lookups = () => calls.filter((c) => c.url.includes('/api/street/case/')).map((c) => c.url.split('/').pop());
+  // The mail's link: case= with the case's own lat/lng.
+  await page.goto('/street?case=old1&lat=41.83000&lng=-71.41000');
+  await waitForMap(page);
+  const card = page.locator('.street-detail');
+  await expect(card).toContainText('Tree Down');
+  await expect(card).toContainText('5 Elm St');
+  await expect(card).toBeFocused();
+  await expect(page).toHaveURL(/[?&]case=old1/);
+  await expect(page.locator('.map-pin--selected')).toHaveCount(1);
+  await expect(title(page)).toHaveText('Tree Down');
+  expect(lookups()).toEqual(['old1']);
+  expect(mapCalls(calls)).toHaveLength(1); // 30 days only — no 90-day refetch, no gone notice
+  await expect(page.locator('.street-gone')).toHaveCount(0);
+  // Follow works on it like any card (signed out here: the sign-in link returns to this URL).
+  expect(decodeURIComponent((await card.locator('a.street-follow-signin').getAttribute('href'))!)).toBe('/account?returnTo=/street?case=old1&lat=41.83000&lng=-71.41000');
+  // Back to list drops the case and its pin; the window's rows are what is listed.
+  await card.getByRole('button', { name: 'Back to list' }).click();
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(page.locator('.map-pin--selected')).toHaveCount(0);
+
+  // Bare case= on an unplaced closed case: the card (with the city's note) over the whole city, no pin.
+  await page.goto('/street?case=old2');
+  await waitForMap(page);
+  await expect(card).toContainText('Pothole');
+  await expect(card.locator('.street-note')).toHaveText('Filled.');
+  await expect(page.locator('.map-pin--selected')).toHaveCount(0);
+  await expect(page).toHaveURL(/[?&]case=old2/);
+  expect(lookups()).toEqual(['old1', 'old2']);
 });
 
 test('clusters and stacks: six cases at one spot are one disc at every zoom; at z18 the disc lists them', async ({ page }) => {
@@ -362,6 +399,153 @@ test('digest from a case card: one tap saves that case\'s street and coordinates
 test('digest, signed in with this address saved and on: shows the on state without asking again', async ({ page }) => {
   await point(page, { signedIn: true, me: { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] } });
   await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
+});
+
+test('follow, signed out: the card offers a sign-in link that returns to this exact URL; no toggle', async ({ page }) => {
+  const calls = await setup(page);
+  await page.goto(`${POINT}&case=c1`);
+  await waitForMap(page);
+  const card = page.locator('.street-detail');
+  const link = card.locator('a.street-follow-signin');
+  await expect(link).toHaveText('Sign in to follow this request');
+  expect(decodeURIComponent((await link.getAttribute('href'))!)).toBe(`/account?returnTo=${POINT}&case=c1`);
+  await expect(card.locator('.street-follow-btn')).toHaveCount(0);
+  expect(calls.filter((c) => c.url.includes('/api/me'))).toEqual([]);
+});
+
+test('follow, signed out from a typed search: the returnTo keeps the `+` URL and sign-in lands on the case card', async ({ page }) => {
+  await landing(page);
+  await page.locator('.street-pill-input').fill('481 angell');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page).toHaveURL(/\/street\?lat=41\.82820&lng=-71\.40050&q=481\+Angell\+St/);
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  // The geocoder's full label: spaces as `+`, commas as `%2C` — both must pass takeReturnTo's allowlist.
+  const here = '/street?lat=41.82820&lng=-71.40050&q=481+Angell+St%2C+Providence%2C+Rhode+Island%2C+02906&case=c1';
+  await expect(page).toHaveURL(here);
+  const href = (await page.locator('.street-detail a.street-follow-signin').getAttribute('href'))!;
+  expect(decodeURIComponent(href)).toBe(`/account?returnTo=${here}`);
+  // Already signed in and sent to /account with that returnTo (what the sign-in flow does) → straight back to the card.
+  await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
+  await page.goto(href);
+  await expect(page).toHaveURL(here);
+  await expect(page.locator('.street-detail')).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
+});
+
+test('follow, signed in: Follow → PUT /api/me/city/:id and a pressed "Following"; Unfollow → DELETE; an already-followed case opens pressed and its toggle unfollows', async ({ page }) => {
+  const calls = await point(page, { signedIn: true, me: { cityFollowing: ['c2'] } });
+  const forCase = (id: string) => calls.filter((c) => c.url.endsWith(`/api/me/city/${id}`)).map((c) => c.method);
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const card = page.locator('.street-detail');
+  const toggle = card.locator('.street-follow-btn');
+  await expect(toggle).toHaveText('Follow this request');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(card.getByRole('button', { name: 'Unfollow' })).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toContainText('Following — we\'ll email you when the city updates it');
+  await expect.poll(() => forCase('c1')).toEqual(['PUT']);
+  await card.getByRole('button', { name: 'Unfollow' }).click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(toggle).toHaveText('Follow this request');
+  await expect.poll(() => forCase('c1')).toEqual(['PUT', 'DELETE']);
+  // c2 was followed before the page loaded (users.cityFollowing): pressed on open; the pressed toggle itself unfollows.
+  await card.getByRole('button', { name: 'Back to list' }).click();
+  await page.locator('.street-row-btn[data-id="c2"]').click();
+  await expect(card).toContainText('Street Light Out');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => forCase('c2')).toEqual(['DELETE']);
+  // The digest card is still there under the actions.
+  await expect(card.locator('.street-digest')).toBeVisible();
+});
+
+test('follow, signed in: a failed PUT reverts the toggle and says so', async ({ page }) => {
+  const calls = await point(page, { signedIn: true, followStatus: () => 500 });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const card = page.locator('.street-detail');
+  const toggle = card.locator('.street-follow-btn');
+  await toggle.click();
+  await expect(card.locator('.street-follow-error')).toHaveText("Couldn't save that. Try again.");
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(toggle).toHaveText('Follow this request');
+  await expect(card.getByRole('button', { name: 'Unfollow' })).toHaveCount(0);
+  expect(calls.filter((c) => c.url.includes('/api/me/city/')).map((c) => c.method)).toEqual(['PUT']);
+  // Another case: the error line does not follow it.
+  await card.getByRole('button', { name: 'Back to list' }).click();
+  await page.locator('.street-row-btn[data-id="c3"]').click();
+  await expect(card).toContainText('Overflowing Dumpster');
+  await expect(card.locator('.street-follow-error')).toHaveCount(0);
+});
+
+test('follow, in flight: the toggle stays enabled (aria-busy), keeps focus, and a second tap is ignored', async ({ page }) => {
+  const calls = await point(page, { signedIn: true, followDelayMs: 700 });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const toggle = page.locator('.street-detail .street-follow-btn');
+  await toggle.focus();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-busy', 'true');
+  expect(await toggle.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
+  await expect(toggle).toBeFocused();
+  await toggle.click(); // re-entry: no second request
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).not.toHaveAttribute('aria-busy', 'true');
+  await expect(toggle).toBeFocused(); // the aria-pressed flip happened on the focused element
+  expect(calls.filter((c) => c.url.includes('/api/me/city/')).map((c) => c.method)).toEqual(['PUT']);
+  // Escape still closes the card from the toggle.
+  await toggle.press('Escape');
+  await expect(page).not.toHaveURL(/[?&]case=/);
+});
+
+test('follow, account not loaded: the toggle reads off (aria-disabled) with "Loading your account…"; a failed load says so and a tap retries', async ({ page }) => {
+  await point(page, { signedIn: true, meDelayMs: 6000 });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const card = page.locator('.street-detail');
+  const toggle = card.locator('.street-follow-btn');
+  await expect(card.locator('.street-follow-hint')).toHaveText('Loading your account…');
+  await expect(toggle).toHaveAttribute('aria-disabled', 'true');
+  expect(await toggle.evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false); // aria-disabled, never disabled: focusable, tappable
+  const off = await toggle.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await expect(toggle).not.toHaveAttribute('aria-disabled', 'true', { timeout: 10_000 });
+  await expect(card.locator('.street-follow-hint')).toHaveCount(0);
+  expect(await toggle.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(off); // the off state looked different
+
+  const calls = await point(page, { signedIn: true, meStatus: (n) => (n === 1 ? 500 : 200) });
+  const meGets = () => calls.filter((c) => c.method === 'GET' && c.url.endsWith('/api/me')).length;
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  await expect(card.locator('.street-follow-hint')).toHaveText("Couldn't load your account — tap Follow to retry.");
+  await expect(toggle).toHaveAttribute('aria-disabled', 'true');
+  expect(meGets()).toBe(1);
+  await toggle.click({ force: true }); // (force: Playwright treats aria-disabled as not actionable) the tap retries the load — not a follow
+  await expect(toggle).not.toHaveAttribute('aria-disabled', 'true');
+  expect(meGets()).toBe(2);
+  expect(calls.filter((c) => c.url.includes('/api/me/city/'))).toEqual([]);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => calls.filter((c) => c.url.includes('/api/me/city/')).map((c) => c.method)).toEqual(['PUT']);
+});
+
+test('follow, when no mail would come: email updates off or an unverified address → "Following" without the promise, and a hint that links to Account', async ({ page }) => {
+  await point(page, { signedIn: true, me: { cityFollowing: ['c1'], prefs: { emailUpdates: false, streetDigest: false } } });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const card = page.locator('.street-detail');
+  const toggle = card.locator('.street-follow-btn');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveText(/^✓?\s*Following$/);
+  const hint = card.locator('.street-follow-hint');
+  await expect(hint).toHaveText("Email updates are off for your account, so you won't hear about changes. Fix this in Account");
+  await expect(hint.getByRole('link', { name: 'Fix this in Account' })).toHaveAttribute('href', '/account');
+
+  await point(page, { signedIn: true, me: { cityFollowing: ['c1'], emailVerified: false } });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  await expect(toggle).toHaveText(/Following$/);
+  await expect(card.locator('.street-follow-hint')).toContainText('Verify your email to hear about changes.');
+  // Not following: no hint at all.
+  await card.getByRole('button', { name: 'Back to list' }).click();
+  await page.locator('.street-row-btn[data-id="c3"]').click();
+  await expect(toggle).toHaveText('Follow this request');
+  await expect(card.locator('.street-follow-hint')).toHaveCount(0);
 });
 
 test('error states: a failed feed shows the notice + retry inside the sheet with the map still up; a failed 90-day switch keeps the 30-day rows', async ({ page }) => {

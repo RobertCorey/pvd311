@@ -21,10 +21,12 @@ export interface StreetDetailProps {
   onShare: () => void;
   /** The `.street-digest` card bound to this case's street (located cases only); rendered after the actions. */
   digest?: ReactNode;
+  /** The Follow control (components/StreetFollow), first in the actions row; the caller owns its state. */
+  follow?: ReactNode;
   nowMs: number;
 }
 
-export default function StreetDetail({ c, hood, distanceM, onBack, onShare, digest, nowMs }: StreetDetailProps) {
+export default function StreetDetail({ c, hood, distanceM, onBack, onShare, digest, follow, nowMs }: StreetDetailProps) {
   const t = useT();
   const titleId = useId();
   const ref = useRef<HTMLElement>(null);
@@ -56,6 +58,7 @@ export default function StreetDetail({ c, hood, distanceM, onBack, onShare, dige
       {!c.open && c.resolution && <blockquote className="street-note">{c.resolution}</blockquote>}
       {approx && <p className="hint street-detail-approx">{t('street.detail.approx')}</p>}
       <div className="street-detail-actions">
+        {follow}
         <button type="button" className="btn btn-ghost" onClick={onBack}>{t('street.detail.back')}</button>
         <button type="button" className="btn btn-ghost" onClick={onShare}>{t('street.detail.share')}</button>
         <Link to="/" className="btn btn-secondary">{t('street.report')}</Link>

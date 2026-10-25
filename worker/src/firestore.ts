@@ -503,6 +503,27 @@ export function createStore(env: Env): Store {
       return docs.map((d) => ({ ...decodeFields(d.fields ?? {}), id: d.name.split('/').pop() as string }));
     },
 
+    async getCityCase(id) {
+      const doc = await getDoc(env, `cityCases/${encodeURIComponent(id)}`);
+      return doc ? { ...decodeFields(doc.fields ?? {}), id } : null;
+    },
+
+    async fetchCityCases(ids) {
+      if (!ids.length) return [];
+      const out: Record<string, unknown>[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const resp = await authedFetch(env, `${docBase(env)}:batchGet`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ documents: ids.slice(i, i + 100).map((id) => `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/cityCases/${encodeURIComponent(id)}`) }),
+        });
+        if (!resp.ok) throw new Error(`firestore batchGet: ${resp.status} ${await resp.text()}`);
+        const rows = (await resp.json()) as { found?: FsDocument }[];
+        for (const r of rows) if (r.found) out.push({ ...decodeFields(r.found.fields ?? {}), id: r.found.name.split('/').pop() as string });
+      }
+      return out;
+    },
+
     async listStreetDigestUsers(limit): Promise<UserDoc[]> {
       const docs = await runQuery(env, {
         from: [{ collectionId: 'users' }],

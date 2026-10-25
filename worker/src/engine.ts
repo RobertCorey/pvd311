@@ -410,7 +410,7 @@ export async function runWatcher(env: Env): Promise<void> {
 
 /** After the watcher (same 30-min cron): record every public-feed case over plain HTTP — no browser session. */
 export async function runCityCases(env: Env): Promise<void> {
-  await syncCityCases(env, createStore(env));
+  await syncCityCases(env, createStore(env), { mailer: createMailer(env) });
 }
 
 async function syncAsks(env: Env, store: Store, mailer: Mailer, reports: ReportDoc[]): Promise<void> {
@@ -646,7 +646,7 @@ export async function runDaily(env: Env): Promise<void> {
   } catch (e) { console.error('[retention] failed:', e); await markError(store, 'daily', e); }
 
   // City cases (citycases.ts): one detail check for open cases that left the public feed's 7-day window.
-  await followUpCityCases(env, store).catch((e) => console.error('[daily] city cases follow-up failed:', e instanceof Error ? e.message : e));
+  await followUpCityCases(env, store, { mailer }).catch((e) => console.error('[daily] city cases follow-up failed:', e instanceof Error ? e.message : e));
   // "My street" (street.ts): coordinates for cases stored before geocoding existed; Mondays, the weekly digest.
   await backfillCityCaseGeo(store).catch((e) => console.error('[daily] city cases geo backfill failed:', e instanceof Error ? e.message : e));
   if (new Date().getUTCDay() === 1) await runStreetDigest(env, store, mailer).catch((e) => console.error('[daily] street digest failed:', e instanceof Error ? e.message : e));

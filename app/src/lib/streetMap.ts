@@ -53,6 +53,25 @@ export function decodeFeed(feed: MapFeed): StreetMap {
   return { days: feed.days, at: feed.at, total: feed.total, located: feed.located, truncated: !!feed.truncated, cases };
 }
 
+/** GET /api/street/case/:guid — one case as an object (worker/src/street.ts StreetCaseView; the /my list's row shape). */
+export interface StreetCaseWire {
+  id: string; caseType: string; category: string; street: string; status: string; open?: boolean;
+  createdAt: string | null; closedAt: string | null; resolution: string | null; lat: number | null; lng: number | null; updatedAt?: string | null;
+}
+
+/** A single-case response → MapCase, with the same defaults as decodeFeed (`open` from the status, '' for blanks). */
+export function decodeCase(w: Partial<StreetCaseWire>): MapCase {
+  const status = typeof w.status === 'string' ? w.status : '';
+  const category = typeof w.category === 'string' && w.category ? w.category : 'unsure';
+  const located = typeof w.lat === 'number' && typeof w.lng === 'number' && Number.isFinite(w.lat) && Number.isFinite(w.lng);
+  return {
+    id: String(w.id ?? ''), caseType: typeof w.caseType === 'string' ? w.caseType : '', category, group: groupOf(category) ?? 'other', status, open: !CLOSED_STATUSES.has(status),
+    createdAt: typeof w.createdAt === 'string' ? w.createdAt : null, closedAt: typeof w.closedAt === 'string' ? w.closedAt : null,
+    street: typeof w.street === 'string' ? w.street : '', resolution: typeof w.resolution === 'string' && w.resolution ? w.resolution : null,
+    lat: located ? (w.lat as number) : null, lng: located ? (w.lng as number) : null,
+  };
+}
+
 /* ── Geometry ──────────────────────────────────────────────────────────────────────────────────── */
 
 export interface LatLng { lat: number; lng: number }

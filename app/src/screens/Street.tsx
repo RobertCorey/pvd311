@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
-import { getStreetMap, peekStreetMap, type MapCase, type MapDays, type StreetMap } from '../api/street';
-import { getMe, saveAddress, updateMe, type Me } from '../api/me';
-import { useSession } from '../lib/auth';
+import { getStreetCase, getStreetMap, peekStreetMap, type MapCase, type MapDays, type StreetMap } from '../api/street';
+import { followCity, getMe, saveAddress, unfollowCity, updateMe, type Me } from '../api/me';
+import { isSafeReturnTo, useSession } from '../lib/auth';
 import { forwardGeocode, inProvidence, reverseGeocode } from '../lib/geo';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
@@ -19,6 +19,7 @@ import StreetSheet, { SHEET_FULL_INSET, SHEET_PEEK_MIN, type Detent, type Detent
 import StreetFilters from '../components/StreetFilters';
 import StreetRow from '../components/StreetRow';
 import StreetDetail from '../components/StreetDetail';
+import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
 import SavedAddresses from '../components/SavedAddresses';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -28,7 +29,9 @@ import './Street.css';
  *  filter, cluster and list is computed in the browser from that array (lib/streetMap.ts). The page is a full-bleed
  *  Leaflet stage with floating search + filter rail, a three-detent sheet (phone) or a fixed panel (≥720 px), and is
  *  never empty: landing (city), viewport list, case card, stack, quiet-street and error states all show something.
- *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood), g/s/d (filters), case. */
+ *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood), g/s/d (filters), case.
+ *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
+ *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone". */
 
 const RAIL_BOTTOM = 110;
 const RING_M = 300;
@@ -90,7 +93,7 @@ export default function Street() {
     if (nb && data) for (const c of data.cases) if (c.lat != null && c.lng != null) { const h = hoodOfSync(nb, c.lat, c.lng); if (h) m.set(c.id, h); }
     return m;
   }, [nb, data]);
-  const hoodOf = useCallback((c: MapCase) => hoodMap.get(c.id) ?? null, [hoodMap]);
+  const hoodOf = useCallback((c: MapCase) => hoodMap.get(c.id) ?? (nb && c.lat != null && c.lng != null ? hoodOfSync(nb, c.lat, c.lng) : null), [hoodMap, nb]);
   const hoodRings: Rings | null = useMemo(() => (url.hood && nb ? nb[url.hood] ?? null : null), [url.hood, nb]);
 
   /* ── Map, sheet, view ─────────────────────────────────────────────────────────────────────────── */
@@ -210,7 +213,16 @@ export default function Street() {
   }, [url.hood, pointKey, goSeq, nb, url.caseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Selection (case=) ────────────────────────────────────────────────────────────────────────── */
-  const selectedCase = useMemo(() => (url.caseId && data ? data.cases.find((c) => c.id === url.caseId) ?? null : null), [url.caseId, data]);
+  // A case= missing from the loaded window is looked up on its own; `lookedUp.c === null` = the city's record is gone.
+  const [lookedUp, setLookedUp] = useState<{ id: string; c: MapCase | null } | null>(null);
+  const lookupRef = useRef<string | null>(null);
+  const selectedCase = useMemo(() => {
+    if (!url.caseId || !data) return null;
+    return data.cases.find((c) => c.id === url.caseId) ?? (lookedUp?.id === url.caseId ? lookedUp.c : null);
+  }, [url.caseId, data, lookedUp]);
+  /** The selected case when it came from the lookup, not the feed: drawn as a pin alongside the window's cases. */
+  const extraCase = selectedCase && lookedUp?.id === selectedCase.id && !data?.cases.some((c) => c.id === selectedCase.id) ? selectedCase : null;
+  const lookingUp = !!url.caseId && !!data && !selectedCase && lookedUp?.id !== url.caseId;
   // Handlers and timers read the latest URL / point / selected case through refs (layout effect: before every other effect of the commit).
   useLayoutEffect(() => {
     urlRef.current = url; pointRef.current = point; locationRef.current = location;
@@ -228,6 +240,15 @@ export default function Street() {
   useEffect(() => {
     if (!url.caseId) { handledCaseRef.current = null; return; }
     if (!data || handledCaseRef.current === url.caseId) return;
+    if (!selectedCase && lookedUp?.id !== url.caseId) {
+      // Not in this window (a followed case may be months old): ask for the case itself, once per id. The effect
+      // runs again when the answer lands; a failed request counts as gone (there is nothing else to try).
+      if (lookupRef.current !== url.caseId) {
+        const id = url.caseId; lookupRef.current = id;
+        getStreetCase(id).then((c) => setLookedUp({ id, c }), () => setLookedUp({ id, c: null }));
+      }
+      return;
+    }
     handledCaseRef.current = url.caseId;
     const via = selectViaRef.current ?? 'url'; selectViaRef.current = null;
     if (!selectedCase) {
@@ -237,17 +258,20 @@ export default function Street() {
       return;
     }
     setGoneId(null);
-    track('street_case', { via });
+    track('street_case', { via, src: data.cases.some((c) => c.id === selectedCase.id) ? 'feed' : 'lookup' });
     if (via === 'url') {
       // Fit to the case only when nothing else framed the view ('case': the URL's sole target, or that case found
       // again after the 90-day switch). A c/z, point or hood restore already placed the map — just select.
       const fitToCase = lastTargetRef.current === 'case' || refitRef.current;
       refitRef.current = false;
       setPanToSelection(fitToCase);
-      if (fitToCase && selectedCase.lat != null && selectedCase.lng != null) doFit(at({ lat: selectedCase.lat, lng: selectedCase.lng }), 'half', `case:${selectedCase.id}`, 17);
+      if (fitToCase) {
+        if (selectedCase.lat != null && selectedCase.lng != null) doFit(at({ lat: selectedCase.lat, lng: selectedCase.lng }), 'half', `case:${selectedCase.id}`, 17);
+        else doFit(CITY_LL, 'half', 'city'); // an unplaced case: the card, over the whole city
+      }
     }
     setDetentState((d) => { if (d === 'peek') { raisedRef.current = true; track('street_sheet', { detent: 'half', via: 'auto' }); return 'half'; } return d; });
-  }, [url.caseId, data, selectedCase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [url.caseId, data, selectedCase, lookedUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // A case that was not in the 30-day set: once the 90-day set has it, select it again.
   useEffect(() => {
     if (goneId && data && data.cases.some((c) => c.id === goneId)) { setGoneId(null); setUrl({ caseId: goneId }, true); }
@@ -305,7 +329,11 @@ export default function Street() {
 
   const windowed = useMemo(() => (data ? applyFilters(data.cases, { g: null, s: null, d: filters.d }, nowMs) : []), [data, filters.d, nowMs]);
   const filtered = useMemo(() => (data ? applyFilters(data.cases, filters, nowMs) : []), [data, filters, nowMs]);
-  const points = useMemo<MapPoint[]>(() => filtered.flatMap((c) => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open }] : [])), [filtered]);
+  const points = useMemo<MapPoint[]>(() => {
+    const pts = filtered.flatMap((c) => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open }] : []));
+    if (extraCase && extraCase.lat != null && extraCase.lng != null) pts.push({ id: extraCase.id, lat: extraCase.lat, lng: extraCase.lng, open: extraCase.open });
+    return pts;
+  }, [filtered, extraCase]);
   const inView = useMemo(() => {
     if (!bandBounds) return [];
     const list = filtered.filter((c) => inBounds(c, bandBounds));
@@ -446,12 +474,32 @@ export default function Street() {
   /* ── Weekly digest (kept; bound to the point, or to the selected case's street) ───────────────── */
   const [me, setMe] = useState<Me | null>(null);
   const [digest, setDigest] = useState<'idle' | 'saving' | 'error'>('idle');
+  // The city cases this account follows (users.cityFollowing). Its own state, not derived from `me`: the toggles below
+  // update it optimistically and the digest's PATCH responses must not reset it. null = signed out / not loaded yet.
+  const [cityFollowing, setCityFollowing] = useState<string[] | null>(null);
+  const [meState, setMeState] = useState<FollowAccountState>('loading');
+  const [meTick, setMeTick] = useState(0); // the Follow toggle's retry after a failed load
   useEffect(() => {
-    if (!session) { setMe(null); return; }
+    if (!session) { setMe(null); setCityFollowing(null); setMeState('loading'); return; }
     let live = true;
-    getMe().then((m) => { if (live) setMe(m); }).catch(() => { /* offline */ });
+    setMeState('loading');
+    getMe().then((m) => { if (live) { setMe(m); setCityFollowing(m.cityFollowing ?? []); setMeState('ok'); } }).catch(() => { if (live) setMeState('error'); });
     return () => { live = false; };
-  }, [session]);
+  }, [session, meTick]);
+  // Whether the Worker would mail this account about a followed case (cityfollow.eligibleFollowers): the card and the
+  // /my hint only promise an email when it will arrive.
+  const followEmail: FollowEmailState | undefined = me ? (me.prefs.emailUpdates === false ? 'off' : !me.emailVerified ? 'unverified' : 'ok') : undefined;
+
+  /* ── Follow a city case (PUT/DELETE /api/me/city/:guid): optimistic, reverted on failure ───────── */
+  const setFollowed = (id: string, on: boolean) => setCityFollowing((cur) => { const rest = (cur ?? []).filter((x) => x !== id); return on ? [id, ...rest] : rest; });
+  async function followCase(id: string) {
+    setFollowed(id, true);
+    try { await followCity(id); track('street_follow', { on: true }); } catch (e) { setFollowed(id, false); throw e; }
+  }
+  async function unfollowCase(id: string) {
+    setFollowed(id, false);
+    try { await unfollowCity(id); track('street_follow', { on: false }); } catch (e) { setFollowed(id, true); throw e; }
+  }
   const savedNear = (tg: DigestTarget) => me?.addresses.find((a) => (a.lat != null && a.lng != null && metersBetween(a.lat, a.lng, tg.lat, tg.lng) < SAME_PLACE_M) || (tg.label && a.address.trim().toLowerCase() === tg.label.trim().toLowerCase())) ?? null;
   async function enableDigest(tg: DigestTarget, from: 'point' | 'case') {
     setDigest('saving');
@@ -473,6 +521,15 @@ export default function Street() {
     try { setMe(await updateMe({ prefs: { streetDigest: false } })); setDigest('idle'); track('street_digest_off', { from }); } catch { setDigest('error'); }
   }
   const here = location.pathname + location.search;
+  /** The sign-in links' returnTo: this exact URL (takeReturnTo accepts /street's `+` and `,`); should it ever hold a
+   *  character the allowlist rejects, the case alone — the same shape as the follow mail's link — so the card still reopens. */
+  const returnHere = (c?: MapCase | null) => {
+    if (isSafeReturnTo(here)) return here;
+    if (!c) return '/street';
+    const p = new URLSearchParams({ case: c.id });
+    if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
+    return `/street?${p}`;
+  };
   function renderDigest(tg: DigestTarget, from: 'point' | 'case'): ReactNode {
     const saved = savedNear(tg);
     const on = !!(me?.prefs.streetDigest && saved);
@@ -480,7 +537,7 @@ export default function Street() {
       <div className="card street-digest">
         <h3>{t('street.digest.title')}</h3>
         <p className="muted">{t('street.digest.body')}</p>
-        {!session && <Link to={`/account?returnTo=${encodeURIComponent(here)}`} className="btn btn-secondary">{t('street.digest.signIn')}</Link>}
+        {!session && <Link to={`/account?returnTo=${encodeURIComponent(returnHere(selectedCase))}`} className="btn btn-secondary">{t('street.digest.signIn')}</Link>}
         {session && !on && <button type="button" className="btn btn-primary" onClick={() => enableDigest(tg, from)} disabled={digest === 'saving' || !me}>{digest === 'saving' ? t('street.digest.saving') : t('street.digest.cta')}</button>}
         {session && on && (
           <div className="street-digest-on">
@@ -575,7 +632,8 @@ export default function Street() {
       if (feedState === 'error') return <div className="notice notice-error"><span>{t('street.error')}</span><button type="button" className="btn btn-ghost" onClick={() => setRetryTick((x) => x + 1)}>{t('street.retry')}</button></div>;
       return <div className="street-skel" aria-hidden="true"><span /><span /><span /></div>;
     }
-    if (data.total === 0) {
+    if (lookingUp) return <div className="street-skel street-skel--case" aria-hidden="true"><span /><span /><span /></div>;
+    if (data.total === 0 && !selectedCase) {
       return (
         <div className="street-quiet">
           <Illustration kind="street" className="illo" />
@@ -586,7 +644,13 @@ export default function Street() {
     }
     if (selectedCase) {
       const tg: DigestTarget | null = selectedCase.lat != null && selectedCase.lng != null ? { lat: selectedCase.lat, lng: selectedCase.lng, label: selectedCase.street } : null;
-      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} digest={tg ? renderDigest(tg, 'case') : undefined} />;
+      const id = selectedCase.id;
+      const follow = (
+        <StreetFollow key={id} signedIn={!!session} following={cityFollowing ? cityFollowing.includes(id) : null} returnTo={returnHere(selectedCase)}
+          account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
+          onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} />
+      );
+      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? renderDigest(tg, 'case') : undefined} />;
     }
     if (stackCases) {
       return (
@@ -626,8 +690,7 @@ export default function Street() {
       {data && feedState === 'loading' && <div className="street-skel" aria-hidden="true"><span /><span /></div>}
       {goneId && (
         <div className="street-gone">
-          <p className="hint" role="status">{t('street.caseGone', { days })}</p>
-          {lookBack}
+          <p className="hint" role="status">{t('street.caseGone')}</p>
         </div>
       )}
       {widened && !selectedCase && <p className="hint street-widened" role="status">{t('street.widened')}</p>}

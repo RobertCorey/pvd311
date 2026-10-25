@@ -8,6 +8,9 @@
  *   GET    /api/me/following            followed reports
  *   PUT    /api/me/following/:id        follow   (204)
  *   DELETE /api/me/following/:id        unfollow (204)
+ *   GET    /api/me/city                 followed public city cases → { items: FollowedCase[] } (cityfollow.ts)
+ *   PUT    /api/me/city/:guid           follow a city case   (204; 404 when cityCases/{guid} does not exist)
+ *   DELETE /api/me/city/:guid           unfollow             (204)
  *   PUT    /api/me/addresses            { id?, label, address, lat?, lng? } → { addresses }
  *   DELETE /api/me/addresses/:id        → { addresses }
  *   PATCH  /api/reports/:id             { description } owner-only, while still pending
@@ -16,6 +19,7 @@
 import type { Env, ReportDoc, SavedAddress, Store, UserDoc } from './contracts.js';
 import type { AuthUser } from './auth.js';
 import { quotaFor, refundQuota, type QuotaView } from './quota.js';
+import { CITY_GUID_RE, MAX_CASE_FOLLOWERS, MAX_CITY_FOLLOWING, followedCaseView } from './cityfollow.js';
 
 export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown>; admin?: boolean }
 export interface Viewer { uid: string; following: Set<string> }
@@ -39,11 +43,11 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
     if (u.provider !== existing.provider) patch.provider = u.provider;
     if (!existing.displayName && u.name) patch.displayName = u.name;
     await store.patchUser(u.uid, patch);
-    return { ...existing, ...(patch as Partial<UserDoc>), prefs: existing.prefs ?? { emailUpdates: true }, addresses: existing.addresses ?? [], following: existing.following ?? [] };
+    return { ...existing, ...(patch as Partial<UserDoc>), prefs: existing.prefs ?? { emailUpdates: true }, addresses: existing.addresses ?? [], following: existing.following ?? [], cityFollowing: existing.cityFollowing ?? [] };
   }
   const doc: UserDoc = {
     uid: u.uid, email: u.email, emailVerified: u.emailVerified, displayName: u.name, provider: u.provider,
-    createdAt: now, lastSeenAt: now, prefs: { emailUpdates: true }, addresses: [], following: [],
+    createdAt: now, lastSeenAt: now, prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: [],
   };
   await store.patchUser(u.uid, { ...doc });
   return doc;
@@ -52,7 +56,8 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
 function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
   return {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
-    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [], createdAt: u.createdAt,
+    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [],
+    cityFollowing: (u.cityFollowing ?? []).slice(0, MAX_CITY_FOLLOWING), createdAt: u.createdAt,
     quota,
   };
 }
@@ -110,6 +115,38 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
     return noContent();
   }
 
+  // ── Public city cases (cityfollow.ts) — same shape as following our own reports, keyed by the city's GUID ──
+  if (path === '/api/me/city' && m === 'GET') {
+    const ids = (user.cityFollowing ?? []).slice(0, MAX_CITY_FOLLOWING);
+    const docs = await store.fetchCityCases(ids); // a case whose doc vanished is simply not returned
+    const order = new Map(ids.map((id, i) => [id, i]));
+    docs.sort((a, b) => (order.get(String(a.id)) ?? 0) - (order.get(String(b.id)) ?? 0));
+    const at = user.cityFollowedAt ?? {};
+    return json({ items: docs.map((d) => followedCaseView(d, at[String(d.id)] ?? null)) });
+  }
+
+  const cm = /^\/api\/me\/city\/([0-9a-f-]{36})$/.exec(path);
+  if (cm && CITY_GUID_RE.test(cm[1]) && (m === 'PUT' || m === 'DELETE')) {
+    const id = cm[1];
+    const c = await store.getCityCase(id);
+    if (!c && m === 'PUT') return json({ error: 'not_found' }, 404); // DELETE of a vanished case still clears it from the list
+    const cityFollowing = (user.cityFollowing ?? []).filter((x) => x !== id);
+    const followedAt: Record<string, string> = { ...(user.cityFollowedAt ?? {}) };
+    delete followedAt[id];
+    if (m === 'PUT') { cityFollowing.unshift(id); followedAt[id] = new Date().toISOString(); }
+    const kept = cityFollowing.slice(0, MAX_CITY_FOLLOWING);
+    const dropped = cityFollowing.slice(MAX_CITY_FOLLOWING); // a full list lets the oldest follow go
+    for (const d of dropped) delete followedAt[d];
+    await store.patchUser(user.uid, { cityFollowing: kept, cityFollowedAt: followedAt });
+    if (c) {
+      const followerUids = (Array.isArray(c.followerUids) ? (c.followerUids as unknown[]).filter((x): x is string => typeof x === 'string') : []).filter((x) => x !== user.uid);
+      if (m === 'PUT') followerUids.push(user.uid);
+      await store.patchCityCase(id, { followerUids: followerUids.slice(0, MAX_CASE_FOLLOWERS) });
+    }
+    for (const d of dropped) await removeCityFollower(store, d, user.uid);
+    return noContent();
+  }
+
   if (path === '/api/me/addresses' && m === 'PUT') {
     const body = (await request.json().catch(() => null)) as Partial<SavedAddress> | null;
     const address = typeof body?.address === 'string' ? body.address.trim() : '';
@@ -134,6 +171,15 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   }
 
   return json({ error: 'not_found' }, 404);
+}
+
+/** Take this account off a case it no longer lists (trimmed past MAX_CITY_FOLLOWING), so it gets no mail for it. Best effort. */
+async function removeCityFollower(store: Store, guid: string, uid: string): Promise<void> {
+  try {
+    const c = await store.getCityCase(guid);
+    const uids = Array.isArray(c?.followerUids) ? (c.followerUids as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+    if (uids.includes(uid)) await store.patchCityCase(guid, { followerUids: uids.filter((x) => x !== uid) });
+  } catch (e) { console.warn('[me] city unfollow (trim) failed:', e instanceof Error ? e.message : e); }
 }
 
 // ── Owner-only report actions (routed from api.ts after auth) ──

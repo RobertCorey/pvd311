@@ -15,12 +15,15 @@
  *     Kept for the weekly digest's nearby filter and old links; the page no longer calls it.
  *   GET /api/street/city[?days=7]  citywide: counts, busiest case types, newest 20 — kept for old links; the page
  *     now derives the citywide numbers from /api/street/map (Rob, 2026-10-25: "ideally we want to show something")
+ *   GET /api/street/case/:guid  one case by GUID, public — the page's fallback for a `?case=` deep link (the follow
+ *     mail's "See it on the map", a /my row) whose case is older than the loaded window. 404 when gone or a draft.
  *
  *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
  *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
  */
 import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
+import { CITY_GUID_RE, followedCaseView, type FollowedCase } from './cityfollow.js';
 import { geocodeStreetCached } from './cityfeed.js';
 import { logEvent } from './health.js';
 
@@ -249,6 +252,21 @@ export async function handleStreetMap(url: URL, store: Store): Promise<Response>
   const days = snapDays(url.searchParams.get('days'));
   const rows = await loadCases(store, days);
   return json(mapFeed(rows, { days, truncated: rows.length >= LOAD_LIMIT }), 200, { 'cache-control': 'public, max-age=300' });
+}
+
+// ── GET /api/street/case/:guid ────────────────────────────────────────────────────────────
+
+/** One case as the /my list shows it (cityfollow.followedCaseView without `followedAt`): a deep link's fallback. */
+export type StreetCaseView = Omit<FollowedCase, 'followedAt'>;
+
+/** 400 `invalid_id` off the GUID shape; 404 `not_found` when there is no doc or it is a draft (the feed skips drafts
+ *  too); otherwise the StreetCaseView, cacheable 5 min like the feed. One doc read, no window load. */
+export async function handleStreetCase(guid: string, store: Store): Promise<Response> {
+  if (!CITY_GUID_RE.test(guid)) return json({ error: 'invalid_id' }, 400);
+  const doc = await store.getCityCase(guid);
+  if (!doc || /^draft$/i.test(String(doc.status ?? ''))) return json({ error: 'not_found' }, 404, { 'cache-control': 'public, max-age=60' });
+  const { followedAt: _followedAt, ...view } = followedCaseView({ ...doc, id: guid });
+  return json(view satisfies StreetCaseView, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── Loading (one Firestore read per window per 5 minutes per isolate) ─────────────────────

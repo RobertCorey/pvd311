@@ -67,12 +67,17 @@ export async function sendSignInLink(email: string, returnTo = '/'): Promise<voi
   try { localStorage.setItem(PENDING_EMAIL_KEY, e); localStorage.setItem(RETURN_TO_KEY, returnTo); } catch { /* ignore */ }
 }
 export function pendingEmail(): string | null { try { return localStorage.getItem(PENDING_EMAIL_KEY); } catch { return null; } }
+/** A returnTo we will navigate to: a same-origin path (no scheme, no `//`) in URL characters. `+` (a space in a
+ *  URLSearchParams query such as /street's `q=481+Angell+St`), `,` `:` `@` `*` `~` are allowed; anything else falls back. */
+export function isSafeReturnTo(v: string | null | undefined): v is string {
+  return !!v && /^\/(?!\/)[A-Za-z0-9_\-./?=&%+,:@*~]*$/.test(v);
+}
 /** Where to go after sign-in: the URL's returnTo (survives a link opened in another tab) → the remembered one → fallback. Same-origin paths only. */
 export function takeReturnTo(fallback = '/my'): string {
   let v: string | null = null;
   try { v = new URL(location.href).searchParams.get('returnTo'); } catch { /* ignore */ }
   if (!v) { try { v = localStorage.getItem(RETURN_TO_KEY); localStorage.removeItem(RETURN_TO_KEY); } catch { /* ignore */ } }
-  return v && /^\/(?!\/)[A-Za-z0-9_\-./?=&%]*$/.test(v) ? v : fallback;
+  return isSafeReturnTo(v) ? v : fallback;
 }
 /** True when the current URL carries an email-link oobCode. */
 export function isSignInLink(url = location.href): boolean {

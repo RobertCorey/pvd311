@@ -18,7 +18,7 @@ const TEXT_CAP = 20_000;
 
 export type EmailKind =
   // to reporters / followers
-  | 'signin_link' | 'filed' | 'status' | 'city_copy' | 'ask' | 'ask_reminder' | 'answer_receipt' | 'not_sent' | 'street_digest' | 'reporter_other'
+  | 'signin_link' | 'filed' | 'status' | 'city_copy' | 'ask' | 'ask_reminder' | 'answer_receipt' | 'not_sent' | 'street_digest' | 'city_follow' | 'reporter_other'
   // to the city
   | 'to_city'
   // to you
@@ -97,6 +97,7 @@ export function inferKind(subject: string, to: string[], env: Pick<Env, 'NOTIFY_
   if (s.startsWith('the city needs more information')) return 'ask';
   if (/your answer|answer the city on your tracking page/.test(s)) return 'answer_receipt';
   if (s.startsWith('this week near ')) return 'street_digest';
+  if (s.startsWith('city update: ')) return 'city_follow';
   if (/^(the city|a city department)\b/.test(s)) return 'status';
   if (/^your report pvd\d{4}-\d+ (has been|was|is)\b/.test(s)) return 'status'; // the Aug–Oct 2026 status wording
   return 'reporter_other';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { nearbyCases, handleStreet, handleStreetCity, handleStreetMap, cityOverview, mapFeed, snapDays, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl, LOAD_LIMIT, KNOWN_STATUSES, type MapItem } from '../src/street.js';
+import { nearbyCases, handleStreet, handleStreetCase, handleStreetCity, handleStreetMap, cityOverview, mapFeed, snapDays, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl, LOAD_LIMIT, KNOWN_STATUSES, type MapItem } from '../src/street.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
 // Angell St / Thayer St corner (41.8282, -71.4005) as "home"; cases are placed by hand around it.
@@ -222,6 +222,32 @@ describe('mapFeed', () => {
     const f = mapFeed([row('old', { createdAt: daysAgo(40) })], { days: 7, now: NOW });
     expect(f).toMatchObject({ v: 1, days: 7, total: 0, located: 0, types: [], items: [] });
     expect(f.statuses).toEqual([...KNOWN_STATUSES]);
+  });
+});
+
+describe('GET /api/street/case/:guid', () => {
+  const GUID = 'ab400112-05c8-f111-a3d0-001dd804b975';
+  const store = (doc: Record<string, unknown> | null) => ({ getCityCase: vi.fn(async () => doc) } as unknown as Store);
+
+  it('returns the one case in the /my list shape (no followedAt), cacheable, from a single doc read', async () => {
+    const s = store({ caseType: 'Sidewalk', category: 'sidewalk', street: '5 Elm St', status: 'Resolved', createdAt: '2026-06-01T12:00:00Z', statusAt: '2026-10-20T09:00:00Z', lat: 41.83, lng: -71.41, detail: { resolutionDate: '2026-10-19T00:00:00Z', resolution: ' Repaired. ' }, followerUids: ['u1'] });
+    const r = await handleStreetCase(GUID, s);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('cache-control')).toBe('public, max-age=300');
+    expect(await r.json()).toEqual({
+      id: GUID, caseType: 'Sidewalk', category: 'sidewalk', street: '5 Elm St', status: 'Resolved', open: false,
+      createdAt: '2026-06-01T12:00:00.000Z', closedAt: '2026-10-19T00:00:00.000Z', resolution: 'Repaired.', lat: 41.83, lng: -71.41, updatedAt: '2026-10-20T09:00:00.000Z',
+    });
+    expect((s.getCityCase as any).mock.calls).toEqual([[GUID]]);
+  });
+
+  it('404 for a vanished or draft case, 400 off the GUID shape (no read)', async () => {
+    expect((await handleStreetCase(GUID, store(null))).status).toBe(404);
+    expect((await handleStreetCase(GUID, store({ status: 'Draft', caseType: 'Pothole' }))).status).toBe(404);
+    const s = store({ status: 'Assigned' });
+    expect((await handleStreetCase('c1', s)).status).toBe(400);
+    expect((await handleStreetCase('../users/x', s)).status).toBe(400);
+    expect((s.getCityCase as any).mock.calls).toHaveLength(0);
   });
 });
 

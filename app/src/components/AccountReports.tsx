@@ -9,8 +9,11 @@ import CategoryIcon from './CategoryIcon';
 import Illustration from './Illustration';
 import '../screens/Account.css';
 
-/** The account's reports with a status pill each, so it reads like tracking. Signed out → sign-in prompt. */
-export default function AccountReports() {
+/** The account's reports with a status pill each, so it reads like tracking. Signed out → sign-in prompt.
+ *  `onLoaded(n)` tells the page how many there are (0 on a failed load); `compact` trims the signed-in empty state to
+ *  its one-line prompt + CTA — the page passes it when something else (followed city cases) already fills the screen,
+ *  so "Nothing here yet" is never said over a list. */
+export default function AccountReports({ compact = false, onLoaded }: { compact?: boolean; onLoaded?: (n: number) => void } = {}) {
   const t = useT();
   const session = useSession();
   const [account, setAccount] = useState<MyReportView[] | null>(null);   // null = not loaded (or signed out)
@@ -18,9 +21,9 @@ export default function AccountReports() {
   useEffect(() => {
     if (!session) { setAccount(null); return; }
     let live = true;
-    myReports().then((r) => { if (live) setAccount(r.items); }).catch(() => { if (live) setAccount([]); });
+    myReports().then((r) => { if (live) { setAccount(r.items); onLoaded?.(r.items.length); } }).catch(() => { if (live) { setAccount([]); onLoaded?.(0); } });
     return () => { live = false; };
-  }, [session]);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loading = !!session && account == null;
   if (!loading && (account ?? []).length === 0) {
@@ -30,6 +33,14 @@ export default function AccountReports() {
           <Illustration kind="empty" className="illo" />
           <p className="muted">{t('my.signedOut.prompt')}</p>
           <Link className="btn btn-primary" to="/account?returnTo=%2Fmy">{t('my.signedOut.cta')}</Link>
+        </div>
+      );
+    }
+    if (compact) {
+      return (
+        <div className="empty empty--compact rise">
+          <p className="muted">{t('my.empty')}</p>
+          <Link className="btn btn-primary" to="/">{t('empty.my.cta')}</Link>
         </div>
       );
     }

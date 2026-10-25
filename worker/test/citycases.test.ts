@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseDetailHtml, parseGridRecord, pickDetailReads, syncCityCases, followUpCityCases, backfillCityCaseGeo } from '../src/citycases.js';
-import type { Env, Store } from '../src/contracts.js';
+import { parseDetailHtml, parseGridRecord, pickDetailReads, syncCityCases, followUpCityCases, backfillCityCaseGeo, notifyCityFollowers } from '../src/citycases.js';
+import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
 // Captured from the live /public-requests/ grid and a row's detail form (2026-10-17); the plate is replaced.
 const GRID = JSON.parse(readFileSync(new URL('./fixtures/city-grid-page.json', import.meta.url), 'utf8'));
@@ -54,30 +54,45 @@ describe('pickDetailReads', () => {
   });
 });
 
-function makeStore(meta: Record<string, any> = {}) {
+function makeStore(meta: Record<string, any> = {}, users: Record<string, UserDoc> = {}) {
   const cases: Record<string, Record<string, unknown>> = {};
   const store = {
     getMeta: vi.fn(async (k: string) => meta[k] ?? null),
     setMeta: vi.fn(async (k: string, v: Record<string, unknown>) => { meta[k] = { ...(meta[k] ?? {}), ...v }; }),
     patchCityCase: vi.fn(async (id: string, f: Record<string, unknown>) => { cases[id] = { ...(cases[id] ?? {}), ...f }; }),
+    getCityCase: vi.fn(async (id: string) => (cases[id] ? { ...cases[id], id } : null)),
+    getUser: vi.fn(async (uid: string) => users[uid] ?? null),
     addEvent: vi.fn(async () => {}),
   } as unknown as Store;
   return { store, meta, cases };
 }
 
+/** A follower account; `cityFollowing` names the case(s) it follows (cityfollow.eligibleFollowers checks the list too). */
+const follower = (uid: string, cityFollowing: string[], o: Partial<UserDoc> = {}): UserDoc => ({
+  uid, email: `${uid}@example.com`, emailVerified: true, displayName: null, provider: 'google', createdAt: '2026-10-01T00:00:00Z', lastSeenAt: '2026-10-01T00:00:00Z',
+  prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing, ...o,
+});
+function mockMailer() {
+  const sent: { to: string; subject: string; html: string; kind?: string; caseId?: string | null }[] = [];
+  const mailer = { sendTo: vi.fn(async (to: string, subject: string, html: string, o?: { kind?: string; caseId?: string | null }) => { sent.push({ to, subject, html, kind: o?.kind, caseId: o?.caseId }); }) } as unknown as Mailer;
+  return { mailer, sent };
+}
+
+/** The city over plain HTTP: token page, grid, detail forms (per case when `detailFor` is given), ArcGIS. */
+function stubCity(calls: { url: string; method: string; body?: string }[], detailFor: (id: string | null) => string = () => DETAIL) {
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
+    calls.push({ url, method: init.method ?? 'GET', body: init.body as string | undefined });
+    if (url.endsWith('/_layout/tokenhtml')) return new Response('<input name="__RequestVerificationToken" type="hidden" value="tok" />', { headers: { 'set-cookie': 'sess=1; path=/' } });
+    if (url.includes('entity-grid-data')) return Response.json(GRID);
+    if (url.includes('modal-form-template-path')) return new Response(detailFor(new URL(url).searchParams.get('id')));
+    if (url.includes('geocode.arcgis.com')) return Response.json({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100 }] });
+    return new Response('nope', { status: 404 });
+  }));
+}
+
 describe('syncCityCases', () => {
   let calls: { url: string; method: string; body?: string }[];
-  beforeEach(() => {
-    calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
-      calls.push({ url, method: init.method ?? 'GET', body: init.body as string | undefined });
-      if (url.endsWith('/_layout/tokenhtml')) return new Response('<input name="__RequestVerificationToken" type="hidden" value="tok" />', { headers: { 'set-cookie': 'sess=1; path=/' } });
-      if (url.includes('entity-grid-data')) return Response.json(GRID);
-      if (url.includes('modal-form-template-path')) return new Response(DETAIL);
-      if (url.includes('geocode.arcgis.com')) return Response.json({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100 }] });
-      return new Response('nope', { status: 404 });
-    }));
-  });
+  beforeEach(() => { calls = []; stubCity(calls); });
   afterEach(() => vi.unstubAllGlobals());
 
   it('does nothing until the grid config has been captured', async () => {
@@ -129,10 +144,110 @@ describe('syncCityCases', () => {
     expect(await followUpCityCases(env, store, { gapMs: 0, now: Date.parse('2026-10-17T12:00:00Z') })).toBe(0);
   });
 
+  it('a followed open case outlives the 60-day index prune and keeps its daily re-read; one nobody follows leaves on time', async () => {
+    const now = Date.parse('2026-10-17T11:00:00Z');
+    const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
+    const idx = { cases: {
+      kept: { s: 'Assigned', ds: 'Assigned', c: ago(61), dc: ago(2) },
+      dropped: { s: 'Assigned', ds: 'Assigned', c: ago(61), dc: ago(2) },
+      soon: { s: 'Assigned', ds: 'Assigned', c: ago(58), dc: ago(0.5) },  // inside the 3-day lead: flagged now, before the sync's prune could reach it
+      young: { s: 'Assigned', ds: 'Assigned', c: ago(20), dc: ago(0.5) }, // far from the prune: no doc read
+    } };
+    const { store, meta, cases } = makeStore({ cityCasesIdx: idx }, { u: follower('u', ['kept', 'soon']) });
+    cases.kept = { caseType: 'Sidewalk', street: '1 Main St', status: 'Assigned', followerUids: ['u'] };
+    cases.dropped = { caseType: 'Pothole', street: '2 Main St', status: 'Assigned', followerUids: [] };
+    cases.soon = { caseType: 'Tree', street: '3 Main St', status: 'Assigned', followerUids: ['u'] };
+    expect(await followUpCityCases(env, store, { gapMs: 0, now })).toBe(2); // kept + dropped were due (soon/young read their detail recently)
+    expect((store.getCityCase as any).mock.calls.map((c: any[]) => c[0]).sort()).toEqual(['dropped', 'kept', 'soon']);
+    expect(meta.cityCasesIdx.cases.kept).toMatchObject({ f: 1, dc: '2026-10-17T11:00:00.000Z' });
+    expect(meta.cityCasesIdx.cases.soon).toMatchObject({ f: 1 });
+    expect(meta.cityCasesIdx.cases.dropped).toBeUndefined();
+    expect(meta.cityCasesIdx.cases.young).toEqual(idx.cases.young);
+    // Next day: still in the index, still due (with soon and young, whose last read is now a day old); everyone
+    // unfollowed → the flag clears and the prune takes it after that day's read.
+    expect(await followUpCityCases(env, store, { gapMs: 0, now: now + 86_400_000 })).toBe(3);
+    expect(meta.cityCasesIdx.cases.kept).toMatchObject({ f: 1 });
+    cases.kept.followerUids = [];
+    expect(await followUpCityCases(env, store, { gapMs: 0, now: now + 2 * 86_400_000 })).toBe(3);
+    expect(meta.cityCasesIdx.cases.kept).toBeUndefined();
+    expect(Object.keys(meta.cityCasesIdx.cases).sort()).toEqual(['soon', 'young']);
+  });
+
   it('records a failure in health instead of throwing', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('down', { status: 503 })));
     const { store } = makeStore({ cityGridConfig: { url: 'https://city.test/g', body: { base64SecureConfiguration: 'x' } } });
     expect(await syncCityCases(env, store, { gapMs: 0 })).toBeNull();
+  });
+
+  describe('followers (cityfollow.ts)', () => {
+    const ID = 'ab400112-05c8-f111-a3d0-001dd804b975'; // GRID.Records[1]
+    const row = parseGridRecord(GRID.Records[1])!;
+    const cfg = { cityGridConfig: { url: 'https://city.test/_services/entity-grid-data.json/v', body: { base64SecureConfiguration: 'cfg' } } };
+    const T = (h: string) => Date.parse(`2026-10-17T${h}:00:00Z`);
+    const statusAttr = () => GRID.Records[1].Attributes.find((x: any) => x.Name === 'statuscode');
+
+    it('a status change on a followed case mails each eligible follower once, with the Resolution Message from the same run, then never again for that status', async () => {
+      const users = {
+        on: follower('on', [ID]), off: follower('off', [ID], { prefs: { emailUpdates: false } }), unverified: follower('unverified', [ID], { emailVerified: false }),
+        stale: follower('stale', []), // fell off a full list: the case still names it, its list does not
+      };
+      const { store, cases } = makeStore(cfg, users);
+      const { mailer, sent } = mockMailer();
+      const r1 = await syncCityCases(env, store, { gapMs: 0, now: T('15'), mailer }); // first sight of every case: nobody follows anything yet
+      expect(r1).toMatchObject({ added: 3, changed: 0, mails: 0 });
+      cases[ID].followerUids = ['on', 'off', 'unverified', 'stale', 'gone'];
+
+      // The city closes it; its detail form now carries a Resolution Message.
+      stubCity(calls, (id) => (id === ID ? DETAIL + '<textarea id="adx_resolution">Light fixed</textarea>' : DETAIL));
+      const orig = statusAttr().FormattedValue;
+      statusAttr().FormattedValue = 'Resolved';
+      try {
+        const r2 = await syncCityCases(env, store, { gapMs: 0, now: T('16'), mailer });
+        expect(r2).toMatchObject({ changed: 1, details: 1, mails: 1 });
+        expect(sent).toEqual([{ to: 'on@example.com', subject: `City update: ${row.caseType} on ${row.street} — Resolved`, html: expect.any(String), kind: 'city_follow', caseId: ID }]);
+        expect(sent[0].html).toContain(`<b>${row.status}</b> → <b>Resolved</b>`);
+        expect(sent[0].html).toContain('Light fixed');
+        expect(sent[0].html).toContain(`href="https://fixmypvd.org/street?case=${ID}&amp;lat=41.82820&amp;lng=-71.40050"`);
+        expect(cases[ID]).toMatchObject({ status: 'Resolved', notifiedStatus: 'Resolved' });
+
+        // Same status next run: nothing changed, nothing mailed; even a forced re-check of that change is a no-op.
+        const r3 = await syncCityCases(env, store, { gapMs: 0, now: T('17'), mailer });
+        expect(r3).toMatchObject({ changed: 0, mails: 0 });
+        expect(await notifyCityFollowers(env, store, mailer, [{ id: ID, from: row.status, to: 'Resolved' }])).toBe(0);
+        expect(sent).toHaveLength(1);
+      } finally { statusAttr().FormattedValue = orig; }
+    });
+
+    it('a change nobody follows writes no notifiedStatus; without a mailer nothing is sent; a broken user read never breaks the sync', async () => {
+      const { store, cases } = makeStore(cfg, { u: follower('u', [ID]) });
+      await syncCityCases(env, store, { gapMs: 0, now: T('15') });
+      const orig = statusAttr().FormattedValue;
+      statusAttr().FormattedValue = 'Resolved';
+      try {
+        expect(await syncCityCases(env, store, { gapMs: 0, now: T('16') })).toMatchObject({ changed: 1, mails: 0 }); // no followers, no mailer
+        expect(cases[ID].notifiedStatus).toBeUndefined();
+        statusAttr().FormattedValue = 'Assigned';
+        cases[ID].followerUids = ['u'];
+        (store.getUser as any).mockImplementationOnce(async () => { throw new Error('users down'); });
+        const { mailer, sent } = mockMailer();
+        expect(await syncCityCases(env, store, { gapMs: 0, now: T('17'), mailer })).toMatchObject({ changed: 1, mails: 0 });
+        expect(sent).toHaveLength(0);
+        expect(cases[ID]).toMatchObject({ status: 'Assigned', notifiedStatus: 'Assigned' }); // the move counts as handled: no run repeats it
+      } finally { statusAttr().FormattedValue = orig; }
+    });
+
+    it('the daily follow-up: a detail read that moves an out-of-window case mails its followers the same way', async () => {
+      const idx = { cases: { old: { s: 'Submitted', ds: 'Submitted', c: '2026-10-01T00:00:00Z', dc: '2026-10-15T00:00:00Z' } } };
+      const { store, cases } = makeStore({ cityCasesIdx: idx }, { u: follower('u', ['old']) });
+      cases.old = { caseType: 'Pothole', street: '1 Main St', status: 'Submitted', createdAt: '2026-10-01T00:00:00.000Z', followerUids: ['u'], lat: null, lng: null };
+      const { mailer, sent } = mockMailer();
+      expect(await followUpCityCases(env, store, { gapMs: 0, now: Date.parse('2026-10-17T11:00:00Z'), mailer })).toBe(1); // the fixture form says Assigned
+      expect(cases.old).toMatchObject({ status: 'Assigned', notifiedStatus: 'Assigned' });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ to: 'u@example.com', subject: 'City update: Pothole on 1 Main St — Assigned', kind: 'city_follow', caseId: 'old' });
+      expect(sent[0].html).toContain('<b>Submitted</b> → <b>Assigned</b>');
+      expect(sent[0].html).toContain('href="https://fixmypvd.org/street?case=old"'); // unlocated: no lat/lng
+    });
   });
 });
 

@@ -81,6 +81,17 @@ export function filler(n = 1224, opts: { open?: number; unplaced?: number } = {}
 
 export const DEFAULT_ITEMS: Case[] = [...NEAR, UNPLACED, ...STACK_CASES, ...filler()];
 
+/** GET /api/street/case/:id body (worker/src/street.ts StreetCaseView) for one fixture case. */
+export function caseWire(c: Case) {
+  const iso = (days: number) => new Date(minsAgo(days) * 60_000).toISOString();
+  const open = !['Resolved', 'Closed', 'Cancelled', 'Merged'].includes(c.status);
+  return {
+    id: c.id, caseType: TYPES[c.t][0], category: TYPES[c.t][1], street: c.street, status: c.status, open,
+    createdAt: iso(c.createdDaysAgo), closedAt: c.closedDaysAgo == null ? null : iso(c.closedDaysAgo), resolution: c.res ?? null,
+    lat: c.lat, lng: c.lng, updatedAt: iso(c.closedDaysAgo ?? c.createdDaysAgo),
+  };
+}
+
 /** Build the wire body. `days` is echoed; items outside the window are the worker's job, not this builder's. */
 export function feed(o: { days?: number; items?: Case[]; truncated?: boolean } = {}) {
   const items = o.items ?? DEFAULT_ITEMS;
@@ -100,6 +111,18 @@ export interface Call { method: string; url: string; body: unknown }
 
 export interface SetupOpts {
   items?: Case[]; items90?: Case[]; signedIn?: boolean; me?: Record<string, unknown>;
+  /** Cases GET /api/street/case/:id knows beyond the window sets (a followed case months old); anything else is 404. */
+  extraCases?: Case[];
+  /** Status for GET /api/me per call (default 200) — e.g. (n) => (n === 1 ? 500 : 200) for the retry path. */
+  meStatus?: (n: number) => number;
+  /** Hold every GET /api/me this long (the "Loading your account…" state). */
+  meDelayMs?: number;
+  /** Hold PUT/DELETE /api/me/city/:guid this long (the in-flight toggle). */
+  followDelayMs?: number;
+  /** GET /api/me/city items (FollowedCase[]) for a signed-in page; default none. */
+  followed?: unknown[];
+  /** Status for PUT/DELETE /api/me/city/:guid (default 204) — e.g. () => 500 for the revert path. */
+  followStatus?: (method: string, guid: string) => number;
   /** Respond to /api/street/map with this status (per call count) — e.g. () => 500 for the error state. */
   status?: (n: number, days: number) => number;
   /** Let the page load the real self-hosted basemap (vector tiles) instead of the stubbed raster fallback. */
@@ -123,15 +146,45 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
     const items = days === 90 ? (o.items90 ?? o.items ?? DEFAULT_ITEMS) : (o.items ?? DEFAULT_ITEMS);
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed({ days, items })) });
   });
+  // One case by id (the deep-link fallback): the window sets plus `extraCases`; 404 otherwise.
+  await page.route(`${API}/api/street/case/*`, (r) => {
+    const id = decodeURIComponent(new URL(r.request().url()).pathname.split('/').pop() ?? '');
+    calls.push({ method: 'GET', url: r.request().url(), body: null });
+    const all = [...(o.items ?? DEFAULT_ITEMS), ...(o.items90 ?? []), ...(o.extraCases ?? [])];
+    const c = all.find((x) => x.id === id);
+    if (!c) return r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(caseWire(c)) });
+  });
   // The old endpoints must never be called by the page.
   await page.route(`${API}/api/street/city*`, (r) => { calls.push({ method: 'GET', url: r.request().url(), body: null }); return r.fulfill({ status: 500, body: '' }); });
   await page.route(`${API}/api/street?*`, (r) => { calls.push({ method: 'GET', url: r.request().url(), body: null }); return r.fulfill({ status: 500, body: '' }); });
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100, attributes: { Match_addr: '481 Angell St, Providence, Rhode Island, 02906' } }] }) }));
   if (o.signedIn) {
     await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
-    let me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetDigest: false }, addresses: [], following: [], createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), ...(o.me ?? {}) } as Record<string, unknown>;
+    let me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetDigest: false }, addresses: [], following: [], cityFollowing: [], createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), ...(o.me ?? {}) } as Record<string, unknown>;
+    // Following a city case: GET /api/me/city (the list), PUT/DELETE /api/me/city/:guid (204, idempotent).
+    await page.route((u) => u.href.startsWith(`${API}/api/me/city`), async (r) => {
+      const req = r.request(); const m = req.method();
+      const guid = decodeURIComponent(new URL(req.url()).pathname.split('/').pop() ?? '');
+      calls.push({ method: m, url: req.url(), body: null });
+      if (m === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: o.followed ?? [] }) });
+      const status = o.followStatus ? o.followStatus(m, guid) : 204;
+      if (o.followDelayMs) await new Promise((res) => setTimeout(res, o.followDelayMs));
+      if (status !== 204) return r.fulfill({ status, contentType: 'application/json', body: '{"error":"boom"}' });
+      const cur = ((me.cityFollowing as string[] | undefined) ?? []).filter((x) => x !== guid);
+      me = { ...me, cityFollowing: m === 'PUT' ? [guid, ...cur] : cur };
+      return r.fulfill({ status: 204, body: '' });
+    });
+    let meCalls = 0;
     await page.route(`${API}/api/me`, async (r) => {
       const req = r.request();
+      if (req.method() === 'GET') {
+        meCalls++;
+        calls.push({ method: 'GET', url: req.url(), body: null });
+        if (o.meDelayMs) await new Promise((res) => setTimeout(res, o.meDelayMs));
+        const status = o.meStatus ? o.meStatus(meCalls) : 200;
+        if (status !== 200) return r.fulfill({ status, contentType: 'application/json', body: '{"error":"boom"}' });
+      }
       if (req.method() === 'PATCH') {
         const body = req.postDataJSON();
         calls.push({ method: 'PATCH', url: req.url(), body });

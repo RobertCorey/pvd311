@@ -13,7 +13,8 @@ type T = ReturnType<typeof useT>;
 /** Pill variant for a city status: closed-by-the-city is neutral ink, cancelled/merged muted, everything else "received". */
 const pillKey = (s: string): string => (s === 'Resolved' || s === 'Closed' ? 'resolved' : s === 'Cancelled' || s === 'Merged' ? 'cityCancelled' : 'received');
 
-function agoText(t: T, iso: string | null, nowMs: number): string {
+/** "today" / "yesterday" / "3 days ago" for a date, '' when it will not parse (shared with /my's followed cases). */
+export function agoText(t: T, iso: string | null, nowMs: number): string {
   const a = ago(iso, nowMs);
   if (a == null) return '';
   return a === 'today' ? t('street.ago.today') : a === 'yesterday' ? t('street.ago.yesterday') : t('street.ago.days', { n: a });

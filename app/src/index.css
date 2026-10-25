@@ -46,6 +46,9 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 /* aria-disabled (not :disabled) so a tap still lands and the reason underneath explains why; looks plainly off. */
 .btn-primary[aria-disabled="true"] { background: var(--disabled-bg); border-color: var(--disabled-bg); color: var(--disabled-ink); box-shadow: none; cursor: not-allowed; transform: none; }
 .btn-secondary { background: var(--surface); color: var(--ink); border-color: var(--ink); }
+/* Not ready yet (the account is still loading, or failed): plainly off, and a tap still lands so a hint can say why. */
+.btn-secondary[aria-disabled="true"] { background: var(--disabled-bg); border-color: var(--disabled-bg); color: var(--disabled-ink); box-shadow: none; cursor: not-allowed; transform: none; }
+.btn[aria-busy="true"] { cursor: progress; }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; }
 .btn-ghost:hover { border-color: var(--ink); }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: var(--tap); padding: 8px 14px; border-radius: 999px; background: var(--surface); color: var(--ink); border: 2px solid var(--ink); font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; cursor: pointer; }
@@ -97,6 +100,7 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 .empty h2 { margin-bottom: 4px; }
 .empty p { margin: 0 auto 16px; max-width: 32ch; text-wrap: pretty; }
 .empty .btn { width: auto; text-decoration: none; }
+.empty--compact { padding: 8px 8px 4px; } /* under a list that already fills the screen (/my with followed cases): prompt + CTA only */
 
 /* Entrance */
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }

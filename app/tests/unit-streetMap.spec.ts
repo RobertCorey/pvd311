@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
+  ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
   inBounds, inWindow, isDefaultView, metersBetween, padBounds, parseStreetUrl, sortForPoint, stackKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
@@ -34,6 +34,16 @@ const byId = (id: string) => DECODED.cases.find((c) => c.id === id)!;
 function mkCase(o: Partial<MapCase> & { id: string }): MapCase {
   return { caseType: 'Pothole', category: 'pothole', group: 'streets', status: 'Submitted', open: true, createdAt: isoAgo(1), closedAt: null, street: '1 Main St', resolution: null, lat: 41.82, lng: -71.41, ...o };
 }
+
+test.describe('decodeCase', () => {
+  test('a GET /api/street/case body → MapCase with decodeFeed\'s defaults', () => {
+    expect(decodeCase({ id: 'g1', caseType: 'Sidewalk', category: 'sidewalk_repair', street: '5 Elm St', status: 'Resolved', createdAt: '2026-06-01T12:00:00.000Z', closedAt: '2026-10-19T00:00:00.000Z', resolution: 'Repaired.', lat: 41.83, lng: -71.41, updatedAt: '2026-10-20T09:00:00.000Z' }))
+      .toEqual({ id: 'g1', caseType: 'Sidewalk', category: 'sidewalk_repair', group: 'streets', status: 'Resolved', open: false, createdAt: '2026-06-01T12:00:00.000Z', closedAt: '2026-10-19T00:00:00.000Z', street: '5 Elm St', resolution: 'Repaired.', lat: 41.83, lng: -71.41 });
+    // Blanks and an unplaced case degrade like a feed row; an odd category lands in 'other'.
+    expect(decodeCase({ id: 'g2', status: 'Assigned', category: 'mystery', lat: null, lng: 1 } as never))
+      .toMatchObject({ caseType: '', category: 'mystery', group: 'other', open: true, street: '', resolution: null, lat: null, lng: null, createdAt: null, closedAt: null });
+  });
+});
 
 test.describe('decodeFeed', () => {
   test('tuples → cases: minutes to ISO, res || null, open from the CLOSED set, group fallback other', () => {
@@ -275,12 +285,13 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.* and admin.email.kind.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const enKeys = Object.keys(en).filter((k) => k.startsWith('street.'));
-  const esKeys = Object.keys(es).filter((k) => k.startsWith('street.'));
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.');
+  const enKeys = Object.keys(en).filter(ours);
+  const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);
   expect(enKeys.filter((k) => !(k in es))).toEqual([]);
   expect(esKeys.filter((k) => !(k in en))).toEqual([]);

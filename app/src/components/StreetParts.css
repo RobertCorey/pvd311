@@ -40,6 +40,12 @@
 .street-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .street-detail-actions .btn { width: auto; text-decoration: none; }
 .street-detail-actions .btn-secondary { min-height: var(--tap); padding: 10px 14px; font-size: .95rem; }
+/* Follow control (StreetFollow). The pressed toggle reads as a status line — ink-soft fill like a pressed chip, left-
+   aligned so its longer label wraps cleanly — and takes the whole row; "Unfollow" and the rest of the actions follow. */
+.street-follow-btn[aria-pressed="true"] { flex: 1 0 100%; justify-content: flex-start; text-align: left; background: var(--ink-soft); border-color: var(--ink); }
+.street-follow-check { flex: 0 0 auto; font-weight: 800; }
+.street-follow-error, .street-follow-hint { flex: 1 0 100%; margin: 0; }
+.street-follow-signin { text-decoration: none; }
 
 /* ── Filter rail ───────────────────────────────────────────────────────────────────────────────── */
 /* 44 px row of 40 px chips: one horizontal scroller, hidden scrollbar, snap, right-edge fade. The 28 px end padding

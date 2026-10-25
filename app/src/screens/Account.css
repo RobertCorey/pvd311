@@ -39,3 +39,16 @@
 .my-status--cancelled, .my-status--notFiled, .my-status--cityCancelled, .my-status--merged { border-color: var(--line); color: var(--muted); }
 .my-status--attention { border-color: var(--warn); color: var(--warn); }
 .my-status--cityAsk { border-color: var(--warn); color: var(--warn); }
+
+/* City requests you follow (FollowedCases on /my): the card holds the row link and a small Unfollow under it; the
+   row grid gains a 'note' line for the city's Resolution Message, clamped to two lines. */
+.followed-cases { display: grid; gap: 4px; margin-top: 1.25rem; }
+.followed-cases h2 { margin: 0; }
+.followed-cases > .hint { margin: 0; }
+.followed-cases .notice { margin: 4px 0 0; }
+.followed-cases .my-list { margin-top: 8px; }
+.followed-card { display: grid; gap: 4px; }
+.followed-link { grid-template-areas: 'icon cat date' 'icon addr status' 'icon note note'; }
+/* No bottom padding: the clamp clips at the padding edge, so any padding there would show a sliver of line three. */
+.followed-link .my-note { grid-area: note; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: 4px; padding: 2px 8px 0; border-left: 3px solid var(--line); font-size: .85rem; line-height: 1.35; color: var(--ink); white-space: pre-wrap; }
+.followed-unfollow { justify-self: end; width: auto; padding: 6px 12px; font-size: .85rem; } /* min-height stays --tap (44 px) from .btn-ghost: the only destructive control here is not the smallest target */

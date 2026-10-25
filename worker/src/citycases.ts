@@ -23,9 +23,14 @@
  * Each case's street is geocoded once (cityfeed.geocodeStreetCached → lat/lng on the doc; `g` in the index) so the
  * public "My street" page (street.ts) can find cases near an address. Cases stored before this got lat/lng get
  * one daily backfill pass (backfillCityCaseGeo).
+ *
+ * Residents can follow any case from its card (cityfollow.ts; cityCases/{guid}.followerUids). A status change seen
+ * by the sync (or by the daily follow-up's detail read) mails each eligible follower once — notifiedStatus on the doc
+ * is the status last mailed — with the Resolution Message from the same run's detail read. Mail never breaks the sync.
  */
-import type { Env, Store } from './contracts.js';
+import type { Env, Mailer, Store } from './contracts.js';
 import { GRID_CONFIG_META, geocodeStreetCached, mapCategory } from './cityfeed.js';
+import { MAX_CASE_FOLLOWERS, caseUrl, cityFollowEmail, eligibleFollowers, followedCaseView } from './cityfollow.js';
 import { logEvent, markError, markOk } from './health.js';
 
 const INDEX_META = 'cityCasesIdx';
@@ -37,7 +42,9 @@ export const GEOCODES_PER_RUN = 40;   // new ArcGIS lookups per sync (the meta/g
 export const GEO_BACKFILL_PER_DAY = 400;
 const REQUEST_GAP_MS = 1_500;
 const WINDOW_MS = 7 * 24 * 3_600_000;
-const KEEP_OPEN_MS = 60 * 24 * 3_600_000; // stop following an open case after 60 days
+const KEEP_OPEN_MS = 60 * 24 * 3_600_000; // stop following an open case after 60 days…
+const KEEP_FOLLOWED_MS = 365 * 24 * 3_600_000; // …unless someone follows it (`f`): then a year, re-checked daily
+const FOLLOW_CHECK_LEAD_MS = 3 * 24 * 3_600_000; // the daily run looks for followers this long before the 60-day prune
 // The detail form's ids (seen on the live row click, 2026-10-17). The view id is also the grid's.
 const DETAIL_FORM_PATH = '/_portal/modal-form-template-path/07a4fc2f-c349-ef11-a316-001dd800f706';
 const DETAIL_ENTITY_FORM = '9f5af76f-2897-46df-99b0-0b6aed8ccee9';
@@ -45,6 +52,10 @@ const UA = 'FixMyPVD/1.0 (+https://fixmypvd.org; public-requests reader)';
 const TERMINAL = new Set(['Resolved', 'Cancelled', 'Closed']);
 
 export interface GridConfig { url: string; body: Record<string, unknown>; at: string }
+
+export interface SyncOpts { gapMs?: number; now?: number; mailer?: Mailer }
+/** One status move seen this run — what a follow mail is about. */
+export interface StatusChange { id: string; from: string; to: string }
 
 export interface CityCaseRow {
   id: string;            // the case's entity GUID (incidentid)
@@ -69,8 +80,8 @@ export interface CityCaseDetail {
   labels: Record<string, string>;
 }
 
-/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read, g = 1 once the street was geocoded (lat/lng on the doc, null when the geocoder had nothing). */
-interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number; g?: 1 }
+/** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read, g = 1 once the street was geocoded (lat/lng on the doc, null when the geocoder had nothing), f = 1 while the doc has followers (set/cleared by the daily follow-up near and past the 60-day prune, so a followed long-running case keeps its daily re-read and its closing mail). */
+interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number; g?: 1; f?: 1 }
 /** Bump when parseDetailHtml stores more, so already-read cases are read again (2: plates/landlords + labels). */
 const DETAIL_VERSION = 2;
 type Index = Record<string, IdxEntry>;
@@ -240,8 +251,8 @@ export function pickDetailReads(index: Index, limit: number): string[] {
     .slice(0, limit).map(([id]) => id);
 }
 
-/** Every 30 min (after the watcher): list the window, record new/changed cases, read details for some. */
-export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: number; now?: number } = {}): Promise<{ listed: number; added: number; changed: number; details: number; requests: number } | null> {
+/** Every 30 min (after the watcher): list the window, record new/changed cases, read details for some, mail followers of changed ones. */
+export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {}): Promise<{ listed: number; added: number; changed: number; details: number; mails: number; requests: number } | null> {
   const cfg = await store.getMeta<GridConfig>(GRID_CONFIG_META).catch(() => null);
   if (!cfg?.url || !cfg.body) { console.log('[citycases] no grid config yet (captured by the city feed scrape)'); return null; }
   const now = opts.now ?? Date.now();
@@ -251,6 +262,7 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
     const { rows, total, complete } = await listAll(http, cfg);
     const index: Index = (await store.getMeta<{ cases?: Index }>(INDEX_META).catch(() => null))?.cases ?? {};
     let added = 0; let changed = 0; let geocodes = 0;
+    const changes: StatusChange[] = [];
     for (const r of rows) {
       const e = index[r.id];
       const fields: Record<string, unknown> = {};
@@ -260,7 +272,7 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
           street: r.street, status: r.status, createdAt: r.createdAt, statusAt: nowIso,
           [`statusSeen.${statusKey(r.status)}`]: nowIso,
         });
-        if (!e) { fields.firstSeenAt = nowIso; added++; } else changed++;
+        if (!e) { fields.firstSeenAt = nowIso; added++; } else { changed++; changes.push({ id: r.id, from: e.s, to: r.status }); }
       }
       let g: 1 | undefined = e?.g;
       if (!g && geocodes < GEOCODES_PER_RUN) {
@@ -274,18 +286,22 @@ export async function syncCityCases(env: Env, store: Store, opts: { gapMs?: numb
       index[r.id] = { ...e, s: r.status, c: r.createdAt, ...(g ? { g } : {}) };
     }
 
+    // A followed case that moved gets its detail read this run whatever the cap, so its mail carries the Resolution Message.
+    const watched = await followedChanges(store, changes);
+    const priority = watched.map((c) => c.id).filter((id) => index[id] && index[id].ds !== index[id].s);
     let details = 0;
-    for (const id of pickDetailReads(index, DETAIL_PER_RUN)) {
+    for (const id of new Set([...priority, ...pickDetailReads(index, DETAIL_PER_RUN)])) {
       if (await readAndStoreDetail(http, store, index, id, nowIso, false)) details++;
     }
 
     pruneIndex(index, now);
     await store.setMeta(INDEX_META, { cases: index, at: nowIso });
+    const mails = await notifyCityFollowers(env, store, opts.mailer, watched);
     const bf = await backfillCityCaseGeoIfPending(store, GEOCODES_PER_RUN * 2).catch((e) => { console.error('[citycases] geo backfill failed:', e instanceof Error ? e.message : e); return null; });
-    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded${bf ? `, backfill ${bf.patched} (${bf.remaining} left)` : ''}, ${http.requests} requests`;
+    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded, ${mails} follow mails${bf ? `, backfill ${bf.patched} (${bf.remaining} left)` : ''}, ${http.requests} requests`;
     console.log(`[citycases] ${note}`);
     await markOk(store, 'citycases', note);
-    return { listed: rows.length, added, changed, details, requests: http.requests };
+    return { listed: rows.length, added, changed, details, mails, requests: http.requests };
   } catch (e) {
     console.error('[citycases] failed:', e instanceof Error ? e.message : e);
     await markError(store, 'citycases', e);
@@ -322,37 +338,87 @@ export async function backfillCityCaseGeoIfPending(store: Store, limit: number):
   return backfillCityCaseGeo(store, { limit });
 }
 
-/** Daily: one detail check for open cases that left the 7-day list window (their status no longer shows there). */
-export async function followUpCityCases(env: Env, store: Store, opts: { gapMs?: number; now?: number } = {}): Promise<number> {
+/** Daily: one detail check for open cases that left the 7-day list window (their status no longer shows there).
+ *  Followed cases (`f`, refreshed here) go first in the day's budget and outlive the 60-day prune. */
+export async function followUpCityCases(env: Env, store: Store, opts: SyncOpts = {}): Promise<number> {
   const now = opts.now ?? Date.now();
   const nowIso = new Date(now).toISOString();
   const index: Index = (await store.getMeta<{ cases?: Index }>(INDEX_META).catch(() => null))?.cases ?? {};
+  await refreshFollowFlags(store, index, now);
   const due = Object.entries(index)
     .filter(([, e]) => !TERMINAL.has(e.ds ?? e.s) && e.c && now - Date.parse(e.c) > WINDOW_MS)
     .filter(([, e]) => !e.dc || now - Date.parse(e.dc) > 20 * 3_600_000)
-    .sort(([, a], [, b]) => (a.dc ?? '').localeCompare(b.dc ?? ''))
+    .sort(([, a], [, b]) => (b.f ?? 0) - (a.f ?? 0) || (a.dc ?? '').localeCompare(b.dc ?? ''))
     .slice(0, FOLLOWUP_PER_DAY).map(([id]) => id);
   if (!due.length) return 0;
   const http = new CityHttp(env.PORTAL_BASE_URL, opts.gapMs ?? REQUEST_GAP_MS);
   let n = 0;
-  for (const id of due) if (await readAndStoreDetail(http, store, index, id, nowIso, true)) n++;
+  const changes: StatusChange[] = [];
+  for (const id of due) if (await readAndStoreDetail(http, store, index, id, nowIso, true, changes)) n++;
   pruneIndex(index, now);
   await store.setMeta(INDEX_META, { cases: index, at: nowIso });
-  console.log(`[citycases] follow-up: ${n}/${due.length} open cases re-read`);
+  const mails = await notifyCityFollowers(env, store, opts.mailer, await followedChanges(store, changes));
+  console.log(`[citycases] follow-up: ${n}/${due.length} open cases re-read, ${mails} follow mails`);
   return n;
+}
+
+// ── Followers (cityfollow.ts) ───────────────────────────────────────────────────────────
+
+/** Which of this run's status moves anyone follows and has not been told about yet. Never throws. */
+async function followedChanges(store: Store, changes: StatusChange[]): Promise<StatusChange[]> {
+  const out: StatusChange[] = [];
+  for (const c of changes) {
+    try {
+      const doc = await store.getCityCase(c.id);
+      const uids = Array.isArray(doc?.followerUids) ? doc.followerUids : [];
+      if (doc && uids.length && doc.notifiedStatus !== c.to) out.push(c);
+    } catch (e) { console.warn('[citycases] follower check failed:', e instanceof Error ? e.message : e); }
+  }
+  return out;
+}
+
+/**
+ * One mail per eligible follower per status move (cityfollow.eligibleFollowers; never the city), then
+ * notifiedStatus = the status mailed so no run repeats it. Read after the detail pass, so a closing mail carries the
+ * city's Resolution Message. Never throws — mail must not break the sync. Returns the number of mails sent.
+ */
+export async function notifyCityFollowers(env: Env, store: Store, mailer: Mailer | undefined, changes: StatusChange[]): Promise<number> {
+  if (!mailer || !changes.length) return 0;
+  const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
+  let mails = 0;
+  for (const c of changes) {
+    try {
+      const doc = await store.getCityCase(c.id);
+      if (!doc) continue;
+      const view = followedCaseView(doc);
+      const status = view.status || c.to;
+      const uids = (Array.isArray(doc.followerUids) ? doc.followerUids : []).filter((x): x is string => typeof x === 'string').slice(0, MAX_CASE_FOLLOWERS);
+      if (!uids.length || doc.notifiedStatus === status) continue;
+      const users = await Promise.all(uids.map((uid) => store.getUser(uid).catch(() => null)));
+      const mail = cityFollowEmail({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, createdAt: view.createdAt, url: caseUrl(base, c.id, view.lat, view.lng) });
+      for (const u of eligibleFollowers(users, c.id)) {
+        await mailer.sendTo(u.email!, mail.subject, mail.html, { kind: 'city_follow', caseId: c.id });
+        mails++;
+      }
+      await store.patchCityCase(c.id, { notifiedStatus: status });
+    } catch (e) {
+      console.error('[citycases] follow mail failed:', e instanceof Error ? e.message : e);
+    }
+  }
+  return mails;
 }
 
 /**
  * Inside the window the list is the status authority (a detail that lags it is stored but does not move the
  * index, so the two can't ping-pong). Out of the window (`followUp`) the detail form is the only source.
  */
-async function readAndStoreDetail(http: CityHttp, store: Store, index: Index, id: string, nowIso: string, followUp: boolean): Promise<boolean> {
+async function readAndStoreDetail(http: CityHttp, store: Store, index: Index, id: string, nowIso: string, followUp: boolean, changes?: StatusChange[]): Promise<boolean> {
   const e = index[id];
   try {
     const d = await readDetail(http, id);
     const fields: Record<string, unknown> = { detail: d, detailAt: nowIso };
     const s = followUp && d.status ? d.status : e.s;
-    if (s !== e.s) { fields.status = s; fields.statusAt = nowIso; fields[`statusSeen.${statusKey(s)}`] = nowIso; }
+    if (s !== e.s) { fields.status = s; fields.statusAt = nowIso; fields[`statusSeen.${statusKey(s)}`] = nowIso; changes?.push({ id, from: e.s, to: s }); }
     await store.patchCityCase(id, fields);
     index[id] = { ...e, s, ds: s, dc: nowIso, dv: DETAIL_VERSION };
     return true;
@@ -363,10 +429,27 @@ async function readAndStoreDetail(http: CityHttp, store: Store, index: Index, id
   }
 }
 
-/** Drop finished cases once they leave the window, and open ones after KEEP_OPEN_MS. */
+/** Drop finished cases once they leave the window, and open ones after KEEP_OPEN_MS — a followed open case (`f`)
+ *  stays up to KEEP_FOLLOWED_MS so its daily re-read, and the closing mail the card promised, still happen. */
 function pruneIndex(index: Index, now: number): void {
   for (const [id, e] of Object.entries(index)) {
     const age = e.c ? now - Date.parse(e.c) : Infinity;
-    if ((TERMINAL.has(e.ds ?? '') && age > WINDOW_MS + 24 * 3_600_000) || age > KEEP_OPEN_MS) delete index[id];
+    if (TERMINAL.has(e.ds ?? '') && age > WINDOW_MS + 24 * 3_600_000) delete index[id];
+    else if (age > (e.f ? KEEP_FOLLOWED_MS : KEEP_OPEN_MS)) delete index[id];
+  }
+}
+
+/** Set or clear `f` on every open entry near or past the 60-day prune: one doc read each (a handful a day — most
+ *  cases close in weeks). Runs daily, FOLLOW_CHECK_LEAD_MS ahead of the prune so the 30-min sync never drops a
+ *  followed case first. Never throws: an unreadable doc keeps its last flag. */
+async function refreshFollowFlags(store: Store, index: Index, now: number): Promise<void> {
+  for (const [id, e] of Object.entries(index)) {
+    if (TERMINAL.has(e.ds ?? e.s) || !e.c || now - Date.parse(e.c) <= KEEP_OPEN_MS - FOLLOW_CHECK_LEAD_MS) continue;
+    try {
+      const doc = await store.getCityCase(id);
+      const followed = Array.isArray(doc?.followerUids) && doc.followerUids.length > 0;
+      if (followed) index[id] = { ...e, f: 1 };
+      else if (e.f) { const { f: _f, ...rest } = e; index[id] = rest; }
+    } catch (err) { console.warn('[citycases] follow flag check failed:', err instanceof Error ? err.message : err); }
   }
 }

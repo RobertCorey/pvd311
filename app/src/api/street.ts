@@ -3,10 +3,10 @@
 // decoded and cached here for 5 minutes per window so filter taps, pans and tab returns never refetch.
 // The decoder and wire types live in lib/streetMap.ts (pure, unit-tested) and are re-exported from here.
 import { apiFetch, parseError, withTimeout } from './client';
-import { decodeFeed, type MapFeed, type StreetMap } from '../lib/streetMap';
+import { decodeCase, decodeFeed, type MapCase, type MapFeed, type StreetCaseWire, type StreetMap } from '../lib/streetMap';
 
-export { CLOSED_STATUSES, decodeFeed } from '../lib/streetMap';
-export type { MapCase, MapFeed, MapItem, StreetMap } from '../lib/streetMap';
+export { CLOSED_STATUSES, decodeCase, decodeFeed } from '../lib/streetMap';
+export type { MapCase, MapFeed, MapItem, StreetCaseWire, StreetMap } from '../lib/streetMap';
 
 /** The windows the page fetches; "This week" (7) is cut client-side from the 30-day set. */
 export type MapDays = 30 | 90;
@@ -43,5 +43,19 @@ async function fetchStreetMap(days: MapDays): Promise<StreetMap> {
     const feed = (await resp.json()) as Partial<MapFeed>;
     if (!feed || feed.v !== 1 || !Array.isArray(feed.items)) throw new Error('street_map_bad_feed');
     return decodeFeed(feed as MapFeed);
+  } finally { t.done(); }
+}
+
+/** One case by GUID (GET /api/street/case/:guid) for a `?case=` deep link older than the loaded window — the follow
+ *  mail's "See it on the map", a /my row. null when the city's record is gone (404); rejects on any other failure. */
+export async function getStreetCase(id: string): Promise<MapCase | null> {
+  const t = withTimeout(15_000);
+  try {
+    const resp = await apiFetch(`/api/street/case/${encodeURIComponent(id)}`, { signal: t.signal });
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw await parseError(resp);
+    const w = (await resp.json()) as Partial<StreetCaseWire>;
+    if (!w || typeof w.id !== 'string') throw new Error('street_case_bad_body');
+    return decodeCase(w);
   } finally { t.done(); }
 }
