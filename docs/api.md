@@ -56,14 +56,17 @@ The /map page was cut, and the feed exposed every report's tracking id (the id i
 ## GET /api/nearby?lat=&lng=&category=&radiusM=75
 `{ items: [{ id, source: 'snappvd'|'city', category, categoryLabel, lat, lng, address, createdAt, status, portalStatus, distanceM }] }` — reports within `radiusM` metres (default 75, max 2000) of `lat,lng`, from the last 14 days, both sources, sorted nearest-first. `category` (a `shared/categories.ts` key) optionally filters. City items with an unparseable date are kept (a fresh dedupe signal is not dropped). Used by the client's "already reported nearby?" dedupe prompt. Errors: `invalid_coords` (400).
 
+## GET /api/street?lat=&lng=&radiusM=300&days=30 — "My street" (added 2026-10-25)
+`{ items: [{ id, caseType, category, street, status, open, createdAt, closedAt, resolution, lat, lng, distanceM }], radiusM, days, at }` — everyone's cases from the city's public list (`cityCases`, worker/src/street.ts) within `radiusM` metres (50–1000) of `lat,lng` that were created or closed in the last `days` (1–90), newest activity first. `resolution` is the city's own Resolution Message (closed cases only). Public; cached 5 min. Coordinates come from a one-time ArcGIS geocode of the case's street (cases without one are left out). Errors: `invalid_coords` (400, also for points outside Rhode Island). The app page is `/street?lat&lng&q=<address>`.
+
 ## ~~POST /api/reports/:id/follow~~ — removed 2026-08-22
 Anonymous follow let anyone subscribe any email to any report. Use `PUT /api/me/following/:id` (account required).
 
 ## GET /api/me
-`{ uid, email, emailVerified, displayName, provider, prefs: { emailUpdates }, addresses: [{ id, label, address, lat, lng }], following: [id], createdAt, quota: { dayUsed, dayLimit, weekUsed, weekLimit, dayResetsAt, weekResetsAt, nextAllowedAt } }`. Creates the user doc on first call. `quota` times are ISO UTC; `nextAllowedAt` is null when a report would be accepted now (the per-IP backstop is not reflected).
+`{ uid, email, emailVerified, displayName, provider, prefs: { emailUpdates, streetDigest }, addresses: [{ id, label, address, lat, lng }], following: [id], createdAt, quota: { dayUsed, dayLimit, weekUsed, weekLimit, dayResetsAt, weekResetsAt, nextAllowedAt } }`. Creates the user doc on first call. `quota` times are ISO UTC; `nextAllowedAt` is null when a report would be accepted now (the per-IP backstop is not reflected).
 
 ## PATCH /api/me
-JSON `{ displayName?: string|null, prefs?: { emailUpdates?: boolean } }` → the `GET /api/me` shape. `emailUpdates:false` silences city-status mail for own + followed reports.
+JSON `{ displayName?: string|null, prefs?: { emailUpdates?: boolean, streetDigest?: boolean } }` → the `GET /api/me` shape. `emailUpdates:false` silences city-status mail for own + followed reports. `streetDigest:true` opts into the Monday "This week near …" email: one mail per week listing cases created or closed within 300 m of each saved address in the last 7 days (a saved address without coordinates is geocoded then); no activity, no mail.
 
 ## GET /api/me/reports
 `{ items: [ReportView & { mine: true, following, editable, description, owned }] }` — newest first, ≤100. `editable` = still `received` (pending/awaiting review) and yours.
