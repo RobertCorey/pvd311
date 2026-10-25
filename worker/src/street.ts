@@ -6,10 +6,15 @@
  * features so people not actively buying or selling would still check it." The city's public feed is the data we
  * already have; this gives people who are not reporting anything a reason to look (and an email that brings them back).
  *
+ *   GET /api/street/map[?days=30]  THE /street page's only feed (2026-10-25, map-first page): every non-draft case
+ *     created or closed inside the window — located and unlocated — as columnar tuples + index tables (MapFeed),
+ *     ~50 KB brotli for 30 days. Pan/zoom/filter/cluster all happen in the browser from this one array; `days` is
+ *     snapped to 7 / 30 / 90 so the HTTP cache and the isolate cache hit. Public, cached 5 min per isolate + HTTP.
  *   GET /api/street?lat&lng[&radiusM=300][&days=30]  public, cached 5 min per isolate + HTTP
  *     → { items: StreetCase[], radiusM, days, at }   newest activity first (created or closed inside the window)
- *   GET /api/street/city[?days=7]  citywide: counts, busiest case types, newest 20 — the page's landing state and
- *     what a quiet street shows instead of nothing (Rob, 2026-10-25: "ideally we want to show something")
+ *     Kept for the weekly digest's nearby filter and old links; the page no longer calls it.
+ *   GET /api/street/city[?days=7]  citywide: counts, busiest case types, newest 20 — kept for old links; the page
+ *     now derives the citywide numbers from /api/street/map (Rob, 2026-10-25: "ideally we want to show something")
  *
  *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
  *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
@@ -26,7 +31,12 @@ export const MAX_DAYS = 90;
 export const DIGEST_RADIUS_M = 300;
 export const DIGEST_DAYS = 7;
 const LOAD_TTL_MS = 5 * 60_000;
-const LOAD_LIMIT = 3000;
+/** Rows per Firestore read; a window that fills it may be missing its oldest cases (MapFeed.truncated). */
+export const LOAD_LIMIT = 3000;
+/** Resolution Message cut for the map feed (the live average is ~36 chars; 300 keeps every real note whole). */
+const MAP_RES_MAX = 300;
+/** The city's status vocabulary in lifecycle order — seeds MapFeed.statuses so indexes are stable across responses. */
+export const KNOWN_STATUSES = ['Submitted', 'Assigned', 'In Progress', 'Department Responded', 'Resolved', 'Closed', 'Cancelled', 'Merged'] as const;
 /** Cases closed inside the window may have been created well before it; load this much further back. */
 const CLOSE_LOOKBACK_DAYS = 60;
 
@@ -136,6 +146,111 @@ export async function handleStreetCity(url: URL, store: Store): Promise<Response
   return json(cityOverview(rows, { days }), 200, { 'cache-control': 'public, max-age=300' });
 }
 
+// ── Map feed (the /street page's one request) ─────────────────────────────────────────────
+
+/**
+ * One case as a tuple: [id, t, s, createdMin, closedMin, lat, lng, street, res].
+ *   t / s        index into MapFeed.types / MapFeed.statuses
+ *   createdMin   floor(createdAt / 60 s) in UTC minutes, 0 when unparseable
+ *   closedMin    floor(closedAt / 60 s) for closed cases (resolutionDate, else the close we watched), 0 when open/unknown
+ *   lat / lng    rounded to 5 dp, or null when the case has no coordinates (still counted in `total`)
+ *   street       "" when blank
+ *   res          the city's Resolution Message, trimmed and cut to 300 chars, or 0 when absent (clients read `res || null`)
+ * `open` is not transmitted: the client derives it from statuses[s] with the same CLOSED set as cityinsights.
+ */
+export type MapItem = [id: string, t: number, s: number, createdMin: number, closedMin: number, lat: number | null, lng: number | null, street: string, res: string | 0];
+
+export interface MapFeed {
+  v: 1;
+  days: number;
+  /** When this response was built. */
+  at: string;
+  /** Non-draft cases created or closed inside the window, unlocated included. */
+  total: number;
+  /** Of those, with coordinates. */
+  located: number;
+  /** True when the load hit LOAD_LIMIT — the window may be missing its oldest cases. */
+  truncated: boolean;
+  /** index = t → [city caseType, category key] ('unsure' when the doc has none). */
+  types: [string, string][];
+  /** index = s; starts with KNOWN_STATUSES, any other status string seen is appended. */
+  statuses: string[];
+  items: MapItem[];
+}
+
+const round5 = (x: number) => Math.round(x * 1e5) / 1e5;
+
+/**
+ * Every non-draft case created or closed in the last `days`, as the columnar feed above. Same inclusion rule as
+ * nearbyCases (skip Draft, activity = max(created, closedAt) ≥ since), newest activity first (input order is the
+ * tiebreak — the sort is stable). Pure.
+ */
+export function mapFeed(rows: Row[], o: { days: number; now?: number; truncated?: boolean }): MapFeed {
+  const now = o.now ?? Date.now();
+  const since = now - o.days * 86_400_000;
+  const types: [string, string][] = [];
+  const typeIndex = new Map<string, number>();
+  const statuses: string[] = [...KNOWN_STATUSES];
+  const statusIndex = new Map<string, number>(statuses.map((s, i) => [s, i]));
+  const items: { item: MapItem; activity: number }[] = [];
+  let located = 0;
+  for (const c of rows) {
+    const status = String(c.status ?? '');
+    if (/^draft$/i.test(status)) continue;
+    const open = !CLOSED.has(status);
+    const created = parse(c.createdAt);
+    const closed = open ? null : closedAt(c as unknown as CaseLike);
+    const activity = Math.max(created ?? 0, closed ?? 0);
+    if (!activity || activity < since) continue;
+    const caseType = String(c.caseType ?? '');
+    let t = typeIndex.get(caseType);
+    if (t == null) {
+      t = types.length;
+      types.push([caseType, typeof c.category === 'string' && c.category ? c.category : 'unsure']);
+      typeIndex.set(caseType, t);
+    }
+    let s = statusIndex.get(status);
+    if (s == null) { s = statuses.length; statuses.push(status); statusIndex.set(status, s); }
+    const hasGeo = typeof c.lat === 'number' && typeof c.lng === 'number' && Number.isFinite(c.lat) && Number.isFinite(c.lng);
+    if (hasGeo) located++;
+    const detail = (c.detail ?? null) as { resolution?: string | null } | null;
+    const res = detail?.resolution?.trim() || '';
+    items.push({
+      activity,
+      item: [
+        String(c.id), t, s,
+        created != null ? Math.floor(created / 60_000) : 0,
+        closed != null ? Math.floor(closed / 60_000) : 0,
+        hasGeo ? round5(c.lat as number) : null,
+        hasGeo ? round5(c.lng as number) : null,
+        String(c.street ?? ''),
+        res ? res.slice(0, MAP_RES_MAX) : 0,
+      ],
+    });
+  }
+  items.sort((a, b) => b.activity - a.activity);
+  return {
+    v: 1, days: o.days, at: new Date(now).toISOString(),
+    total: items.length, located, truncated: o.truncated ?? false,
+    types, statuses, items: items.map((x) => x.item),
+  };
+}
+
+/** `days` → the window the caches are keyed on: missing/NaN/≤0 → 30; 1–7 → 7; 8–30 → 30; anything larger → 90. */
+export function snapDays(raw: string | null): 7 | 30 | 90 {
+  const d = Number(raw);
+  if (raw == null || raw === '' || !Number.isFinite(d) || d <= 0) return DEFAULT_DAYS;
+  if (d <= 7) return 7;
+  if (d <= 30) return DEFAULT_DAYS;
+  return MAX_DAYS;
+}
+
+export async function handleStreetMap(url: URL, store: Store): Promise<Response> {
+  const days = snapDays(url.searchParams.get('days'));
+  const rows = await loadCases(store, days);
+  return json(mapFeed(rows, { days, truncated: rows.length >= LOAD_LIMIT }), 200, { 'cache-control': 'public, max-age=300' });
+}
+
 // ── Loading (one Firestore read per window per 5 minutes per isolate) ─────────────────────
 
 const loads = new Map<string, { at: number; rows: Promise<Row[]> }>();
@@ -195,7 +310,8 @@ export function streetDigestEmail(sections: DigestSection[], o: { base: string; 
     + `<ul style="padding-left:1.2em;margin:0">${s.items.map(row).join('')}</ul>`
     + `<p style="margin:.5em 0 0"><a href="${esc(s.url)}">See everything near here</a></p>`).join('')
     + `<p style="color:#888;margin-top:2em">City cases within about ${DIGEST_RADIUS_M} m, from Providence 311's public list. ${total} this week. `
-    + `You asked for this weekly email on FixMyPVD — turn it off under <a href="${esc(o.base)}/account">Account</a>. `
+    + `You asked for this weekly email on FixMyPVD — turn it off with "Turn off" under <a href="${esc(sections[0]?.url ?? `${o.base}/street`)}">Hear about this street every week</a> on your street page, `
+    + `or manage your addresses under <a href="${esc(o.base)}/account">Account</a>. `
     + `FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
 }

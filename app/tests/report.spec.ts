@@ -211,7 +211,8 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   await page.fill('#address', '25 Dorrance St');
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
-  await expect(page.locator('.queued')).toContainText('Saved on your phone');
+  // 15 s like the flush below: under the full suite's load (8 workers, the map specs) the offline save can take > 5 s.
+  await expect(page.locator('.queued')).toContainText('Saved on your phone', { timeout: 15_000 });
   await context.setOffline(false);
   const flushed = page.waitForRequest(`${API}/api/report`);
   await page.goto('/');
@@ -238,7 +239,25 @@ test('typed address geocodes → mini-map with draggable pin appears', async ({ 
   await page.fill('#address', '25 Dorrance St');
   await page.locator('#address').blur();
   await expect(page.locator('.mini-map .leaflet-container')).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('.mini-map .leaflet-marker-draggable')).toHaveCount(1);
+  const pin = page.locator('.mini-map .leaflet-marker-draggable');
+  await expect(pin).toHaveCount(1);
+  // Drag the pin: Leaflet's dragend reaches onPinMove, which announces the move and re-centres the map on the new spot.
+  // (Scroll the map to mid-screen first: the fixed submit bar would otherwise sit over the pin and take the pointer.)
+  await page.evaluate(() => document.querySelector('.mini-map')!.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+  const before = (await pin.boundingBox())!;
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width / 2 + 60, before.y + before.height / 2 + 36, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.locator('p.hint[aria-live="polite"]', { hasText: 'Pin moved' })).toHaveText('Pin moved — address updated.');
+  // The controlled `center` followed the pin: its tip sits back at the map's centre (the map box is re-read: the
+  // "Pin moved" line above it shifts the map down).
+  await expect.poll(async () => {
+    const map = (await page.locator('.mini-map .leaflet-container').boundingBox())!;
+    const b = (await pin.boundingBox())!;
+    return Math.max(Math.abs(b.x + b.width / 2 - (map.x + map.width / 2)), Math.abs(b.y + 38 - (map.y + map.height / 2)));
+  }, { timeout: 5_000 }).toBeLessThan(4);
 });
 
 test('dedupe: nearby match shows the prompt with a tracking link; dismiss hides it', async ({ page }) => {

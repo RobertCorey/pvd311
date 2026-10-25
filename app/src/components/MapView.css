@@ -8,6 +8,8 @@
   border: 2px solid var(--ink);
   z-index: 0;
 }
+/* /street: the map is the stage itself — no frame, no radius (the stage owns the edges). */
+.mapview.is-frameless { border: 0; border-radius: 0; min-height: 0; }
 
 /* Leaflet default marker icon is unused (we draw divIcons); keep its box invisible. */
 .mapview .map-pin {
@@ -15,7 +17,12 @@
   border: 0;
   cursor: pointer;
 }
-.mapview .map-pin svg { display: block; position: relative; filter: drop-shadow(0 2px 2px rgba(22, 33, 58, 0.35)); }
+.mapview .map-pin svg {
+  display: block; position: relative; z-index: 1;
+  filter: drop-shadow(0 2px 2px rgba(22, 33, 58, 0.35));
+  transform-origin: 50% 100%;
+  transition: transform 0.15s var(--ease-out);
+}
 .mapview .map-pin-halo {
   position: absolute; left: 50%; bottom: 1px; width: 18px; height: 18px; margin-left: -9px; border-radius: 999px;
   background: var(--halo, var(--ember)); opacity: 0.35; transform-origin: center; animation: halo 2.4s ease-out infinite;
@@ -24,6 +31,58 @@
 @media (prefers-reduced-motion: reduce) {
   .mapview .map-pin-halo { display: none; }
 }
+
+/* City case pins (.map-case): the halo exists in the markup of open pins but only shows while MapView grants it
+   (zoom ≥ 16, first 60 open pins in view) — nothing loops at city scale. */
+.mapview .map-case .map-pin-halo { display: none; }
+.mapview .map-case.map-pin--halo .map-pin-halo { display: block; }
+.mapview .map-pin--closed { opacity: 0.85; }
+.mapview .map-home { pointer-events: none; }
+
+/* Selection: scale 1.2 from the tip + a static 3 px ink ring at the tip, behind the SVG. */
+.mapview .map-pin--selected svg { transform: scale(1.2); }
+.mapview .map-pin--selected::before {
+  content: ''; position: absolute; left: 50%; bottom: -5px; width: 16px; height: 16px; margin-left: -8px; box-sizing: border-box;
+  border-radius: 999px; border: 3px solid var(--ink); background: transparent; z-index: 0;
+}
+/* Desktop row hover ⇄ pin. */
+.mapview .map-pin--hover svg { transform: scale(1.1); }
+.mapview .map-pin--selected.map-pin--hover svg { transform: scale(1.2); }
+
+/* Drop-in after a user gesture only (MapView sets --drop-delay = min(i,20)×30ms). `backwards` fill: the from-frame
+   holds through the delay, then the hover/selected transforms take over again when it ends. */
+.mapview .map-pin--drop svg,
+.mapview .map-pin--drop .map-cluster-ring { animation: map-drop 240ms var(--ease-bounce) backwards; animation-delay: var(--drop-delay, 0ms); }
+@keyframes map-drop { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* Cluster disc: 52 px marker box, the disc centred inside at 36 / 44 / 52. The outer span is the 5 px two-ink ring
+   (ember = open share, muted = closed share); the inner disc is surface with a 2 px ink border and the count in
+   Bricolage ink (≥ 4.5:1 — never colour alone). */
+.mapview .map-cluster { background: transparent; border: 0; cursor: pointer; display: grid; place-items: center; }
+.mapview .map-cluster-ring {
+  --size: 36px;
+  width: var(--size); height: var(--size); box-sizing: border-box; padding: 5px; border-radius: 999px;
+  background: conic-gradient(var(--ember) 0 var(--share, 0deg), var(--muted) 0);
+  display: grid; place-items: center;
+  filter: drop-shadow(0 2px 2px rgba(22, 33, 58, 0.3));
+  transition: transform 0.15s var(--ease-out);
+}
+.mapview .map-cluster--m .map-cluster-ring { --size: 44px; }
+.mapview .map-cluster--l .map-cluster-ring { --size: 52px; }
+.mapview .map-cluster-disc {
+  width: 100%; height: 100%; box-sizing: border-box; border-radius: 999px;
+  background: var(--surface); border: 2px solid var(--ink); color: var(--ink);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 0.8rem; line-height: 1; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.mapview .map-cluster--m .map-cluster-disc { font-size: 0.85rem; }
+.mapview .map-cluster--l .map-cluster-disc { font-size: 0.9rem; }
+.mapview .map-cluster--selected .map-cluster-disc { border-width: 3px; }
+
+/* The digest's 300 m coverage around the spot you picked, and the chosen neighborhood's outline. Pointer-transparent. */
+.mapview .map-ring { stroke: var(--ember); stroke-width: 1.5; stroke-dasharray: 6 6; stroke-opacity: 1; fill: var(--ember); fill-opacity: 0.06; }
+.mapview .map-hood { stroke: var(--ink); stroke-width: 2; stroke-opacity: 1; fill: var(--ember); fill-opacity: 0.08; }
 
 /* Controls + attribution readable in both themes. */
 .mapview .leaflet-control-attribution {
@@ -42,5 +101,17 @@
 }
 .mapview .leaflet-bar a:hover { background: var(--ember-soft); }
 
-.mapview.leaflet-container:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }
+/* The attribution box is transparent to taps — only its links take the pointer — so a pin drawn in the strip just
+   above the sheet opens on tap instead of hitting the control. */
+.mapview .leaflet-control-attribution { pointer-events: none; }
+.mapview .leaflet-control-attribution a { pointer-events: auto; }
 
+/* Frameless (/street): the sheet publishes --sheet-h on the stage; keep the attribution above it at every detent
+   (FULL stops SHEET_FULL_INSET = 142 px under the stage top: rail 110 + 6 + the 17 px attribution + room).
+   Under 720 px the zoom control goes (pinch + keyboard +/−); the stage's floating pill owns that corner. */
+.mapview.is-frameless .leaflet-bottom { bottom: calc(var(--sheet-h, 0px) + 6px); }
+@media (max-width: 719px) {
+  .mapview.is-frameless .leaflet-control-zoom { display: none; }
+}
+
+.mapview.leaflet-container:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }

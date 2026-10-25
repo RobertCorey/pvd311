@@ -1,0 +1,67 @@
+/* StreetParts.css — shared by StreetRow, StreetDetail and StreetFilters (the /street map-first page, 2026-10-25).
+   Rows, notes and pills keep the look they had in Street.css (those rules moved here; Street.css may drop them).
+   Ember & Harbor: ink on surface everywhere, --ember only as a focus ring (global :focus-visible) and in icons. */
+
+/* ── List rows ─────────────────────────────────────────────────────────────────────────────────── */
+.street-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.street-row { list-style: none; margin: 0; padding: 0; }
+/* The whole row is one button (spans only inside) that looks like the old .card row. */
+.street-row-btn {
+  display: grid; grid-template-columns: auto 1fr auto; gap: .6rem; align-items: start;
+  width: 100%; margin: 0; padding: 12px; text-align: left;
+  font: inherit; line-height: 1.35; color: var(--ink);
+  background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, background-color .15s;
+}
+.street-row-btn:hover { border-color: var(--ink); }
+.street-row-btn[aria-pressed="true"] { border-color: var(--ink); background: var(--ink-soft); box-shadow: none; }
+.street-icon { display: inline-flex; flex: 0 0 auto; width: 36px; height: 36px; align-items: center; justify-content: center; border-radius: 10px; background: var(--ink-soft); color: var(--ink); }
+.street-icon--lg { width: 48px; height: 48px; border-radius: 12px; }
+.street-main { display: grid; gap: .1rem; min-width: 0; }
+.street-type { font-family: var(--font-display); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.street-addr, .street-when { font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
+/* The city's own closing note. A span in rows (buttons may not hold block elements), a blockquote in the card. */
+.street-note { display: block; margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; font-weight: 400; white-space: pre-wrap; color: var(--ink); }
+
+/* Status pill — Account.css owns .my-status; these scoped copies keep rows and the card right wherever they render. */
+.street-row .my-status, .street-detail .my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.street-row .my-status--resolved, .street-detail .my-status--resolved,
+.street-row .my-status--received, .street-detail .my-status--received { border-color: var(--ink); color: var(--ink); }
+.street-row .my-status--cityCancelled, .street-detail .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
+
+/* ── Case card ─────────────────────────────────────────────────────────────────────────────────── */
+.street-detail { display: grid; gap: .6rem; }
+.street-detail-head { display: grid; grid-template-columns: auto 1fr auto; gap: .6rem; align-items: start; }
+.street-detail-titles { display: grid; gap: .15rem; min-width: 0; }
+.street-detail-title { margin: 0; font-family: var(--font-display); font-size: 1.15rem; line-height: 1.25; overflow-wrap: anywhere; }
+.street-detail .street-note { margin: 0; }
+.street-detail-approx { margin: 0; }
+.street-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.street-detail-actions .btn { width: auto; text-decoration: none; }
+.street-detail-actions .btn-secondary { min-height: var(--tap); padding: 10px 14px; font-size: .95rem; }
+
+/* ── Filter rail ───────────────────────────────────────────────────────────────────────────────── */
+/* 44 px row of 40 px chips: one horizontal scroller, hidden scrollbar, snap, right-edge fade. The 28 px end padding
+   lets the last chip scroll clear of the fade. */
+.street-rail {
+  position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 2px 28px 2px 0;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+.street-rail::-webkit-scrollbar { display: none; }
+.street-rail > * { flex: 0 0 auto; scroll-snap-align: start; }
+.street-rail .chip { min-height: 40px; height: 40px; padding: 6px 12px; gap: 6px; font-size: .9rem; white-space: nowrap; border-color: var(--line); color: var(--ink); }
+.street-rail .chip[aria-pressed="true"] { border-color: var(--ink); background: var(--ink-soft); }
+.street-rail .chip[aria-disabled="true"], .street-rail .chip:disabled { color: var(--muted); cursor: not-allowed; }
+.street-rail .chip:focus-visible { outline-offset: -2px; } /* the ring stays inside the 44 px row instead of being clipped */
+.street-chip-n { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.street-chip-x { font-size: 1.15rem; line-height: 1; }
+/* The window select wears the chip look with its own chevron (light mode only, so the ink is hard-coded). */
+.street-rail .street-window {
+  display: inline-block; -webkit-appearance: none; appearance: none; line-height: 1; padding-right: 30px;
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%2316213A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center / 12px 12px;
+}
+/* Desktop panel: the rail wraps onto two lines, no scroll, no fade. */
+.street-rail--wrap, .street-panel .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; }

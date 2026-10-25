@@ -57,7 +57,35 @@ The /map page was cut, and the feed exposed every report's tracking id (the id i
 `{ items: [{ id, source: 'snappvd'|'city', category, categoryLabel, lat, lng, address, createdAt, status, portalStatus, distanceM }] }` — reports within `radiusM` metres (default 75, max 2000) of `lat,lng`, from the last 14 days, both sources, sorted nearest-first. `category` (a `shared/categories.ts` key) optionally filters. City items with an unparseable date are kept (a fresh dedupe signal is not dropped). Used by the client's "already reported nearby?" dedupe prompt. Errors: `invalid_coords` (400).
 
 ## GET /api/street?lat=&lng=&radiusM=300&days=30 — "My street" (added 2026-10-25)
-`{ items: [{ id, caseType, category, street, status, open, createdAt, closedAt, resolution, lat, lng, distanceM }], radiusM, days, at }` — everyone's cases from the city's public list (`cityCases`, worker/src/street.ts) within `radiusM` metres (50–1000) of `lat,lng` that were created or closed in the last `days` (1–90), newest activity first. `resolution` is the city's own Resolution Message (closed cases only). Public; cached 5 min. Coordinates come from a one-time ArcGIS geocode of the case's street (cases without one are left out). Errors: `invalid_coords` (400, also for points outside Rhode Island). The app page is `/street?lat&lng&q=<address>`.
+`{ items: [{ id, caseType, category, street, status, open, createdAt, closedAt, resolution, lat, lng, distanceM }], radiusM, days, at }` — everyone's cases from the city's public list (`cityCases`, worker/src/street.ts) within `radiusM` metres (50–1000) of `lat,lng` that were created or closed in the last `days` (1–90), newest activity first. `resolution` is the city's own Resolution Message (closed cases only). Public; cached 5 min. Coordinates come from a one-time ArcGIS geocode of the case's street (cases without one are left out). Errors: `invalid_coords` (400, also for points outside Rhode Island). The app page is `/street?lat&lng&q=<address>`. The /street page now reads /api/street/map; this endpoint remains for the weekly digest and old links.
+
+## GET /api/street/map?days=30 — the /street map feed (added 2026-10-25)
+The map-first `/street` page's ONE request: every non-draft case from the city's public list (`cityCases`) created or closed inside the window — located and unlocated — as columnar tuples plus two index tables, so pan/zoom/filter/cluster/counts all happen in the browser from one array (`app/src/lib/streetMap.ts`) and never touch the network again. Public, no auth, same CORS as the other GETs; routed before `/api/street` in worker/src/api.ts. Pure builder `mapFeed(rows, { days, now, truncated })`, handler `handleStreetMap(url, store)` in worker/src/street.ts; types `MapFeed` / `MapItem` exported there and mirrored in `app/src/api/street.ts`.
+
+**`days`** is snapped so the HTTP cache and the per-isolate cache hit (`snapDays`): missing / NaN / ≤ 0 → 30; 1–7 → 7; 8–30 → 30; > 30 → 90 (MAX_DAYS). The app only asks for 30 and 90 ("This week" is cut client-side from the 30-day set).
+
+**Response** `200 application/json`, `cache-control: public, max-age=300` (no ETag in v1 — `at` changes per isolate load; the client's 5-minute module cache plus the HTTP cache cover revisits). Reads share the existing 5-minute per-isolate `loadCases` cache with `/api/street` and `/api/street/city` (one Firestore read per window per 5 minutes, loaded over `days + 60` so a case closed this month but opened in August still shows).
+```json
+{
+  "v": 1,
+  "days": 30,
+  "at": "2026-10-25T17:00:00.000Z",
+  "total": 1234,
+  "located": 1108,
+  "truncated": false,
+  "types": [["Pothole", "pothole"], ["Missed Trash Day Pick-up Issue", "missed_trash"], ["Street Light Out", "street_light"]],
+  "statuses": ["Submitted", "Assigned", "In Progress", "Department Responded", "Resolved", "Closed", "Cancelled", "Merged"],
+  "items": [
+    ["5f0efb0b-0454-ef11-a317-001dd8068673", 0, 1, 29876650, 0, 41.82834, -71.40061, "10 Angell St", 0],
+    ["1ee8b671-7a2e-ef11-840a-001dd8039400", 2, 4, 29870210, 29876100, null, null, "", "Bulb replaced."]
+  ]
+}
+```
+- `at` — when this response was built. `total` — non-draft cases created or closed inside the window (unlocated included). `located` — of those, with coordinates. `truncated` — true when the load hit LOAD_LIMIT (3000 rows over `days + 60`), so the 90-day window may be missing its oldest cases.
+- `types` — index = `t`; `[city caseType, category key]`, one entry per caseType (first-seen category wins, `'unsure'` when the doc has none); ~40 entries. `statuses` — index = `s`; starts with the eight known statuses in that order, any other status string seen is appended.
+- `items` — one tuple per case, columns `[id, t, s, createdMin, closedMin, lat, lng, street, res]`: `id` the city's GUID; `t` / `s` indexes into the tables; `createdMin` = floor(createdAt / 60 s) in UTC minutes, 0 when unparseable; `closedMin` = floor(closedAt / 60 s) for closed cases (the city's resolutionDate, else the statusSeen close we watched — `cityinsights.closedAt`), 0 when open/unknown; `lat` / `lng` rounded to 5 dp or `null` when the case has no coordinates; `street` `""` when blank; `res` the city's Resolution Message trimmed and cut to 300 chars, or `0` when absent (read `res || null`).
+- Inclusion and order are exactly `/api/street`'s: `status` matching `/^draft$/i` is skipped, a case is kept when `max(created, closed) ≥ now − days`, sorted newest activity first (array order is the tiebreak). `open` is not transmitted — derive it as `!CLOSED.has(statuses[s])` with CLOSED = Resolved, Closed, Cancelled, Merged.
+- Size (measured shape): ≈ 131 B per item raw → 30 days ≈ 1,200 items ≈ 157 KB raw + 3 KB tables ≈ 50 KB on the wire with Cloudflare brotli (the GUIDs are the ~26 KB floor); 90 days ≈ 3,000 items ≈ 390 KB raw / ≈ 120 KB wire, fetched only when "90 days" is chosen.
 
 ## ~~POST /api/reports/:id/follow~~ — removed 2026-08-22
 Anonymous follow let anyone subscribe any email to any report. Use `PUT /api/me/following/:id` (account required).

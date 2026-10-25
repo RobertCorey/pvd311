@@ -1,40 +1,132 @@
-.street h1 { margin-bottom: .25rem; }
-.street-intro { margin-top: 0; }
-.street-search { display: grid; grid-template-columns: 1fr auto; gap: .5rem; }
-.street-search .btn { min-height: var(--tap); padding: 10px 16px; }
-.street-actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
-.street-actions .saved-addresses { margin: 0; }
-.street-msg { margin-top: 0; }
-.street-where { font-size: 1.2rem; margin: 1rem 0 .4rem; overflow-wrap: anywhere; }
-.street-radius { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
-.street-radius .chip { border-color: var(--line); color: var(--muted); }
-.street-radius .chip[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--ink-soft); }
-.street-summary { font-family: var(--font-display); font-weight: 700; margin: 0 0 .5rem; }
-.street-results[aria-busy="true"] { opacity: .6; }
-.street-h { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1rem 0 .4rem; }
-.street-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
-.street-row { display: grid; grid-template-columns: auto 1fr auto; gap: .6rem; align-items: start; }
-.street-icon { display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center; border-radius: 10px; background: var(--ink-soft); }
-.street-main { display: grid; gap: .1rem; min-width: 0; }
-.street-type { font-family: var(--font-display); line-height: 1.25; }
-.street-addr, .street-when { font-size: .85rem; color: var(--muted); }
-.street-note { margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; white-space: pre-wrap; color: var(--ink); }
-.street-empty { margin: .25rem 0 1rem; }
-.street-none { display: grid; gap: .75rem; justify-items: start; }
+/* /street — the map-first "My street" page (.claude/street-map-spec.md § layout, 2026-10-25). Ember & Harbor.
+   Rows, the case card and the filter rail live in components/StreetParts.css; the sheet in components/StreetSheet.css;
+   pins and clusters in components/MapView.css. This file owns the shell (body.is-street), the stage, the floating
+   controls, the sheet-body sections (landing, empty states, digest, source, tail) and the desktop grid. */
+
+/* ── Shell: phones lock the page to the viewport; the sheet tail carries the footer links ──────── */
+@media (max-width: 719px) {
+  body.is-street .app { height: 100dvh; overflow: hidden; padding-bottom: 0; max-width: none; padding-left: 0; padding-right: 0; }
+  body.is-street .app-header { padding-left: 16px; padding-right: 16px; }
+  body.is-street .app-footer { display: none; }
+  /* 84 px = the fixed tab bar's footprint (6+52+6 inner, 4 border, 10 margin, rounded up): the stage ends where it starts. */
+  body.is-street main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .street-stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .street-stage > .mapview { position: absolute; inset: 0; height: auto; }
+}
+
+/* Visually hidden (the h1, the map hint, the keyboard-only "See the whole city"). */
+.street-vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* The keyboard-only button reveals itself on focus (skip-link pattern): it takes its grid row under the rail. */
+.street-vh-btn:focus-visible {
+  position: static; width: auto; height: auto; margin: 0; padding: 10px 14px; overflow: visible; clip: auto; white-space: nowrap;
+  justify-self: start; background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: var(--radius); font: inherit; font-weight: 600; cursor: pointer;
+}
+
+/* ── Floating controls over the map (phone): 10 + 48 pill + 8 + 44 rail = 110 px = --rail-bottom ─ */
+.street-controls { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 2; display: grid; gap: 8px; }
+.street-pill {
+  display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px;
+  background: var(--surface); border: 2px solid var(--ink); border-radius: 14px; box-shadow: var(--shadow);
+}
+.street-ico {
+  width: 44px; height: 44px; display: inline-grid; place-items: center; margin: 0; padding: 0;
+  background: none; border: 0; border-radius: 12px; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.street-ico:hover { background: var(--ink-soft); }
+.street-ico:disabled { color: var(--muted); cursor: default; }
+.street-ico svg { width: 22px; height: 22px; }
+.street-pill-form { display: grid; grid-template-columns: 1fr auto; align-items: center; min-width: 0; height: 44px; }
+.street-pill-input { min-width: 0; width: 100%; height: 44px; padding: 0 4px; border: 0; background: none; color: var(--ink); font-size: 1rem; outline: none; }
+.street-pill-input::placeholder { color: var(--muted); }
+.street-pill-x { width: 44px; height: 44px; margin: 0; padding: 0; border: 0; background: none; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.street-pill-x:hover { color: var(--ink); }
+.street-pill:focus-within { border-color: var(--ink); }
+.street-pill .street-pill-input:focus-visible { outline: none; }
+.street-pill:has(.street-pill-input:focus-visible) { outline: 3px solid var(--ember); outline-offset: 2px; }
+
+/* Desktop search row inside the panel: input + Look + Use my location. */
+.street-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.street-search-row .street-input-wrap { position: relative; display: flex; align-items: center; min-width: 0; }
+.street-search-row .input { padding-right: 48px; }
+.street-search-row .street-pill-x { position: absolute; right: 2px; }
+.street-search-row .btn { min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; width: auto; }
+.street-search-row .street-locate { grid-column: 1 / -1; justify-self: start; }
+
+/* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles. */
+.street-msg { margin: 0; padding: 6px 10px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); font-size: 0.82rem; color: var(--ink); justify-self: start; }
+
+/* ── Sheet body sections ───────────────────────────────────────────────────────────────────────── */
+.street-h { font-family: var(--font-display); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 8px; }
+.street-body > .street-h:first-child, .street-section > .street-h:first-child { margin-top: 6px; }
+.street-section { display: grid; gap: 8px; }
+
+/* Skeleton rows while the feed loads: static ink-soft bars, no spinner. */
+.street-skel { display: grid; gap: 10px; margin: 8px 0 12px; }
+.street-skel > span { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: center; height: 64px; padding: 12px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.street-skel > span::before { content: ''; width: 36px; height: 36px; border-radius: 10px; background: var(--ink-soft); }
+.street-skel > span::after { content: ''; height: 12px; width: 70%; border-radius: 6px; background: var(--ink-soft); }
+
+/* Most-reported chips (buttons: tap = that type's group filter). */
+.street-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; gap: 6px; flex-wrap: wrap; }
+.street-top-item {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px 6px 8px; border-radius: 999px;
+  border: 2px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 0.9rem; cursor: pointer; text-align: left;
+}
+.street-top-item:hover { border-color: var(--ink); }
+.street-top-item b { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+.street-top-item .street-top-name { overflow-wrap: anywhere; }
+
+.street-hood { margin: 0; }
+
+/* The in-view list's "Show {n} more", and the one-tap fixes in the empty states. */
+.street-more { width: 100%; margin-top: 10px; }
+.street-fixes { display: flex; flex-wrap: wrap; gap: 8px; }
+.street-fixes .btn { width: auto; }
+
+/* Empty states: a short line, then the fixes, then "Meanwhile, across the city". */
+.street-none { display: grid; gap: 10px; justify-items: start; margin-top: 8px; }
 .street-none > p { margin: 0; }
-.street-none .btn-secondary { text-decoration: none; width: auto; }
-.street-widened { margin: 0 0 .5rem; }
-.street-city { display: grid; gap: .5rem; width: 100%; margin-top: .5rem; }
-.street-city-h { font-size: 1.1rem; margin: .5rem 0 0; }
-.street-city .street-summary { margin: 0; }
-.street-top { list-style: none; margin: 0; padding: 0; display: flex; gap: .4rem; flex-wrap: wrap; }
-.street-top-item { display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .7rem .3rem .5rem; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); font-size: .85rem; }
-.street-top-item b { font-family: var(--font-display); }
-.street-city .street-h { margin-top: .5rem; }
-.street-digest { margin-top: 1.25rem; display: grid; gap: .5rem; }
-.street-digest h3 { margin: 0; }
+.street-none .btn-secondary { text-decoration: none; width: auto; border-color: var(--ember); }
+.street-meanwhile { display: grid; gap: 8px; width: 100%; }
+.street-meanwhile .btn { width: auto; justify-self: start; }
+.street-quiet { text-align: center; padding: 8px 0 0; }
+.street-quiet .illo { width: min(220px, 70%); margin: 0 auto 8px; }
+.street-quiet p { margin: 0 0 12px; }
+.street-widened, .street-gone { margin: 6px 0 0; }
+
+/* Stack focus (same-spot cases). */
+.street-stack-clear { margin-top: 10px; width: auto; }
+
+/* Weekly digest card (kept from the list page, bound to the point or to the selected case's street). */
+.street-digest { margin-top: 14px; display: grid; gap: 8px; }
+.street-digest h3 { margin: 0; font-size: 1rem; }
 .street-digest p { margin: 0; }
 .street-digest .btn-secondary { text-decoration: none; }
-.street-digest-on { display: grid; gap: .5rem; }
+.street-digest-on { display: grid; gap: 8px; }
 .street-digest-on .notice-ok { margin: 0; }
-.street-source { margin-top: 1rem; }
+.street-digest-on .btn { width: auto; justify-self: start; }
+.street-source { margin: 14px 0 0; }
+
+/* Tail: the footer's links live here on phones (the page footer is hidden under body.is-street). */
+.street-tail { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); text-align: center; font-size: 0.75rem; color: var(--muted); }
+.street-tail-links { display: flex; justify-content: center; gap: 14px; margin-bottom: 4px; }
+.street-tail-links a { text-decoration: none; font-weight: 600; color: var(--ink); min-height: var(--tap); display: inline-flex; align-items: center; }
+.street-tail .lang-switch { margin-bottom: 4px; }
+.street-tail .disclaimer { margin: 0; line-height: 1.45; text-wrap: pretty; }
+
+/* "Your places" row: label + the saved-address chips on one line. */
+.street-places-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.street-places-label { flex: 0 0 auto; font-size: 0.8rem; color: var(--muted); }
+.street-places-row .saved-addresses { flex: 1 1 auto; min-width: 0; }
+
+/* ── Desktop (≥720 px): map in its frame on the left, the panel on the right, the page footer stays ─ */
+@media (min-width: 720px) {
+  body.is-street .app { max-width: 1280px; padding: 0 24px env(safe-area-inset-bottom); }
+  .street-stage { position: static; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 16px; height: calc(100dvh - 66px - 24px); min-height: 560px; margin: 0 0 24px; }
+  .street-stage > .mapview { grid-column: 1; grid-row: 1; height: 100%; min-height: 0; }
+  .street-stage > .street-panel { grid-column: 2; grid-row: 1; }
+  .street-stage > .street-vh { position: absolute; }
+}
+@media (min-width: 720px) and (max-width: 1023px) {
+  .street-stage { grid-template-columns: minmax(0, 1fr) 360px; }
+}
