@@ -24,12 +24,23 @@
 .week-vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ── Skeleton while the numbers load: static ink-soft bars, no spinner ─────────────────────────── */
-.week-skel { display: grid; gap: 10px; margin: 14px 0; }
-.week-skel > span { position: relative; display: block; height: 68px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
-.week-skel > span::after { content: ''; position: absolute; left: 14px; top: 16px; height: 12px; width: 58%; border-radius: 6px; background: var(--ink-soft); }
-.week-skel > .week-skel-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; height: auto; border: 0; background: none; }
-.week-skel > .week-skel-stats::after { content: none; }
-.week-skel-stats i { display: block; height: 84px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+/* Same geometry as the loaded page at phone width (measured 2026-10-26: stat tile 113 px, h2 21 px with 26/8 margins,
+   type row 64 px, neighborhood row 62 px, 8 px gaps), so the swap moves nothing in view. Keep in step with .week-stat,
+   .week-h and .week-row below. The head reserves the range line (20 px) and the week nav row (44 px) the same way. */
+.week-range--skel { display: flex; align-items: center; height: 20px; }
+.week-range--skel > span { display: block; height: 10px; width: 46%; border-radius: 5px; background: var(--ink-soft); }
+.week-nav--skel { min-height: var(--tap); }
+.week-share--skel { visibility: hidden; }
+.week-skel { margin: 14px 0 0; }
+.week-skel-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.week-skel-stats i { position: relative; display: block; height: 113px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.week-skel-stats i::after { content: ''; position: absolute; left: 10px; top: 12px; height: 10px; width: 60%; border-radius: 5px; background: var(--ink-soft); }
+.week-skel-h { height: 21px; width: 42%; margin: 26px 0 8px; border-radius: 6px; background: var(--ink-soft); }
+.week-skel-list { display: grid; gap: 8px; }
+.week-skel-list i { position: relative; display: block; height: 64px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.week-skel-list i::after { content: ''; position: absolute; left: 12px; top: 20px; height: 12px; width: 58%; border-radius: 6px; background: var(--ink-soft); }
+.week-skel-list--hoods i { height: 62px; }
+@media (max-width: 359px) { .week-skel-stats { grid-template-columns: 1fr 1fr; } .week-skel-stats i:last-child { grid-column: 1 / -1; } }
 
 /* ── Stat tiles: three .card tiles in one row; the delta is text (arrow glyph + words), never colour alone ── */
 .week-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; }

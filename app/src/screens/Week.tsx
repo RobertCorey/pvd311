@@ -7,6 +7,7 @@ import { useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
 import { groupOf } from '../lib/categories';
+import { addDays, todayNY, weekLinkProblem, WEEK_TZ as TZ, YMD } from '../lib/week';
 import { agoText } from '../components/StreetRow';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -23,20 +24,8 @@ import './Week.css';
  *  Monday Reddit post still means the same week on Thursday. Share always copies the dated url (the Worker names
  *  it in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links. */
 
-/** Providence's clock for the range and the busiest day — the Worker computes both in America/New_York. */
-const TZ = 'America/New_York';
 const HOODS_SHOWN = 8;
 const FLASH_MS = 2500;
-const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** Today's calendar date in Providence (en-CA formats ISO-style) — decides a dated title before the numbers arrive. */
-const todayNY = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-/** A YYYY-MM-DD plus n days, as YYYY-MM-DD (calendar arithmetic in UTC, so no zone can shift the day). */
-const addDays = (ymd: string, n: number): string => {
-  const m = YMD.exec(ymd);
-  if (!m) return ymd;
-  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n)).toISOString().slice(0, 10);
-};
 
 export default function Week() {
   const { t, lang } = useI18n();
@@ -46,6 +35,9 @@ export default function Week() {
   const [params] = useSearchParams();
   /** The week asked for: null = the current week. Validity is the Worker's call (400 → the error state). */
   const until = params.get('until') || null;
+  /** A dated link the Worker is certain to 400 (lib/week.ts: malformed, future, or past the archive floor) loads as the
+   *  short error view it will become — no skeleton, no reserved head rows — so nothing tall collapses when the 400 lands. */
+  const badLinkAhead = weekLinkProblem(until) != null;
 
   /* ── Data ─────────────────────────────────────────────────────────────────────────────────────── */
   const [data, setData] = useState<WeekSummary | null>(null);
@@ -154,13 +146,20 @@ export default function Week() {
       {o.latest && <Link to="/week" className="week-nav-link week-nav-latest">{t('week.latest')}</Link>}
     </nav>
   ) : null);
+  /** While the numbers load, the head keeps the range line's and the week nav's height (a bar and an empty row) so the
+   *  stat tiles land exactly where the skeleton's tiles stood — the loaded page never pushes anything down. */
+  const loading = state === 'loading' && !data && !badLinkAhead;
   const head = (
     <header className="week-head">
       <h1 id="week-title">{title}</h1>
       {data && !dated && <p className="week-range">{t('week.range', { from: day(data.since), to: day(data.until) })}</p>}
       {data && dated && weekFrom && untilDate && <p className="week-range">{t('week.rangeOf', { from: fromYmd(weekFrom, { weekday: 'long' }), to: fromYmd(untilDate, { weekday: 'long' }) })}</p>}
+      {loading && <p className="week-range week-range--skel" aria-hidden="true"><span /></p>}
       {data && data.total > 0 && <button type="button" className="btn btn-ghost week-share" onClick={share}>{t('week.share')}</button>}
+      {/* Invisible twin of Share: it holds the right-hand column so the title wraps the same way before and after. */}
+      {loading && <button type="button" className="btn btn-ghost week-share week-share--skel" aria-hidden="true" tabIndex={-1} disabled>{t('week.share')}</button>}
       {data && weekNav({ prev: data.prevUntil, next: data.nextUntil, latest: !data.current })}
+      {loading && <div className="week-nav week-nav--skel" aria-hidden="true" />}
       <p className="week-flash" role="status">{flash}</p>
     </header>
   );
@@ -182,7 +181,17 @@ export default function Week() {
       <article className="week section" aria-labelledby="week-title" aria-busy="true">
         {head}
         <p className="week-vh">{t('week.loading')}</p>
-        <div className="week-skel" aria-hidden="true"><span className="week-skel-stats"><i /><i /><i /></span><span /><span /><span /></div>
+        {/* The skeleton has the loaded page's geometry down past the first screen (three stat tiles, a heading, the six
+            type rows, a heading, eight neighborhood rows — Week.css pins the heights), so nothing in view moves when the
+            numbers land and the footer stays below the fold throughout (CLS was 0.39 with a short skeleton). A link
+            that will 400 gets no skeleton: the error view is a few lines, and that is what it should load as. */}
+        {!badLinkAhead && <div className="week-skel" aria-hidden="true">
+          <div className="week-skel-stats"><i /><i /><i /></div>
+          <div className="week-skel-h" />
+          <div className="week-skel-list">{Array.from({ length: 6 }, (_, i) => <i key={i} />)}</div>
+          <div className="week-skel-h" />
+          <div className="week-skel-list week-skel-list--hoods">{Array.from({ length: HOODS_SHOWN }, (_, i) => <i key={i} />)}</div>
+        </div>}
       </article>
     );
   }

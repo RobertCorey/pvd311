@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { API, QUIET, WEEK, setupWeek } from './week-mocks';
 import { setup as setupStreet, waitForMap } from './street-mocks';
+import { todayNY, weekLinkProblem } from '../src/lib/week';
 
 // /week — "This week in Providence": one mocked GET /api/week rendered as a plain page; every section is a door into
 // /street. Mobile project = iPhone 13.
@@ -282,6 +283,86 @@ test('loading shows skeleton bars, never a spinner; the numbers replace them', a
   release();
   await expect(page.locator('.week-stats')).toBeVisible();
   await expect(page.locator('.week-skel')).toHaveCount(0);
+});
+
+/** A box's top and height in CSS px, of the first element matching `sel`. */
+const box = (page: Page, sel: string) => page.locator(sel).first().evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, height: r.height }; });
+
+test('the skeleton has the loaded page\'s geometry: tiles and rows land where their bars stood (±1 px) and the footer never enters the first screen', async ({ page }) => {
+  // Pins the hand-measured heights in Week.css (.week-skel-* ↔ .week-stat / .week-h / .week-row): a padding or font-size
+  // tweak to the loaded page without its skeleton twin fails here instead of silently bringing back CLS 0.39.
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  let release: () => void = () => {};
+  const gate = new Promise<void>((res) => { release = res; });
+  await page.route(`${API}/api/week`, async (r) => { await gate; await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(WEEK) }); });
+  await page.goto('/week');
+  await expect(page.locator('.week-skel')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  const before = { stats: await box(page, '.week-skel-stats'), tile: await box(page, '.week-skel-stats i'), type: await box(page, '.week-skel-list i'), hood: await box(page, '.week-skel-list--hoods i'), footer: await box(page, '.app-footer') };
+  expect(before.footer.top).toBeGreaterThanOrEqual(await page.evaluate(() => window.innerHeight));
+  release();
+  await expect(page.locator('.week-stats')).toBeVisible();
+  await expect(page.locator('.week-skel')).toHaveCount(0);
+  const after = { stats: await box(page, '.week-stats'), tile: await box(page, '.week-stat'), type: await box(page, '.week-top .week-row'), hood: await box(page, '.week-hoods .week-row') };
+  expect(Math.abs(after.stats.top - before.stats.top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.tile.height - before.tile.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.type.height - before.type.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.hood.height - before.hood.height)).toBeLessThanOrEqual(1);
+});
+
+test('while the Week chunk itself loads, /week (and /week/) shows a screen-tall blank so the footer stays below the fold; a link that will 400 gets none', async ({ page }) => {
+  for (const [path, tall] of [['/week', true], ['/week/', true], ['/week?until=2026-10-18', true], ['/week?until=2020-01-01', false], ['/week?until=garbage', false]] as const) {
+    await setupWeek(page, { status: () => (tall ? 200 : 400), error: { error: 'too_old' } });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => { release = res; });
+    await page.route(/\/assets\/Week-[^/]*\.js$/, async (r) => { await gate; await r.continue(); });
+    await page.goto(path);
+    await expect(page.locator('.route-loading')).toHaveCount(tall ? 1 : 0);
+    if (tall) expect(await page.locator('.app-footer').evaluate((e) => e.getBoundingClientRect().top >= window.innerHeight)).toBe(true);
+    release();
+    await expect(page.locator('main article.week')).toBeVisible();
+    await expect(page.locator('.route-loading')).toHaveCount(0);
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
+test('lib/week: weekLinkProblem mirrors the Worker — null for the live week and the archive, invalid_until for malformed or future, too_old past the 56-day floor', async () => {
+  const today = '2026-10-25';                                     // the Worker's floor for this day: 2026-08-30
+  expect(weekLinkProblem(null, today)).toBeNull();
+  expect(weekLinkProblem('', today)).toBeNull();
+  expect(weekLinkProblem(today, today)).toBeNull();
+  expect(weekLinkProblem('2026-10-18', today)).toBeNull();
+  expect(weekLinkProblem('2026-08-30', today)).toBeNull();        // at the floor
+  expect(weekLinkProblem('2026-08-29', today)).toBe('too_old');   // one past it
+  expect(weekLinkProblem('2020-01-01', today)).toBe('too_old');
+  expect(weekLinkProblem('2026-10-26', today)).toBe('invalid_until');
+  expect(weekLinkProblem('garbage', today)).toBe('invalid_until');
+  expect(weekLinkProblem('2026-10-1', today)).toBe('invalid_until');
+  expect(weekLinkProblem('2026-02-30', today)).toBe('invalid_until');
+  expect(weekLinkProblem('2026-10-18')).toBe(weekLinkProblem('2026-10-18', todayNY()));   // the default clock is Providence's today
+});
+
+test('a link the Worker will 400 (too old, malformed, future) loads without the tall skeleton: the short error view is what lands', async ({ page }) => {
+  // Every shared dated link ages past the 56-day floor; a 1,400 px skeleton collapsing to three lines dropped the footer
+  // onto the screen (CLS 0.35). The live week and in-range dates keep the skeleton (the test above).
+  for (const [until, h1, error, message] of [
+    ['2020-01-01', 'Providence, Dec 26 – Jan 1', 'too_old', 'That week is older than the eight weeks we keep.'],
+    ['garbage', 'This week in Providence', 'invalid_until', "That link doesn't point at a week we have."],
+    ['2999-01-01', 'This week in Providence', 'invalid_until', "That link doesn't point at a week we have."],   // a future date is not 'dated' until the Worker says so
+  ]) {
+    await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => { release = res; });
+    await page.route((u) => u.origin + u.pathname === `${API}/api/week`, async (r) => { await gate; await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error }) }); });
+    await page.goto(`/week?until=${until}`);
+    await expect(page.locator('main h1')).toHaveText(h1);
+    await expect(page.locator('main article')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.locator('.week-skel')).toHaveCount(0);
+    release();
+    await expect(page.locator('.notice-error[role="alert"]')).toHaveText(message);
+    await expect(weekNav(page).getByRole('link', { name: 'Latest week' })).toHaveAttribute('href', '/week');
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
 });
 
 test('Spanish, dated: title by range, weekday subtitle, the nav', async ({ page }) => {

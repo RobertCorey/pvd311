@@ -55,6 +55,8 @@ h2 { font-size: 1.35rem; font-weight: 800; margin: 0 0 6px; line-height: 1.15; }
 
 .card { background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow); }
 .section { margin: 18px 0; }
+/* Suspense fallback for tall routes (App.tsx RouteFallback): keeps the footer below the fold while the chunk loads. */
+.route-loading { min-height: 100dvh; }
 .notice { display: flex; gap: 8px; padding: 10px 12px; border-radius: var(--radius); font-size: 0.9rem; line-height: 1.4; border: 2px solid; }
 .notice-error { background: var(--danger-soft); border-color: var(--danger); color: var(--ink); }
 .notice-warn { background: var(--warn-soft); border-color: var(--warn); color: var(--ink); }
