@@ -169,3 +169,31 @@ export interface AdminProfile {
   emails: AdminEmailRow[];
 }
 export const adminProfile = (uid: string) => call<AdminProfile>(`/api/admin/users/${encodeURIComponent(uid)}/profile`);
+
+// ── Engagement (GET /api/admin/engagement) ─────────────────────────────────────────
+/** One digest or follow mail from the email log, body-less: `to` comes masked from the Worker. */
+export interface AdminEngagementMail { id: string; at: string; kind: EmailKind; to: string; subject: string; status: AdminEmailRow['status'] }
+/** meta/weekDigest (total + adminMailed) and meta/streetDigest, as the Monday runs leave them. */
+export interface AdminDigestRun { at: string; users: number; mailed: number; pushed: number; total?: number; adminMailed?: boolean }
+/**
+ * Who opted into what, counted in memory from one scan of the users collection (≤ 500 — `scanned` says how many,
+ * `truncated` that the scan hit the cap, so the counts are floors), plus the last Monday runs and the recent digest /
+ * street-watch / push events and mails. Cached 60 s per Worker isolate.
+ */
+export interface AdminEngagement {
+  at: string;
+  accounts: {
+    total: number; withPush: number; pushDevices: number; follows: { accounts: number; cases: number };
+    streetDigest: number; weekDigest: number; streetWatch: number; watchGroupsSet: number;
+    scanned: number; truncated: boolean;
+    /** The three opt-ins from the equality queries the Monday jobs read (`prefs.X == true`, ≤ 500) — a cross-check
+     *  that does not depend on the scan window; null when any of the queries failed. */
+    queried?: { streetDigest: number; weekDigest: number; streetWatch: number } | null;
+  };
+  overnightHeld: number;
+  vapidSince: string | null;
+  lastWeekDigest: AdminDigestRun | null;
+  lastStreetDigest: AdminDigestRun | null;
+  recent: { events: AdminEvent[]; mails: AdminEngagementMail[] };
+}
+export const adminEngagement = () => call<AdminEngagement>('/api/admin/engagement');

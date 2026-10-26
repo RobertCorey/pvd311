@@ -306,11 +306,11 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.*, track.near.*, watch.* and home.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin.engagement.*, week.*, track.near.*, watch.* and home.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.') || k.startsWith('home.');
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('admin.engagement.') || k.startsWith('admin.tab.engagement') || k.startsWith('admin.tabsub.engagement') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.') || k.startsWith('home.');
   const enKeys = Object.keys(en).filter(ours);
   const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);
@@ -324,7 +324,12 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.
   // The home strip's four keys (components/HomeWeekStrip.tsx), translated, with the line's two placeholders in both.
   expect(enKeys.filter((k) => k.startsWith('home.week.')).sort()).toEqual(['home.week.line', 'home.week.map', 'home.week.quiet', 'home.week.week']);
   for (const k of ['home.week.line', 'home.week.quiet', 'home.week.map', 'home.week.week']) expect(es[k], k).not.toBe(en[k]);
-  for (const d of [en, es]) { expect(d['home.week.line']).toContain('{total}'); expect(d['home.week.line']).toContain('{closed}'); }
+  for (const d of [en, es]) { expect(d['home.week.line']).toContain('{total}'); expect(d['home.week.line']).toContain('{closed}'); }  // The Engagement tab (screens/AdminEngagement.tsx): the rail label + sub, seven tile labels, translated; the placeholders agree.
+  expect(es['admin.tab.engagement']).toBe('Participación');
+  for (const k of ['admin.tab.engagement', 'admin.tabsub.engagement', 'admin.engagement.what', 'admin.engagement.empty', 'admin.engagement.neverRan', 'admin.engagement.sum.week']) expect(es[k], k).not.toBe(en[k]);
+  expect(enKeys.filter((k) => /^admin\.engagement\.tile\.[a-zA-Z]+$/.test(k) && !k.endsWith('What')).sort()).toEqual(['accounts', 'follows', 'groups', 'push', 'query', 'streetDigest', 'streetWatch', 'weekDigest'].map((k) => `admin.engagement.tile.${k}`)); // seven tiles + the query cross-check line
+  const holes = (s: string) => (s.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
+  for (const k of enKeys.filter((k) => k.startsWith('admin.engagement.'))) expect(holes(es[k]), k).toEqual(holes(en[k]));
 });
 
 // ── likelyOwnCase: the report itself in the city's list (TrackNear drops it from "Near this request") ──

@@ -1,0 +1,56 @@
+/* /admin → Engagement (AdminEngagement.tsx): opt-in tiles, the two Monday run cards, recent runs + mail. Desktop first
+   (Admin.css density); the ≤ 760px block stacks everything for Rob's phone. The mail table takes its look — and its
+   phone cards — from the Email tab (AdminEmail.css + AdminMobile.css .email-table). */
+.admin-engagement .admin-filters { align-items: start; }
+.eng-what { margin: 0; flex: 1 1 420px; max-width: 72ch; line-height: 1.4; }
+.eng-asof { margin: 0 0 10px; }
+
+/* Tiles: number, label, one-line explainer — the Usage tab's sys-num with a third line. */
+.eng-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 8px; }
+.eng-tile { display: grid; gap: .1rem; padding: 10px 12px; align-content: start; }
+.eng-tile b { font-family: var(--font-display); font-size: 1.35rem; line-height: 1.1; }
+.eng-tile-label { font-size: .82rem; font-weight: 600; }
+.eng-tile-what { font-size: .74rem; color: var(--muted); line-height: 1.3; }
+.eng-tile-query { font-size: .74rem; color: var(--warn); font-weight: 600; line-height: 1.3; }
+
+.eng-empty { margin: 12px 0 0; }
+.admin-engagement .admin-section h2 { font-size: 1.05rem; margin: 16px 0 8px; }
+.admin-engagement .admin-section > .admin-meta { margin: 0 0 8px; }
+
+/* Last Monday: the two run cards side by side, the overnight line and the push key line under them. */
+.eng-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.eng-card { display: grid; gap: 8px; padding: 12px 14px; align-content: start; }
+.eng-card-title { margin: 0; font-family: var(--font-display); font-size: 1rem; }
+.eng-card-never { margin: 0; }
+.eng-card .admin-dl { gap: 6px 12px; }
+.eng-post { font-weight: 600; }
+.eng-line { margin: 12px 0 0; line-height: 1.4; }
+.eng-overnight { font-family: var(--font-display); }
+.eng-vapid { margin: 4px 0 0; }
+
+/* Recent runs: time · kind · what happened */
+.eng-events th, .eng-events td { height: 34px; font-size: var(--admin-meta); }
+.eng-events tbody tr { cursor: default; }
+.eng-events .eng-time { white-space: nowrap; color: var(--muted); width: 96px; }
+.eng-events .eng-kind { width: 1%; white-space: nowrap; }
+.eng-events .eng-summary { word-break: break-word; }
+
+@media (max-width: 1023px) {
+  .eng-cards { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .eng-what { flex-basis: 100%; }
+  .eng-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eng-tile b { font-size: 1.25rem; }
+  /* Recent runs → cards: time · kind on one line, the summary under them. */
+  .eng-events { display: block; border: 0; background: none; border-radius: 0; }
+  .eng-events > thead { display: none; }
+  .eng-events > tbody { display: grid; gap: 8px; }
+  .eng-events tr { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 8px 10px; background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; }
+  .eng-events td { display: block; height: auto; padding: 0; border: 0; width: auto; min-width: 0; white-space: normal; background: none !important; }
+  .eng-events td.eng-time, .eng-events td.eng-kind { width: auto; } /* outranks the desktop column widths above */
+  .eng-events td.eng-kind { justify-self: end; }
+  .eng-events td.eng-summary { grid-column: 1 / -1; font-size: .92rem; }
+  .eng-events tbody tr:nth-child(even) td, .eng-events tbody tr:hover td { background: none; }
+}

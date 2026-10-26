@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { engagement, engagementEmpty } from './admin-mocks';
 
 // /admin gate + row actions, API mocked. The Worker is the authority; the screen routes on /api/me `admin`.
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
@@ -224,4 +225,94 @@ test('canary card: one live golden + sim rows → ok (sim rows are minted by the
 test('canary card: disabled → neutral Off banner, no rows', async ({ page }) => {
   const card = await openCanary(page, canaryBlock({ enabled: false }));
   await expect(card.locator('.canary-banner.is-off')).toContainText('Off');
+});
+
+// ── Engagement tab (GET /api/admin/engagement, mocked) ──
+async function openEngagement(page: Page, body: unknown) {
+  await setup(page, { admin: true });
+  await page.route(`${API}/api/admin/engagement`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }));
+  await page.goto('/admin#engagement');
+  const main = page.locator('main');
+  await expect(main.locator('h1')).toContainText('Engagement');
+  return main;
+}
+
+test('engagement: seven tiles with their counts, the two last-Monday cards, the overnight line, recent runs + mail', async ({ page }) => {
+  const main = await openEngagement(page, engagement());
+  const tiles = main.locator('.eng-tile');
+  await expect(tiles).toHaveCount(7);
+  const tile = (label: string) => tiles.filter({ has: page.locator('.eng-tile-label', { hasText: label }) });
+  await expect(tile('Accounts').locator('b')).toHaveText('14');
+  await expect(tile('Push devices').locator('b')).toHaveText('7');
+  await expect(tile('Push devices')).toContainText('on 5 accounts');
+  await expect(tile('Following a city case').locator('b')).toHaveText('4');
+  await expect(tile('Following a city case')).toContainText('9 cases followed');
+  await expect(tile('Street digest').locator('b')).toHaveText('6');
+  await expect(tile('Week digest').locator('b')).toHaveText('8');
+  await expect(tile('Street watch').locator('b')).toHaveText('3');
+  await expect(tile('Narrowed the types').locator('b')).toHaveText('2');
+  await expect(main.locator('.eng-asof')).toContainText('counted across all 14 accounts');
+  await expect(main.locator('.eng-empty')).toHaveCount(0);
+  // Last Monday: the week card carries the week's size and whether the post reached Rob; the street card does not.
+  const week = main.locator('.eng-card--week');
+  await expect(week).toContainText('Week digest');
+  await expect(week).toContainText('2 d ago');
+  await expect(week).toContainText('7 of 8 opted in');
+  await expect(week).toContainText('4 notifications');
+  await expect(week).toContainText('292');
+  await expect(week.locator('.eng-post')).toHaveText('Yes');
+  const street = main.locator('.eng-card--street');
+  await expect(street).toContainText('4 of 6 opted in');
+  await expect(street).toContainText('2 notifications');
+  await expect(street.locator('.eng-post')).toHaveCount(0);
+  await expect(main.locator('.eng-overnight')).toHaveText('3 street-watch hits waiting for the 7 am catch-up');
+  await expect(main.locator('.eng-vapid')).toContainText('Push signing key minted');
+  // Recent runs: time · kind · a summary built from the event's data, not its message.
+  const events = main.locator('.eng-events tbody tr');
+  await expect(events).toHaveCount(9);
+  await expect(events.nth(0).locator('.sys-kind')).toHaveText('watch.pushed');
+  await expect(events.nth(0).locator('.eng-summary')).toHaveText('2 pushes for 2 new cases near 2 accounts');
+  await expect(events.nth(1).locator('.eng-summary')).toHaveText('street_watch: 2 sent to 2 accounts');
+  await expect(events.nth(2).locator('.eng-summary')).toHaveText('2 pushes to 2 of 2 accounts with overnight cases');
+  await expect(events.nth(3).locator('.eng-summary')).toHaveText('street_watch: 2 sent to 2 accounts (morning catch-up)');
+  await expect(events.nth(4).locator('.eng-summary')).toHaveText('3 hits near 2 accounts held for the morning');
+  await expect(events.nth(5).locator('.eng-summary')).toHaveText('7 of 8 mailed · 4 pushed · 292 cases that week · post to you: Yes');
+  await expect(events.nth(7).locator('.eng-summary')).toHaveText('4 of 6 mailed · 2 pushed');
+  // Recent mail: the Email tab's row look (kind chip, masked recipient, delivery pill); a row opens the mail in Email.
+  const mails = main.locator('.eng-mails tbody tr');
+  await expect(mails).toHaveCount(13);
+  await expect(mails.nth(0).locator('.email-kind')).toHaveText('Daily digest');
+  await expect(mails.nth(0)).toContainText('→ r***@fixmypvd.org');
+  await expect(mails.nth(1).locator('.email-kind')).toHaveText('Weekly city digest');
+  await expect(mails.nth(1).locator('.email-pill')).toHaveText('Sent');
+  await expect(mails.nth(1)).toContainText('→ re***0@example.com');
+  await expect(mails.nth(7).locator('.email-pill')).toHaveText('Send failed');
+  await expect(mails.nth(8).locator('.email-kind')).toHaveText('Weekly street digest');
+  await expect(mails.last().locator('.email-kind')).toHaveText('Followed case update');
+  await mails.nth(1).click();
+  await expect(page).toHaveURL(/#email:m_wk0$/);
+});
+
+test('engagement: a capped scan says so', async ({ page }) => {
+  const main = await openEngagement(page, engagement({ accounts: { ...engagement().accounts, total: 812, scanned: 500, truncated: true, queried: { streetDigest: 6, weekDigest: 11, streetWatch: 3 } } }));
+  await expect(main.locator('.eng-asof')).toContainText('counted across the first 500 of 812 accounts');
+  await expect(main.locator('.eng-tile').first().locator('b')).toHaveText('812');
+  // The equality-query cross-check shows only where it disagrees with the scan (week digest: 11 vs 8).
+  await expect(main.locator('.eng-tile-query')).toHaveCount(1);
+  await expect(main.locator('.eng-tile', { hasText: 'Week digest' }).locator('.eng-tile-query')).toHaveText('The Monday query counts 11');
+});
+
+test('engagement: empty state when nothing has gone out yet', async ({ page }) => {
+  const main = await openEngagement(page, engagementEmpty());
+  await expect(main.locator('.eng-tile')).toHaveCount(7);
+  for (const b of await main.locator('.eng-tile b').all()) await expect(b).toHaveText('0');
+  await expect(main.locator('.eng-empty')).toContainText('Nothing has gone out yet');
+  await expect(main.locator('.eng-card-never')).toHaveCount(2);
+  await expect(main.locator('.eng-card--week')).toContainText("Hasn't run yet");
+  await expect(main.locator('.eng-overnight')).toHaveText('nothing waiting for the 7 am catch-up');
+  await expect(main.locator('.eng-vapid')).toContainText('No push signing key yet');
+  await expect(main.locator('.eng-events')).toHaveCount(0);
+  await expect(main.locator('.eng-mails')).toHaveCount(0);
+  await expect(main).toContainText('No run yet.');
+  await expect(main).toContainText('No digest mail yet.');
 });

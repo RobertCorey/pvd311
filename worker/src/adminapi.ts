@@ -22,6 +22,8 @@
  *   POST /api/admin/engine/resume          → clear circuit breaker
  *   POST /api/admin/engine/pause           → pause submissions
  *   GET  /api/admin/usage?days=7|30        → first-party usage analytics (ui.ts, Analytics Engine)
+ *   GET  /api/admin/engagement             → who is subscribed to what: accounts with push / follows / the Monday opt-ins (one users scan + equality
+ *                                            cross-check), last digest runs, overnight holds, recent events + mails (engagement.ts; 60 s cache per isolate)
  *   GET  /api/admin/emails?dir&kind&q&reportId&uid&addr&before&limit → the email log (emaillog.ts), newest first, summaries
  *   GET  /api/admin/emails/:id             → one email: full text (fetched from Resend when not stored) + delivery state + linked report/accounts
  *   POST /api/admin/emails/sync            → import Resend's sent mail + stored city mail we have no record of; refresh delivery states
@@ -42,6 +44,7 @@ import { usage } from './ui.js';
 import { buildAdminView } from './cityquestions.js';
 import type { ReportStatus } from '../../shared/types.js';
 import { fetchResendEmail, importCityMessages, syncFromResend, type EmailRecord } from './emaillog.js';
+import { engagement } from './engagement.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -111,6 +114,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     const days = url.searchParams.get('days') === '30' ? 30 : url.searchParams.get('days') === '1' ? 1 : 7;
     return json(await usage(env, days));
   }
+
+  if (m === 'GET' && path === '/api/admin/engagement') return json(await engagement(store));
 
   if (m === 'GET' && path === '/api/admin/overview') {
     const [engine, awaiting, failed, pending, recent] = await Promise.all([
