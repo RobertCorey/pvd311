@@ -431,3 +431,29 @@ export function ago(iso: string | null | undefined, nowMs: number): 'today' | 'y
   const days = Math.max(0, Math.floor((nowMs - t) / DAY_MS));
   return days === 0 ? 'today' : days === 1 ? 'yesterday' : days;
 }
+
+/* ── "Your places this week" (the /street landing, signed in) ───────────────────────────────────── */
+
+export interface PlaceActivity {
+  /** Located cases created within the window. */
+  created: number;
+  /** Located cases closed (closedAt within the window, status closed). A case can count in both. */
+  closed: number;
+}
+
+/** The last `days` days within `radiusM` of `p`, from the loaded feed — no request. An unlocated case or one without a
+ *  parseable date never counts; a case whose closedAt is set but whose status is open (reopened) is not a close. */
+export function placeActivity(cases: MapCase[], p: LatLng, nowMs: number, radiusM = 300, days = 7): PlaceActivity {
+  const since = nowMs - days * DAY_MS;
+  let created = 0, closed = 0;
+  for (const c of cases) {
+    if (c.lat == null || c.lng == null) continue;
+    const a = parseMs(c.createdAt), b = parseMs(c.closedAt);
+    const isNew = a != null && a >= since, isClosed = !c.open && b != null && b >= since;
+    if (!isNew && !isClosed) continue;
+    if (metersBetween(p.lat, p.lng, c.lat, c.lng) > radiusM) continue;
+    if (isNew) created++;
+    if (isClosed) closed++;
+  }
+  return { created, closed };
+}

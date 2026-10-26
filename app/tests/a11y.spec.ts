@@ -56,6 +56,8 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['my', (p) => p.goto('/my')],
   ['street', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St')],
   ['street-landing', (p) => p.goto('/street')],
+  // The landing's half sheet, signed in with a saved address: the "Your places this week" card over the week link.
+  ['street-places', async (p) => { await signedIn(p, { addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }] }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-places-card').waitFor(); }],
   ['week', (p) => p.goto('/week')],
   ['week-dated', (p) => p.goto('/week?until=2026-10-18')],
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],

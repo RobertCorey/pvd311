@@ -66,6 +66,22 @@
 .street-skel > span::before { content: ''; width: 36px; height: 36px; border-radius: 10px; background: var(--ink-soft); }
 .street-skel > span::after { content: ''; height: 12px; width: 70%; border-radius: 6px; background: var(--ink-soft); }
 
+/* "Your places this week" (landing, signed in): one compact card above the week link — a 44 px row per saved address,
+   the label left, the 7-day counts within 300 m right, a chevron; a tap goes to the address like its header chip. */
+.street-places-card { margin: 6px 0 0; padding: 10px 14px 4px; }
+.street-places-card > .street-h { margin: 0 0 2px; }
+.street-places-list { list-style: none; margin: 0; padding: 0; }
+.street-places-list li + li { border-top: 1px solid var(--line); }
+.street-place {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap); margin: 0; padding: 8px 0;
+  background: none; border: 0; border-radius: 6px; font: inherit; line-height: 1.3; color: var(--ink); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.street-place:hover .street-place-label { text-decoration: underline; text-underline-offset: 3px; }
+.street-place-label { flex: 1 1 auto; min-width: 0; font-family: var(--font-display); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.street-place-n { flex: 0 0 auto; font-size: 0.85rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.street-place-n--quiet { color: var(--muted); }
+.street-place-go { flex: 0 0 auto; color: var(--muted); font-size: 1.1rem; line-height: 1; }
+
 /* "This week in Providence →": one card row at the top of the landing list, leading to /week. */
 .street-week-link { display: block; margin: 6px 0 0; padding: 12px 14px; text-decoration: none; color: var(--ink); font-family: var(--font-display); font-weight: 700; font-size: 1rem; }
 .street-week-link:hover { border-color: var(--ink); }

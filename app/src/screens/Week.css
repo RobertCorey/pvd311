@@ -4,12 +4,19 @@
 
 .week { padding-block: 4px 8px; }
 
-/* ── Head: title + range left, Share right; one live region for "Link copied" ──────────────────── */
-.week-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title share' 'range share' 'nav nav' 'flash flash'; gap: 2px 12px; align-items: start; }
+/* ── Head: title + range left, Share over Copy as post right; one live region for "Link copied" / "Post copied" ── */
+.week-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title share' 'range share' 'nav nav' 'flash flash' 'manual manual'; gap: 2px 12px; align-items: start; }
 .week-head h1 { grid-area: title; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 4px 0 0; }
 .week-range { grid-area: range; margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.4; }
-.week-share { grid-area: share; align-self: start; margin-top: 4px; }
+/* The two ghost buttons stack in one column of equal widths (the wider label sets it). */
+.week-actions { grid-area: share; align-self: start; display: grid; gap: 6px; justify-items: stretch; margin-top: 4px; }
+.week-actions .btn { white-space: nowrap; }
 .week-flash { grid-area: flash; min-height: 1.3em; margin: 2px 0 0; font-size: 0.85rem; color: var(--ink); }
+/* The post laid open when nothing could write the clipboard: a read-only Markdown box plus Select all / Hide. */
+.week-manual { grid-area: manual; display: grid; gap: 8px; margin-top: 6px; }
+.week-manual-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; line-height: 1.45; min-height: 160px; }
+.week-manual-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.week-manual-actions .btn { width: auto; }
 
 /* Week nav: ‹ Previous week · Next week › · Latest week — plain river links in a row (wraps on narrow phones),
    each a full-height tap target. Hidden links are not rendered, so the row is only as wide as what exists. */
@@ -30,7 +37,7 @@
 .week-range--skel { display: flex; align-items: center; height: 20px; }
 .week-range--skel > span { display: block; height: 10px; width: 46%; border-radius: 5px; background: var(--ink-soft); }
 .week-nav--skel { min-height: var(--tap); }
-.week-share--skel { visibility: hidden; }
+.week-actions--skel { visibility: hidden; }
 .week-skel { margin: 14px 0 0; }
 .week-skel-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .week-skel-stats i { position: relative; display: block; height: 113px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }

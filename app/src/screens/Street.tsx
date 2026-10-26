@@ -11,7 +11,7 @@ import type { GroupKey } from '../lib/categories';
 import { hoodOfSync, loadNeighborhoods, ringBounds, type NeighborhoodTable, type Rings } from '../lib/neighborhoods';
 import {
   applyFilters, CITY_BOUNDS, distanceM, facetCounts, hoodCounts, inBounds, isDefaultView, metersBetween, padBounds,
-  parseStreetUrl, sortForPoint, summaryOf, topTypes, writeStreetUrl, type Bounds, type Filters, type LatLng, type StreetUrlState,
+  parseStreetUrl, placeActivity, sortForPoint, summaryOf, topTypes, writeStreetUrl, type Bounds, type Filters, type LatLng, type StreetUrlState,
 } from '../lib/streetMap';
 import { DESKTOP_MQ, useMediaQuery } from '../lib/useMediaQuery';
 import MapView, { type MapFit, type MapPoint, type MapViewChange } from '../components/MapView';
@@ -40,6 +40,9 @@ const RING_M = 300;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
 const LATEST = 20;
+/** "Your places this week": at most this many saved addresses, each counted over the last 7 days within RING_M. */
+const PLACES_MAX = 5;
+const PLACES_DAYS = 7;
 const CITY_LL: L.LatLngBoundsLiteral = [[CITY_BOUNDS.south, CITY_BOUNDS.west], [CITY_BOUNDS.north, CITY_BOUNDS.east]];
 const at = (p: LatLng): L.LatLngBoundsLiteral => [[p.lat, p.lng], [p.lat, p.lng]];
 /** window.__streetMap for Playwright: dev/test builds, or the production build served on localhost (the test server). */
@@ -595,6 +598,45 @@ export default function Street() {
     );
   }
 
+  /* ── "Your places this week": the saved addresses' 7-day counts, from the loaded feed (no request) ─── */
+  // Every window the page loads (30 or 90 days) contains the last 7, so the card reads the same under either; the
+  // filters are not applied — it is the glanceable answer to "anything at my places?", not a view of the map.
+  const placeRows = useMemo(() => {
+    if (!session || !me || !data) return [];
+    return me.addresses.filter((a) => a.lat != null && a.lng != null).slice(0, PLACES_MAX)
+      .map((a) => ({ a, lat: a.lat as number, lng: a.lng as number, ...placeActivity(data.cases, { lat: a.lat as number, lng: a.lng as number }, nowMs, RING_M, PLACES_DAYS) }));
+  }, [session, me, data, nowMs]);
+  /** The card sits at the top of the landing list (signed in, ≥ 1 saved address with coordinates); a row does what
+   *  its "Your places" chip does. Counted as one street_places_view per page mount. */
+  const placesShown = landing &&!!data && data.total > 0 && !selectedCase && !stackCases && !lookingUp && filtered.length > 0 && placeRows.length > 0;
+  const placesTracked = useRef(false);
+  useEffect(() => {
+    if (!placesShown || placesTracked.current) return;
+    placesTracked.current = true;
+    track('street_places_view', { n: placeRows.length });
+  }, [placesShown, placeRows.length]);
+  const placesCard = (
+    <section className="card street-places-card" aria-labelledby="street-places-h">
+      <h3 id="street-places-h" className="street-h">{t('street.places.title')}</h3>
+      <ul className="street-places-list">
+        {placeRows.map(({ a, lat, lng, created, closed }) => {
+          const quiet = created === 0 && closed === 0;
+          const counts = quiet ? t('street.places.quiet')
+            : `${t(created === 1 ? 'street.places.new.one' : 'street.places.new', { n: num(created) })} · ${t(closed === 1 ? 'street.places.closed.one' : 'street.places.closed', { n: num(closed) })}`;
+          return (
+            <li key={a.id}>
+              <button type="button" className="street-place" title={a.address} onClick={() => go(a.address, lat, lng)}>
+                <span className="street-place-label">{a.label || addressLabel(a.address) || t('street.digest.defaultLabel')}</span>
+                <span className={`street-place-n${quiet ? ' street-place-n--quiet' : ''}`}>{counts}</span>
+                <span className="street-place-go" aria-hidden="true">›</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+
   function renderBody(): ReactNode {
     if (!data) {
       if (feedState === 'error') return <div className="notice notice-error"><span>{t('street.error')}</span><button type="button" className="btn btn-ghost" onClick={() => setRetryTick((x) => x + 1)}>{t('street.retry')}</button></div>;
@@ -634,6 +676,7 @@ export default function Street() {
       if (filtered.length === 0) return renderEmpty();
       return (
         <>
+          {placesShown && placesCard}
           <Link to="/week" className="card street-week-link">{t('street.weekLink')}</Link>
           <h3 className="street-h">{t('street.city.top')}</h3>
           {topChips}

@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
-  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
+  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
@@ -328,4 +328,37 @@ test('likelyOwnCase: same category + same day + (within OWN_CASE_M or the same s
   expect(likelyOwnCase([{ ...base, lat: null, lng: null, street: 'ELSEWHERE' }], report)).toBeNull();
   expect(likelyOwnCase([{ ...base, lat: null, lng: null }], report)).toBe('x'); // unlocated but our street line
   expect(OWN_CASE_M).toBe(60);
+});
+
+// ── placeActivity: "Your places this week" on the /street landing — 7-day counts within 300 m, from the loaded feed ──
+test.describe('placeActivity', () => {
+  const HOME = { lat: 41.8283, lng: -71.4006 }; // c1's spot: c1 (open, 3 d) and c3 (open, today) are new, c2 (closed yesterday) is a close
+
+  test('created and closed within the window and the radius; unlocated and far cases never count', () => {
+    // c4 has no coordinates; c5 is ≈ 800 m away (created 45 d ago, closed 2 d ago).
+    expect(placeActivity(DECODED.cases, HOME, NOW)).toEqual({ created: 2, closed: 1 });
+    expect(placeActivity(DECODED.cases, HOME, NOW, 1000)).toEqual({ created: 2, closed: 2 });
+    expect(placeActivity(DECODED.cases, { lat: 41.9, lng: -71.5 }, NOW)).toEqual({ created: 0, closed: 0 });
+    expect(placeActivity([], HOME, NOW)).toEqual({ created: 0, closed: 0 });
+  });
+
+  test('the window cuts by createdAt for "new" and by closedAt for "closed", independently', () => {
+    expect(placeActivity(DECODED.cases, HOME, NOW, 300, 2)).toEqual({ created: 1, closed: 1 });   // c3 today; c2 closed yesterday
+    expect(placeActivity(DECODED.cases, HOME, NOW, 300, 0.5)).toEqual({ created: 1, closed: 0 }); // c2's close is a full day old
+    expect(placeActivity(DECODED.cases, HOME, NOW, 300, 30)).toEqual({ created: 3, closed: 1 });  // c2 created 9 d ago joins "new"
+  });
+
+  test('a case can be both new and closed; an open case with a closedAt is not a close; unparseable dates do not count', () => {
+    const both = mkCase({ id: 'b', open: false, status: 'Resolved', createdAt: isoAgo(2), closedAt: isoAgo(1), lat: HOME.lat, lng: HOME.lng });
+    expect(placeActivity([both], HOME, NOW)).toEqual({ created: 1, closed: 1 });
+    const reopened = mkCase({ id: 'r', open: true, createdAt: isoAgo(20), closedAt: isoAgo(1), lat: HOME.lat, lng: HOME.lng });
+    expect(placeActivity([reopened], HOME, NOW)).toEqual({ created: 0, closed: 0 });
+    const undated = mkCase({ id: 'u', createdAt: null, closedAt: null, lat: HOME.lat, lng: HOME.lng });
+    expect(placeActivity([undated], HOME, NOW)).toEqual({ created: 0, closed: 0 });
+    expect(placeActivity([mkCase({ id: 'g', createdAt: 'garbage', lat: HOME.lat, lng: HOME.lng })], HOME, NOW)).toEqual({ created: 0, closed: 0 });
+    // Exactly on the radius counts; one metre past it does not (≈ 300 m north of HOME is 0.0027° of latitude).
+    const edge = (dLat: number) => placeActivity([mkCase({ id: 'e', lat: HOME.lat + dLat, lng: HOME.lng })], HOME, NOW).created;
+    expect(edge(0.00269)).toBe(1);
+    expect(edge(0.00272)).toBe(0);
+  });
 });

@@ -107,6 +107,107 @@ test('share: with navigator.share absent the URL lands on the clipboard and the 
   expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe('http://localhost:4173/week?until=2026-10-25');
 });
 
+/** lib/weekPost.ts for the mocked current week, with this origin as the link's site (BRAND.siteUrl off fixmypvd.org). */
+const POST = [
+  '**This week in Providence (Oct 18 – Oct 25)**',
+  '312 requests to 311 (+22 vs last week), 114 closed, median 3.5 days to close.',
+  'Most reported: Pothole (61), Street Light Out (44), Missed Trash Pickup (39).',
+  'Busiest: Elmhurst (48), West End (41), Downtown (36).',
+  'What closing meant: 35% work done, 26% referred elsewhere, 18% logged in another system…',
+  '- Street Light Out, 22 Thayer St (College Hill): "Bulb replaced."\n- Pothole, 10 Angell St (College Hill): "Filled with cold patch; permanent repair scheduled."\n- Graffiti: "Referred to Parks."',
+  "Full week, map and the city's own notes: http://localhost:4173/week?until=2026-10-25",
+  "From Providence 311's public request list. Not affiliated with the city.",
+].join('\n\n');
+
+test('copy as post: next to Share; the week lands on the clipboard as Markdown and the live region says so; a blocked clipboard says so too; a dated week posts its own range and link', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (s: string) => { (window as unknown as { __copied: string }).__copied = s; return Promise.resolve(); } }, configurable: true, writable: true });
+  });
+  await open(page);
+  const actions = page.locator('.week-head .week-actions .btn');
+  await expect(actions).toHaveText(['Share', 'Copy as post']);
+  for (const b of await actions.all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.getByRole('button', { name: 'Copy as post' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Post copied');
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(POST);
+  // The clipboard refuses (no permission) and the old execCommand way fails too: the live region says so and the post is
+  // laid open in a read-only box, selected, with Select all and Hide — it can still be copied by hand.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')) }, configurable: true });
+    document.execCommand = () => false;
+  });
+  await page.getByRole('button', { name: 'Copy as post' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText("Couldn't copy here. The post is below — select it and copy it yourself.");
+  const manual = page.getByRole('textbox', { name: 'The post as Markdown' });
+  await expect(manual).toBeVisible();
+  await expect(manual).toHaveValue(POST);
+  await expect(manual).toHaveAttribute('readonly', '');
+  await expect(manual).toBeFocused();
+  expect(await manual.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, POST.length]);
+  await page.getByRole('button', { name: 'Share' }).focus();   // move focus away, then Select all brings it back selected
+  await page.getByRole('button', { name: 'Select all' }).click();
+  await expect(manual).toBeFocused();
+  expect(await manual.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, POST.length]);
+  for (const b of await page.locator('.week-manual-actions .btn').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.getByRole('button', { name: 'Hide' }).click();
+  await expect(manual).toHaveCount(0);
+  // A past week: its calendar range in the title and its dated link.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (s: string) => { (window as unknown as { __copied: string }).__copied = s; return Promise.resolve(); } }, configurable: true });
+  });
+  await page.goto('/week?until=2026-10-18');
+  await expect(page.locator('main h1')).toHaveText('Providence, Oct 12 – Oct 18');
+  await page.getByRole('button', { name: 'Copy as post' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Post copied');
+  const dated = await page.evaluate(() => (window as unknown as { __copied: string }).__copied);
+  expect(dated.split('\n\n')[0]).toBe('**This week in Providence (Oct 12 – Oct 18)**');
+  expect(dated).toContain("Full week, map and the city's own notes: http://localhost:4173/week?until=2026-10-18");
+});
+
+test('copy as post + share without navigator.clipboard (plain http off localhost): the hidden-textarea execCommand path copies, the box is cleaned up, focus stays on the button', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'share', { value: undefined, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    // The only copy path left: whatever is selected in the focused textarea when execCommand('copy') runs.
+    document.execCommand = (cmd: string) => {
+      if (cmd !== 'copy') return false;
+      const el = document.activeElement as HTMLTextAreaElement | null;
+      if (!el || el.tagName !== 'TEXTAREA') return false;
+      (window as unknown as { __copied: string }).__copied = el.value.slice(el.selectionStart, el.selectionEnd);
+      return true;
+    };
+  });
+  await open(page);
+  expect(await page.evaluate(() => navigator.clipboard === undefined)).toBe(true);
+  const post = page.getByRole('button', { name: 'Copy as post' });
+  await post.click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Post copied');
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(POST);
+  await expect(page.locator('textarea')).toHaveCount(0);   // the throwaway box is gone; no manual box either
+  await expect(post).toBeFocused();
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Link copied');
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe('http://localhost:4173/week?until=2026-10-25');
+  // Share with no way to copy at all says so in the same live region.
+  await page.evaluate(() => { document.execCommand = () => false; });
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText("Couldn't copy here. Try again.");
+  await expect(page.locator('textarea')).toHaveCount(0);
+});
+
+test('copy as post, Spanish: the button and its status are translated while the post stays English', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('fixmypvd.lang', 'es');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (s: string) => { (window as unknown as { __copied: string }).__copied = s; return Promise.resolve(); } }, configurable: true });
+  });
+  await setupWeek(page);
+  await page.goto('/week');
+  await expect(page.locator('main h1')).toHaveText('Esta semana en Providence');
+  await page.getByRole('button', { name: 'Copiar resumen' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Resumen copiado');
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(POST);
+});
+
 test('the current week: the title stays "This week", only Previous week is offered, and the sign-in round trip returns to the live page', async ({ page }) => {
   await open(page);
   const nav = weekNav(page);

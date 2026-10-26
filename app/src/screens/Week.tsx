@@ -8,6 +8,8 @@ import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
 import { groupOf } from '../lib/categories';
 import { addDays, todayNY, weekLinkProblem, WEEK_TZ as TZ, YMD } from '../lib/week';
+import { weekPostMarkdown } from '../lib/weekPost';
+import { BRAND } from '../brand';
 import { agoText } from '../components/StreetRow';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -26,6 +28,27 @@ import './Week.css';
 
 const HOODS_SHOWN = 8;
 const FLASH_MS = 2500;
+
+/** Text onto the clipboard, with the old way as a fallback: `navigator.clipboard` is undefined on an insecure origin
+ *  (plain http off localhost — how the dev box is reviewed from a phone) and `writeText` rejects without permission, so
+ *  a throwaway textarea + execCommand('copy') runs next, inside the same tap. True when the text is on the clipboard. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator.clipboard?.writeText === 'function') { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* blocked: try the old way */ }
+  const prev = document.activeElement as HTMLElement | null;
+  const ta = document.createElement('textarea');
+  try {
+    ta.value = text; ta.readOnly = true; ta.setAttribute('aria-hidden', 'true'); ta.tabIndex = -1;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    return document.execCommand('copy') === true;
+  } catch { return false; } finally {
+    ta.remove();
+    prev?.focus?.();
+  }
+}
 
 export default function Week() {
   const { t, lang } = useI18n();
@@ -89,21 +112,49 @@ export default function Week() {
   const datedPath = untilDate ? `/week?until=${untilDate}` : '/week';
   const returnPath = dated ? datedPath : '/week';
 
-  /* ── Share ────────────────────────────────────────────────────────────────────────────────────── */
+  /* ── Share / Copy as post ─────────────────────────────────────────────────────────────────────── */
   const [flash, setFlash] = useState('');
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+  /** One live region for both buttons; the message clears itself. */
+  const showFlash = (msg: string) => {
+    setFlash(msg);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(''), FLASH_MS);
+  };
   async function share() {
     const href = `${window.location.origin}${datedPath}`;
     track('week_share', { current: !dated });
-    try {
-      if (typeof navigator.share === 'function') { await navigator.share({ title, url: href }); return; }
-      await navigator.clipboard.writeText(href);
-      setFlash(t('week.copied'));
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-      flashTimer.current = setTimeout(() => setFlash(''), FLASH_MS);
-    } catch { /* cancelled or blocked */ }
+    if (typeof navigator.share === 'function') {
+      try { await navigator.share({ title, url: href }); } catch { /* cancelled */ }
+      return;
+    }
+    showFlash(t(await copyText(href) ? 'week.copied' : 'week.copyFailed'));
   }
+  /** The week as a Markdown post (lib/weekPost.ts) on the clipboard — for the Monday r/providence post. The link in
+   *  it is the canonical site, not this origin, so a post written from a preview host still points residents home.
+   *  When nothing can write the clipboard (insecure origin without execCommand, permission refused), the post is shown
+   *  in a read-only textarea with Select all, so it can still be copied by hand. */
+  const [manual, setManual] = useState<string | null>(null);
+  const manualRef = useRef<HTMLTextAreaElement>(null);
+  const selectManual = () => { const el = manualRef.current; if (!el) return; el.focus(); el.select(); el.setSelectionRange(0, el.value.length); };
+  useEffect(() => { if (manual != null) selectManual(); }, [manual]);
+  async function copyPost() {
+    if (!data) return;
+    track('week_post', { current: !dated });
+    const md = weekPostMarkdown(data, { base: BRAND.siteUrl });
+    if (await copyText(md)) { setManual(null); showFlash(t('week.post.copied')); return; }
+    setManual(md);
+    showFlash(t('week.post.failed'));
+  }
+  /** Share over Copy as post in the head's right-hand column. `skel` = the invisible twin that holds the column while
+   *  the numbers load, so the title wraps the same way before and after. */
+  const actions = (skel: boolean) => (
+    <div className={`week-actions${skel ? ' week-actions--skel' : ''}`} aria-hidden={skel || undefined}>
+      <button type="button" className="btn btn-ghost week-share" onClick={share} tabIndex={skel ? -1 : undefined} disabled={skel}>{t('week.share')}</button>
+      <button type="button" className="btn btn-ghost week-post" onClick={copyPost} tabIndex={skel ? -1 : undefined} disabled={skel}>{t('week.post')}</button>
+    </div>
+  );
 
   /* ── Monday digest opt-in (prefs.weekDigest), mirroring /street's card ────────────────────────── */
   const [me, setMe] = useState<Me | null>(null);
@@ -155,12 +206,20 @@ export default function Week() {
       {data && !dated && <p className="week-range">{t('week.range', { from: day(data.since), to: day(data.until) })}</p>}
       {data && dated && weekFrom && untilDate && <p className="week-range">{t('week.rangeOf', { from: fromYmd(weekFrom, { weekday: 'long' }), to: fromYmd(untilDate, { weekday: 'long' }) })}</p>}
       {loading && <p className="week-range week-range--skel" aria-hidden="true"><span /></p>}
-      {data && data.total > 0 && <button type="button" className="btn btn-ghost week-share" onClick={share}>{t('week.share')}</button>}
-      {/* Invisible twin of Share: it holds the right-hand column so the title wraps the same way before and after. */}
-      {loading && <button type="button" className="btn btn-ghost week-share week-share--skel" aria-hidden="true" tabIndex={-1} disabled>{t('week.share')}</button>}
+      {data && data.total > 0 && actions(false)}
+      {loading && actions(true)}
       {data && weekNav({ prev: data.prevUntil, next: data.nextUntil, latest: !data.current })}
       {loading && <div className="week-nav week-nav--skel" aria-hidden="true" />}
       <p className="week-flash" role="status">{flash}</p>
+      {manual != null && (
+        <div className="week-manual">
+          <textarea ref={manualRef} className="textarea week-manual-text" readOnly value={manual} rows={8} aria-label={t('week.post.manual')} onFocus={(e) => e.currentTarget.select()} />
+          <div className="week-manual-actions">
+            <button type="button" className="btn btn-ghost" onClick={selectManual}>{t('week.post.selectAll')}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setManual(null)}>{t('week.post.hide')}</button>
+          </div>
+        </div>
+      )}
     </header>
   );
 

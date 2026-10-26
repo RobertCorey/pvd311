@@ -367,6 +367,81 @@ test('saved places: signed in, the "Your places" chip in the peek sheet jumps th
   await expect(title(page)).toHaveText('481 Angell St, Providence');
 });
 
+/** A second saved place for the places card, clear of every fixture cluster (Downtown's is 1.6 km, the stack 2.9 km). */
+const WORK = { lat: 41.835, lng: -71.41 };
+/** Around WORK: one new (2 d, open), one closed yesterday, one open but 10 d old, one closed 9 d ago, one new but 350 m off → "1 new · 1 closed". */
+const WORK_CASES: Case[] = [
+  { id: 'w1', t: 0, status: 'Submitted', createdDaysAgo: 2, lat: 41.8352, lng: -71.4101, street: '5 Hope St' },
+  { id: 'w2', t: 1, status: 'Resolved', createdDaysAgo: 10, closedDaysAgo: 1, lat: 41.8348, lng: -71.4099, street: '7 Hope St', res: 'Fixed.' },
+  { id: 'w3', t: 3, status: 'Assigned', createdDaysAgo: 10, lat: 41.8351, lng: -71.4102, street: '9 Hope St' },
+  { id: 'w4', t: 4, status: 'Closed', createdDaysAgo: 20, closedDaysAgo: 9, lat: 41.8349, lng: -71.41, street: '11 Hope St' },
+  { id: 'w5', t: 0, status: 'Submitted', createdDaysAgo: 1, lat: 41.8382, lng: -71.41, street: '99 Hope St' },
+];
+const PLACES = [
+  { id: 'a1', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng },
+  { id: 'a2', label: 'Work', address: '5 Hope St, Providence', lat: WORK.lat, lng: WORK.lng },
+  { id: 'a3', label: 'Gym', address: '1 Quiet Ln, Providence', lat: 41.8, lng: -71.43 },
+  { id: 'a4', label: 'Mom', address: 'Somewhere, Providence', lat: null, lng: null },
+];
+
+test('your places this week: signed in, a card above the week link with a row per saved address that has coordinates — 7-day counts within 300 m from the loaded feed, "nothing new" for a quiet place, no extra request; a row tap opens the address view', async ({ page }) => {
+  const calls = await landing(page, { items: [...DEFAULT_ITEMS, ...WORK_CASES], signedIn: true, me: { addresses: PLACES } });
+  await grab(page).click();
+  const card = page.locator('.street-places-card');
+  await expect(card.getByRole('heading', { name: 'Your places this week' })).toBeVisible();
+  const places = card.locator('.street-place');
+  await expect(places).toHaveCount(3); // Mom has no coordinates
+  await expect(places.locator('.street-place-label')).toHaveText(['Home', 'Work', 'Gym']);
+  // Home: the three cases around 481 Angell St — c3 today and c1 three days ago are new, c2 closed yesterday.
+  await expect(places.nth(0).locator('.street-place-n')).toHaveText('2 new · 1 closed');
+  await expect(places.nth(1).locator('.street-place-n')).toHaveText('1 new · 1 closed');
+  await expect(places.nth(2).locator('.street-place-n')).toHaveText('nothing new');
+  await expect(places.nth(2).locator('.street-place-n')).toHaveClass(/street-place-n--quiet/);
+  await expect(places.nth(1)).toHaveAttribute('title', '5 Hope St, Providence');
+  for (const b of await places.all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // Above the week link, which keeps its place above Most reported.
+  expect(await page.evaluate(() => {
+    const c = document.querySelector('.street-places-card')!; const a = document.querySelector('a.street-week-link')!;
+    return c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';
+  })).toBe('above');
+  // The header's "Your places" chips stay (all four; the thumb-zone shortcut).
+  await expect(page.locator('.street-places .chip')).toHaveCount(4);
+  // Everything came from the one feed load and the account: no per-place request.
+  expect(calls.filter((c) => /\/api\/street(\?|\/city)|\/api\/week/.test(c.url))).toEqual([]);
+  expect(mapCalls(calls)).toHaveLength(1);
+  // A row does what its chip does: the address view at z16, titled by the address; the card is a landing thing.
+  await places.nth(1).click();
+  await expect(page).toHaveURL(/lat=41\.83500&lng=-71\.41000&q=5\+Hope\+St%2C\+Providence/);
+  await expect.poll(() => zoomOf(page)).toBe(16);
+  await expect(title(page)).toHaveText('5 Hope St, Providence');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(page.locator('.street-places-card')).toHaveCount(0);
+  await expect(rows(page)).toHaveCount(4); // w1–w4; w5 is outside the z16 band's few blocks
+});
+
+test('your places this week: no card when signed out', async ({ page }) => {
+  await landing(page);
+  await grab(page).click();
+  await expect(page.locator('a.street-week-link')).toBeVisible();
+  await expect(page.locator('.street-places-card')).toHaveCount(0);
+});
+
+test('your places this week: no card when no saved address has coordinates (the chip still offers the geocode), Spanish singulars', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await landing(page, { signedIn: true, me: { addresses: [PLACES[3]] } });
+  await grab(page).click();
+  await expect(page.locator('a.street-week-link')).toBeVisible();
+  await expect(page.locator('.street-places-card')).toHaveCount(0);
+  await expect(page.locator('.street-places .chip')).toHaveCount(1);
+  // With coordinates: the Spanish card, "1 nueva · 1 cerrada" for Work, "nada nuevo" for the quiet place.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await landing(page, { items: [...DEFAULT_ITEMS, ...WORK_CASES], signedIn: true, me: { addresses: [PLACES[1], PLACES[2]] } });
+  await grab(page).click();
+  const card = page.locator('.street-places-card');
+  await expect(card.getByRole('heading', { name: 'Tus lugares esta semana' })).toBeVisible();
+  await expect(card.locator('.street-place-n')).toHaveText(['1 nueva · 1 cerrada', 'nada nuevo']);
+});
+
 test('digest, signed out: the sign-in link returns to this exact URL (point view and case view)', async ({ page }) => {
   await point(page);
   const link = page.locator('.street-digest a.btn');
