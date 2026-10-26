@@ -55,6 +55,7 @@ describe('pure helpers', () => {
     expect(k("[FixMyPVD] We didn't send your pothole report")).toBe('not_sent');
     expect(k('[FixMyPVD] Review: Pothole @ 1 Main', 'rob@fixmypvd.org')).toBe('admin_review');
     expect(k('[FixMyPVD] Daily digest', 'rob@fixmypvd.org')).toBe('admin_digest');
+    expect(k('[FixMyPVD] Your r/providence post for this week', 'rob@fixmypvd.org')).toBe('admin_digest');
     expect(k('[FixMyPVD] Circuit breaker tripped', 'rob@fixmypvd.org')).toBe('admin_alert');
     expect(k('RE: PVD311 needs more information PVD311:0250715', 'pvd311@providenceri.gov')).toBe('to_city');
   });

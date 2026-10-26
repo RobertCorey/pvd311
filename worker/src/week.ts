@@ -15,6 +15,9 @@
  *   prefs.weekDigest              "Email me this every Monday": runWeekDigest from runDaily on Mondays, after the
  *                                 per-address street digest, for the Mon–Sun calendar week that just ended (its dated
  *                                 link reproduces it exactly); kind 'week_digest' in the email log; no mail on an empty week
+ *   Rob's post                    the same Monday run mails Rob the week as the ready r/providence Markdown post —
+ *                                 shared/weekPost.ts, the bytes /week's "Copy as post" copies — via mailer.alert (kind
+ *                                 'admin_digest'), whether or not anyone opted in; nothing on an empty week (2026-10-26)
  *
  * Windows. The current week is "the last 7 × 24 h ending now" (today's behaviour, since = now − 7 d). A dated week is
  * 7 New York calendar days, 00:00 of untilDate − 6 to 23:59:59.999 of untilDate (167 or 169 h across a DST change),
@@ -34,6 +37,7 @@ import { etDate, etMidnight } from './quota.js';
 import { hoodOf as sharedHoodOf, hoodSlug } from '../../shared/neighborhoods.js';
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload } from './push.js';
+import { weekPostMarkdown, weekPostRange } from '../../shared/weekPost.js';
 
 export const WEEK_DAYS = 7;
 /** loadCases window for the current week: this week + last week; loadCases adds the 60-day close lookback itself.
@@ -332,48 +336,70 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
   return { subject, html };
 }
 
-/** Mondays (runDaily, after runStreetDigest): one mail per opted-in verified account; none at all when the week had
- *  no cases. The mail is the Monday–Sunday calendar week that just ended (`until` = yesterday, New York) — the same
- *  window its dated link resolves to forever, so the page a reader opens on Tuesday shows the numbers that were mailed.
- *  (Built on the 168 h ending at the 07:00 cron, the link would mean a different, Tue–Mon week from the next day on.)
- *  Returns counts for the log. */
 /** The Monday push (push.ts) for the same week: "<total> requests · <closed> closed", opening the dated page. */
 export function weekDigestPush(s: WeekSummary, o: { base: string }): PushPayload {
   return { title: 'This week in Providence', body: `${s.total} request${s.total === 1 ? '' : 's'} · ${s.closed} closed`, url: `${o.base.replace(/\/+$/, '')}/week?until=${s.untilDate}`, tag: 'week' };
 }
 
-export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
+/** Rob's post (admin mail, Mondays): the week as the r/providence Markdown post — shared/weekPost.ts, byte for byte
+ *  what /week's "Copy as post" copies — in a pre-wrap <pre> so it pastes as written, with the dated week page beside
+ *  it for the button. The subject is what mailer.alert prefixes with "[FixMyPVD] " (emaillog inferKind → admin_digest). */
+export function weekPostAdminEmail(s: WeekSummary, o: { base: string }): { subject: string; html: string } {
+  const base = o.base.replace(/\/+$/, '');
+  const datedUrl = `${base}/week${s.untilDate ? `?until=${s.untilDate}` : ''}`;
+  const range = weekPostRange(s);
+  const md = weekPostMarkdown(s, { base });
+  const subject = 'Your r/providence post for this week';
+  const html = `<p style="margin:0 0 1em">Last week in Providence${range ? ` (${esc(range)})` : ''} — ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'request' : 'requests'}, ${s.closed.toLocaleString('en-US')} closed — as a ready post for r/providence; paste it as is or trim.</p>`
+    + `<pre style="white-space:pre-wrap;font:inherit;margin:0;padding:12px;border-left:3px solid #ccc">${esc(md)}</pre>`
+    + `<p style="margin:1.2em 0 0"><a href="${esc(datedUrl)}">Copy it from the week page</a></p>`
+    + `<p style="color:#888;margin-top:2em">FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
+  return { subject, html };
+}
+
+/** Mondays (runDaily, after runStreetDigest): one mail per opted-in verified account, the same numbers on their
+ *  subscribed phones, then ONE admin mail to Rob with the week as the r/providence post (whether or not anyone opted in);
+ *  nothing at all when the week had no cases. The week is the Monday–Sunday calendar week that just ended (`until` =
+ *  yesterday, New York) — the same window its dated link resolves to forever, so the page a reader opens on Tuesday
+ *  shows the numbers that were mailed. (Built on the 168 h ending at the 07:00 cron, the link would mean a different,
+ *  Tue–Mon week from the next day on.) Returns counts for the log; `adminMailed` = the post went to mailer.alert (which
+ *  never throws — a failed send is in the email log). */
+export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number; adminMailed: boolean }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
   const users = await store.listWeekDigestUsers(500);
   const optedIn = users.filter((u) => u.prefs?.weekDigest === true);
   const eligible = optedIn.filter((u) => !!u.email && !!u.emailVerified);
   const phones = optedIn.filter(hasPush); // a subscription is its own opt-in: the pref gates the digest, not the mailbox
-  let mailed = 0; let pushed = 0;
-  let total: number | null = null;
-  if (eligible.length || phones.length) {
-    const until = addDays(etDate(now), -1);
-    const summary = weekSummary(await loadCases(store, LOAD_DAYS + 1, now), { now, until });
-    total = summary.total;
-    if (summary.total > 0) {
+  let mailed = 0; let pushed = 0; let adminMailed = false;
+  // Built every Monday, opted-in residents or none: Rob's post needs it too (one loadCases read).
+  const until = addDays(etDate(now), -1);
+  const summary = weekSummary(await loadCases(store, LOAD_DAYS + 1, now), { now, until });
+  const total = summary.total;
+  if (total > 0) {
+    if (eligible.length) {
       const m = weekDigestEmail(summary, { base });
       for (const u of eligible) {
         await mailer.sendTo(u.email!, m.subject, m.html, { kind: 'week_digest' });
         mailed++;
       }
-      // The same numbers on subscribed phones (push.ts) — alongside the mail, never instead of it; a failed push fails alone.
-      if (phones.length) {
-        try {
-          const keys = await ensureVapid(store);
-          const p = weekDigestPush(summary, { base });
-          for (const u of phones) pushed += await pushAll(store, u, p, keys);
-        } catch (e) { console.error('[week] digest push failed:', e instanceof Error ? e.message : e); }
-        await logPushes(store, 'week_digest', { users: phones.length, sent: pushed });
-      }
     }
+    // The same numbers on subscribed phones (push.ts) — alongside the mail, never instead of it; a failed push fails alone.
+    if (phones.length) {
+      try {
+        const keys = await ensureVapid(store);
+        const p = weekDigestPush(summary, { base });
+        for (const u of phones) pushed += await pushAll(store, u, p, keys);
+      } catch (e) { console.error('[week] digest push failed:', e instanceof Error ? e.message : e); }
+      await logPushes(store, 'week_digest', { users: phones.length, sent: pushed });
+    }
+    // Rob's r/providence post, after the residents' mails — one per run, however many (or few) opted in.
+    const post = weekPostAdminEmail(summary, { base });
+    await mailer.alert(post.subject, post.html, { kind: 'admin_digest' });
+    adminMailed = true;
   }
-  console.log(`[week] digest: ${mailed} of ${users.length} opted-in accounts mailed, ${pushed} pushes${total === 0 ? ' (empty week, skipped)' : ''}`);
-  await logEvent(store, { level: 'info', kind: 'week.digest', msg: total === 0 ? 'Weekly city digest: the week had no cases — no mail sent' : `Weekly city digest: ${mailed} of ${users.length} opted-in accounts mailed`, data: { users: users.length, mailed, pushed, total } });
-  await store.setMeta('weekDigest', { at: new Date(now).toISOString(), users: users.length, mailed, pushed, total }).catch(() => {});
-  return { users: users.length, mailed, pushed };
+  console.log(`[week] digest: ${mailed} of ${users.length} opted-in accounts mailed, ${pushed} pushes${adminMailed ? ', the post mailed to admin' : ''}${total === 0 ? ' (empty week, skipped)' : ''}`);
+  await logEvent(store, { level: 'info', kind: 'week.digest', msg: total === 0 ? 'Weekly city digest: the week had no cases — no mail sent' : `Weekly city digest: ${mailed} of ${users.length} opted-in accounts mailed; the r/providence post mailed to admin`, data: { users: users.length, mailed, pushed, total, adminMailed } });
+  await store.setMeta('weekDigest', { at: new Date(now).toISOString(), users: users.length, mailed, pushed, total, adminMailed }).catch(() => {});
+  return { users: users.length, mailed, pushed, adminMailed };
 }

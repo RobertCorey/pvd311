@@ -431,7 +431,7 @@ describe('triggers', () => {
   const ID = 'ab400112-05c8-f111-a3d0-001dd804b975';
   const mockMailer = () => {
     const sent: { to: string; kind?: string }[] = [];
-    return { sent, mailer: { sendTo: vi.fn(async (to: string, _s: string, _h: string, o?: { kind?: string }) => { sent.push({ to, kind: o?.kind }); }) } as unknown as Mailer };
+    return { sent, mailer: { sendTo: vi.fn(async (to: string, _s: string, _h: string, o?: { kind?: string }) => { sent.push({ to, kind: o?.kind }); }), alert: vi.fn(async () => {}) } as unknown as Mailer };
   };
 
   describe('a followed city case moves (notifyCityFollowers)', () => {
@@ -506,7 +506,7 @@ describe('triggers', () => {
       } });
       const posts = stubPushService();
       const { mailer, sent } = mockMailer();
-      expect(await runWeekDigest(env, s.store, mailer, { now: NOW })).toEqual({ users: 4, mailed: 2, pushed: 2 });
+      expect(await runWeekDigest(env, s.store, mailer, { now: NOW })).toEqual({ users: 4, mailed: 2, pushed: 2, adminMailed: true });
       expect(sent.map((m) => m.to).sort()).toEqual(['both@example.com', 'mail@example.com']);
       expect(posts.map((p) => p.endpoint).sort()).toEqual(['https://push.test/1', 'https://push.test/2']);
       expect(posts[0].payload).toEqual({ title: 'This week in Providence', body: '2 requests · 1 closed', url: 'https://fixmypvd.org/week?until=2026-10-24', tag: 'week' });
@@ -517,7 +517,7 @@ describe('triggers', () => {
     it('runWeekDigest: a quiet week pushes nothing; weekDigestPush pluralises', async () => {
       const s = memStore({ rows: [], users: { both: user('both', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(1)] }) } });
       stubPushService();
-      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0, adminMailed: false });
       expect((fetch as any).mock.calls).toHaveLength(0);
       const one = weekSummary([row('only')], { now: NOW, until: '2026-10-24' });
       expect(weekDigestPush(one, { base: 'https://fixmypvd.org/' })).toEqual({ title: 'This week in Providence', body: '1 request · 0 closed', url: 'https://fixmypvd.org/week?until=2026-10-24', tag: 'week' });

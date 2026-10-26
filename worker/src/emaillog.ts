@@ -89,6 +89,7 @@ export function inferKind(subject: string, to: string[], env: Pick<Env, 'NOTIFY_
   if (/sign-in link|enlace para entrar/.test(s)) return 'signin_link';
   if (s.startsWith('[fixmypvd] review:')) return 'admin_review';
   if (s.startsWith('[fixmypvd] daily digest')) return 'admin_digest';
+  if (s.startsWith('[fixmypvd] your r/providence post')) return 'admin_digest'; // Monday: the week as a post (week.ts)
   if (s.startsWith("[fixmypvd] we didn't send your")) return 'not_sent';
   if (s.startsWith('[fixmypvd]') || (admin && to.includes(admin))) return 'admin_alert';
   if (s.startsWith('your report was filed with providence 311')) return 'filed';

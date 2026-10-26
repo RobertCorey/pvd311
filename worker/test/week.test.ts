@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { weekSummary, handleWeek, weekDigestEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
+import { weekSummary, handleWeek, weekDigestEmail, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
 import { resetStreetCache, LOAD_LIMIT } from '../src/street.js';
 import { hoodOf, hoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES } from '../../shared/neighborhoods.js';
-import { inferKind } from '../src/emaillog.js';
+import { weekPostMarkdown, OUTCOME_LABELS_EN, GROUP_LABELS_EN } from '../../shared/weekPost.js';
+import en from '../../app/src/i18n/strings.en.json';
+import { inferKind, toText } from '../src/emaillog.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
 // Sunday 2026-10-25 12:00 UTC (08:00 EDT): "this week" = Oct 18 12:00Z → now, "last week" = Oct 11 → Oct 18.
@@ -470,6 +472,34 @@ describe('the Monday mail', () => {
     expect(m.html).not.toContain('Busiest neighborhoods');
     expect(m.html).not.toContain("in the city's words");
   });
+
+  it("Rob's post mail: the lead, the exact shared Markdown in a pre-wrap <pre>, the dated 'Copy it from the week page' link, the footer; kind admin_digest", () => {
+    const s = summary();
+    const md = weekPostMarkdown(s, { base: 'https://fixmypvd.org' });
+    expect(md.split('\n\n').slice(0, 2)).toEqual(['**This week in Providence (Oct 18 – Oct 25)**', '5 requests to 311 (+1 vs last week), 2 closed, median 4 days to close.']);
+    expect(md).toContain('- Pothole, 12 Angell St (College Hill): "Filled & compacted."');
+    const m = weekPostAdminEmail(s, { base: 'https://fixmypvd.org/' });
+    expect(m.subject).toBe('Your r/providence post for this week');
+    expect(m.html).toContain('<p style="margin:0 0 1em">Last week in Providence (Oct 18 – Oct 25) — 5 requests, 2 closed — as a ready post for r/providence; paste it as is or trim.</p>');
+    // The Markdown is HTML-escaped inside the <pre> (so "&" survives the mail client) and comes back verbatim as the
+    // plain-text part / email-log text — the bytes /week's "Copy as post" copies.
+    expect(m.html).toContain('<pre style="white-space:pre-wrap;');
+    expect(m.html).toContain('Filled &amp; compacted.');
+    expect(toText(m.html)).toContain(md);
+    expect(m.html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">Copy it from the week page</a>');
+    expect(m.html).toContain('not affiliated with the City of Providence');
+    expect(m.html).not.toContain('https://fixmypvd.org//');
+    // mailer.alert prefixes the subject; the email log files it with the daily digest, not as an alert.
+    expect(inferKind(`[FixMyPVD] ${m.subject}`, ['rob@fixmypvd.org'], { NOTIFY_EMAIL: 'rob@fixmypvd.org' })).toBe('admin_digest');
+    expect(inferKind('[FixMyPVD] Circuit breaker tripped', ['rob@fixmypvd.org'], { NOTIFY_EMAIL: 'rob@fixmypvd.org' })).toBe('admin_alert');
+  });
+
+  it("the post's inlined English labels are the app dictionary's (the mail and the button must say the same thing)", () => {
+    const dict = en as Record<string, string>;
+    for (const [k, v] of Object.entries(OUTCOME_LABELS_EN)) expect(v, `week.outcome.${k}`).toBe(dict[`week.outcome.${k}`]);
+    for (const [k, v] of Object.entries(GROUP_LABELS_EN)) expect(v, `street.g.${k}`).toBe(dict[`street.g.${k}`]);
+    expect(Object.keys(OUTCOME_LABELS_EN).sort()).toEqual([...WEEK_OUTCOMES].sort());
+  });
 });
 
 describe('runWeekDigest', () => {
@@ -480,13 +510,17 @@ describe('runWeekDigest', () => {
   });
   function deps(users: UserDoc[], rows: Record<string, unknown>[]) {
     const sent: { to: string; subject: string; html: string; kind?: string }[] = [];
+    const alerts: { subject: string; html: string; kind?: string }[] = [];
     const store = {
       listWeekDigestUsers: vi.fn(async () => users),
       listCityCasesSince: vi.fn(async () => rows),
       setMeta: vi.fn(async () => {}), addEvent: vi.fn(async () => {}),
     } as unknown as Store;
-    const mailer = { sendTo: vi.fn(async (to: string, subject: string, html: string, o?: { kind?: string }) => { sent.push({ to, subject, html, kind: o?.kind }); }) } as unknown as Mailer;
-    return { store, mailer, sent };
+    const mailer = {
+      sendTo: vi.fn(async (to: string, subject: string, html: string, o?: { kind?: string }) => { sent.push({ to, subject, html, kind: o?.kind }); }),
+      alert: vi.fn(async (subject: string, html: string, o?: { kind?: string }) => { alerts.push({ subject, html, kind: o?.kind }); }),
+    } as unknown as Mailer;
+    return { store, mailer, sent, alerts };
   }
   beforeEach(() => { resetStreetCache(); resetWeekCache(); });
 
@@ -498,15 +532,26 @@ describe('runWeekDigest', () => {
       user({ uid: 'u4', email: null }),
       user({ uid: 'u5', email: 'off@example.com', prefs: { emailUpdates: true, weekDigest: false } }), // a stale query hit
     ];
-    const d = deps(users, [row('a'), closedRow('b', 4, 1)]);
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2, pushed: 0 });
+    const rows = [row('a'), closedRow('b', 4, 1)];
+    const d = deps(users, rows);
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2, pushed: 0, adminMailed: true });
     expect(d.sent.map((m) => m.to)).toEqual(['me@example.com', 'two@example.com']);
     expect(d.sent[0]).toMatchObject({ subject: 'This week in Providence: 2 requests, 1 closed', kind: 'week_digest' });
     // NOW is Sunday Oct 25: the mail is the week ending Saturday Oct 24 (00:00 Oct 18 → 23:59:59.999 Oct 24 EDT) and links it.
     expect(d.sent[0].html).toContain('Oct 18 – Oct 24, from Providence 311');
     expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">See the whole week</a>');
     expect((d.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
-    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, pushed: 0, total: 2 }]);
+    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, pushed: 0, total: 2, adminMailed: true }]);
+    // Rob's post: ONE admin mail after the residents', with the exact shared Markdown for the mailed week and its dated link.
+    expect(d.alerts).toHaveLength(1);
+    expect(d.alerts[0]).toMatchObject({ subject: 'Your r/providence post for this week', kind: 'admin_digest' });
+    const md = weekPostMarkdown(weekSummary(rows, { now: NOW, until: '2026-10-24' }), { base: 'https://fixmypvd.org' });
+    expect(md).toContain('**This week in Providence (Oct 18 – Oct 24)**');
+    expect(md).toContain('https://fixmypvd.org/week?until=2026-10-24');
+    expect(toText(d.alerts[0].html)).toContain(md);
+    expect(d.alerts[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">Copy it from the week page</a>');
+    expect((d.mailer.alert as any).mock.invocationCallOrder[0]).toBeGreaterThan((d.mailer.sendTo as any).mock.invocationCallOrder[1]);
+    expect((d.store.addEvent as any).mock.calls[0][0]).toMatchObject({ kind: 'week.digest', data: { users: 5, mailed: 2, pushed: 0, total: 2, adminMailed: true } });
   });
 
   it('from the Monday 11:00 UTC cron the mail is Mon–Sun of last week, and its dated link reproduces the mailed numbers on Tuesday', async () => {
@@ -520,10 +565,13 @@ describe('runWeekDigest', () => {
       closedRow('closed-today', 9, 0, { detail: { resolutionDate: '2026-10-26T09:00:00Z', resolution: 'Later.' } }), // created Oct 16 → prev; closed Mon → open in the mailed week
     ];
     const d = deps([user()], rows);
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: monday })).toEqual({ users: 1, mailed: 1, pushed: 0 });
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: monday })).toEqual({ users: 1, mailed: 1, pushed: 0, adminMailed: true });
     expect(d.sent[0].subject).toBe('This week in Providence: 3 requests, 1 closed');
     expect(d.sent[0].html).toContain('Oct 19 – Oct 25, from Providence 311');
     expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
+    // Rob's post is the same Mon–Sun week, titled by its calendar days and linked by its Sunday.
+    expect(toText(d.alerts[0].html)).toContain('**This week in Providence (Oct 19 – Oct 25)**\n\n3 requests to 311 (');
+    expect(d.alerts[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">Copy it from the week page</a>');
     // The link, opened on Tuesday afternoon, is the same week with the same numbers.
     const tuesday = Date.parse('2026-10-27T19:00:00Z');
     const page = await (await handleWeek(new URL('https://api.test/api/week?until=2026-10-25'), d.store, tuesday)).json() as WeekSummary;
@@ -531,13 +579,26 @@ describe('runWeekDigest', () => {
     expect(page.notable.map((n) => n.id)).toEqual(['fixed']);
   });
 
-  it('sends nothing when the week had no cases, and reads nothing when nobody opted in', async () => {
+  it("sends nothing — not Rob's post either — when the week had no cases", async () => {
     const quiet = deps([user()], [row('old', { createdAt: daysAgo(40), firstSeenAt: daysAgo(40) })]);
-    expect(await runWeekDigest(env, quiet.store, quiet.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+    expect(await runWeekDigest(env, quiet.store, quiet.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0, adminMailed: false });
     expect(quiet.sent).toHaveLength(0);
+    expect(quiet.alerts).toHaveLength(0);
+    expect((quiet.store.addEvent as any).mock.calls[0][0]).toMatchObject({ data: { total: 0, adminMailed: false } });
     expect((quiet.store.addEvent as any).mock.calls[0][0].msg).toContain('no cases');
+  });
+
+  it("with nobody opted in the week is still read once and Rob's post still goes — exactly one admin mail", async () => {
     const nobody = deps([], [row('a')]);
-    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: NOW })).toEqual({ users: 0, mailed: 0, pushed: 0 });
-    expect((nobody.store.listCityCasesSince as any).mock.calls).toHaveLength(0);
+    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: NOW })).toEqual({ users: 0, mailed: 0, pushed: 0, adminMailed: true });
+    expect((nobody.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
+    expect(nobody.sent).toHaveLength(0);
+    expect(nobody.alerts).toHaveLength(1);
+    expect(nobody.alerts[0]).toMatchObject({ subject: 'Your r/providence post for this week', kind: 'admin_digest' });
+    expect(toText(nobody.alerts[0].html)).toContain('1 request to 311 (+1 vs last week), 0 closed.');
+    // Opted-in but unverified / no address: no resident mail, still the one post.
+    const unverified = deps([user({ emailVerified: false }), user({ uid: 'u4', email: null })], [row('a')]);
+    expect(await runWeekDigest(env, unverified.store, unverified.mailer, { now: NOW })).toEqual({ users: 2, mailed: 0, pushed: 0, adminMailed: true });
+    expect(unverified.alerts).toHaveLength(1);
   });
 });
