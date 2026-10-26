@@ -351,7 +351,7 @@ export function weekPostAdminEmail(s: WeekSummary, o: { base: string }): { subje
   const md = weekPostMarkdown(s, { base });
   const subject = 'Your r/providence post for this week';
   const html = `<p style="margin:0 0 1em">Last week in Providence${range ? ` (${esc(range)})` : ''} — ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'request' : 'requests'}, ${s.closed.toLocaleString('en-US')} closed — as a ready post for r/providence; paste it as is or trim.</p>`
-    + `<pre style="white-space:pre-wrap;font:inherit;margin:0;padding:12px;border-left:3px solid #ccc">${esc(md)}</pre>`
+    + `<pre style="white-space:pre-wrap;font:inherit;margin:0;padding:12px;border-left:3px solid #ccc">${esc(md)}\n</pre>\n`
     + `<p style="margin:1.2em 0 0"><a href="${esc(datedUrl)}">Copy it from the week page</a></p>`
     + `<p style="color:#888;margin-top:2em">FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
