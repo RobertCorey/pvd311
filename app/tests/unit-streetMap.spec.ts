@@ -7,7 +7,8 @@ import {
   inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
-import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
+import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, neighborhoodAt, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
+import { hoodOf, hoodSlug as sharedHoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES as SHARED_NAMES, ringBounds as sharedRingBounds } from '../../shared/neighborhoods';
 
 // Pure-module unit tests for the /street map page: no browser, no page fixture — Playwright's runner imports the TS
 // source directly. Kept beside the browser specs because the app has no vitest.
@@ -258,9 +259,11 @@ test.describe('url state', () => {
 });
 
 test.describe('neighborhoods', () => {
-  test('NEIGHBORHOOD_NAMES matches the data module; slugs round-trip', async () => {
+  test('NEIGHBORHOOD_NAMES matches the shared rings (one copy, lazily loaded); slugs round-trip', async () => {
     const nb = await loadNeighborhoods();
+    expect(nb).toBe(NEIGHBORHOODS);                           // the shared module's own object, not a copy
     expect(Object.keys(nb)).toEqual([...NEIGHBORHOOD_NAMES]);
+    expect([...SHARED_NAMES]).toEqual([...NEIGHBORHOOD_NAMES]); // the app's static list (kept so ?n= parses before the rings load)
     expect(NEIGHBORHOOD_NAMES).toHaveLength(25);
     expect(hoodSlug('Upper South Providence')).toBe('upper-south-providence');
     expect(hoodSlug('Fox Point')).toBe('fox-point');
@@ -282,6 +285,24 @@ test.describe('neighborhoods', () => {
     expect(b.west).toBeLessThan(-71.4128); expect(b.east).toBeGreaterThan(-71.4128);
     expect(b.north - b.south).toBeLessThan(0.05);
     expect(ringBounds([[[-71.5, 41.8], [-71.4, 41.9], [-71.45, 41.7]]])).toEqual({ south: 41.7, north: 41.9, west: -71.5, east: -71.4 });
+  });
+
+  test('the app\'s resolver agrees with the Worker\'s hoodOf; the copied helpers equal the shared ones', async () => {
+    const nb = await loadNeighborhoods();
+    const points: [number, number, string | null][] = [
+      [41.8170, -71.3930, 'Fox Point'],   // India Point Park
+      [41.8430, -71.4380, 'Elmhurst'],    // Providence College
+      [41.8000, -71.3650, null],          // the bay off Fields Point
+    ];
+    for (const [lat, lng, want] of points) {
+      expect(hoodOfSync(nb, lat, lng)).toBe(want);
+      expect(await neighborhoodAt(lat, lng)).toBe(want);
+      expect(hoodOf(lat, lng)).toBe(want);
+    }
+    for (const n of NEIGHBORHOOD_NAMES) {
+      expect(hoodSlug(n)).toBe(sharedHoodSlug(n));
+      expect(ringBounds(nb[n])).toEqual(sharedRingBounds(nb[n]));
+    }
   });
 });
 

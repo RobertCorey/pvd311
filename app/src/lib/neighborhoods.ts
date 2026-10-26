@@ -1,24 +1,32 @@
 /** Providence's 25 official neighborhoods, first-class in the UI ("Fox Point · 3 open").
- *  Point-in-polygon over simplified city GIS rings; the data module is lazy so it never hits the main bundle.
- *  The /street map page (2026-10-25) also needs the table synchronously once loaded: `loadNeighborhoods()` hands it
- *  over, `hoodOfSync` classifies ~1,200 cases in one pass, `ringBounds` fits a hood, and the slug helpers back `?n=`. */
+ *  Point-in-polygon over simplified city GIS rings. The rings live once, in shared/neighborhoods.ts (the Worker's
+ *  GET /api/week and street watch import them eagerly); the app loads that module lazily so the ~8 KB chunk never
+ *  hits the main bundle. The /street map page (2026-10-25) also needs the table synchronously once loaded:
+ *  `loadNeighborhoods()` hands it over, `hoodOfSync` classifies ~1,200 cases in one pass, `ringBounds` fits a hood,
+ *  and the slug helpers back `?n=`.
+ *
+ *  Nothing here imports shared/neighborhoods statically, on purpose: its NEIGHBORHOOD_NAMES is Object.keys(NEIGHBORHOODS)
+ *  and its hoodOf index is built at module load, so a static import inlines the rings into this chunk and turns the
+ *  import() below into a no-op (Rolldown: INEFFECTIVE_DYNAMIC_IMPORT; measured 2026-10-26: streetMap chunk 8.4 → 16.4 KB).
+ *  The five-line helpers below (hoodSlug, ringBounds, the ray cast) therefore stay as copies of the shared ones;
+ *  tests/unit-streetMap.spec.ts asserts they agree with the shared module on the real rings. */
 
-/** Outer rings only, [lng, lat] as stored by the GIS export. */
-export type Rings = [number, number][][];
-export type NeighborhoodTable = Record<string, Rings>;
+import type { NeighborhoodTable, Rings } from '@shared/neighborhoods';
+export type { NeighborhoodTable, Rings };
 
 let data: Promise<NeighborhoodTable> | null = null;
-const load = () => (data ??= import('./neighborhoods.data').then((m) => m.NEIGHBORHOODS));
+const load = () => (data ??= import('@shared/neighborhoods').then((m) => m.NEIGHBORHOODS));
 
-/** The 25 names, in the data module's order. Static here so `hoodFromSlug` and the URL parser work before the
- *  rings have loaded; the unit spec asserts this list equals the data module's keys. */
+/** The 25 names, in the shared module's order. Static here so `hoodFromSlug` and the URL parser work before the
+ *  rings have loaded (see the header for why they are not imported); the unit spec asserts this list equals the
+ *  shared module's keys. */
 export const NEIGHBORHOOD_NAMES: readonly string[] = [
   'Manton', 'Hope', 'Valley', 'Federal Hill', 'Wayland', 'Olneyville', 'Smith Hill', 'Upper South Providence', 'Hartford',
   'Reservoir', 'Elmwood', 'College Hill', 'Downtown', 'Silver Lake', 'Fox Point', 'Charles', 'Mount Hope',
   'Lower South Providence', 'South Elmwood', 'West End', 'Elmhurst', 'Wanskuck', 'Mount Pleasant', 'Washington Park', 'Blackstone',
 ];
 
-/** The rings table (lazy data module, loaded once). */
+/** The rings table (the shared module, loaded once). */
 export function loadNeighborhoods(): Promise<NeighborhoodTable> { return load(); }
 
 function inRing(lng: number, lat: number, ring: [number, number][]): boolean {
@@ -55,7 +63,7 @@ export async function neighborhoodAt(lat: number, lng: number): Promise<string |
   return hoodOfSync(await load(), lat, lng);
 }
 
-/** Bounding box of a hood's rings ([lng, lat] input → south/west/north/east). */
+/** Bounding box of a hood's rings ([lng, lat] input → south/west/north/east). Same as shared's ringBounds. */
 export function ringBounds(rings: Rings): { south: number; west: number; north: number; east: number } {
   let south = Infinity, west = Infinity, north = -Infinity, east = -Infinity;
   for (const ring of rings) for (const [lng, lat] of ring) {
@@ -65,7 +73,8 @@ export function ringBounds(rings: Rings): { south: number; west: number; north: 
   return { south, west, north, east };
 }
 
-/** URL slug for `?n=`: lower-case, runs of whitespace → '-' ("Upper South Providence" → "upper-south-providence"). */
+/** URL slug for `?n=`: lower-case, runs of whitespace → '-' ("Upper South Providence" → "upper-south-providence").
+ *  Same as shared's hoodSlug (the Worker's /week slugs must match the app's). */
 export const hoodSlug = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, '-');
 
 /** The hood name for a slug (case-insensitive), or null when it is not one of the 25. */
