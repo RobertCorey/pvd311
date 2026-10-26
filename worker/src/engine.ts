@@ -32,6 +32,7 @@ import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 import { syncCityCases, followUpCityCases, backfillCityCaseGeo } from './citycases.js';
 import { runStreetDigest } from './street.js';
+import { runWatchMorning } from './streetwatch.js';
 import { runWeekDigest } from './week.js';
 import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
@@ -626,6 +627,10 @@ async function snapshotCounts(store: Store): Promise<Record<DigestKey, number>> 
 export async function runDaily(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
+
+  // Street watch (streetwatch.ts): the hits the quiet-hour syncs held overnight — ONE "Overnight near …" push per
+  // account, first thing, so it lands at 07:00 and not after the retention sweep. Skips itself outside 05:00–09:00 ET.
+  await runWatchMorning(env, store).catch((e) => console.error('[daily] watch morning catch-up failed:', e instanceof Error ? e.message : e));
 
   // Retention: photos are deleted 30 days after the city resolves/cancels the case (privacy promise).
   try {
