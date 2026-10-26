@@ -1,12 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
+import { WEEK } from './week-mocks';
 
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
+/** One predicate object for /api/week, so page.unroute() matches the route page.route() registered (a fresh arrow would never match). */
+const weekRoute = (u: URL) => u.origin + u.pathname === `${API}/api/week`;
 
 const SESSION = { uid: 'u1', email: 'me@example.com', idToken: 'tok', refreshToken: 'rt', expiresAt: Date.now() + 3_600_000, provider: 'email' };
 
-async function mockApi(page: Page, opts: { intake?: object; reportStatus?: number; reportBody?: object; signedIn?: boolean } = {}) {
+async function mockApi(page: Page, opts: { intake?: object; reportStatus?: number; reportBody?: object; signedIn?: boolean; weekStatus?: number; weekBody?: object } = {}) {
   if (opts.signedIn !== false) await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  // The home strip's numbers (components/HomeWeekStrip.tsx): the shared busy week, 312 requests / 114 closed.
+  await page.route(weekRoute, (r) => r.fulfill({ status: opts.weekStatus ?? 200, contentType: 'application/json', body: JSON.stringify(opts.weekBody ?? (opts.weekStatus && opts.weekStatus >= 400 ? { error: 'week_failed' } : WEEK)) }));
   await page.route(`${API}/api/intake`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.intake ?? { polishedDescription: null, flags: [], note: null, model: 'mock' }) }));
   await page.route(`${API}/api/report`, (r) => r.fulfill({ status: opts.reportStatus ?? 201, contentType: 'application/json', body: JSON.stringify(opts.reportBody ?? { id: 'abc123xyz', trackingUrl: '/r/abc123xyz', category: 'missed_trash', createdAt: new Date().toISOString() }) }));
   await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'abc123xyz', category: 'missed_trash', categoryLabel: 'Missed Trash Day Pick-up Issue', address: '25 Dorrance St', lat: null, lng: null, photoUrl: null, createdAt: new Date().toISOString(), status: 'received', portalCaseId: null, portalStatus: null, timeline: [{ at: new Date().toISOString(), label: 'Received' }], nextUpdateHint: null }) }));
@@ -108,6 +113,81 @@ test('picker: the search box keeps focus while typing (no remount → the phone 
   await page.keyboard.type('rats');
   await expect(page.locator('#type-search')).toBeFocused();
   await expect(page.locator('.type-results .type-row[data-category="rodents"]')).toBeVisible();
+});
+
+test('home strip: the week\'s counts and both links under the grid; one fetch; gone in a group and while composing, back on Change', async ({ page }) => {
+  await mockApi(page);
+  let weekHits = 0;
+  page.on('request', (r) => { if (r.url() === `${API}/api/week`) weekHits++; });
+  await page.goto('/');
+  const strip = page.locator('.home-week');
+  await expect(strip).toHaveAttribute('data-state', 'ok');
+  await expect(strip.locator('.home-week-line')).toHaveText('312 requests to 311 this week · 114 closed');
+  await expect(strip.getByRole('link', { name: 'See the map' })).toHaveAttribute('href', '/street');
+  await expect(strip.getByRole('link', { name: 'The week' })).toHaveAttribute('href', '/week');
+  await expect(strip.locator('a')).toHaveCount(2);
+  // Under the grid (the last thing in the picker), quiet: a surface card with no ember anywhere, 44 px link targets.
+  expect(await strip.evaluate((el) => el.previousElementSibling?.className)).toBe('cat-grid');
+  const look = await strip.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const links = [...el.querySelectorAll('a')].map((a) => ({ h: a.getBoundingClientRect().height, color: getComputedStyle(a).color }));
+    return { bg: cs.backgroundColor, shadow: cs.boxShadow, line: getComputedStyle(el.querySelector('.home-week-line')!).color, links };
+  });
+  expect(look.bg).toBe('rgb(255, 252, 247)'); // --surface
+  expect(look.shadow).toBe('none');
+  expect(look.line).toBe('rgb(90, 98, 117)'); // --muted
+  for (const l of look.links) { expect(l.h).toBeGreaterThanOrEqual(44); expect(l.color).toBe('rgb(22, 33, 58)'); } // --ink, not ember
+  // Not in a group, not over search results.
+  await page.click('.cat-tile[data-group="trash"]');
+  await expect(page.locator('.type-row[data-category="missed_trash"]')).toBeVisible();
+  await expect(strip).toHaveCount(0);
+  await page.goBack();
+  await expect(strip).toHaveAttribute('data-state', 'ok');
+  await page.fill('#type-search', 'rats');
+  await expect(page.locator('.type-results')).toBeVisible();
+  await expect(strip).toHaveCount(0);
+  await page.fill('#type-search', '');
+  await expect(strip).toHaveAttribute('data-state', 'ok');
+  // Gone the moment a type is picked; back on Change — from the 5-minute cache, so still one request.
+  await pickType(page, 'trash', 'missed_trash');
+  await expect(page.locator('#address')).toBeVisible();
+  await expect(strip).toHaveCount(0);
+  await page.getByRole('button', { name: /Change/ }).click();
+  await expect(page.locator('.cat-tile[data-group="trash"]')).toBeVisible();
+  await expect(strip).toHaveAttribute('data-state', 'ok');
+  await expect(strip.locator('.home-week-line')).toHaveText('312 requests to 311 this week · 114 closed');
+  expect(weekHits).toBe(1);
+  // The links go where they say.
+  await strip.getByRole('link', { name: 'The week' }).click();
+  await expect(page).toHaveURL(/\/week$/);
+});
+
+test('home strip: quiet state — a failed /api/week or an empty week keeps both links under a neutral line, no error anywhere', async ({ page }) => {
+  await mockApi(page, { weekStatus: 500 });
+  await page.goto('/');
+  const strip = page.locator('.home-week');
+  await expect(strip).toHaveAttribute('data-state', 'quiet');
+  await expect(strip.locator('.home-week-line')).toHaveText('See what the city is working on');
+  await expect(strip.getByRole('link', { name: 'See the map' })).toHaveAttribute('href', '/street');
+  await expect(strip.getByRole('link', { name: 'The week' })).toHaveAttribute('href', '/week');
+  await expect(page.locator('.notice-error')).toHaveCount(0);
+  await expect(page.locator('.cat-tile[data-group]')).toHaveCount(10); // the picker itself is untouched
+  // A week with nothing in it reads the same way.
+  await page.unroute(weekRoute);
+  await page.route(weekRoute, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...WEEK, total: 0, open: 0, closed: 0 }) }));
+  await page.reload();
+  await expect(strip).toHaveAttribute('data-state', 'quiet');
+  await expect(strip.locator('.home-week-line')).toHaveText('See what the city is working on');
+  await expect(strip.locator('a')).toHaveCount(2);
+  // Spanish.
+  await page.getByRole('button', { name: 'Español' }).click();
+  await expect(strip.locator('.home-week-line')).toHaveText('Mira en qué está trabajando la ciudad');
+  await expect(strip.getByRole('link', { name: 'Ver el mapa' })).toHaveAttribute('href', '/street');
+  await expect(strip.getByRole('link', { name: 'La semana' })).toHaveAttribute('href', '/week');
+  await page.unroute(weekRoute);
+  await page.route(weekRoute, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...WEEK, total: 1234, closed: 5 }) }));
+  await page.reload();
+  await expect(strip.locator('.home-week-line')).toHaveText('1234 solicitudes esta semana · 5 cerradas');
 });
 
 test('picker remembers the last type as a quick pick', async ({ page }) => {

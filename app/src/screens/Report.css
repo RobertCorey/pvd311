@@ -123,3 +123,17 @@
 /* The wide dashed Not-sure tile spans the grid (design-direction.md: "Other / something else is a wide dashed tile"). */
 .cat-tile--wide { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 76px; border-style: dashed; box-shadow: none; }
 .cat-tile--wide .cat-icon, .cat-tile--wide .cat-icon svg { width: 36px; height: 36px; }
+
+/* ── Home week strip (2026-10-26): the foot of the level-1 grid, components/HomeWeekStrip.tsx ─────────────────────
+   Quiet by design: surface card, no shadow, muted line, ink links in Bricolage with a text chevron — nothing ember, so the
+   tiles' press state and the compose screen's Take-photo / Send stay the loudest things. The skeleton line is the same
+   box as one line of text (0.86 rem × 1.45) so the swap moves nothing; the links are 44 px tall and render at once. */
+.home-week { margin: 14px 0 0; padding: 10px 14px 4px; box-shadow: none; }
+.home-week-line { margin: 0; font-size: 0.86rem; line-height: 1.45; color: var(--muted); text-wrap: pretty; font-variant-numeric: tabular-nums; }
+.home-week-line--skel { display: flex; align-items: center; min-height: 1.45em; }
+@media (max-width: 399px) { .home-week-line { min-height: 2.9em; } } /* two lines reserved in BOTH states: on 360 px Spanish and 320 px English phones the loaded line wraps, so the skeleton→text swap must not grow the strip */
+.home-week-line--skel > span { display: block; height: 10px; width: 58%; border-radius: 5px; background: var(--ink-soft); }
+.home-week-links { display: flex; flex-wrap: wrap; gap: 0 20px; margin-top: 2px; }
+.home-week-link { display: inline-flex; align-items: center; min-height: var(--tap); color: var(--ink); font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.home-week-link > span { margin-left: 5px; color: var(--muted); font-size: 1.2rem; line-height: 1; } /* the text chevron, like /street's row chevrons; inline-flex drops a typed space */
+.home-week-link:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }

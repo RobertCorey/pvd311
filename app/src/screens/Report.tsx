@@ -13,6 +13,7 @@ import { flushOutbox, isOutboxPaused, outbox, resumeOutbox } from '../lib/outbox
 import { BRAND } from '../brand';
 import { useI18n, useT } from '../i18n';
 import CategoryIcon from '../components/CategoryIcon';
+import HomeWeekStrip from '../components/HomeWeekStrip';
 import SavedAddresses from '../components/SavedAddresses';
 import './Report.css';
 
@@ -564,6 +565,9 @@ export default function Report() {
                 <span className="cat-text">{t('report.notSure')}<span className="cat-sub">{t('report.notSure.sub')}</span></span>
               </button>
             </div>
+            {/* The one pointer at the check-in pages, under the grid only (not in a group, not over search results, never
+                while composing): its fetch starts after the picker has painted. */}
+            <HomeWeekStrip />
           </>
         )}
       </section>

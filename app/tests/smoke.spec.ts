@@ -1,7 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { WEEK } from './week-mocks';
 
 // Integration guard: every route renders with no uncaught exception, in both languages.
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
+/** The home strip's GET /api/week (components/HomeWeekStrip.tsx): answered here so '/' settles to network idle without a
+ *  real request leaving the suite (the Worker's host is a mock origin here, and an unanswered fetch hangs to its timeout). */
+const mockWeek = (page: Page) => page.route((u) => u.origin + u.pathname === `${API}/api/week`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(WEEK) }));
 const ROUTES: Array<[string, RegExp]> = [
   ['/', /What's the problem\?|¿Cuál es el problema\?/],
   ['/about', /About|Acerca/],
@@ -21,6 +25,7 @@ test('footer disclaimer is localized to Spanish on / and /about', async ({ page 
   });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
+  await mockWeek(page);
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   for (const path of ['/', '/about']) {
@@ -36,8 +41,9 @@ for (const lang of ['en', 'es']) {
     await page.addInitScript((l) => { localStorage.setItem('fixmypvd.lang', l); }, lang);
     await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
     await page.route(`${API}/api/reports/*`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' }));
+    await mockWeek(page);
     await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
-  await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
+    await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
     for (const [path, expected] of ROUTES) {
       await page.goto(path);
       await expect(page.locator('main')).toContainText(expected, { timeout: 10_000 });
@@ -53,6 +59,7 @@ test('Sentry is not loaded on localhost', async ({ page }) => {
   const hits: string[] = [];
   page.on('request', (r) => { if (SENTRY.test(new URL(r.url()).hostname)) hits.push(r.url()); });
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  await mockWeek(page);
   await page.route('https://tile.openstreetmap.org/**', (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
   await page.goto('/');

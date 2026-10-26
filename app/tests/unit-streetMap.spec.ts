@@ -285,11 +285,11 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.*, track.near.* and watch.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.*, track.near.*, watch.* and home.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.');
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.') || k.startsWith('home.');
   const enKeys = Object.keys(en).filter(ours);
   const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);
@@ -299,6 +299,10 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.
   // The street-watch row's six keys, and the Spanish is a translation, not the English copied over.
   expect(enKeys.filter((k) => k.startsWith('watch.')).sort()).toEqual(['watch.body', 'watch.error', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.title']);
   for (const k of ['watch.title', 'watch.body', 'watch.needsPush', 'watch.noPushHere', 'watch.on']) expect(es[k], k).not.toBe(en[k]);
+  // The home strip's four keys (components/HomeWeekStrip.tsx), translated, with the line's two placeholders in both.
+  expect(enKeys.filter((k) => k.startsWith('home.week.')).sort()).toEqual(['home.week.line', 'home.week.map', 'home.week.quiet', 'home.week.week']);
+  for (const k of ['home.week.line', 'home.week.quiet', 'home.week.map', 'home.week.week']) expect(es[k], k).not.toBe(en[k]);
+  for (const d of [en, es]) { expect(d['home.week.line']).toContain('{total}'); expect(d['home.week.line']).toContain('{closed}'); }
 });
 
 // ── likelyOwnCase: the report itself in the city's list (TrackNear drops it from "Near this request") ──
