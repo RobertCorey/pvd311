@@ -24,7 +24,26 @@ if [ ! -x "$TOOL_DIR/pmtiles" ]; then
   curl -fsSL -o "$TOOL_DIR/pmtiles.tgz" "https://github.com/protomaps/go-pmtiles/releases/download/v${PMTILES_VERSION}/go-pmtiles_${PMTILES_VERSION}_${o}_${a}.tar.gz"
   tar -xzf "$TOOL_DIR/pmtiles.tgz" -C "$TOOL_DIR" pmtiles
 fi
-"$TOOL_DIR/pmtiles" extract "https://build.protomaps.com/${BUILD}.pmtiles" "$OUT.tmp" --bbox="$BBOX" --maxzoom="$MAXZOOM"
+# 1) Our own published copy (Firebase Hosting serves it, no rate limit) — every CI/deploy run used to re-extract from
+#    build.protomaps.com and got HTTP 429 after a busy night (2026-10-26). The magic check rejects the SPA's index.html.
+PUBLISHED="${BASEMAP_PUBLISHED_URL:-https://fixmypvd.org/map/pvd-$BUILD.pmtiles}"
+if curl -fsSL --retry 2 -o "$OUT.tmp" "$PUBLISHED" 2>/dev/null && [ "$(head -c 7 "$OUT.tmp")" = "PMTiles" ]; then
+  mv "$OUT.tmp" "$OUT"; write_manifest
+  echo "basemap: copied $OUT ($(du -h "$OUT" | cut -f1)) from $PUBLISHED"; exit 0
+fi
+rm -f "$OUT.tmp"
+# 2) Extract from the Protomaps daily build (a new BUILD, or the site is down); three attempts with backoff.
+ok=0
+for attempt in 1 2 3; do
+  if "$TOOL_DIR/pmtiles" extract "https://build.protomaps.com/${BUILD}.pmtiles" "$OUT.tmp" --bbox="$BBOX" --maxzoom="$MAXZOOM"; then ok=1; break; fi
+  rm -f "$OUT.tmp"; echo "basemap: extract attempt $attempt failed; waiting"; sleep $((attempt * 20))
+done
+if [ "$ok" != "1" ]; then
+  # Soft failure: the app falls back to OSM raster tiles when /map/basemap.json is missing; a deploy without the
+  # archive degrades the look, it does not break the site. The Playwright basemap test skips without the manifest.
+  rm -f "$OUT_DIR/basemap.json"
+  echo "basemap: WARNING could not fetch the extract; building without a vector basemap" >&2; exit 0
+fi
 mv "$OUT.tmp" "$OUT"
 find "$OUT_DIR" -name 'pvd-*.pmtiles' ! -name "pvd-$BUILD.pmtiles" -delete
 write_manifest

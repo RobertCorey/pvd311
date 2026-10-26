@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
 import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
@@ -855,6 +856,8 @@ test('fixture sanity: the default feed has the stack, the unplaced case and the 
 });
 
 test('the self-hosted basemap renders vector tiles and credits Protomaps; a missing manifest falls back to OSM raster', async ({ page }) => {
+  // scripts/fetch-basemap.sh fails soft (no manifest) when neither our published copy nor Protomaps could be reached.
+  test.skip(!existsSync(new URL('../public/map/basemap.json', import.meta.url)), 'no basemap extract in this build');
   await setup(page, { basemap: true });
   let archive = 0;
   page.on('request', (r) => { if (/\/map\/pvd-\d+\.pmtiles$/.test(r.url())) archive++; });
