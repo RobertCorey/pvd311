@@ -45,6 +45,8 @@ export type ReportDoc = Report & { id: string };
 
 /** users/{uid} — account profile + preferences. Created lazily on first authenticated call. */
 export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
+/** One Web Push subscription in users/{uid}.push[] (push.ts; ≤ 5 per account, newest first). Having one = "Notify me on this phone" is on. */
+export interface PushSub { endpoint: string; p256dh: string; auth: string; ua: string | null; createdAt: string; lastUsedAt?: string | null }
 export interface UserDoc {
   uid: string;
   email: string | null;
@@ -58,6 +60,7 @@ export interface UserDoc {
   following: string[];                     // report ids (≤ 200)
   cityFollowing?: string[];                // public city case GUIDs (cityCases/{guid}), newest first (≤ 100) — cityfollow.ts
   cityFollowedAt?: Record<string, string>; // guid → ISO when followed (feeds FollowedCase.followedAt; pruned with cityFollowing)
+  push?: PushSub[];                        // web push subscriptions (POST/DELETE /api/me/push; pushAll drops the ones the push service says are gone)
   trusted?: boolean;                       // admin override for the per-account trust ramp
 }
 export type PortalDraft = NonNullable<Report['portalDraft']>;
@@ -138,6 +141,10 @@ export interface Store {
   getCityCase(id: string): Promise<Record<string, unknown> | null>;
   /** Batch get of cityCases/{id}; missing ids skipped, order not guaranteed. */
   fetchCityCases(ids: string[]): Promise<Record<string, unknown>[]>;
+  /** pushEndpoints/{sha256(endpoint)} = { uid, updatedAt }: which account a browser's push subscription belongs to, so
+   *  an endpoint has ONE owner — a new account on the same phone takes it over (push.ts claimPushEndpoint). */
+  getPushOwner(id: string): Promise<{ uid: string } | null>;
+  setPushOwner(id: string, uid: string): Promise<void>;
 }
 
 /** Portal auth state (Playwright storageState JSON) persisted in meta/portalAuth. */

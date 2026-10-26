@@ -128,7 +128,7 @@ export async function getIdToken(): Promise<string | null> {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: s.refreshToken }),
       });
-      if (resp.status === 400 || resp.status === 401) { set(null); return null; } // revoked/expired → signed out
+      if (resp.status === 400 || resp.status === 401) { signOut(); return null; } // revoked/expired → signed out
       if (!resp.ok) return s.idToken; // transient: keep using the current token
       const d = (await resp.json()) as { id_token: string; refresh_token: string; expires_in: string; user_id: string };
       set({ ...s, idToken: d.id_token, refreshToken: d.refresh_token, expiresAt: Date.now() + Number(d.expires_in) * 1000, uid: d.user_id || s.uid });
@@ -142,4 +142,28 @@ export async function authHeaders(): Promise<Record<string, string>> {
   const t = await getIdToken().catch(() => null);
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
-export function signOut(): void { set(null); }
+/** Sign out: the session is dropped at once (sync for the callers), and this phone's web-push subscription, if there
+ *  is one, is taken off the account with the bearer that was just valid and dropped from the browser — so the next
+ *  account on a shared or handed-down phone does not keep getting the previous one's "This week near Home" and
+ *  followed-case pushes, and PushCard's "off" is true. Best effort, bounded, never throws. */
+export function signOut(): void {
+  const s = session;
+  set(null);
+  if (s) void forgetPushOnThisPhone(s.idToken);
+}
+async function forgetPushOnThisPhone(idToken: string): Promise<void> {
+  try {
+    const push = await import('./push');
+    if (push.pushSupport() !== 'ready') return; // no PushManager, or blocked (a denied permission already ended any subscription)
+    const reg = push.swRegistration(4_000);
+    const sub = await push.currentSubscription(reg);
+    if (!sub?.endpoint) return;
+    const { apiFetch } = await import('../api/client');
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 5_000);
+    try {
+      await apiFetch('/api/me/push', { method: 'DELETE', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }), signal: c.signal });
+    } catch { /* the Worker prunes a dead endpoint on its next 410 */ } finally { clearTimeout(t); }
+    await push.unsubscribePush(reg);
+  } catch { /* best effort */ }
+}

@@ -26,6 +26,7 @@ import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
 import { CITY_GUID_RE, followedCaseView, type FollowedCase } from './cityfollow.js';
 import { geocodeStreetCached } from './cityfeed.js';
 import { logEvent } from './health.js';
+import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
 
 export const DEFAULT_RADIUS_M = 300;
 export const MAX_RADIUS_M = 1000;
@@ -306,7 +307,7 @@ export async function handleStreet(url: URL, store: Store): Promise<Response> {
 
 // ── Weekly digest ─────────────────────────────────────────────────────────────────────────
 
-export interface DigestSection { label: string; address: string; url: string; items: StreetCase[] }
+export interface DigestSection { id?: string; label: string; address: string; url: string; items: StreetCase[] }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : '');
@@ -338,16 +339,28 @@ export function streetDigestEmail(sections: DigestSection[], o: { base: string; 
   return { subject, html };
 }
 
-/** Mondays: one mail per opted-in account with activity near a saved address. Returns counts for the log. */
-export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number }> {
+/** The push (push.ts) for one address's week — "This week near <label>" / "<new> new · <closed> closed", opening that
+ *  street page. Tagged per address so two saved addresses give two notifications instead of one replacing the other. */
+export function streetDigestPush(s: DigestSection, since: string): PushPayload {
+  const newN = s.items.filter((i) => i.createdAt && i.createdAt >= since).length;
+  const closedN = s.items.filter((i) => !i.open && i.closedAt && i.closedAt >= since).length;
+  return { title: `This week near ${s.label || s.address}`, body: `${newN} new · ${closedN} closed`, url: s.url, tag: `street:${s.id ?? s.label}` };
+}
+
+/** Mondays: one mail per opted-in account with activity near a saved address, and a push per such address to the
+ *  account's subscribed phones (push.ts; mail needs a verified email, a push only needs the subscription). Returns counts for the log. */
+export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
   const since = new Date(now - DIGEST_DAYS * 86_400_000).toISOString();
   const users = await store.listStreetDigestUsers(500);
-  let mailed = 0;
+  let mailed = 0; let pushed = 0; let pushUsers = 0;
+  let keys: VapidKeys | null = null;
   let rows: Row[] | null = null;
   for (const u of users) {
-    if (!u.email || !u.emailVerified || !(u.addresses ?? []).length) continue;
+    const canMail = !!u.email && !!u.emailVerified;
+    const canPush = hasPush(u);
+    if ((!canMail && !canPush) || !(u.addresses ?? []).length) continue;
     rows ??= await loadCases(store, DIGEST_DAYS, now);
     const sections: DigestSection[] = [];
     let patched = false;
@@ -361,18 +374,28 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
       addresses.push({ ...a, lat, lng });
       if (lat == null || lng == null) continue;
       const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now });
-      if (items.length) sections.push({ label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }), items });
+      if (items.length) sections.push({ id: a.id, label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }), items });
     }
     if (patched) await store.patchUser(u.uid, { addresses }).catch(() => {});
     if (!sections.length) continue;
-    const m = streetDigestEmail(sections, { base, since });
-    await mailer.sendTo(u.email, m.subject, m.html, { kind: 'street_digest' });
-    mailed++;
+    if (canMail) {
+      const m = streetDigestEmail(sections, { base, since });
+      await mailer.sendTo(u.email!, m.subject, m.html, { kind: 'street_digest' });
+      mailed++;
+    }
+    if (canPush) {
+      pushUsers++;
+      try {
+        keys ??= await ensureVapid(store);
+        for (const s of sections) pushed += await pushAll(store, u, streetDigestPush(s, since), keys);
+      } catch (e) { console.error('[street] digest push failed:', e instanceof Error ? e.message : e); }
+    }
   }
-  console.log(`[street] digest: ${mailed} of ${users.length} opted-in accounts mailed`);
-  await logEvent(store, { level: 'info', kind: 'street.digest', msg: `Weekly street digest: ${mailed} of ${users.length} opted-in accounts had something to hear about`, data: { users: users.length, mailed } });
-  await store.setMeta('streetDigest', { at: new Date(now).toISOString(), users: users.length, mailed }).catch(() => {});
-  return { users: users.length, mailed };
+  console.log(`[street] digest: ${mailed} of ${users.length} opted-in accounts mailed, ${pushed} pushes`);
+  await logEvent(store, { level: 'info', kind: 'street.digest', msg: `Weekly street digest: ${mailed} of ${users.length} opted-in accounts had something to hear about`, data: { users: users.length, mailed, pushed } });
+  await logPushes(store, 'street_digest', { users: pushUsers, sent: pushed });
+  await store.setMeta('streetDigest', { at: new Date(now).toISOString(), users: users.length, mailed, pushed }).catch(() => {});
+  return { users: users.length, mailed, pushed };
 }
 
 export type { UserDoc };

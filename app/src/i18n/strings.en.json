@@ -1236,5 +1236,13 @@
   "week.quiet": "The city's list is quiet this week — nothing opened or closed in the last 7 days.",
   "week.loading": "Adding up the week…",
   "week.error": "Couldn't load this week's numbers right now.",
-  "week.retry": "Try again"
+  "week.retry": "Try again",
+  "push.title": "Notify me on this phone",
+  "push.body": "The same updates as the email, as a notification on this phone.",
+  "push.enable": "Turn on",
+  "push.on": "On for this phone",
+  "push.off": "Turn off on this phone",
+  "push.blocked": "Notifications are blocked for this site. Allow them in your browser's settings, then come back here.",
+  "push.iosInstall": "On iPhone, add FixMyPVD to your Home Screen first (Share → Add to Home Screen) and open it from there to turn on notifications.",
+  "push.error": "Couldn't save that. Try again."
 }

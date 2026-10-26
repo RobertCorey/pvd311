@@ -9,6 +9,7 @@
  *   GET  /api/street/case/:guid → one case for a deep link older than the loaded window (street.ts)
  *   GET  /api/street      → "My street": city cases near a point (street.ts; kept for the weekly digest + old links)
  *   GET  /api/week        → "This week in Providence": the last 7 days citywide vs the 7 before (week.ts; public, cached)
+ *   GET  /api/push/key    → { publicKey }: the VAPID public key for PushManager.subscribe (push.ts; minted into meta/vapid on first call; public, 1 h cache)
  *   GET  /api/stats       → { filed } public counter
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
@@ -21,6 +22,7 @@ import type { Env, Store, ReportDoc } from './contracts.js';
 import { cityItemId, parseCityDate, type CityFeed } from './cityfeed.js';
 import { userFromRequest, type AuthUser } from './auth.js';
 import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './me.js';
+import { handlePushKey } from './push.js';
 import { sendSignInLink } from './authmail.js';
 import { moderate } from './moderation.js';
 import { handleAdmin, isAdmin } from './adminapi.js';
@@ -87,6 +89,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'GET' && url.pathname === '/api/street') resp = await handleStreet(url, deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/street/city') resp = await handleStreetCity(url, deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/week') resp = await handleWeek(url, deps.store);
+    else if (request.method === 'GET' && url.pathname === '/api/push/key') resp = await handlePushKey(deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/stats') resp = await stats(deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);

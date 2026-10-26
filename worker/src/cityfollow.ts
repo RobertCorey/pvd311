@@ -8,6 +8,7 @@
 import type { UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
 import { statusPhrase } from './notify.js';
+import { hasPush, type PushPayload } from './push.js';
 
 export const MAX_CITY_FOLLOWING = 100;  // per account
 export const MAX_CASE_FOLLOWERS = 200;  // per case
@@ -93,6 +94,33 @@ export function eligibleFollowers(users: (UserDoc | null | undefined)[], guid?: 
     const key = u.email.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    out.push(u);
+  }
+  return out;
+}
+
+/**
+ * The same move as a push (push.ts): title "City update: <type>", body "<street> — <old> → <new>", plus " · " and the
+ * first 80 characters of the city's Resolution Message when the new status is a close. `url` = the card, tag = the
+ * case, so a later move on the same case replaces the earlier notification instead of stacking.
+ */
+export function cityFollowPush(o: { caseType: string; street: string; from: string | null; to: string; resolution: string | null; url: string; guid: string }): PushPayload {
+  const street = o.street.trim();
+  const change = o.from && o.from !== o.to ? `${o.from} → ${o.to}` : o.to;
+  const note = CLOSED.has(o.to) && o.resolution ? ` · ${o.resolution.replace(/\s+/g, ' ').trim().slice(0, 80)}` : '';
+  return { title: `City update: ${o.caseType}`, body: `${street ? `${street} — ` : ''}${change}${note}`, url: o.url, tag: `case:${o.guid}` };
+}
+
+/**
+ * Who gets the push: followers whose own list still holds the case and who subscribed a phone. A subscription is the
+ * opt-in, so email settings (verified, emailUpdates) do not apply here; one entry per account.
+ */
+export function pushFollowers(users: (UserDoc | null | undefined)[], guid: string): UserDoc[] {
+  const seen = new Set<string>();
+  const out: UserDoc[] = [];
+  for (const u of users) {
+    if (!u || seen.has(u.uid) || !hasPush(u) || !(u.cityFollowing ?? []).includes(guid)) continue;
+    seen.add(u.uid);
     out.push(u);
   }
   return out;

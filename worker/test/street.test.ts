@@ -113,7 +113,7 @@ describe('weekly digest', () => {
     const unverified = user({ uid: 'u3', email: 'x@example.com', emailVerified: false });
     const d = deps([user(), quiet, unverified], rows);
     const r = await runStreetDigest(env, d.store, d.mailer, { now: NOW });
-    expect(r).toEqual({ users: 3, mailed: 1 });
+    expect(r).toEqual({ users: 3, mailed: 1, pushed: 0 });
     expect(d.sent).toHaveLength(1);
     expect(d.sent[0]).toMatchObject({ to: 'me@example.com', subject: 'This week near Home: 2 new, 1 closed', kind: 'street_digest' });
     expect(d.sent[0].html).toContain('Street Light Out');
@@ -129,7 +129,7 @@ describe('weekly digest', () => {
     const d = deps([user({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: null, lng: null }] })], [row('p1')]);
     (d.store as any).getMeta = vi.fn(async () => null);
     try {
-      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1 });
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 0 });
       expect(d.patched[0]).toEqual({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }] });
     } finally { vi.unstubAllGlobals(); }
   });

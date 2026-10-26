@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import './StreetParts.css';
@@ -16,7 +16,8 @@ import './StreetParts.css';
  *  enabled too (`aria-busy`; re-entry is ignored), so keyboard and screen-reader users keep their place and hear the
  *  aria-pressed flip.
  *  `email` says whether the Worker will actually mail this account (cityfollow.eligibleFollowers: verified email and
- *  prefs.emailUpdates on): when it won't, the pressed label drops the promise and a hint links to Account. */
+ *  prefs.emailUpdates on): when it won't, the pressed label drops the promise and a hint links to Account.
+ *  `push` (the "Notify me on this phone" row, components/PushCard) renders under the pressed toggle only. */
 
 export type FollowAccountState = 'loading' | 'error' | 'ok';
 /** 'off' = prefs.emailUpdates is false; 'unverified' = the account's email is not verified. */
@@ -35,9 +36,11 @@ export interface StreetFollowProps {
   email?: FollowEmailState;
   onFollow: () => Promise<void>;
   onUnfollow: () => Promise<void>;
+  /** Shown while following: the web-push row for this phone. */
+  push?: ReactNode;
 }
 
-export default function StreetFollow({ signedIn, following, returnTo, account = 'loading', onRetry, email, onFollow, onUnfollow }: StreetFollowProps) {
+export default function StreetFollow({ signedIn, following, returnTo, account = 'loading', onRetry, email, onFollow, onUnfollow, push }: StreetFollowProps) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -81,6 +84,7 @@ export default function StreetFollow({ signedIn, following, returnTo, account = 
         </p>
       )}
       {error && <p className="hint street-follow-error" role="alert">{t('street.follow.error')}</p>}
+      {on && push}
     </>
   );
 }

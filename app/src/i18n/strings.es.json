@@ -1302,5 +1302,13 @@
   "week.quiet": "La lista de la ciudad está tranquila esta semana: nada se abrió ni se cerró en los últimos 7 días.",
   "week.loading": "Sumando la semana…",
   "week.error": "No pudimos cargar los números de esta semana ahora.",
-  "week.retry": "Reintentar"
+  "week.retry": "Reintentar",
+  "push.title": "Avisarme en este teléfono",
+  "push.body": "Las mismas novedades que el correo, como notificación en este teléfono.",
+  "push.enable": "Activar",
+  "push.on": "Activado en este teléfono",
+  "push.off": "Desactivar en este teléfono",
+  "push.blocked": "Las notificaciones están bloqueadas para este sitio. Permítelas en la configuración de tu navegador y vuelve aquí.",
+  "push.iosInstall": "En iPhone, primero agrega FixMyPVD a tu pantalla de inicio (Compartir → Agregar a pantalla de inicio) y ábrelo desde ahí para activar las notificaciones.",
+  "push.error": "No se pudo guardar. Inténtalo de nuevo."
 }

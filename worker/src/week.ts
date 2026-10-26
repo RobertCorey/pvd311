@@ -33,6 +33,7 @@ import { loadCases, LOAD_LIMIT } from './street.js';
 import { etDate, etMidnight } from './quota.js';
 import { hoodOf as sharedHoodOf, hoodSlug } from '../../shared/neighborhoods.js';
 import { logEvent } from './health.js';
+import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload } from './push.js';
 
 export const WEEK_DAYS = 7;
 /** loadCases window for the current week: this week + last week; loadCases adds the 60-day close lookback itself.
@@ -336,14 +337,21 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
  *  window its dated link resolves to forever, so the page a reader opens on Tuesday shows the numbers that were mailed.
  *  (Built on the 168 h ending at the 07:00 cron, the link would mean a different, Tue–Mon week from the next day on.)
  *  Returns counts for the log. */
-export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number }> {
+/** The Monday push (push.ts) for the same week: "<total> requests · <closed> closed", opening the dated page. */
+export function weekDigestPush(s: WeekSummary, o: { base: string }): PushPayload {
+  return { title: 'This week in Providence', body: `${s.total} request${s.total === 1 ? '' : 's'} · ${s.closed} closed`, url: `${o.base.replace(/\/+$/, '')}/week?until=${s.untilDate}`, tag: 'week' };
+}
+
+export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
   const users = await store.listWeekDigestUsers(500);
-  const eligible = users.filter((u) => !!u.email && !!u.emailVerified && u.prefs?.weekDigest === true);
-  let mailed = 0;
+  const optedIn = users.filter((u) => u.prefs?.weekDigest === true);
+  const eligible = optedIn.filter((u) => !!u.email && !!u.emailVerified);
+  const phones = optedIn.filter(hasPush); // a subscription is its own opt-in: the pref gates the digest, not the mailbox
+  let mailed = 0; let pushed = 0;
   let total: number | null = null;
-  if (eligible.length) {
+  if (eligible.length || phones.length) {
     const until = addDays(etDate(now), -1);
     const summary = weekSummary(await loadCases(store, LOAD_DAYS + 1, now), { now, until });
     total = summary.total;
@@ -353,10 +361,19 @@ export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts
         await mailer.sendTo(u.email!, m.subject, m.html, { kind: 'week_digest' });
         mailed++;
       }
+      // The same numbers on subscribed phones (push.ts) — alongside the mail, never instead of it; a failed push fails alone.
+      if (phones.length) {
+        try {
+          const keys = await ensureVapid(store);
+          const p = weekDigestPush(summary, { base });
+          for (const u of phones) pushed += await pushAll(store, u, p, keys);
+        } catch (e) { console.error('[week] digest push failed:', e instanceof Error ? e.message : e); }
+        await logPushes(store, 'week_digest', { users: phones.length, sent: pushed });
+      }
     }
   }
-  console.log(`[week] digest: ${mailed} of ${users.length} opted-in accounts mailed${total === 0 ? ' (empty week, skipped)' : ''}`);
-  await logEvent(store, { level: 'info', kind: 'week.digest', msg: total === 0 ? 'Weekly city digest: the week had no cases — no mail sent' : `Weekly city digest: ${mailed} of ${users.length} opted-in accounts mailed`, data: { users: users.length, mailed, total } });
-  await store.setMeta('weekDigest', { at: new Date(now).toISOString(), users: users.length, mailed, total }).catch(() => {});
-  return { users: users.length, mailed };
+  console.log(`[week] digest: ${mailed} of ${users.length} opted-in accounts mailed, ${pushed} pushes${total === 0 ? ' (empty week, skipped)' : ''}`);
+  await logEvent(store, { level: 'info', kind: 'week.digest', msg: total === 0 ? 'Weekly city digest: the week had no cases — no mail sent' : `Weekly city digest: ${mailed} of ${users.length} opted-in accounts mailed`, data: { users: users.length, mailed, pushed, total } });
+  await store.setMeta('weekDigest', { at: new Date(now).toISOString(), users: users.length, mailed, pushed, total }).catch(() => {});
+  return { users: users.length, mailed, pushed };
 }

@@ -13,6 +13,9 @@ export interface Me {
   admin?: boolean;
   /** Reporter quota (docs/quota.md); absent from an older Worker. */
   quota?: Quota;
+  /** Web push subscriptions on this account (users.push[], ≤ 5): the endpoints only, so the app can tell whether
+   *  this browser's own PushSubscription is registered. Absent from an older Worker. */
+  push?: { endpoints: string[] };
 }
 /** ReportView plus the signed-in extras the Worker adds. */
 export interface MyReportView extends ReportView { mine?: boolean; following?: boolean; editable?: boolean; description?: string | null; owned?: boolean }
@@ -36,6 +39,23 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 15_000)
 }
 
 export const getMe = () => call<Me>('/api/me');
+/** The Worker's VAPID public key (base64url, 65 raw P-256 bytes; minted on first call). Public, cached an hour. */
+export async function getPushKey(): Promise<{ publicKey: string }> {
+  const t = withTimeout(10_000);
+  try {
+    const resp = await apiFetch('/api/push/key', { signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    const d = (await resp.json()) as { publicKey?: unknown };
+    if (typeof d.publicKey !== 'string' || !d.publicKey) throw new Error('bad_push_key');
+    return { publicKey: d.publicKey };
+  } finally { t.done(); }
+}
+/** One browser's PushSubscription as POST /api/me/push stores it (upsert by endpoint). */
+export interface PushRegistration { endpoint: string; keys: { p256dh: string; auth: string }; ua?: string }
+/** Register this browser for push (204). Having a subscription on the account = opted in; no separate pref. */
+export const registerPush = (sub: PushRegistration) => call<void>('/api/me/push', { method: 'POST', body: JSON.stringify(sub) });
+/** Forget one subscription by endpoint (204, idempotent). */
+export const unregisterPush = (endpoint: string) => call<void>('/api/me/push', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
 export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean; streetDigest?: boolean; weekDigest?: boolean } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 export const myReports = () => call<{ items: MyReportView[] }>('/api/me/reports');
 export const followingReports = () => call<{ items: MyReportView[] }>('/api/me/following');

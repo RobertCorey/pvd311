@@ -499,14 +499,14 @@ describe('runWeekDigest', () => {
       user({ uid: 'u5', email: 'off@example.com', prefs: { emailUpdates: true, weekDigest: false } }), // a stale query hit
     ];
     const d = deps(users, [row('a'), closedRow('b', 4, 1)]);
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2 });
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2, pushed: 0 });
     expect(d.sent.map((m) => m.to)).toEqual(['me@example.com', 'two@example.com']);
     expect(d.sent[0]).toMatchObject({ subject: 'This week in Providence: 2 requests, 1 closed', kind: 'week_digest' });
     // NOW is Sunday Oct 25: the mail is the week ending Saturday Oct 24 (00:00 Oct 18 → 23:59:59.999 Oct 24 EDT) and links it.
     expect(d.sent[0].html).toContain('Oct 18 – Oct 24, from Providence 311');
     expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">See the whole week</a>');
     expect((d.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
-    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, total: 2 }]);
+    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, pushed: 0, total: 2 }]);
   });
 
   it('from the Monday 11:00 UTC cron the mail is Mon–Sun of last week, and its dated link reproduces the mailed numbers on Tuesday', async () => {
@@ -520,7 +520,7 @@ describe('runWeekDigest', () => {
       closedRow('closed-today', 9, 0, { detail: { resolutionDate: '2026-10-26T09:00:00Z', resolution: 'Later.' } }), // created Oct 16 → prev; closed Mon → open in the mailed week
     ];
     const d = deps([user()], rows);
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: monday })).toEqual({ users: 1, mailed: 1 });
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: monday })).toEqual({ users: 1, mailed: 1, pushed: 0 });
     expect(d.sent[0].subject).toBe('This week in Providence: 3 requests, 1 closed');
     expect(d.sent[0].html).toContain('Oct 19 – Oct 25, from Providence 311');
     expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
@@ -533,11 +533,11 @@ describe('runWeekDigest', () => {
 
   it('sends nothing when the week had no cases, and reads nothing when nobody opted in', async () => {
     const quiet = deps([user()], [row('old', { createdAt: daysAgo(40), firstSeenAt: daysAgo(40) })]);
-    expect(await runWeekDigest(env, quiet.store, quiet.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0 });
+    expect(await runWeekDigest(env, quiet.store, quiet.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
     expect(quiet.sent).toHaveLength(0);
     expect((quiet.store.addEvent as any).mock.calls[0][0].msg).toContain('no cases');
     const nobody = deps([], [row('a')]);
-    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: NOW })).toEqual({ users: 0, mailed: 0 });
+    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: NOW })).toEqual({ users: 0, mailed: 0, pushed: 0 });
     expect((nobody.store.listCityCasesSince as any).mock.calls).toHaveLength(0);
   });
 });

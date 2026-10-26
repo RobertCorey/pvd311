@@ -30,7 +30,8 @@
  */
 import type { Env, Mailer, Store } from './contracts.js';
 import { GRID_CONFIG_META, geocodeStreetCached, mapCategory } from './cityfeed.js';
-import { MAX_CASE_FOLLOWERS, caseUrl, cityFollowEmail, eligibleFollowers, followedCaseView } from './cityfollow.js';
+import { MAX_CASE_FOLLOWERS, caseUrl, cityFollowEmail, cityFollowPush, eligibleFollowers, followedCaseView, pushFollowers } from './cityfollow.js';
+import { ensureVapid, logPushes, pushAll, type VapidKeys } from './push.js';
 import { logEvent, markError, markOk } from './health.js';
 
 const INDEX_META = 'cityCasesIdx';
@@ -386,6 +387,8 @@ export async function notifyCityFollowers(env: Env, store: Store, mailer: Mailer
   if (!mailer || !changes.length) return 0;
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
   let mails = 0;
+  let pushed = 0; let pushUsers = 0;
+  let keys: VapidKeys | null = null;
   for (const c of changes) {
     try {
       const doc = await store.getCityCase(c.id);
@@ -395,16 +398,28 @@ export async function notifyCityFollowers(env: Env, store: Store, mailer: Mailer
       const uids = (Array.isArray(doc.followerUids) ? doc.followerUids : []).filter((x): x is string => typeof x === 'string').slice(0, MAX_CASE_FOLLOWERS);
       if (!uids.length || doc.notifiedStatus === status) continue;
       const users = await Promise.all(uids.map((uid) => store.getUser(uid).catch(() => null)));
-      const mail = cityFollowEmail({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, createdAt: view.createdAt, url: caseUrl(base, c.id, view.lat, view.lng) });
+      const url = caseUrl(base, c.id, view.lat, view.lng);
+      const mail = cityFollowEmail({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, createdAt: view.createdAt, url });
       for (const u of eligibleFollowers(users, c.id)) {
         await mailer.sendTo(u.email!, mail.subject, mail.html, { kind: 'city_follow', caseId: c.id });
         mails++;
+      }
+      // The same move on subscribed phones (push.ts) — after the mail, never instead of it; a push that fails changes nothing here.
+      const phones = pushFollowers(users, c.id);
+      if (phones.length) {
+        const push = cityFollowPush({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, url, guid: c.id });
+        try {
+          keys ??= await ensureVapid(store);
+          for (const u of phones) pushed += await pushAll(store, u, push, keys);
+        } catch (e) { console.error('[citycases] follow push failed:', e instanceof Error ? e.message : e); }
+        pushUsers += phones.length;
       }
       await store.patchCityCase(c.id, { notifiedStatus: status });
     } catch (e) {
       console.error('[citycases] follow mail failed:', e instanceof Error ? e.message : e);
     }
   }
+  await logPushes(store, 'city_follow', { users: pushUsers, sent: pushed });
   return mails;
 }
 

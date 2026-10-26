@@ -818,6 +818,16 @@ export function createStore(env: Env): Store {
       await patchDoc(env, `users/${uid}`, fields);
     },
 
+    async getPushOwner(id): Promise<{ uid: string } | null> {
+      const doc = await getDoc(env, `pushEndpoints/${id}`);
+      const uid = doc ? (decodeFields(doc.fields ?? {}) as { uid?: unknown }).uid : null;
+      return typeof uid === 'string' && uid ? { uid } : null;
+    },
+
+    async setPushOwner(id, uid): Promise<void> {
+      await patchDoc(env, `pushEndpoints/${id}`, { uid, updatedAt: new Date().toISOString() });
+    },
+
     async findReportsByOwner(uid, limit): Promise<ReportDoc[]> {
       // Single equality filter → no composite index; sorted here.
       const docs = await runQuery(env, {

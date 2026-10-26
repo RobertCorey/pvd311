@@ -20,6 +20,7 @@ import StreetFilters from '../components/StreetFilters';
 import StreetRow from '../components/StreetRow';
 import StreetDetail from '../components/StreetDetail';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
+import PushCard from '../components/PushCard';
 import SavedAddresses from '../components/SavedAddresses';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -530,7 +531,9 @@ export default function Street() {
     if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
     return `/street?${p}`;
   };
-  function renderDigest(tg: DigestTarget, from: 'point' | 'case'): ReactNode {
+  /** `push` = whether the on-state carries the "Notify me on this phone" row (off when the pressed Follow toggle on
+   *  the same case card already shows it, so the card never has two). */
+  function renderDigest(tg: DigestTarget, from: 'point' | 'case', push = true): ReactNode {
     const saved = savedNear(tg);
     const on = !!(me?.prefs.streetDigest && saved);
     return (
@@ -543,6 +546,7 @@ export default function Street() {
           <div className="street-digest-on">
             <p className="notice notice-ok" role="status">{t('street.digest.on', { label: saved?.label ?? tg.label })}</p>
             <button type="button" className="btn btn-ghost" onClick={() => disableDigest(from)} disabled={digest === 'saving'}>{t('street.digest.off')}</button>
+            {push && <PushCard me={me} from={from === 'case' ? 'case' : 'street'} />}
           </div>
         )}
         {digest === 'error' && <p className="hint" role="alert">{t('street.digest.error')}</p>}
@@ -645,12 +649,13 @@ export default function Street() {
     if (selectedCase) {
       const tg: DigestTarget | null = selectedCase.lat != null && selectedCase.lng != null ? { lat: selectedCase.lat, lng: selectedCase.lng, label: selectedCase.street } : null;
       const id = selectedCase.id;
+      const followed = !!cityFollowing?.includes(id);
       const follow = (
-        <StreetFollow key={id} signedIn={!!session} following={cityFollowing ? cityFollowing.includes(id) : null} returnTo={returnHere(selectedCase)}
+        <StreetFollow key={id} signedIn={!!session} following={cityFollowing ? followed : null} returnTo={returnHere(selectedCase)}
           account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
-          onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} />
+          onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} push={<PushCard me={me} from="case" />} />
       );
-      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? renderDigest(tg, 'case') : undefined} />;
+      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? renderDigest(tg, 'case', !followed) : undefined} />;
     }
     if (stackCases) {
       return (

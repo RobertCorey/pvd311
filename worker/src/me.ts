@@ -11,6 +11,8 @@
  *   GET    /api/me/city                 followed public city cases → { items: FollowedCase[] } (cityfollow.ts)
  *   PUT    /api/me/city/:guid           follow a city case   (204; 404 when cityCases/{guid} does not exist)
  *   DELETE /api/me/city/:guid           unfollow             (204)
+ *   POST   /api/me/push                 { endpoint, keys: { p256dh, auth }, ua? } → 204: this phone hears pushes (push.ts; upsert by endpoint, ≤ 5 per account, oldest dropped)
+ *   DELETE /api/me/push                 { endpoint } → 204 (idempotent)
  *   PUT    /api/me/addresses            { id?, label, address, lat?, lng? } → { addresses }
  *   DELETE /api/me/addresses/:id        → { addresses }
  *   PATCH  /api/reports/:id             { description } owner-only, while still pending
@@ -20,6 +22,7 @@ import type { Env, ReportDoc, SavedAddress, Store, UserDoc } from './contracts.j
 import type { AuthUser } from './auth.js';
 import { quotaFor, refundQuota, type QuotaView } from './quota.js';
 import { CITY_GUID_RE, MAX_CASE_FOLLOWERS, MAX_CITY_FOLLOWING, followedCaseView } from './cityfollow.js';
+import { claimPushEndpoint, parsePushSub, upsertPushSub } from './push.js';
 
 export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown>; admin?: boolean }
 export interface Viewer { uid: string; following: Set<string> }
@@ -58,6 +61,7 @@ function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
     prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true, weekDigest: u.prefs?.weekDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [],
     cityFollowing: (u.cityFollowing ?? []).slice(0, MAX_CITY_FOLLOWING), createdAt: u.createdAt,
+    push: { endpoints: (u.push ?? []).map((s) => s.endpoint) }, // the app matches its own PushSubscription.endpoint to show on/off
     quota,
   };
 }
@@ -145,6 +149,23 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
       await store.patchCityCase(id, { followerUids: followerUids.slice(0, MAX_CASE_FOLLOWERS) });
     }
     for (const d of dropped) await removeCityFollower(store, d, user.uid);
+    return noContent();
+  }
+
+  // ── Web push (push.ts): a subscription on the list = "Notify me on this phone" is on; no separate pref ──
+  if (path === '/api/me/push' && (m === 'POST' || m === 'DELETE')) {
+    const body = (await request.json().catch(() => null)) as { endpoint?: unknown } | null;
+    if (m === 'POST') {
+      const sub = parsePushSub(body);
+      if (!sub) return json({ error: 'invalid_subscription' }, 400);
+      await claimPushEndpoint(store, user.uid, sub.endpoint); // one owner per phone: a previous account on it loses the endpoint
+      await store.patchUser(user.uid, { push: upsertPushSub(user.push, sub, new Date().toISOString()) });
+      return noContent();
+    }
+    if (typeof body?.endpoint !== 'string' || !body.endpoint) return json({ error: 'invalid_body', field: 'endpoint' }, 400);
+    const endpoint = body.endpoint;
+    const kept = (user.push ?? []).filter((s) => s.endpoint !== endpoint);
+    if (kept.length !== (user.push ?? []).length) await store.patchUser(user.uid, { push: kept });
     return noContent();
   }
 
