@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { QUIET, WEEK, setupWeek } from './week-mocks';
+import { API, QUIET, WEEK, setupWeek } from './week-mocks';
 import { setup as setupStreet, waitForMap } from './street-mocks';
 
 // /week — "This week in Providence": one mocked GET /api/week rendered as a plain page; every section is a door into
@@ -7,6 +7,9 @@ import { setup as setupStreet, waitForMap } from './street-mocks';
 
 const main = (page: Page) => page.locator('main');
 const weekCalls = (calls: { url: string }[]) => calls.filter((c) => c.url.endsWith('/api/week'));
+/** Every /api/week call, dated or not, as its path + query. */
+const weekUrls = (calls: { url: string }[]) => calls.filter((c) => c.url.includes('/api/week')).map((c) => c.url.slice(API.length));
+const weekNav = (page: Page) => page.getByRole('navigation', { name: 'Other weeks' });
 
 async function open(page: Page, o: Parameters<typeof setupWeek>[1] = {}) {
   const calls = await setupWeek(page, o);
@@ -99,7 +102,114 @@ test('share: with navigator.share absent the URL lands on the clipboard and the 
   await open(page);
   await page.getByRole('button', { name: 'Share' }).click();
   await expect(page.locator('.week-flash[role="status"]')).toHaveText('Link copied');
-  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe('http://localhost:4173/week');
+  // The DATED url even on the current week: a link posted on Monday still means this week on Thursday.
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe('http://localhost:4173/week?until=2026-10-25');
+});
+
+test('the current week: the title stays "This week", only Previous week is offered, and the sign-in round trip returns to the live page', async ({ page }) => {
+  await open(page);
+  const nav = weekNav(page);
+  await expect(nav.getByRole('link')).toHaveCount(1);
+  await expect(nav.getByRole('link', { name: 'Previous week' })).toHaveAttribute('href', '/week?until=2026-10-18');
+  await expect(nav.getByRole('link', { name: 'Next week' })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'Latest week' })).toHaveCount(0);
+  // The glyphs are decoration; the link's name is the words.
+  await expect(nav.locator('.week-nav-prev')).toHaveText('‹ Previous week');
+  expect(decodeURIComponent((await page.locator('.week-digest a.btn').getAttribute('href'))!)).toBe('/account?returnTo=/week');
+});
+
+test('a dated link: /week?until=2026-10-18 asks the Worker for that week and is titled by its range, with Previous · Next · Latest', async ({ page }) => {
+  const calls = await setupWeek(page);
+  await page.goto('/week?until=2026-10-18');
+  await expect(page.locator('main h1')).toHaveText('Providence, Oct 12 – Oct 18');
+  await expect(page.locator('.week-stats')).toBeVisible();
+  expect(weekUrls(calls)).toEqual(['/api/week?until=2026-10-18']);
+  await expect(page.locator('.week-range')).toHaveText('Monday to Sunday · 7 days');
+  const nav = weekNav(page);
+  await expect(nav.getByRole('link', { name: 'Previous week' })).toHaveAttribute('href', '/week?until=2026-10-11');
+  await expect(nav.getByRole('link', { name: 'Next week' })).toHaveAttribute('href', '/week?until=2026-10-25');
+  await expect(nav.getByRole('link', { name: 'Latest week' })).toHaveAttribute('href', '/week');
+  // Signing in from a past week comes back to that week.
+  expect(decodeURIComponent((await page.locator('.week-digest a.btn').getAttribute('href'))!)).toBe('/account?returnTo=/week?until=2026-10-18');
+  // The rest of the page is the same page: tiles, rows into /street, the busiest day of THAT week.
+  await expect(page.locator('.week-stat').nth(0).locator('.week-stat-n')).toHaveText('312');
+  await expect(page.locator('.week-top .week-row').first()).toHaveAttribute('href', '/street?g=streets');
+  await expect(page.locator('.week-busiest')).toHaveText('Busiest day: Wednesday, Oct 14 (61 requests)');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('a dated week shares its own url', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'share', { value: undefined, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (s: string) => { (window as unknown as { __copied: string }).__copied = s; return Promise.resolve(); } }, configurable: true });
+  });
+  await setupWeek(page);
+  await page.goto('/week?until=2026-10-11');
+  await expect(page.locator('main h1')).toHaveText('Providence, Oct 5 – Oct 11');
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Link copied');
+  expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe('http://localhost:4173/week?until=2026-10-11');
+});
+
+test('browsing: Previous week fetches that week once; stepping back to a week already seen is served from the client cache keyed by until', async ({ page }) => {
+  const calls = await open(page);
+  await weekNav(page).getByRole('link', { name: 'Previous week' }).click();
+  await expect(page).toHaveURL(/\/week\?until=2026-10-18$/);
+  await expect(page.locator('main h1')).toHaveText('Providence, Oct 12 – Oct 18');
+  await expect(page.locator('.week-stats')).toBeVisible();
+  expect(weekUrls(calls)).toEqual(['/api/week', '/api/week?until=2026-10-18']);
+  // Next week is the dated form of today: the Worker answers the current week; the client has not seen that key yet.
+  await weekNav(page).getByRole('link', { name: 'Next week' }).click();
+  await expect(page).toHaveURL(/\/week\?until=2026-10-25$/);
+  await expect(page.locator('main h1')).toHaveText('This week in Providence');
+  await expect(weekNav(page).getByRole('link', { name: 'Latest week' })).toHaveCount(0);
+  expect(weekUrls(calls)).toEqual(['/api/week', '/api/week?until=2026-10-18', '/api/week?until=2026-10-25']);
+  // Back to Oct 18: no new request.
+  await weekNav(page).getByRole('link', { name: 'Previous week' }).click();
+  await expect(page.locator('main h1')).toHaveText('Providence, Oct 12 – Oct 18');
+  await expect(page.locator('.week-stats')).toBeVisible();
+  expect(weekUrls(calls)).toHaveLength(3);
+  // Latest week → the bare page, also cached.
+  await weekNav(page).getByRole('link', { name: 'Latest week' }).click();
+  await expect(page).toHaveURL(/\/week$/);
+  await expect(page.locator('main h1')).toHaveText('This week in Providence');
+  await expect(page.locator('.week-stats')).toBeVisible();
+  expect(weekUrls(calls)).toHaveLength(3);
+});
+
+test('at the archive floor there is no Previous week; Next and Latest remain', async ({ page }) => {
+  await setupWeek(page);
+  await page.goto('/week?until=2026-08-30');
+  await expect(page.locator('main h1')).toHaveText('Providence, Aug 24 – Aug 30');
+  const nav = weekNav(page);
+  await expect(nav.getByRole('link', { name: 'Previous week' })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'Next week' })).toHaveAttribute('href', '/week?until=2026-09-06');
+  await expect(nav.getByRole('link', { name: 'Latest week' })).toHaveAttribute('href', '/week');
+});
+
+test('a quiet dated week names its dates', async ({ page }) => {
+  await setupWeek(page, { body: { ...QUIET, untilDate: '2026-10-11', prevUntil: '2026-10-04', nextUntil: '2026-10-18', current: false } });
+  await page.goto('/week?until=2026-10-11');
+  await expect(page.locator('.week-quiet')).toHaveText("The city's list was quiet that week — nothing opened or closed between Oct 5 and Oct 11.");
+  await expect(weekNav(page).getByRole('link', { name: 'Latest week' })).toBeVisible();
+});
+
+test('400 too_old / invalid_until: a plain message and the Latest week link, no Retry', async ({ page }) => {
+  const calls = await setupWeek(page, { status: () => 400, error: { error: 'too_old' } });
+  await page.goto('/week?until=2026-07-05');
+  await expect(page.locator('main h1')).toHaveText('Providence, Jun 29 – Jul 5');
+  await expect(page.locator('.notice-error[role="alert"]')).toHaveText('That week is older than the eight weeks we keep.');
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(weekNav(page).getByRole('link', { name: 'Latest week' })).toHaveAttribute('href', '/week');
+  expect(weekUrls(calls)).toEqual(['/api/week?until=2026-07-05']);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await setupWeek(page, { status: () => 400, error: { error: 'invalid_until' } });
+  await page.goto('/week?until=garbage');
+  await expect(page.locator('main h1')).toHaveText('This week in Providence');
+  await expect(page.locator('.notice-error[role="alert"]')).toHaveText("That link doesn't point at a week we have.");
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await weekNav(page).getByRole('link', { name: 'Latest week' }).click();
+  await expect(page).toHaveURL(/\/week$/);
 });
 
 test('digest, signed out: the card offers a sign-in link that returns to /week', async ({ page }) => {
@@ -172,6 +282,18 @@ test('loading shows skeleton bars, never a spinner; the numbers replace them', a
   release();
   await expect(page.locator('.week-stats')).toBeVisible();
   await expect(page.locator('.week-skel')).toHaveCount(0);
+});
+
+test('Spanish, dated: title by range, weekday subtitle, the nav', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await setupWeek(page);
+  await page.goto('/week?until=2026-10-18');
+  await expect(page.locator('main h1')).toHaveText('Providence, 12 oct – 18 oct');
+  await expect(page.locator('.week-range')).toHaveText('lunes a domingo · 7 días');
+  const nav = page.getByRole('navigation', { name: 'Otras semanas' });
+  await expect(nav.getByRole('link', { name: 'Semana anterior' })).toHaveAttribute('href', '/week?until=2026-10-11');
+  await expect(nav.getByRole('link', { name: 'Semana siguiente' })).toHaveAttribute('href', '/week?until=2026-10-25');
+  await expect(nav.getByRole('link', { name: 'Semana más reciente' })).toHaveAttribute('href', '/week');
 });
 
 test('Spanish: the page and its sections read in es', async ({ page }) => {

@@ -5,11 +5,20 @@
 .week { padding-block: 4px 8px; }
 
 /* ── Head: title + range left, Share right; one live region for "Link copied" ──────────────────── */
-.week-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title share' 'range share' 'flash flash'; gap: 2px 12px; align-items: start; }
+.week-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title share' 'range share' 'nav nav' 'flash flash'; gap: 2px 12px; align-items: start; }
 .week-head h1 { grid-area: title; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 4px 0 0; }
 .week-range { grid-area: range; margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.4; }
 .week-share { grid-area: share; align-self: start; margin-top: 4px; }
 .week-flash { grid-area: flash; min-height: 1.3em; margin: 2px 0 0; font-size: 0.85rem; color: var(--ink); }
+
+/* Week nav: ‹ Previous week · Next week › · Latest week — plain river links in a row (wraps on narrow phones),
+   each a full-height tap target. Hidden links are not rendered, so the row is only as wide as what exists. */
+.week-nav { grid-area: nav; display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px; margin: -2px 0 -8px; }
+.week-nav-link { display: inline-flex; align-items: center; min-height: var(--tap); color: var(--link); font-weight: 600; font-size: 0.9rem; text-decoration: none; text-underline-offset: 3px; }
+.week-nav-link:hover { text-decoration: underline; }
+.week-nav-prev > span { margin-right: 4px; } .week-nav-next > span { margin-left: 4px; }  /* the glyphs; inline-flex drops the text space */
+.week-nav-latest { margin-left: auto; }
+.week-error + .week-nav { margin-top: 10px; }
 
 /* Visually hidden (the loading announcement). */
 .week-vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

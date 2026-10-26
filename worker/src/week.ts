@@ -1,15 +1,24 @@
 /**
- * week.ts — "This week in Providence": the last 7 days of the city's public 311 list, citywide, against the 7 before.
+ * week.ts — "This week in Providence": 7 days of the city's public 311 list, citywide, against the 7 before.
  *
  * Rob, 2026-10-25: "make the app more something you'd want to check in on." The city's public cases are data we
  * already hold (citycases.ts); a weekly, shareable "what happened in Providence" is both a reason to come back and
  * r/providence re-post material. Three pieces, all from the same summary:
  *
  *   GET /api/week                 public, cache-control public max-age=300, one Firestore read per 5 min per isolate
- *                                 (loadCases(store, 14): the two windows plus street.ts's 60-day close lookback)
- *   /week (app)                   the page anyone can open and share — reads this one endpoint
+ *                                 per week (loadCases: the two windows plus street.ts's 60-day close lookback)
+ *   GET /api/week?until=YYYY-MM-DD the week ending at the END of that New York calendar day (23:59:59.999), so a link
+ *                                 posted on Monday still means the same week on Thursday (2026-10-26). Archive floor
+ *                                 56 days back; `prevUntil` / `nextUntil` let the page browse; `current` says whether
+ *                                 the window ends now.
+ *   /week (app)                   the page anyone can open and share — reads this one endpoint; Share copies the dated url
  *   prefs.weekDigest              "Email me this every Monday": runWeekDigest from runDaily on Mondays, after the
- *                                 per-address street digest; kind 'week_digest' in the email log; no mail on an empty week
+ *                                 per-address street digest, for the Mon–Sun calendar week that just ended (its dated
+ *                                 link reproduces it exactly); kind 'week_digest' in the email log; no mail on an empty week
+ *
+ * Windows. The current week is "the last 7 × 24 h ending now" (today's behaviour, since = now − 7 d). A dated week is
+ * 7 New York calendar days, 00:00 of untilDate − 6 to 23:59:59.999 of untilDate (167 or 169 h across a DST change),
+ * and ?until=<today> is the current week — the shared link of today's page becomes the full-day week at midnight.
  *
  * Inclusion = cityOverview / nearbyCases (street.ts): skip Draft; a case counts for a week when its created time OR its
  * closedAt falls inside that window — the same rule on both sides, so `prev` is what this endpoint reported a week
@@ -20,13 +29,22 @@
  */
 import type { Env, Mailer, Store } from './contracts.js';
 import { CLOSED, closedAt, median, outcomeOf, type CaseLike, type Outcome } from './cityinsights.js';
-import { loadCases } from './street.js';
+import { loadCases, LOAD_LIMIT } from './street.js';
+import { etDate, etMidnight } from './quota.js';
 import { hoodOf as sharedHoodOf, hoodSlug } from '../../shared/neighborhoods.js';
 import { logEvent } from './health.js';
 
 export const WEEK_DAYS = 7;
-/** loadCases window: this week + last week; loadCases adds the 60-day close lookback itself. */
+/** loadCases window for the current week: this week + last week; loadCases adds the 60-day close lookback itself.
+ *  Every dated week loads MAX_LOAD_DAYS (the floor week's need) so the eight archive weeks share ONE loadCases entry
+ *  and one Firestore read per 5 minutes, instead of a distinct `since` — and a distinct 6000-row read — each. */
 export const LOAD_DAYS = 2 * WEEK_DAYS;
+/** How far back `?until=` may reach, in days from today (New York). */
+export const ARCHIVE_DAYS = 56;
+export const MAX_LOAD_DAYS = ARCHIVE_DAYS + LOAD_DAYS;
+/** Rows per read for an archive week: 130 days of cases at the city's 30–47 a day overflow street.ts's LOAD_LIMIT,
+ *  and the query is newest-first, so the oldest (wanted) rows would be the ones cut. */
+export const ARCHIVE_LOAD_LIMIT = 2 * LOAD_LIMIT;
 export const TOP_TYPES_N = 6;
 export const NOTABLE_N = 12;
 /** Resolution Message cut for `notable` (the live average is ~36 chars). */
@@ -46,8 +64,17 @@ export interface WeekNotable {
 }
 export interface WeekSummary {
   days: 7;
-  /** [since, until) — until is when the summary was built (= at). */
+  /** The window. Current week: [since, until) with until = at = when the summary was built. Dated week: since = 00:00
+   *  New York of untilDate − 6, until = 23:59:59.999 New York of untilDate (inclusive). */
   since: string; until: string; at: string;
+  /** The New York calendar date the window ends on — the stable `?until=` for this week. */
+  untilDate: string;
+  /** untilDate − 7 days, or null when that week is older than the 56-day archive floor. */
+  prevUntil: string | null;
+  /** untilDate + 7 days, or null when that would be after today. */
+  nextUntil: string | null;
+  /** True when the window ends now (no `until`, or `until` = today). */
+  current: boolean;
   total: number; open: number; closed: number; located: number;
   /** The 7 days before `since`, same created-OR-closed rule — what this endpoint reported a week earlier. */
   prev: { total: number; closed: number };
@@ -82,6 +109,49 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const nyDay = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 export const dayInNewYork = (ms: number): string => nyDay.format(new Date(ms));
 
+// ── Calendar dates (YYYY-MM-DD strings; compare lexicographically) ────────────────────────
+
+const DAY_MS = 86_400_000;
+const ymdMs = (date: string) => Date.parse(`${date}T00:00:00Z`);
+/** date ± n calendar days. */
+export const addDays = (date: string, n: number): string => new Date(ymdMs(date) + n * DAY_MS).toISOString().slice(0, 10);
+/** a − b in whole days. */
+export const daysBetween = (a: string, b: string): number => Math.round((ymdMs(a) - ymdMs(b)) / DAY_MS);
+/** A real calendar date in YYYY-MM-DD ('2026-02-30' and '2026-10-1' are not). */
+export const isYmd = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(ymdMs(s)) && new Date(ymdMs(s)).toISOString().slice(0, 10) === s;
+
+export type UntilError = 'invalid_until' | 'too_old';
+export interface WeekWindow {
+  untilDate: string; current: boolean; prevUntil: string | null; nextUntil: string | null;
+  /** Membership is [since, untilX) in ms; `until` is the reported end (now, or untilX − 1 ms for a dated week). */
+  since: number; until: number; untilX: number; prevSince: number;
+  /** Calendar days from today back to untilDate (0 for the current week). */
+  daysBack: number;
+}
+
+/** The window for `?until=` at `now`: omitted / '' / today → the current week (ending now); a past date → that New York
+ *  calendar week; a malformed or future date → 'invalid_until'; older than ARCHIVE_DAYS → 'too_old'. */
+export function resolveWindow(until: string | null | undefined, now: number): WeekWindow | UntilError {
+  const today = etDate(now);
+  const floor = addDays(today, -ARCHIVE_DAYS);
+  let untilDate = today;
+  if (until != null && until !== '') {
+    if (!isYmd(until) || until > today) return 'invalid_until';
+    if (until < floor) return 'too_old';
+    untilDate = until;
+  }
+  const current = untilDate === today;
+  const prev = addDays(untilDate, -WEEK_DAYS);
+  const next = addDays(untilDate, WEEK_DAYS);
+  const base = { untilDate, current, prevUntil: prev >= floor ? prev : null, nextUntil: next <= today ? next : null, daysBack: daysBetween(today, untilDate) };
+  if (current) {
+    const since = now - WEEK_DAYS * DAY_MS;
+    return { ...base, since, until: now, untilX: Number.POSITIVE_INFINITY, prevSince: since - WEEK_DAYS * DAY_MS };
+  }
+  const untilX = etMidnight(addDays(untilDate, 1));
+  return { ...base, since: etMidnight(addDays(untilDate, 1 - WEEK_DAYS)), until: untilX - 1, untilX, prevSince: etMidnight(addDays(untilDate, 1 - 2 * WEEK_DAYS)) };
+}
+
 interface Seen {
   id: string; caseType: string; category: string; street: string; status: string; open: boolean;
   created: number | null; closed: number | null; activity: number;
@@ -110,18 +180,24 @@ function seen(rows: Row[]): Seen[] {
   return out;
 }
 
-/** The week's summary from cityCases rows. Pure; `hoodOf` defaults to the shared rings (injectable for tests). */
-export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf } = {}): WeekSummary {
+/** The week's summary from cityCases rows. Pure; `hoodOf` defaults to the shared rings (injectable for tests).
+ *  `until` (YYYY-MM-DD, New York) picks a past week — see resolveWindow; it must be valid (the handler checks). */
+export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf; until?: string | null } = {}): WeekSummary {
   const now = o.now ?? Date.now();
   const hoodOf = o.hoodOf ?? sharedHoodOf;
-  const since = now - WEEK_DAYS * 86_400_000;
-  const prevSince = since - WEEK_DAYS * 86_400_000;
+  const w = resolveWindow(o.until, now);
+  if (typeof w === 'string') throw new Error(w);
+  const { since, untilX, prevSince } = w;
   const all = seen(rows);
-  const week = all.filter((x) => x.activity >= since);
-  // Last week by the same created-OR-closed rule (a case closed without a known close time counts by its creation).
+  // A case is in a window when its created time OR its close falls inside it; it counts as closed there when it is
+  // closed now and that close is not after the window's end (an undated close goes by its creation). For the current
+  // week untilX is +∞, so this is exactly "latest activity ≥ since" and "closed = status closed".
+  const inWeek = (t: number | null) => t != null && t >= since && t < untilX;
+  const week = all.filter((x) => inWeek(x.created) || inWeek(x.closed));
+  const closedBy = (x: Seen, end: number) => !x.open && (x.closed == null || x.closed < end);
   const inPrev = (t: number | null) => t != null && t >= prevSince && t < since;
   const prev = all.filter((x) => inPrev(x.created) || inPrev(x.closed));
-  const prevClosed = prev.filter((x) => inPrev(x.closed) || (!x.open && x.closed == null && inPrev(x.created))).length;
+  const prevClosed = prev.filter((x) => closedBy(x, since)).length;
 
   let open = 0; let closed = 0; let located = 0;
   const types = new Map<string, WeekType>();
@@ -132,7 +208,8 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf } = 
   const days = new Map<string, number>();
 
   for (const x of week) {
-    if (x.open) open++; else closed++;
+    const isClosed = closedBy(x, untilX);
+    if (isClosed) closed++; else open++;
     const t = types.get(x.caseType) ?? { caseType: x.caseType, category: x.category, n: 0, prevN: 0 };
     t.n++; types.set(x.caseType, t);
     let hood: string | null = null;
@@ -141,15 +218,15 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf } = 
       hood = hoodOf(x.lat, x.lng);
       if (hood) {
         const h = hoods.get(hood) ?? { name: hood, slug: hoodSlug(hood), n: 0, open: 0, closed: 0 };
-        h.n++; if (x.open) h.open++; else h.closed++;
+        h.n++; if (isClosed) h.closed++; else h.open++;
         hoods.set(hood, h);
       }
     }
-    if (x.created != null && x.created >= since) {
-      const d = dayInNewYork(x.created);
+    if (inWeek(x.created)) {
+      const d = dayInNewYork(x.created!);
       days.set(d, (days.get(d) ?? 0) + 1);
     }
-    if (x.open) continue;
+    if (!isClosed) continue;
     const oc = outcomeOf(x.row as unknown as CaseLike) as Outcome;
     if (oc !== 'open') outcomes[oc as WeekOutcome]++;
     if (x.closed != null && x.created != null && x.closed >= x.created) closeDays.push((x.closed - x.created) / 86_400_000);
@@ -171,7 +248,8 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf } = 
   for (const [date, n] of days) if (!busiestDay || n > busiestDay.n || (n === busiestDay.n && date > busiestDay.date)) busiestDay = { date, n };
 
   return {
-    days: WEEK_DAYS, since: new Date(since).toISOString(), until: new Date(now).toISOString(), at: new Date(now).toISOString(),
+    days: WEEK_DAYS, since: new Date(since).toISOString(), until: new Date(w.until).toISOString(), at: new Date(now).toISOString(),
+    untilDate: w.untilDate, prevUntil: w.prevUntil, nextUntil: w.nextUntil, current: w.current,
     total: week.length, open, closed, located,
     prev: { total: prev.length, closed: prevClosed },
     topTypes, neighborhoods, outcomes,
@@ -183,20 +261,31 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf } = 
 
 // ── GET /api/week ─────────────────────────────────────────────────────────────────────────
 
-let cached: { at: number; body: string } | null = null;
+/** One entry per week: 'now|<today>' for the current week (also `?until=<today>`), else the untilDate. */
+const summaries = new Map<string, { at: number; body: string }>();
 
-/** The summary as a response body, built at most once per 5 minutes per isolate (the rows come from street.ts's
- *  loadCases cache, so a cold summary is one Firestore read shared with nothing else — the 14-day window is its own). */
-export async function handleWeek(_url: URL, store: Store, now = Date.now()): Promise<Response> {
-  if (!cached || now - cached.at >= SUMMARY_TTL_MS) {
-    const rows = await loadCases(store, LOAD_DAYS, now);
-    cached = { at: now, body: JSON.stringify(weekSummary(rows, { now })) };
+/** The summary as a response body, built at most once per 5 minutes per isolate per week (the rows come from
+ *  street.ts's loadCases cache — one Firestore read per load window). `?until=` picks a past week: 400 `invalid_until`
+ *  for a malformed or future date, 400 `too_old` beyond the 56-day archive floor. The current week reads 14 days
+ *  (LOAD_LIMIT rows); every dated week reads the same MAX_LOAD_DAYS window with the deeper ARCHIVE_LOAD_LIMIT, so
+ *  browsing the whole archive costs one read and the week at the floor is not the part a newest-first read cuts off.
+ *  The current entry is keyed by its date too, so it is not served as "current" for five minutes past New York midnight. */
+export async function handleWeek(url: URL, store: Store, now = Date.now()): Promise<Response> {
+  const w = resolveWindow(url.searchParams.get('until'), now);
+  if (typeof w === 'string') return json(JSON.stringify({ error: w }), 400);
+  const key = w.current ? `now|${w.untilDate}` : w.untilDate;
+  let hit = summaries.get(key);
+  if (!hit || now - hit.at >= SUMMARY_TTL_MS) {
+    const rows = w.current ? await loadCases(store, LOAD_DAYS, now, LOAD_LIMIT) : await loadCases(store, MAX_LOAD_DAYS, now, ARCHIVE_LOAD_LIMIT);
+    hit = { at: now, body: JSON.stringify(weekSummary(rows, { now, until: w.untilDate })) };
+    for (const [k, v] of summaries) if (now - v.at >= SUMMARY_TTL_MS) summaries.delete(k);
+    summaries.set(key, hit);
   }
-  return json(cached.body, 200, { 'cache-control': 'public, max-age=300' });
+  return json(hit.body, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 /** Tests: drop the in-isolate summary cache (street.ts's resetStreetCache drops the rows). */
-export function resetWeekCache(): void { cached = null; }
+export function resetWeekCache(): void { summaries.clear(); }
 
 // ── The Monday mail ───────────────────────────────────────────────────────────────────────
 
@@ -210,10 +299,13 @@ export function deltaText(n: number, prev: number): string {
   return `${n > prev ? '+' : '-'}${Math.abs(n - prev)} vs last week`;
 }
 
-/** Subject + HTML for the Monday mail — the week page's headline numbers, in the street digest's plain style. */
+/** Subject + HTML for the Monday mail — the week page's headline numbers, in the street digest's plain style.
+ *  "See the whole week" is the DATED url (/week?until=<untilDate>), so the mail still means this week next month;
+ *  the opt-out line points at the live page. */
 export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject: string; html: string } {
   const base = o.base.replace(/\/+$/, '');
   const weekUrl = `${base}/week`;
+  const datedUrl = s.untilDate ? `${weekUrl}?until=${s.untilDate}` : weekUrl;
   const subject = `This week in Providence: ${s.total} ${s.total === 1 ? 'request' : 'requests'}, ${s.closed} closed`;
   const li = (inner: string) => `<li style="margin:0 0 8px">${inner}</li>`;
   const section = (title: string, items: string[]) => (items.length
@@ -233,14 +325,17 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
     + section('Most reported', types)
     + section('Busiest neighborhoods', hoods)
     + section("Closed this week, in the city's words", notable)
-    + `<p style="margin:1.2em 0 0"><a href="${esc(weekUrl)}">See the whole week</a></p>`
+    + `<p style="margin:1.2em 0 0"><a href="${esc(datedUrl)}">See the whole week</a></p>`
     + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD — turn it off on <a href="${esc(weekUrl)}">the week page</a> or under <a href="${esc(base)}/account">Account</a>. `
     + `FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
 }
 
 /** Mondays (runDaily, after runStreetDigest): one mail per opted-in verified account; none at all when the week had
- *  no cases. Returns counts for the log. */
+ *  no cases. The mail is the Monday–Sunday calendar week that just ended (`until` = yesterday, New York) — the same
+ *  window its dated link resolves to forever, so the page a reader opens on Tuesday shows the numbers that were mailed.
+ *  (Built on the 168 h ending at the 07:00 cron, the link would mean a different, Tue–Mon week from the next day on.)
+ *  Returns counts for the log. */
 export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
@@ -249,7 +344,8 @@ export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts
   let mailed = 0;
   let total: number | null = null;
   if (eligible.length) {
-    const summary = weekSummary(await loadCases(store, LOAD_DAYS, now), { now });
+    const until = addDays(etDate(now), -1);
+    const summary = weekSummary(await loadCases(store, LOAD_DAYS + 1, now), { now, until });
     total = summary.total;
     if (summary.total > 0) {
       const m = weekDigestEmail(summary, { base });

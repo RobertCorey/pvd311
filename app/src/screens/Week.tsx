@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getWeek, resetWeekCache, WEEK_OUTCOMES, type WeekNotable, type WeekSummary } from '../api/week';
 import { getMe, updateMe, type Me } from '../api/me';
+import { ApiError } from '../api/types';
 import { useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
@@ -13,45 +14,98 @@ import '../components/StreetParts.css';
 import './Week.css';
 
 /** /week — "This week in Providence" (Rob, 2026-10-25: "make the app more something you'd want to check in on").
- *  A plain scrolling page anyone can open and share: the last 7 days of the city's public 311 list against the 7
- *  before (GET /api/week), every section a door into /street (type → ?g=, neighborhood → ?n=, a close → ?case=),
- *  and the Monday 'week_digest' opt-in (prefs.weekDigest). Ember & Harbor: ink on paper, numbers in Bricolage, the
- *  outcome bar carries the admin insights' validated palette and every share is also written out in text. */
+ *  A plain scrolling page anyone can open and share: 7 days of the city's public 311 list against the 7 before
+ *  (GET /api/week), every section a door into /street (type → ?g=, neighborhood → ?n=, a close → ?case=), and the
+ *  Monday 'week_digest' opt-in (prefs.weekDigest). Ember & Harbor: ink on paper, numbers in Bricolage, the outcome
+ *  bar carries the admin insights' validated palette and every share is also written out in text.
+ *
+ *  Stable links (2026-10-26): `/week?until=YYYY-MM-DD` is the week ending at the end of that Providence day, so a
+ *  Monday Reddit post still means the same week on Thursday. Share always copies the dated url (the Worker names
+ *  it in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links. */
 
 /** Providence's clock for the range and the busiest day — the Worker computes both in America/New_York. */
 const TZ = 'America/New_York';
 const HOODS_SHOWN = 8;
 const FLASH_MS = 2500;
+const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Today's calendar date in Providence (en-CA formats ISO-style) — decides a dated title before the numbers arrive. */
+const todayNY = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+/** A YYYY-MM-DD plus n days, as YYYY-MM-DD (calendar arithmetic in UTC, so no zone can shift the day). */
+const addDays = (ymd: string, n: number): string => {
+  const m = YMD.exec(ymd);
+  if (!m) return ymd;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n)).toISOString().slice(0, 10);
+};
 
 export default function Week() {
   const { t, lang } = useI18n();
   const session = useSession();
   const locale = lang === 'es' ? 'es' : 'en-US';
   const num = (n: number) => n.toLocaleString(locale);
+  const [params] = useSearchParams();
+  /** The week asked for: null = the current week. Validity is the Worker's call (400 → the error state). */
+  const until = params.get('until') || null;
 
   /* ── Data ─────────────────────────────────────────────────────────────────────────────────────── */
   const [data, setData] = useState<WeekSummary | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     let live = true;
-    setState('loading');
-    getWeek().then((d) => { if (!live) return; setData(d); setNowMs(Date.now()); setState('ok'); track('week_view', { total: d.total }); })
-      .catch(() => { if (live) setState('error'); });
+    setData(null); setState('loading'); setErrorCode(null);
+    getWeek(until).then((d) => { if (!live) return; setData(d); setNowMs(Date.now()); setState('ok'); track('week_view', { total: d.total, current: d.current }); })
+      .catch((e: unknown) => { if (live) { setErrorCode(e instanceof ApiError ? e.code : null); setState('error'); } });
     return () => { live = false; };
-  }, [tick]);
+  }, [tick, until]);
   const retry = () => { resetWeekCache(); setTick((x) => x + 1); };
+
+  /* ── Formatting ───────────────────────────────────────────────────────────────────────────────── */
+  const day = (iso: string) => { const ms = Date.parse(iso); return Number.isFinite(ms) ? new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: TZ }) : ''; };
+  /** "YYYY-MM-DD" (already a Providence calendar day) formatted as a date, e.g. "Wednesday, Oct 21" or "Oct 21". */
+  const fromYmd = (ymd: string, opts: Intl.DateTimeFormatOptions) => {
+    const m = YMD.exec(ymd);
+    if (!m) return ymd;
+    return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)).toLocaleDateString(locale, { ...opts, timeZone: 'UTC' });
+  };
+  const dayName = (ymd: string) => fromYmd(ymd, { weekday: 'long', month: 'short', day: 'numeric' });
+  const median = (d: number | null) => (d == null ? '—' : num(Math.round(d * 10) / 10));
+  const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
+  const caseHref = (x: WeekNotable) => {
+    const p = new URLSearchParams({ case: x.id });
+    if (x.lat != null && x.lng != null) { p.set('lat', x.lat.toFixed(5)); p.set('lng', x.lng.toFixed(5)); }
+    return `/street?${p}`;
+  };
+  const delta = (now: number, prev: number) => {
+    const d = now - prev;
+    const k = d > 0 ? 'up' : d < 0 ? 'down' : 'same';
+    return <dd className={`week-delta week-delta--${k}`}><span aria-hidden="true">{d > 0 ? '↑' : d < 0 ? '↓' : '→'} </span>{t(`week.delta.${k}`, { n: num(Math.abs(d)) })}</dd>;
+  };
+
+  /* ── Which week this is ───────────────────────────────────────────────────────────────────────── */
+  /** The week's end date: the Worker's untilDate once loaded, else the url's (a well-formed past date reads as dated
+   *  straight away, so the title does not flip from "This week" after the numbers land). */
+  const untilDate = data?.untilDate || (until && YMD.test(until) ? until : null);
+  const dated = data ? !data.current : !!(untilDate && untilDate < todayNY());
+  const weekFrom = untilDate ? addDays(untilDate, -6) : null;
+  const range = untilDate && weekFrom ? `${fromYmd(weekFrom, { month: 'short', day: 'numeric' })} – ${fromYmd(untilDate, { month: 'short', day: 'numeric' })}` : '';
+  const title = dated ? t('week.titleOf', { range }) : t('week.title');
+  /** The stable link for this week — what Share copies. The sign-in round trip returns here for a past week and to
+   *  the live page for the current one. */
+  const datedPath = untilDate ? `/week?until=${untilDate}` : '/week';
+  const returnPath = dated ? datedPath : '/week';
 
   /* ── Share ────────────────────────────────────────────────────────────────────────────────────── */
   const [flash, setFlash] = useState('');
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   async function share() {
-    const href = `${window.location.origin}/week`;
-    track('week_share');
+    const href = `${window.location.origin}${datedPath}`;
+    track('week_share', { current: !dated });
     try {
-      if (typeof navigator.share === 'function') { await navigator.share({ title: t('week.title'), url: href }); return; }
+      if (typeof navigator.share === 'function') { await navigator.share({ title, url: href }); return; }
       await navigator.clipboard.writeText(href);
       setFlash(t('week.copied'));
       if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -76,7 +130,7 @@ export default function Week() {
     <div className="card week-digest">
       <h2>{t('week.digest.title')}</h2>
       <p className="muted">{t('week.digest.body')}</p>
-      {!session && <Link to={`/account?returnTo=${encodeURIComponent('/week')}`} className="btn btn-secondary">{t('week.digest.signIn')}</Link>}
+      {!session && <Link to={`/account?returnTo=${encodeURIComponent(returnPath)}`} className="btn btn-secondary">{t('week.digest.signIn')}</Link>}
       {session && !me?.prefs.weekDigest && (
         <button type="button" className="btn btn-primary" onClick={() => setWeekDigest(true)} disabled={digest === 'saving'}>{digest === 'saving' ? t('week.digest.saving') : t('week.digest.cta')}</button>
       )}
@@ -90,43 +144,36 @@ export default function Week() {
     </div>
   );
 
-  /* ── Formatting ───────────────────────────────────────────────────────────────────────────────── */
-  const day = (iso: string) => { const ms = Date.parse(iso); return Number.isFinite(ms) ? new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: TZ }) : ''; };
-  /** "YYYY-MM-DD" (already a Providence calendar day) → "Wednesday, Oct 21". */
-  const dayName = (ymd: string) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-    if (!m) return ymd;
-    return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)).toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  };
-  const median = (d: number | null) => (d == null ? '—' : num(Math.round(d * 10) / 10));
-  const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
-  const caseHref = (x: WeekNotable) => {
-    const p = new URLSearchParams({ case: x.id });
-    if (x.lat != null && x.lng != null) { p.set('lat', x.lat.toFixed(5)); p.set('lng', x.lng.toFixed(5)); }
-    return `/street?${p}`;
-  };
-  const delta = (now: number, prev: number) => {
-    const d = now - prev;
-    const k = d > 0 ? 'up' : d < 0 ? 'down' : 'same';
-    return <dd className={`week-delta week-delta--${k}`}><span aria-hidden="true">{d > 0 ? '↑' : d < 0 ? '↓' : '→'} </span>{t(`week.delta.${k}`, { n: num(Math.abs(d)) })}</dd>;
-  };
-
   /* ── Page ─────────────────────────────────────────────────────────────────────────────────────── */
+  /** ‹ Previous week · Next week › · Latest week — only the links that exist; nothing at all on the current week's
+   *  first page when it has no previous week (never happens: the floor is 56 days back). */
+  const weekNav = (o: { prev: string | null; next: string | null; latest: boolean }) => (o.prev || o.next || o.latest ? (
+    <nav className="week-nav" aria-label={t('week.nav')}>
+      {o.prev && <Link to={`/week?until=${o.prev}`} className="week-nav-link week-nav-prev"><span aria-hidden="true">‹ </span>{t('week.prev')}</Link>}
+      {o.next && <Link to={`/week?until=${o.next}`} className="week-nav-link week-nav-next">{t('week.next')}<span aria-hidden="true"> ›</span></Link>}
+      {o.latest && <Link to="/week" className="week-nav-link week-nav-latest">{t('week.latest')}</Link>}
+    </nav>
+  ) : null);
   const head = (
     <header className="week-head">
-      <h1 id="week-title">{t('week.title')}</h1>
-      {data && <p className="week-range">{t('week.range', { from: day(data.since), to: day(data.until) })}</p>}
+      <h1 id="week-title">{title}</h1>
+      {data && !dated && <p className="week-range">{t('week.range', { from: day(data.since), to: day(data.until) })}</p>}
+      {data && dated && weekFrom && untilDate && <p className="week-range">{t('week.rangeOf', { from: fromYmd(weekFrom, { weekday: 'long' }), to: fromYmd(untilDate, { weekday: 'long' }) })}</p>}
       {data && data.total > 0 && <button type="button" className="btn btn-ghost week-share" onClick={share}>{t('week.share')}</button>}
+      {data && weekNav({ prev: data.prevUntil, next: data.nextUntil, latest: !data.current })}
       <p className="week-flash" role="status">{flash}</p>
     </header>
   );
 
   if (state === 'error' && !data) {
+    // A bad or too-old date is not a hiccup: say so and point at the latest week instead of offering Retry.
+    const badLink = errorCode === 'too_old' || errorCode === 'invalid_until';
     return (
       <article className="week section" aria-labelledby="week-title">
         {head}
-        <div className="notice notice-error week-error" role="alert"><span>{t('week.error')}</span></div>
-        <button type="button" className="btn btn-secondary week-retry" onClick={retry}>{t('week.retry')}</button>
+        <div className="notice notice-error week-error" role="alert"><span>{t(errorCode === 'too_old' ? 'week.tooOld' : errorCode === 'invalid_until' ? 'week.badDate' : 'week.error')}</span></div>
+        {!badLink && <button type="button" className="btn btn-secondary week-retry" onClick={retry}>{t('week.retry')}</button>}
+        {until && weekNav({ prev: null, next: null, latest: true })}
       </article>
     );
   }
@@ -145,7 +192,7 @@ export default function Week() {
         {head}
         <div className="empty week-quiet">
           <Illustration kind="street" className="illo" />
-          <p>{t('week.quiet')}</p>
+          <p>{dated && weekFrom && untilDate ? t('week.quietOf', { from: fromYmd(weekFrom, { month: 'short', day: 'numeric' }), to: fromYmd(untilDate, { month: 'short', day: 'numeric' }) }) : t('week.quiet')}</p>
         </div>
         {digestCard}
         <p className="hint week-source">{t('week.source')}</p>

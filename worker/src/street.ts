@@ -273,13 +273,17 @@ export async function handleStreetCase(guid: string, store: Store): Promise<Resp
 
 const loads = new Map<string, { at: number; rows: Promise<Row[]> }>();
 
-export async function loadCases(store: Store, days: number, now = Date.now()): Promise<Row[]> {
+/** Rows created in the last `days` + the 60-day close lookback, cached per (since, limit) for 5 minutes. `limit` is
+ *  LOAD_LIMIT unless a caller needs a deeper read (week.ts's archive weeks reach 130 days back and would otherwise
+ *  lose their oldest — the wanted — rows, since the query is newest-first). */
+export async function loadCases(store: Store, days: number, now = Date.now(), limit = LOAD_LIMIT): Promise<Row[]> {
   const since = new Date(now - (days + CLOSE_LOOKBACK_DAYS) * 86_400_000).toISOString().slice(0, 10);
-  const hit = loads.get(since);
+  const key = `${since}|${limit}`;
+  const hit = loads.get(key);
   if (hit && now - hit.at < LOAD_TTL_MS) return hit.rows;
-  const rows = store.listCityCasesSince(since, LOAD_LIMIT);
-  loads.set(since, { at: now, rows });
-  rows.catch(() => loads.delete(since));
+  const rows = store.listCityCasesSince(since, limit);
+  loads.set(key, { at: now, rows });
+  rows.catch(() => loads.delete(key));
   return rows;
 }
 

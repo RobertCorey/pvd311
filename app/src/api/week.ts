@@ -1,6 +1,8 @@
-// "This week in Providence": GET /api/week (worker/src/week.ts) — the last 7 days of the city's public 311 list
-// against the 7 before. One public, cached endpoint; the page (screens/Week.tsx) renders it and the Monday
-// 'week_digest' mail is the same numbers. Cached here for 5 minutes so a tab return never refetches.
+// "This week in Providence": GET /api/week (worker/src/week.ts) — 7 days of the city's public 311 list against the 7
+// before. One public, cached endpoint; the page (screens/Week.tsx) renders it and the Monday 'week_digest' mail is the
+// same numbers. `?until=YYYY-MM-DD` (a New York calendar date) picks a past week so a shared link keeps its meaning;
+// the body carries `untilDate` / `prevUntil` / `nextUntil` / `current` for the page's stable Share url and week nav.
+// Cached here for 5 minutes per week so a tab return or a step back and forth never refetches.
 import { apiFetch, parseError, withTimeout } from './client';
 
 /** classifyResolution / outcomeOf buckets (worker/src/cityinsights.ts) for cases closed this week; fixed order = the
@@ -18,6 +20,14 @@ export interface WeekNotable {
 /** GET /api/week body (docs/api.md). A case counts for a week when it was created or closed inside the window. */
 export interface WeekSummary {
   days: 7; since: string; until: string; at: string;
+  /** The New York calendar date the window ends on — the stable `/week?until=` for this week. */
+  untilDate: string;
+  /** untilDate − 7 days; null below the 56-day archive floor. */
+  prevUntil: string | null;
+  /** untilDate + 7 days; null when that would be after today. */
+  nextUntil: string | null;
+  /** True when the window ends now (no `until`, or `until` = today in New York). */
+  current: boolean;
   total: number; open: number; closed: number; located: number;
   /** The 7 days before `since`, same rules. */
   prev: { total: number; closed: number };
@@ -35,23 +45,27 @@ export interface WeekSummary {
 }
 
 const TTL_MS = 5 * 60_000;
-let cache: { at: number; data: WeekSummary } | null = null;
-let inflight: Promise<WeekSummary> | null = null;
+/** Keyed by the `until` asked for ('' = the current week). */
+const cache = new Map<string, { at: number; data: WeekSummary }>();
+const inflight = new Map<string, Promise<WeekSummary>>();
 
-/** The week summary, cached for 5 minutes (concurrent calls share one request). A failed refresh rejects and leaves
- *  the previous entry alone. */
-export function getWeek(): Promise<WeekSummary> {
-  if (cache && Date.now() - cache.at < TTL_MS) return Promise.resolve(cache.data);
-  if (inflight) return inflight;
-  const p = fetchWeek()
-    .then((data) => { cache = { at: Date.now(), data }; return data; })
-    .finally(() => { inflight = null; });
-  inflight = p;
+/** The week summary — the current week, or the week ending on `until` (YYYY-MM-DD) — cached for 5 minutes per week
+ *  (concurrent calls share one request). A failed fetch rejects and leaves any previous entry alone. */
+export function getWeek(until?: string | null): Promise<WeekSummary> {
+  const key = until || '';
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return Promise.resolve(hit.data);
+  const running = inflight.get(key);
+  if (running) return running;
+  const p = fetchWeek(key)
+    .then((data) => { cache.set(key, { at: Date.now(), data }); return data; })
+    .finally(() => { inflight.delete(key); });
+  inflight.set(key, p);
   return p;
 }
 
-/** Tests / the page's Retry: forget the cached summary. */
-export function resetWeekCache(): void { cache = null; inflight = null; }
+/** Tests / the page's Retry: forget every cached summary. */
+export function resetWeekCache(): void { cache.clear(); inflight.clear(); }
 
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d);
@@ -64,6 +78,8 @@ export function decodeWeek(d: Partial<WeekSummary> | null | undefined): WeekSumm
   const outcomes = Object.fromEntries(WEEK_OUTCOMES.map((o) => [o, num(oc[o])])) as Record<WeekOutcome, number>;
   return {
     days: 7, since: str(d.since), until: str(d.until), at: str(d.at),
+    untilDate: str(d.untilDate), prevUntil: typeof d.prevUntil === 'string' ? d.prevUntil : null, nextUntil: typeof d.nextUntil === 'string' ? d.nextUntil : null,
+    current: typeof d.current === 'boolean' ? d.current : true,
     total: num(d.total), open: num(d.open), closed: num(d.closed), located: num(d.located),
     prev: { total: num(d.prev?.total), closed: num(d.prev?.closed) },
     topTypes: arr<Partial<WeekTopType>>(d.topTypes).map((x) => ({ caseType: str(x.caseType), category: str(x.category, 'unsure'), n: num(x.n), prevN: num(x.prevN) })),
@@ -80,10 +96,10 @@ export function decodeWeek(d: Partial<WeekSummary> | null | undefined): WeekSumm
   };
 }
 
-async function fetchWeek(): Promise<WeekSummary> {
+async function fetchWeek(until: string): Promise<WeekSummary> {
   const t = withTimeout(20_000);
   try {
-    const resp = await apiFetch('/api/week', { signal: t.signal });
+    const resp = await apiFetch(until ? `/api/week?until=${encodeURIComponent(until)}` : '/api/week', { signal: t.signal });
     if (!resp.ok) throw await parseError(resp);
     return decodeWeek((await resp.json()) as Partial<WeekSummary>);
   } finally { t.done(); }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { weekSummary, handleWeek, weekDigestEmail, runWeekDigest, resetWeekCache, deltaText, dayInNewYork, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary } from '../src/week.js';
-import { resetStreetCache } from '../src/street.js';
+import { weekSummary, handleWeek, weekDigestEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
+import { resetStreetCache, LOAD_LIMIT } from '../src/street.js';
 import { hoodOf, hoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES } from '../../shared/neighborhoods.js';
 import { inferKind } from '../src/emaillog.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
@@ -56,6 +56,8 @@ describe('weekSummary', () => {
     ];
     const s = weekSummary(rows, { now: NOW });
     expect(s).toMatchObject({ days: 7, since: daysAgo(7), until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), total: 5, open: 3, closed: 2, located: 4, prev: { total: 3, closed: 1 } });
+    // The current week also says which dated link it is, and that it ends now.
+    expect(s).toMatchObject({ untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true });
   });
 
   it('a case created 10 days ago and closed 2 days ago is in both weeks — a new request last week, a close this week (prev uses the same rule)', () => {
@@ -219,14 +221,15 @@ describe('GET /api/week', () => {
     expect(r.headers.get('content-type')).toBe('application/json');
     expect(r.headers.get('cache-control')).toBe('public, max-age=300');
     const j = await r.json() as WeekSummary;
-    expect(j).toMatchObject({ days: 7, total: 2, open: 1, closed: 1, located: 2, prev: { total: 2, closed: 0 }, since: daysAgo(7), until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString() });
-    expect(Object.keys(j).sort()).toEqual(['at', 'busiestDay', 'closed', 'days', 'located', 'medianCloseDays', 'neighborhoods', 'notable', 'open', 'outcomes', 'prev', 'since', 'topTypes', 'total', 'until'].sort());
+    expect(j).toMatchObject({ days: 7, total: 2, open: 1, closed: 1, located: 2, prev: { total: 2, closed: 0 }, since: daysAgo(7), until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true });
+    expect(Object.keys(j).sort()).toEqual(['at', 'busiestDay', 'closed', 'current', 'days', 'located', 'medianCloseDays', 'neighborhoods', 'nextUntil', 'notable', 'open', 'outcomes', 'prev', 'prevUntil', 'since', 'topTypes', 'total', 'until', 'untilDate'].sort());
     const r2 = await handleWeek(url, s, NOW + 60_000);
     expect(((await r2.json()) as WeekSummary).at).toBe(new Date(NOW).toISOString());   // served from the isolate cache
     expect((s.listCityCasesSince as any).mock.calls).toHaveLength(1);
     // The load reaches back 14 days + the 60-day close lookback (a case opened in August and closed this week still counts).
     const since = (s.listCityCasesSince as any).mock.calls[0][0] as string;
     expect(since).toBe(new Date(NOW - 74 * 86_400_000).toISOString().slice(0, 10));
+    expect((s.listCityCasesSince as any).mock.calls[0][1]).toBe(LOAD_LIMIT);
   });
 
   it('rebuilds after five minutes', async () => {
@@ -236,6 +239,183 @@ describe('GET /api/week', () => {
     const r = await handleWeek(new URL('https://api.test/api/week'), s, NOW + 5 * 60_000);
     expect(((await r.json()) as WeekSummary).at).toBe(new Date(NOW + 5 * 60_000).toISOString());
     expect((s.listCityCasesSince as any).mock.calls).toHaveLength(2);
+  });
+});
+
+describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
+  const iso = (s: string) => new Date(Date.parse(s)).toISOString();
+
+  it('calendar helpers: addDays / daysBetween / isYmd', () => {
+    expect(addDays('2026-10-25', -7)).toBe('2026-10-18');
+    expect(addDays('2026-10-25', -56)).toBe('2026-08-30');
+    expect(addDays('2026-12-28', 7)).toBe('2027-01-04');
+    expect(daysBetween('2026-10-25', '2026-08-30')).toBe(56);
+    expect(daysBetween('2026-10-25', '2026-10-25')).toBe(0);
+    expect(isYmd('2026-10-18')).toBe(true);
+    for (const bad of ['2026-02-30', '2026-10-1', '20261018', 'garbage', '2026-13-01', '', '2026-10-18T00:00:00Z']) expect(isYmd(bad), bad).toBe(false);
+  });
+
+  it('resolveWindow: omitted, empty or today → the current week ending now, with the dated form beside it', () => {
+    for (const until of [null, undefined, '', '2026-10-25']) {
+      const w = resolveWindow(until, NOW) as WeekWindow;
+      expect(w).toMatchObject({ untilDate: '2026-10-25', current: true, prevUntil: '2026-10-18', nextUntil: null, daysBack: 0, since: NOW - 7 * 86_400_000, until: NOW, untilX: Number.POSITIVE_INFINITY, prevSince: NOW - 14 * 86_400_000 });
+    }
+  });
+
+  it('resolveWindow: a past date is 00:00 of untilDate − 6 → 23:59:59.999 of untilDate, New York; prev/next step by 7 days', () => {
+    const w = resolveWindow('2026-10-18', NOW) as WeekWindow;
+    expect(w).toMatchObject({ untilDate: '2026-10-18', current: false, prevUntil: '2026-10-11', nextUntil: '2026-10-25', daysBack: 7 });
+    expect(new Date(w.since).toISOString()).toBe('2026-10-12T04:00:00.000Z');       // Mon Oct 12 00:00 EDT
+    expect(new Date(w.untilX).toISOString()).toBe('2026-10-19T04:00:00.000Z');      // Mon Oct 19 00:00 EDT (exclusive)
+    expect(new Date(w.until).toISOString()).toBe('2026-10-19T03:59:59.999Z');       // Sun Oct 18 23:59:59.999 EDT
+    expect(new Date(w.prevSince).toISOString()).toBe('2026-10-05T04:00:00.000Z');
+    expect(w.untilX - w.since).toBe(7 * 86_400_000);
+  });
+
+  it('resolveWindow across DST: the week that falls back is 169 h, the one that springs forward 167 h — still 7 calendar days', () => {
+    // DST ends Sun Nov 1 2026 02:00 → the week Nov 1–7 starts in EDT and ends in EST.
+    const fall = resolveWindow('2026-11-07', Date.parse('2026-11-10T12:00:00Z')) as WeekWindow;
+    expect(new Date(fall.since).toISOString()).toBe('2026-11-01T04:00:00.000Z');    // 00:00 EDT
+    expect(new Date(fall.until).toISOString()).toBe('2026-11-08T04:59:59.999Z');    // 23:59:59.999 EST
+    expect(fall.untilX - fall.since).toBe(169 * 3_600_000);
+    expect(dayInNewYork(fall.since)).toBe('2026-11-01'); expect(dayInNewYork(fall.until)).toBe('2026-11-07');
+    // DST starts Sun Mar 8 2026 02:00 → the week Mar 8–14 is an hour short.
+    const spring = resolveWindow('2026-03-14', Date.parse('2026-03-20T12:00:00Z')) as WeekWindow;
+    expect(new Date(spring.since).toISOString()).toBe('2026-03-08T05:00:00.000Z');  // 00:00 EST
+    expect(new Date(spring.until).toISOString()).toBe('2026-03-15T03:59:59.999Z');  // 23:59:59.999 EDT
+    expect(spring.untilX - spring.since).toBe(167 * 3_600_000);
+    expect(dayInNewYork(spring.since)).toBe('2026-03-08'); expect(dayInNewYork(spring.until)).toBe('2026-03-14');
+  });
+
+  it('resolveWindow: the archive floor is 56 days back from today (NY); prevUntil is null there; older → too_old', () => {
+    expect(ARCHIVE_DAYS).toBe(56);
+    const floor = resolveWindow('2026-08-30', NOW) as WeekWindow;
+    expect(floor).toMatchObject({ untilDate: '2026-08-30', current: false, prevUntil: null, nextUntil: '2026-09-06', daysBack: 56 });
+    expect(resolveWindow('2026-08-29', NOW)).toBe('too_old');
+    expect(resolveWindow('2025-10-25', NOW)).toBe('too_old');
+    // One step above the floor still has a previous week.
+    expect((resolveWindow('2026-09-06', NOW) as WeekWindow).prevUntil).toBe('2026-08-30');
+  });
+
+  it('resolveWindow: a malformed or future date is invalid_until — "today" is New York\'s, not UTC\'s', () => {
+    for (const bad of ['2026-10-26', '2027-01-01', 'garbage', '2026-02-30', '2026-10-1', '20261018', 'null']) expect(resolveWindow(bad, NOW), bad).toBe('invalid_until');
+    // 02:00Z on Oct 26 is still Sunday Oct 25 22:00 in Providence: Oct 26 is a future date, Oct 25 the current week.
+    const late = Date.parse('2026-10-26T02:00:00Z');
+    expect(resolveWindow('2026-10-26', late)).toBe('invalid_until');
+    expect(resolveWindow('2026-10-25', late)).toMatchObject({ untilDate: '2026-10-25', current: true });
+    expect(resolveWindow(null, late)).toMatchObject({ untilDate: '2026-10-25', current: true, prevUntil: '2026-10-18' });
+    expect(resolveWindow('2026-10-24', late)).toMatchObject({ untilDate: '2026-10-24', current: false, nextUntil: null }); // Oct 31 would be after today
+  });
+
+  it('weekSummary(until): membership ends at the NY day end; a case created in the week and closed after it was open then; prev by the same calendar rule', () => {
+    const rows = [
+      row('early', { createdAt: '2026-10-12T04:00:00Z' }),                       // Mon Oct 12 00:00 EDT — first instant in
+      row('before', { createdAt: '2026-10-12T03:59:59Z' }),                      // Sun Oct 11 23:59:59 EDT — last week
+      row('late', { createdAt: '2026-10-19T03:30:00Z' }),                        // Sun Oct 18 23:30 EDT — in
+      row('after', { createdAt: '2026-10-19T04:00:00Z' }),                       // Mon Oct 19 00:00 EDT — the next week
+      row('closed-in', { createdAt: '2026-10-01T12:00:00Z', status: 'Resolved', detail: { resolutionDate: '2026-10-15T15:00:00Z', resolution: 'Filled.' } }),
+      row('closed-after', { createdAt: '2026-10-14T15:00:00Z', status: 'Resolved', detail: { resolutionDate: '2026-10-20T15:00:00Z', resolution: 'Later.' } }),
+      row('prev-closed', { createdAt: '2026-10-06T12:00:00Z', status: 'Closed', detail: { resolutionDate: '2026-10-09T12:00:00Z', resolution: 'Done.' } }),
+    ];
+    const s = weekSummary(rows, { now: NOW, until: '2026-10-18' });
+    expect(s).toMatchObject({
+      days: 7, since: '2026-10-12T04:00:00.000Z', until: '2026-10-19T03:59:59.999Z', at: new Date(NOW).toISOString(),
+      untilDate: '2026-10-18', prevUntil: '2026-10-11', nextUntil: '2026-10-25', current: false,
+      total: 4, open: 3, closed: 1, located: 4, prev: { total: 2, closed: 1 },
+    });
+    expect(s.notable.map((n) => n.id)).toEqual(['closed-in']);
+    // Neighborhood rows split by the same window rule: 'closed-after' (status Resolved today) was open that week.
+    expect(s.neighborhoods).toEqual([{ name: 'College Hill', slug: 'college-hill', n: 4, open: 3, closed: 1 }]);
+    expect(s.notable[0].closedAt).toBe(iso('2026-10-15T15:00:00Z'));
+    expect(Object.values(s.outcomes).reduce((a, b) => a + b, 0)).toBe(1);
+    expect(s.medianCloseDays).toBe(14.1);
+    expect(s.topTypes).toEqual([{ caseType: 'Pothole', category: 'pothole', n: 4, prevN: 2 }]);
+    // busiestDay only counts creations inside the window; a three-way tie goes to the latest NY day.
+    expect(s.busiestDay).toEqual({ date: '2026-10-18', n: 1 });
+    // The same rows seen from the current week (Oct 18 12:00Z → now): 'late', 'after' and the Oct 20 close are this
+    // week's and closed-after is closed now; last week by the 168-h rule holds early, before, closed-in, closed-after.
+    const cur = weekSummary(rows, { now: NOW });
+    expect(cur).toMatchObject({ total: 3, open: 2, closed: 1, prev: { total: 4, closed: 1 } });
+    expect(cur.notable.map((n) => n.id)).toEqual(['closed-after']);
+  });
+
+  it('weekSummary(until) with today\'s date is the current week; an invalid date throws its code', () => {
+    const a = weekSummary([row('a')], { now: NOW, until: '2026-10-25' });
+    const b = weekSummary([row('a')], { now: NOW });
+    expect(a).toEqual(b);
+    expect(a.current).toBe(true);
+    expect(() => weekSummary([], { now: NOW, until: 'nope' })).toThrow('invalid_until');
+    expect(() => weekSummary([], { now: NOW, until: '2026-01-01' })).toThrow('too_old');
+  });
+
+  describe('GET /api/week?until=', () => {
+    beforeEach(() => { resetStreetCache(); resetWeekCache(); });
+    const store = (rows: Record<string, unknown>[]) => ({ listCityCasesSince: vi.fn(async () => rows) } as unknown as Store);
+    const get = (s: Store, q: string, now = NOW) => handleWeek(new URL(`https://api.test/api/week${q}`), s, now);
+    const sinceArg = (s: Store, i: number) => (s.listCityCasesSince as any).mock.calls[i][0] as string;
+    const sinceDays = (n: number) => new Date(NOW - n * 86_400_000).toISOString().slice(0, 10);
+
+    it('a dated week: 200 with the dated fields, loaded over the whole 70-day archive window with the archive row limit', async () => {
+      const s = store([row('a', { createdAt: '2026-10-15T12:00:00Z' }), row('b')]);
+      const r = await get(s, '?until=2026-10-18');
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('public, max-age=300');
+      const j = await r.json() as WeekSummary;
+      expect(j).toMatchObject({ untilDate: '2026-10-18', prevUntil: '2026-10-11', nextUntil: '2026-10-25', current: false, total: 1, since: '2026-10-12T04:00:00.000Z', until: '2026-10-19T03:59:59.999Z' });
+      expect(sinceArg(s, 0)).toBe(sinceDays(MAX_LOAD_DAYS + 60));
+      expect((s.listCityCasesSince as any).mock.calls[0][1]).toBe(ARCHIVE_LOAD_LIMIT);
+      expect(ARCHIVE_LOAD_LIMIT).toBe(2 * LOAD_LIMIT);
+    });
+
+    it('caches per untilDate: bare and ?until=<today> share the "now" entry; every past week shares ONE archive read, each summary reused within 5 minutes', async () => {
+      const s = store([row('a')]);
+      await get(s, '');
+      await get(s, '?until=2026-10-25');
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(1);
+      expect(((await (await get(s, '?until=2026-10-25')).json()) as WeekSummary).current).toBe(true);
+      await get(s, '?until=2026-10-18');
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(2);
+      const again = await get(s, '?until=2026-10-18', NOW + 60_000);
+      expect(((await again.json()) as WeekSummary).at).toBe(new Date(NOW).toISOString());
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(2);
+      // Browsing back through the whole archive: the other seven weeks are served from the same loadCases entry.
+      for (const d of ['2026-10-11', '2026-10-04', '2026-09-27', '2026-09-20', '2026-09-13', '2026-09-06', '2026-08-30']) {
+        expect((await get(s, `?until=${d}`)).status, d).toBe(200);
+      }
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(2);
+      expect((s.listCityCasesSince as any).mock.calls[1]).toEqual([sinceDays(MAX_LOAD_DAYS + 60), ARCHIVE_LOAD_LIMIT]);
+      // After the TTL a dated week rebuilds like the current one.
+      resetStreetCache();
+      const fresh = await get(s, '?until=2026-10-18', NOW + 5 * 60_000);
+      expect(((await fresh.json()) as WeekSummary).at).toBe(new Date(NOW + 5 * 60_000).toISOString());
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(3);
+    });
+
+    it('the current entry turns over at New York midnight: a minute into Monday it is Monday\'s week, not a cached Sunday marked current', async () => {
+      const s = store([row('a')]);
+      const lateSunday = Date.parse('2026-10-26T03:59:00Z');   // Sun Oct 25 23:59 EDT
+      const earlyMonday = Date.parse('2026-10-26T04:01:00Z');  // Mon Oct 26 00:01 EDT, inside the 5-minute TTL
+      expect(((await (await get(s, '', lateSunday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-25', current: true, nextUntil: null });
+      expect(((await (await get(s, '', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-26', prevUntil: '2026-10-19', current: true, nextUntil: null });
+      // And Sunday's dated link now resolves as a past, full-day week (its own entry).
+      expect(((await (await get(s, '?until=2026-10-25', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-25', current: false, nextUntil: null, until: '2026-10-26T03:59:59.999Z' });  // Nov 1 is still ahead
+    });
+
+    it('the floor week loads 70 days (+60 lookback); beyond it 400 too_old; a malformed or future date 400 invalid_until', async () => {
+      const s = store([row('a')]);
+      const r = await get(s, '?until=2026-08-30');
+      expect(r.status).toBe(200);
+      expect(((await r.json()) as WeekSummary)).toMatchObject({ untilDate: '2026-08-30', prevUntil: null, nextUntil: '2026-09-06', current: false });
+      expect(MAX_LOAD_DAYS).toBe(70);
+      expect(sinceArg(s, 0)).toBe(sinceDays(70 + 60));
+      for (const [q, error] of [['?until=2026-08-29', 'too_old'], ['?until=2026-10-26', 'invalid_until'], ['?until=nope', 'invalid_until'], ['?until=2026-02-30', 'invalid_until']] as const) {
+        const bad = await get(s, q);
+        expect(bad.status, q).toBe(400);
+        expect(bad.headers.get('content-type')).toBe('application/json');
+        expect(await bad.json()).toEqual({ error });
+      }
+      expect((s.listCityCasesSince as any).mock.calls).toHaveLength(1);  // errors never read
+    });
   });
 });
 
@@ -273,7 +453,8 @@ describe('the Monday mail', () => {
     expect(m.html).toContain('<b>Pothole</b> · 12 Angell St, College Hill · Resolved (closed');
     expect(m.html).toContain('Filled &amp; compacted.');
     expect(m.html).toContain('Bulb replaced');
-    expect(m.html).toContain('<a href="https://fixmypvd.org/week">See the whole week</a>');
+    // "See the whole week" is the dated link (stable next month); the opt-out line points at the live page.
+    expect(m.html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
     expect(m.html).toContain('You asked for this every Monday on FixMyPVD — turn it off on <a href="https://fixmypvd.org/week">the week page</a> or under <a href="https://fixmypvd.org/account">Account</a>.');
     expect(m.html).toContain('not affiliated with the City of Providence');
     expect(m.html).not.toContain('https://fixmypvd.org//');
@@ -309,7 +490,7 @@ describe('runWeekDigest', () => {
   }
   beforeEach(() => { resetStreetCache(); resetWeekCache(); });
 
-  it('mails each verified opted-in account once, kind week_digest, and skips the unverified or address-less', async () => {
+  it('mails each verified opted-in account once, kind week_digest, for the calendar week ending yesterday (NY), and skips the unverified or address-less', async () => {
     const users = [
       user(),
       user({ uid: 'u2', email: 'two@example.com' }),
@@ -321,9 +502,33 @@ describe('runWeekDigest', () => {
     expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2 });
     expect(d.sent.map((m) => m.to)).toEqual(['me@example.com', 'two@example.com']);
     expect(d.sent[0]).toMatchObject({ subject: 'This week in Providence: 2 requests, 1 closed', kind: 'week_digest' });
-    expect(d.sent[0].html).toContain('https://fixmypvd.org/week');
+    // NOW is Sunday Oct 25: the mail is the week ending Saturday Oct 24 (00:00 Oct 18 → 23:59:59.999 Oct 24 EDT) and links it.
+    expect(d.sent[0].html).toContain('Oct 18 – Oct 24, from Providence 311');
+    expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">See the whole week</a>');
     expect((d.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
     expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, total: 2 }]);
+  });
+
+  it('from the Monday 11:00 UTC cron the mail is Mon–Sun of last week, and its dated link reproduces the mailed numbers on Tuesday', async () => {
+    const monday = Date.parse('2026-10-26T11:00:00Z');   // the runDaily cron: Mon Oct 26 07:00 EDT
+    const rows = [
+      row('mon-early', { createdAt: '2026-10-19T04:30:00Z' }),                 // Mon Oct 19 00:30 EDT — in the calendar week
+      row('sun-late', { createdAt: '2026-10-26T03:30:00Z' }),                  // Sun Oct 25 23:30 EDT — in
+      row('today', { createdAt: '2026-10-26T08:00:00Z' }),                     // Mon Oct 26 04:00 EDT — before the cron, but this week's
+      row('last-week', { createdAt: '2026-10-19T03:00:00Z' }),                 // Sun Oct 18 23:00 EDT — the week before
+      closedRow('fixed', 10, 2, { detail: { resolutionDate: '2026-10-23T15:00:00Z', resolution: 'Filled.' } }),
+      closedRow('closed-today', 9, 0, { detail: { resolutionDate: '2026-10-26T09:00:00Z', resolution: 'Later.' } }), // created Oct 16 → prev; closed Mon → open in the mailed week
+    ];
+    const d = deps([user()], rows);
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: monday })).toEqual({ users: 1, mailed: 1 });
+    expect(d.sent[0].subject).toBe('This week in Providence: 3 requests, 1 closed');
+    expect(d.sent[0].html).toContain('Oct 19 – Oct 25, from Providence 311');
+    expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
+    // The link, opened on Tuesday afternoon, is the same week with the same numbers.
+    const tuesday = Date.parse('2026-10-27T19:00:00Z');
+    const page = await (await handleWeek(new URL('https://api.test/api/week?until=2026-10-25'), d.store, tuesday)).json() as WeekSummary;
+    expect(page).toMatchObject({ untilDate: '2026-10-25', current: false, total: 3, closed: 1, open: 2, since: '2026-10-19T04:00:00.000Z', until: '2026-10-26T03:59:59.999Z' });
+    expect(page.notable.map((n) => n.id)).toEqual(['fixed']);
   });
 
   it('sends nothing when the week had no cases, and reads nothing when nobody opted in', async () => {
