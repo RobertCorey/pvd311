@@ -92,6 +92,32 @@ export function caseWire(c: Case) {
   };
 }
 
+/** The tracking page's point (120 Benefit St, the track.spec fixture) and the four city cases around it: two open
+ *  (28 m, three days ago / 130 m, today), two closed (80 m yesterday with the city's note / 150 m) — the fourth is counted, never a row. */
+export const TRACK_PT = { lat: 41.8268, lng: -71.4053 };
+export const TRACK_NEAR: Case[] = [
+  { id: 'n1', t: 0, status: 'Assigned', createdDaysAgo: 3, lat: 41.827, lng: -71.4051, street: '124 Benefit St' },
+  { id: 'n2', t: 1, status: 'Resolved', createdDaysAgo: 9, closedDaysAgo: 1, lat: 41.8262, lng: -71.4058, street: '98 Benefit St', res: 'Bulb replaced.' },
+  { id: 'n3', t: 4, status: 'In Progress', createdDaysAgo: 0, lat: 41.8275, lng: -71.404, street: '15 Meeting St' },
+  { id: 'n4', t: 3, status: 'Closed', createdDaysAgo: 12, closedDaysAgo: 5, lat: 41.826, lng: -71.4066, street: '77 Benefit St' },
+];
+
+/** GET /api/street?lat&lng&radiusM&days body (worker/src/street.ts handleStreet → StreetCase[]) for fixture cases
+ *  around `at`: the case fields plus distanceM, in the given order (the worker's is newest activity first). */
+export function nearWire(cases: Case[], at: { lat: number; lng: number }, o: { radiusM?: number; days?: number } = {}) {
+  const R = 6_371_000; const rad = (d: number) => (d * Math.PI) / 180;
+  const dist = (lat: number, lng: number) => {
+    const dLat = rad(lat - at.lat), dLng = rad(lng - at.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(at.lat)) * Math.cos(rad(lat)) * Math.sin(dLng / 2) ** 2;
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
+  };
+  const items = cases.filter((c) => c.lat != null && c.lng != null).map((c) => {
+    const { updatedAt: _updatedAt, ...w } = caseWire(c);
+    return { ...w, distanceM: dist(c.lat!, c.lng!) };
+  });
+  return { items, radiusM: o.radiusM ?? 300, days: o.days ?? 30, at: new Date().toISOString() };
+}
+
 /** Build the wire body. `days` is echoed; items outside the window are the worker's job, not this builder's. */
 export function feed(o: { days?: number; items?: Case[]; truncated?: boolean } = {}) {
   const items = o.items ?? DEFAULT_ITEMS;

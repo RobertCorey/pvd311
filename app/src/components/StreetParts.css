@@ -72,6 +72,16 @@
 /* Desktop panel: the rail wraps onto two lines, no scroll, no fade. */
 .street-rail--wrap, .street-panel .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; }
 
+/* ── Weekly digest card (StreetDigestCard) ─────────────────────────────────────────────────────── */
+/* Bound to the point (or the selected case's street) on /street, and to the report's point on the tracking page. */
+.street-digest { margin-top: 14px; display: grid; gap: 8px; }
+.street-digest h3 { margin: 0; font-size: 1rem; }
+.street-digest p { margin: 0; }
+.street-digest .btn-secondary { text-decoration: none; }
+.street-digest-on { display: grid; gap: 8px; }
+.street-digest-on .notice-ok { margin: 0; }
+.street-digest-on .btn { width: auto; justify-self: start; }
+
 /* ── Notify me on this phone (PushCard) ────────────────────────────────────────────────────────── */
 /* One compact row on ink-soft: title + hint on the left, the control on the right (44 px). Lives inside the digest
    card's on-state and the Follow area on /street, and in the Account → Updates card, so it is a row, not another card. */

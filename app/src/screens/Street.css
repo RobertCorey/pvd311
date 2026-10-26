@@ -101,14 +101,7 @@
 /* Stack focus (same-spot cases). */
 .street-stack-clear { margin-top: 10px; width: auto; }
 
-/* Weekly digest card (kept from the list page, bound to the point or to the selected case's street). */
-.street-digest { margin-top: 14px; display: grid; gap: 8px; }
-.street-digest h3 { margin: 0; font-size: 1rem; }
-.street-digest p { margin: 0; }
-.street-digest .btn-secondary { text-decoration: none; }
-.street-digest-on { display: grid; gap: 8px; }
-.street-digest-on .notice-ok { margin: 0; }
-.street-digest-on .btn { width: auto; justify-self: start; }
+/* The weekly digest card (.street-digest) is components/StreetDigestCard.tsx; its rules live in StreetParts.css. */
 .street-source { margin: 14px 0 0; }
 
 /* Tail: the footer's links live here on phones (the page footer is hidden under body.is-street). */

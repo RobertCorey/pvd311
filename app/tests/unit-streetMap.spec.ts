@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
-  inBounds, inWindow, isDefaultView, metersBetween, padBounds, parseStreetUrl, sortForPoint, stackKey, summaryOf, topTypes,
+  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
@@ -285,15 +285,44 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.* and week.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.* and track.near.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.');
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.') || k.startsWith('track.near.');
   const enKeys = Object.keys(en).filter(ours);
   const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);
   expect(enKeys.filter((k) => !(k in es))).toEqual([]);
   expect(esKeys.filter((k) => !(k in en))).toEqual([]);
   for (const k of enKeys) { expect(typeof en[k], k).toBe('string'); expect(es[k].length, k).toBeGreaterThan(0); }
+});
+
+// ── likelyOwnCase: the report itself in the city's list (TrackNear drops it from "Near this request") ──
+test('likelyOwnCase: same category + same day + (within OWN_CASE_M or the same street line) → the closest one; otherwise null', () => {
+  const now = Date.now();
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const base: MapCase = { id: 'x', caseType: 'Pothole', category: 'pothole', group: 'streets', status: 'Received', open: true, createdAt: iso(60_000), closedAt: null, street: '120 BENEFIT ST', resolution: null, lat: 41.8268, lng: -71.4053 };
+  const report = { category: 'pothole', createdAt: iso(3_600_000), lat: 41.8268, lng: -71.4053, address: '120 Benefit St, Providence, RI' };
+  expect(streetKey('120 Benefit St, Providence, RI')).toBe('120 benefit st');
+  expect(streetKey(' 120  BENEFIT ST. ')).toBe('120 benefit st');
+  // The city's geocode sits 20 m off the pin: the pin test catches it.
+  const near = { ...base, id: 'near', lat: 41.82695, lng: -71.40545, street: 'BENEFIT ST' };
+  expect(likelyOwnCase([near], report)).toBe('near');
+  // 150 m off but the report's own street line: the street test catches it.
+  const far = { ...base, id: 'far', lat: 41.828, lng: -71.4045 };
+  expect(likelyOwnCase([far], report)).toBe('far');
+  // 150 m off on another street → not ours.
+  expect(likelyOwnCase([{ ...far, street: '30 MEETING ST' }], report)).toBeNull();
+  // Another category, or filed three days earlier, is never ours even at 0 m.
+  expect(likelyOwnCase([{ ...base, category: 'graffiti' }], report)).toBeNull();
+  expect(likelyOwnCase([{ ...base, createdAt: iso(3 * 86_400_000) }], report)).toBeNull();
+  // Two candidates: only the closest goes (a report is one case). The Worker's distanceM wins over the computed one.
+  expect(likelyOwnCase([{ ...far, id: 'a' }, { ...near, id: 'b' }], report)).toBe('b');
+  expect(likelyOwnCase([{ ...far, id: 'a', distanceM: 3 }, { ...near, id: 'b', distanceM: 20 }], report)).toBe('a');
+  // No report date, or an unlocated case on another street: nothing to match on.
+  expect(likelyOwnCase([near], { ...report, createdAt: null })).toBeNull();
+  expect(likelyOwnCase([{ ...base, lat: null, lng: null, street: 'ELSEWHERE' }], report)).toBeNull();
+  expect(likelyOwnCase([{ ...base, lat: null, lng: null }], report)).toBe('x'); // unlocated but our street line
+  expect(OWN_CASE_M).toBe(60);
 });

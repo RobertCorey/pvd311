@@ -16,12 +16,13 @@ import './StreetParts.css';
  *  A subscription this browser holds that the account does not know (another account used this phone without signing
  *  out — lib/auth signOut() drops this phone's subscription) reads as off, and Turn on re-registers it without asking
  *  the browser again; the Worker then takes the endpoint off the previous account (one owner per phone). Rendered
- *  inside the digest card's on-state and under the pressed Follow toggle on /street, and in Account → Updates. */
+ *  inside the digest card's on-state (/street and the tracking page) and under the pressed Follow toggle on /street,
+ *  and in Account → Updates. */
 
 export interface PushCardProps {
   me: Me | null;
-  /** Analytics only: where the toggle lives. */
-  from: 'street' | 'case' | 'account';
+  /** Analytics only: where the toggle lives ('track' = the digest card on the tracking page). */
+  from: 'street' | 'case' | 'account' | 'track';
 }
 
 export default function PushCard({ me, from }: PushCardProps) {

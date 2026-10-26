@@ -1,4 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
+import { SESSION, TRACK_NEAR, TRACK_PT, feed, nearWire, type Case } from './street-mocks';
+import { stubPush } from './push-mocks';
 
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 
@@ -18,8 +20,8 @@ function view(o: ViewOverrides = {}) {
     category: 'pothole',
     categoryLabel: 'Pothole',
     address: '120 Benefit St, Providence, RI',
-    lat: o.lat ?? 41.8268,
-    lng: o.lng ?? -71.4053,
+    lat: 'lat' in o ? o.lat : TRACK_PT.lat,
+    lng: 'lng' in o ? o.lng : TRACK_PT.lng,
     photoUrl: o.photoUrl ?? null,
     createdAt: now,
     status: o.status ?? 'sent',
@@ -52,6 +54,47 @@ async function mockReport(page: Page, body: object, status = 200) {
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.route(`${API}/api/reports/*`, (r) =>
     r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }));
+  // "Near this request" (GET /api/street?lat&lng&radiusM&days): nothing nearby unless a test mocks its own set after this.
+  await page.route(`${API}/api/street?*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(nearWire([], TRACK_PT)) }));
+}
+
+/** The nearby set for the report's point; `status` ≠ 200 is the failed fetch; `delayMs` holds the response (the skeleton). */
+async function mockNear(page: Page, items: Case[], o: { status?: number; delayMs?: number } = {}): Promise<string[]> {
+  const urls: string[] = [];
+  await page.route(`${API}/api/street?*`, async (r) => {
+    urls.push(r.request().url());
+    if (o.delayMs) await new Promise((res) => setTimeout(res, o.delayMs));
+    if (o.status && o.status !== 200) return r.fulfill({ status: o.status, contentType: 'application/json', body: '{"error":"boom"}' });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(nearWire(items, TRACK_PT)) });
+  });
+  return urls;
+}
+
+/** A signed-in viewer: GET /api/me (digest off, no addresses), PUT /api/me/addresses and PATCH /api/me as the Worker answers them. */
+/** A signed-in account whose GET/PATCH /api/me and PUT /api/me/addresses are mocked; returns the PUT/PATCH calls.
+ *  `o.delayMs` holds every PUT/PATCH response that long (a slow Worker); `o.gets` counts GET /api/me. */
+async function signedIn(page: Page, me: Record<string, unknown> = {}, o: { delayMs?: number; gets?: { n: number } } = {}): Promise<{ method: string; body: unknown }[]> {
+  const calls: { method: string; body: unknown }[] = [];
+  const hold = () => (o.delayMs ? new Promise((res) => setTimeout(res, o.delayMs)) : Promise.resolve());
+  await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
+  let acct = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetDigest: false }, addresses: [] as unknown[], following: [], cityFollowing: [], createdAt: new Date().toISOString(), ...me } as Record<string, unknown>;
+  await page.route(`${API}/api/me`, async (r) => {
+    if (r.request().method() === 'PATCH') {
+      const body = r.request().postDataJSON();
+      calls.push({ method: 'PATCH', body });
+      await hold();
+      acct = { ...acct, prefs: { ...(acct.prefs as object), ...(body.prefs ?? {}) } };
+    } else if (r.request().method() === 'GET' && o.gets) o.gets.n += 1;
+    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(acct) });
+  });
+  await page.route(`${API}/api/me/addresses`, async (r) => {
+    const body = r.request().postDataJSON();
+    calls.push({ method: 'PUT', body });
+    await hold();
+    acct = { ...acct, addresses: [{ id: 'a1', ...body }] };
+    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ addresses: acct.addresses }) });
+  });
+  return calls;
 }
 
 async function useSpanish(page: Page) {
@@ -406,4 +449,181 @@ test("work order + department: the city's facts on the ticket, worded neutrally,
   await expect(tl).toContainText('City work order #0000206909: Marked complete');
   await expect(tl).toContainText('City work order #0000206910: Inspection Scheduled'); // unknown word → the city's own
   await expect(page.locator('#answer')).toHaveCount(0);
+});
+
+// ── Near this request (2026-10-26): the city's cases within a few blocks, the map, and the weekly digest for this street ──
+
+const near = (page: Page) => page.locator('.track-near');
+const MAP_HREF = '/street?lat=41.82680&lng=-71.40530&q=120%20Benefit%20St%2C%20Providence%2C%20RI';
+
+test('near: two skeleton rows while loading, then the counts, three rows in the /street look, the map link; a row opens its case on the map; fetched once per report', async ({ page }) => {
+  await mockReport(page, view());
+  const urls = await mockNear(page, TRACK_NEAR, { delayMs: 600 });
+  await page.goto('/r/abc');
+  const card = near(page).locator('.track-near-card');
+  await expect(near(page).getByRole('heading', { name: 'Near this request' })).toBeVisible();
+  await expect(card).toHaveAttribute('aria-busy', 'true');
+  await expect(card.locator('.track-near-skel-row')).toHaveCount(2);
+  await expect(page.locator('.track-near .spinner, .track-near [role="progressbar"]')).toHaveCount(0);
+  // Loaded: our own report is not in the list — these are the city's cases (2 open · 2 closed; the 4th is counted, not listed).
+  await expect(card.locator('.track-near-summary')).toHaveText('2 other open requests within a few blocks · 2 closed this month');
+  await expect(card).not.toHaveAttribute('aria-busy', 'true');
+  expect(urls).toHaveLength(1);
+  expect(urls[0]).toContain('/api/street?lat=41.8268&lng=-71.4053&radiusM=300&days=30');
+  const rows = card.locator('.street-row-btn');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText('Pothole');
+  await expect(rows.nth(0)).toContainText('124 Benefit St · 28 m away');
+  await expect(rows.nth(0)).toContainText('Reported 3 days ago');
+  await expect(rows.nth(0).locator('.my-status')).toHaveText('Assigned');
+  await expect(rows.nth(1).locator('.my-status')).toHaveText('Closed');
+  await expect(rows.nth(1)).toContainText('Bulb replaced.');
+  await expect(rows.nth(2)).toContainText('Graffiti');
+  await expect(card).not.toContainText('77 Benefit St');
+  const link = card.getByRole('link', { name: 'See them on the map' });
+  await expect(link).toHaveAttribute('href', MAP_HREF);
+  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await rows.nth(0).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // The digest card follows, bound to the same point.
+  await expect(near(page).locator('.street-digest h3')).toHaveText('Hear about this street every week');
+  // A row opens that case on the map, at the report's point (/street's own feed mocked so nothing reaches the real Worker).
+  await page.route(`${API}/api/street/map*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed()) }));
+  await rows.nth(0).click();
+  await expect(page).toHaveURL(new RegExp(`${MAP_HREF.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}&case=n1$`));
+  // Back on the tracking page the set comes from the component's cache: still one request.
+  await page.goBack();
+  await expect(card.locator('.street-row-btn')).toHaveCount(3);
+  expect(urls).toHaveLength(1);
+});
+
+test('near: nothing within a few blocks → "yours may be the first", the map link and the digest card still render', async ({ page }) => {
+  await mockReport(page, view());
+  await page.goto('/r/abc');
+  const card = near(page).locator('.track-near-card');
+  await expect(card.locator('.track-near-none')).toHaveText('Nothing else reported within a few blocks this month — yours may be the first.');
+  await expect(card.locator('.street-row-btn')).toHaveCount(0);
+  await expect(card.getByRole('link', { name: 'See this street on the map' })).toHaveAttribute('href', MAP_HREF);
+  await expect(near(page).locator('.street-digest')).toBeVisible();
+});
+
+test('near: a failed fetch drops the card and its heading (the digest card needs no feed, so it stays); the page is otherwise whole', async ({ page }) => {
+  await mockReport(page, view());
+  await mockNear(page, TRACK_NEAR, { status: 500 });
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'The city assigned your request' })).toBeVisible();
+  await expect(page.locator('.street-digest')).toBeVisible();
+  await expect(page.locator('.track-near-card')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Near this request' })).toHaveCount(0);
+  await expect(page.locator('.notice-error')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'What to expect' })).toBeVisible();
+});
+
+test('near: the feed failing while a digest save is in flight — the card keeps its instance, the save lands in the on-state, one GET /api/me', async ({ page }) => {
+  await mockReport(page, view());
+  await mockNear(page, TRACK_NEAR, { status: 500, delayMs: 1500 }); // the failed fetch lands mid-save
+  const gets = { n: 0 };
+  const calls = await signedIn(page, {}, { delayMs: 1200, gets }); // PUT ~1.2 s after the tap, PATCH ~2.4 s
+  await stubPush(page);
+  await page.goto('/r/abc');
+  const digest = near(page).locator('.street-digest');
+  await expect(near(page).locator('.track-near-skel-row')).toHaveCount(2);
+  const cta = digest.getByRole('button', { name: 'Email me about this street' });
+  await expect(cta).toBeEnabled();
+  await digest.evaluate((el) => el.setAttribute('data-probe', 'same-node'));
+  await cta.click();
+  await expect(digest.getByRole('button', { name: 'Saving…' })).toBeVisible();
+  // The feed fails: the heading and the card go, the digest card is the same DOM node, still saving.
+  await expect(page.locator('.track-near-card')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Near this request' })).toHaveCount(0);
+  await expect(digest).toHaveAttribute('data-probe', 'same-node');
+  await expect(digest.getByRole('button', { name: 'Saving…' })).toBeVisible();
+  // The save finishes into that instance: the on-state, the phone row, no second account read.
+  await expect(digest.locator('.street-digest-on .notice-ok')).toHaveText('On — Mondays, for 120 Benefit St. Manage addresses under Account.');
+  await expect(digest.locator('.push-card')).toHaveAttribute('data-state', 'off');
+  await expect(digest).toHaveAttribute('data-probe', 'same-node');
+  expect(calls.map((c) => c.method)).toEqual(['PUT', 'PATCH']);
+  expect(gets.n).toBe(1);
+});
+
+test('near: the report\'s own case, once the city sync lists it, is not an "other" request — dropped from the rows and the counts; a same-type case the same day on another street stays', async ({ page }) => {
+  await mockReport(page, view());
+  const own: Case = { id: 'own', t: 0, status: 'Received', createdDaysAgo: 0, lat: 41.82695, lng: -71.40545, street: '120 BENEFIT ST' }; // the city's geocode of our street: ~20 m off the pin
+  const twin: Case = { id: 'twin', t: 0, status: 'Received', createdDaysAgo: 0, lat: 41.8278, lng: -71.4042, street: '30 Meeting St' }; // same type, same day, ~145 m away
+  await mockNear(page, [own, twin, ...TRACK_NEAR]);
+  await page.goto('/r/abc');
+  const card = near(page).locator('.track-near-card');
+  await expect(card.locator('.track-near-summary')).toHaveText('3 other open requests within a few blocks · 2 closed this month');
+  const rows = card.locator('.street-row-btn');
+  await expect(rows).toHaveCount(3);
+  await expect(card).not.toContainText('120 BENEFIT ST');
+  await expect(card.locator('[data-id="own"]')).toHaveCount(0);
+  await expect(rows.nth(0)).toContainText('30 Meeting St');
+  await expect(rows.nth(1)).toContainText('124 Benefit St');
+});
+
+test('near: a report without coordinates has no card and asks the Worker nothing', async ({ page }) => {
+  await mockReport(page, view({ lat: null, lng: null }));
+  const urls = await mockNear(page, TRACK_NEAR);
+  await page.goto('/r/abc');
+  await expect(page.getByRole('heading', { name: 'What to expect' })).toBeVisible();
+  await expect(near(page)).toHaveCount(0);
+  await expect(page.locator('.street-digest')).toHaveCount(0);
+  expect(urls).toEqual([]);
+});
+
+test('near, signed in: one tap saves the address (label = the part before the comma) and turns the Monday email on, then the phone row appears', async ({ page }) => {
+  await mockReport(page, view());
+  await mockNear(page, TRACK_NEAR);
+  const calls = await signedIn(page);
+  await stubPush(page); // an Android UA with a PushManager: the row reads "off" instead of the iPhone install hint
+  await page.goto('/r/abc');
+  const digest = near(page).locator('.street-digest');
+  await expect(digest.locator('.push-card')).toHaveCount(0);
+  const cta = digest.getByRole('button', { name: 'Email me about this street' });
+  await expect(cta).toBeEnabled();
+  expect((await cta.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await cta.click();
+  await expect(digest.locator('.street-digest-on .notice-ok')).toHaveText('On — Mondays, for 120 Benefit St. Manage addresses under Account.');
+  expect(calls.map((c) => c.method)).toEqual(['PUT', 'PATCH']);
+  expect(calls[0].body).toEqual({ label: '120 Benefit St', address: '120 Benefit St, Providence, RI', lat: TRACK_PT.lat, lng: TRACK_PT.lng });
+  expect(calls[1].body).toEqual({ prefs: { streetDigest: true } });
+  const push = digest.locator('.push-card');
+  await expect(push).toHaveAttribute('data-state', 'off');
+  await expect(push.getByRole('button', { name: 'Turn on' })).toBeVisible();
+  await expect(digest.getByRole('button', { name: 'Turn off', exact: true })).toBeVisible();
+  // Off again: one PATCH, the row goes with the on-state.
+  await digest.getByRole('button', { name: 'Turn off', exact: true }).click();
+  await expect(digest.getByRole('button', { name: 'Email me about this street' })).toBeVisible();
+  expect(calls.map((c) => c.method)).toEqual(['PUT', 'PATCH', 'PATCH']);
+  expect(calls[2].body).toEqual({ prefs: { streetDigest: false } });
+  await expect(digest.locator('.push-card')).toHaveCount(0);
+});
+
+test('near, signed in with this street already saved and on: the on-state, no second save', async ({ page }) => {
+  await mockReport(page, view());
+  const calls = await signedIn(page, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '120 Benefit St, Providence, RI', lat: TRACK_PT.lat, lng: TRACK_PT.lng }] });
+  await page.goto('/r/abc');
+  await expect(near(page).locator('.street-digest-on .notice-ok')).toContainText('for Home');
+  expect(calls).toEqual([]);
+});
+
+test('near, signed out: the digest card offers sign-in and comes straight back to this report', async ({ page }) => {
+  await mockReport(page, view());
+  await page.goto('/r/abc');
+  const link = near(page).locator('.street-digest a.btn');
+  await expect(link).toHaveText('Sign in to get the weekly email');
+  await expect(link).toHaveAttribute('href', '/account?returnTo=%2Fr%2Fabc');
+  await expect(near(page).locator('.street-digest button')).toHaveCount(0);
+});
+
+test('near: Spanish title, summary and map link (singulars included); the city\'s case type stays its own', async ({ page }) => {
+  await useSpanish(page);
+  await mockReport(page, view());
+  await mockNear(page, TRACK_NEAR.slice(0, 2)); // 1 open · 1 closed
+  await page.goto('/r/abc');
+  await expect(near(page).getByRole('heading', { name: 'Cerca de esta solicitud' })).toBeVisible();
+  await expect(near(page).locator('.track-near-summary')).toHaveText('1 otra solicitud abierta a unas cuadras · 1 cerrada este mes');
+  await expect(near(page).getByRole('link', { name: 'Verlas en el mapa' })).toHaveAttribute('href', MAP_HREF);
+  await expect(near(page).locator('.street-row-btn').first()).toContainText('a 28 m');
+  await expect(near(page).locator('.street-row-btn').first().locator('.my-status')).toHaveText('Asignado');
 });

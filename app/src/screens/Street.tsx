@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
 import { getStreetCase, getStreetMap, peekStreetMap, type MapCase, type MapDays, type StreetMap } from '../api/street';
-import { followCity, getMe, saveAddress, unfollowCity, updateMe, type Me } from '../api/me';
+import { followCity, getMe, unfollowCity, type Me } from '../api/me';
 import { isSafeReturnTo, useSession } from '../lib/auth';
 import { forwardGeocode, inProvidence, reverseGeocode } from '../lib/geo';
 import { track } from '../lib/analytics';
@@ -21,6 +21,7 @@ import StreetRow from '../components/StreetRow';
 import StreetDetail from '../components/StreetDetail';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
 import PushCard from '../components/PushCard';
+import StreetDigestCard, { addressLabel } from '../components/StreetDigestCard';
 import SavedAddresses from '../components/SavedAddresses';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
@@ -36,7 +37,6 @@ import './Street.css';
 
 const RAIL_BOTTOM = 110;
 const RING_M = 300;
-const SAME_PLACE_M = 60;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
 const LATEST = 20;
@@ -472,9 +472,8 @@ export default function Street() {
     } catch { /* cancelled or blocked */ }
   }
 
-  /* ── Weekly digest (kept; bound to the point, or to the selected case's street) ───────────────── */
+  /* ── Account (shared by the digest card, the Follow toggle and "Your places") ───────────────────── */
   const [me, setMe] = useState<Me | null>(null);
-  const [digest, setDigest] = useState<'idle' | 'saving' | 'error'>('idle');
   // The city cases this account follows (users.cityFollowing). Its own state, not derived from `me`: the toggles below
   // update it optimistically and the digest's PATCH responses must not reset it. null = signed out / not loaded yet.
   const [cityFollowing, setCityFollowing] = useState<string[] | null>(null);
@@ -501,26 +500,6 @@ export default function Street() {
     setFollowed(id, false);
     try { await unfollowCity(id); track('street_follow', { on: false }); } catch (e) { setFollowed(id, true); throw e; }
   }
-  const savedNear = (tg: DigestTarget) => me?.addresses.find((a) => (a.lat != null && a.lng != null && metersBetween(a.lat, a.lng, tg.lat, tg.lng) < SAME_PLACE_M) || (tg.label && a.address.trim().toLowerCase() === tg.label.trim().toLowerCase())) ?? null;
-  async function enableDigest(tg: DigestTarget, from: 'point' | 'case') {
-    setDigest('saving');
-    try {
-      const saved = savedNear(tg);
-      let addresses = me?.addresses ?? [];
-      if (!saved) {
-        const label = (tg.label.split(',')[0] || t('street.digest.defaultLabel')).slice(0, 40);
-        addresses = (await saveAddress({ label, address: tg.label || label, lat: tg.lat, lng: tg.lng })).addresses;
-      }
-      const fresh = await updateMe({ prefs: { streetDigest: true } });
-      setMe({ ...fresh, addresses: fresh.addresses?.length ? fresh.addresses : addresses });
-      setDigest('idle');
-      track('street_digest_on', { from });
-    } catch { setDigest('error'); }
-  }
-  async function disableDigest(from: 'point' | 'case') {
-    setDigest('saving');
-    try { setMe(await updateMe({ prefs: { streetDigest: false } })); setDigest('idle'); track('street_digest_off', { from }); } catch { setDigest('error'); }
-  }
   const here = location.pathname + location.search;
   /** The sign-in links' returnTo: this exact URL (takeReturnTo accepts /street's `+` and `,`); should it ever hold a
    *  character the allowlist rejects, the case alone — the same shape as the follow mail's link — so the card still reopens. */
@@ -531,28 +510,13 @@ export default function Street() {
     if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
     return `/street?${p}`;
   };
-  /** `push` = whether the on-state carries the "Notify me on this phone" row (off when the pressed Follow toggle on
-   *  the same case card already shows it, so the card never has two). */
-  function renderDigest(tg: DigestTarget, from: 'point' | 'case', push = true): ReactNode {
-    const saved = savedNear(tg);
-    const on = !!(me?.prefs.streetDigest && saved);
-    return (
-      <div className="card street-digest">
-        <h3>{t('street.digest.title')}</h3>
-        <p className="muted">{t('street.digest.body')}</p>
-        {!session && <Link to={`/account?returnTo=${encodeURIComponent(returnHere(selectedCase))}`} className="btn btn-secondary">{t('street.digest.signIn')}</Link>}
-        {session && !on && <button type="button" className="btn btn-primary" onClick={() => enableDigest(tg, from)} disabled={digest === 'saving' || !me}>{digest === 'saving' ? t('street.digest.saving') : t('street.digest.cta')}</button>}
-        {session && on && (
-          <div className="street-digest-on">
-            <p className="notice notice-ok" role="status">{t('street.digest.on', { label: saved?.label ?? tg.label })}</p>
-            <button type="button" className="btn btn-ghost" onClick={() => disableDigest(from)} disabled={digest === 'saving'}>{t('street.digest.off')}</button>
-            {push && <PushCard me={me} from={from === 'case' ? 'case' : 'street'} />}
-          </div>
-        )}
-        {digest === 'error' && <p className="hint" role="alert">{t('street.digest.error')}</p>}
-      </div>
-    );
-  }
+  /** The weekly digest card (components/StreetDigestCard) bound to a point: the home point in the sheet, or the
+   *  selected case's street on its card. `push` = whether its on-state carries the "Notify me on this phone" row (off
+   *  when the pressed Follow toggle on the same case card already shows it, so the card never has two). */
+  const digestCard = (tg: DigestTarget, from: 'point' | 'case', push = true): ReactNode => (
+    <StreetDigestCard lat={tg.lat} lng={tg.lng} label={addressLabel(tg.label)} address={tg.label} from={from} push={push}
+      returnTo={returnHere(selectedCase)} account={{ me, onMe: setMe }} />
+  );
 
   /* ── Render helpers ───────────────────────────────────────────────────────────────────────────── */
   const [hover, setHover] = useState<string | null>(null);
@@ -655,7 +619,7 @@ export default function Street() {
           account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
           onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} push={<PushCard me={me} from="case" />} />
       );
-      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? renderDigest(tg, 'case', !followed) : undefined} />;
+      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? digestCard(tg, 'case', !followed) : undefined} />;
     }
     if (stackCases) {
       return (
@@ -701,7 +665,7 @@ export default function Street() {
       )}
       {widened && !selectedCase && <p className="hint street-widened" role="status">{t('street.widened')}</p>}
       {renderBody()}
-      {digestTarget && !selectedCase && data && renderDigest(digestTarget, 'point')}
+      {digestTarget && !selectedCase && data && digestCard(digestTarget, 'point')}
       <p className="hint street-source">{t('street.source')}</p>
     </>
   );

@@ -92,6 +92,41 @@ export function distanceM(c: MapCase, p: LatLng): number | null {
   return c.lat == null || c.lng == null ? null : Math.round(metersBetween(p.lat, p.lng, c.lat, c.lng));
 }
 
+/** The resident's own filed report, once the city sync has picked it up, sits in the city's list like any other case
+ *  (cityCases are keyed by the portal's incident GUID; a report carries only the PVD case number, so nothing links the
+ *  two on the wire). "Near this request" must not call it an *other* request, so the one row that is most likely the
+ *  report itself is dropped: same category, created within OWN_CASE_WINDOW_MS of the report (the submission queue can
+ *  hold a report for hours), and either within OWN_CASE_M of the report's pin or on the report's own street line — the
+ *  city's point is its street *geocoded*, not our pin, so a pure distance test would miss most of them. Only the closest
+ *  candidate goes: a report is one case. Exact linking needs the Worker to send the incident GUID in ReportView. */
+export const OWN_CASE_M = 60;
+export const OWN_CASE_WINDOW_MS = 48 * 60 * 60_000;
+
+/** '120 Benefit St, Providence, RI' → '120 benefit st'; the city's '120 BENEFIT ST' → the same. */
+export const streetKey = (s: string): string => s.split(',')[0].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+export interface OwnCaseReport { category: string; createdAt: string | null; lat: number; lng: number; address: string }
+
+/** The id of the case in `cases` that is most likely `report` itself, or null (see OWN_CASE_M). `distanceM` on a case
+ *  (the Worker's own) is preferred over a computed one. */
+export function likelyOwnCase(cases: (MapCase & { distanceM?: number | null })[], report: OwnCaseReport): string | null {
+  const at = parseMs(report.createdAt);
+  if (at == null) return null;
+  const street = streetKey(report.address);
+  let best: { id: string; d: number } | null = null;
+  for (const c of cases) {
+    if (c.category !== report.category) continue;
+    const created = parseMs(c.createdAt);
+    if (created == null || Math.abs(created - at) > OWN_CASE_WINDOW_MS) continue;
+    const d = typeof c.distanceM === 'number' ? c.distanceM : distanceM(c, report);
+    const sameStreet = street !== '' && streetKey(c.street) === street;
+    if (!sameStreet && (d == null || d > OWN_CASE_M)) continue;
+    const rank = d ?? OWN_CASE_M;
+    if (!best || rank < best.d) best = { id: c.id, d: rank };
+  }
+  return best?.id ?? null;
+}
+
 /** Located and inside the box (inclusive). Unlocated cases are never in any bounds. */
 export function inBounds(c: MapCase, b: Bounds): boolean {
   return c.lat != null && c.lng != null && c.lat >= b.south && c.lat <= b.north && c.lng >= b.west && c.lng <= b.east;

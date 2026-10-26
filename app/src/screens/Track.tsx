@@ -9,6 +9,7 @@ import { neighborhoodAt } from '../lib/neighborhoods';
 import { shortLabel } from '../lib/categories';
 import OwnerActions from '../components/OwnerActions';
 import CityAskCard from '../components/CityAskCard';
+import TrackNear from '../components/TrackNear';
 import { track } from '../lib/analytics';
 import './Track.css';
 
@@ -336,6 +337,9 @@ export default function Track() {
           </div>
         </div>
       </div>
+
+      {/* The city's cases around this spot + the weekly digest for it: the moment right after filing is when the street matters most. */}
+      {view.lat != null && view.lng != null && <TrackNear id={id!} view={view} />}
 
       {notFiled || cancelled ? (
         <div className="section">

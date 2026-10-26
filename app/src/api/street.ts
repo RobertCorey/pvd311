@@ -3,7 +3,7 @@
 // decoded and cached here for 5 minutes per window so filter taps, pans and tab returns never refetch.
 // The decoder and wire types live in lib/streetMap.ts (pure, unit-tested) and are re-exported from here.
 import { apiFetch, parseError, withTimeout } from './client';
-import { decodeCase, decodeFeed, type MapCase, type MapFeed, type StreetCaseWire, type StreetMap } from '../lib/streetMap';
+import { decodeCase, decodeFeed, metersBetween, type MapCase, type MapFeed, type StreetCaseWire, type StreetMap } from '../lib/streetMap';
 
 export { CLOSED_STATUSES, decodeCase, decodeFeed } from '../lib/streetMap';
 export type { MapCase, MapFeed, MapItem, StreetCaseWire, StreetMap } from '../lib/streetMap';
@@ -57,5 +57,30 @@ export async function getStreetCase(id: string): Promise<MapCase | null> {
     const w = (await resp.json()) as Partial<StreetCaseWire>;
     if (!w || typeof w.id !== 'string') throw new Error('street_case_bad_body');
     return decodeCase(w);
+  } finally { t.done(); }
+}
+
+/** One of the city's cases near a point (GET /api/street): a MapCase plus its distance from the point in metres. */
+export type NearbyCase = MapCase & { distanceM: number };
+export interface Nearby { items: NearbyCase[]; radiusM: number; days: number }
+
+/** The city's cases within `radiusM` of a point whose creation or close falls inside the last `days`, newest activity
+ *  first (worker/src/street.ts nearbyCases) — the tracking page's "Near this request" card. Rejects on any failure; the
+ *  caller decides what a failed card looks like. The wire's own distanceM is kept; a row without one gets it computed. */
+export async function getNearby(lat: number, lng: number, radiusM = 300, days = 30): Promise<Nearby> {
+  const t = withTimeout(10_000);
+  try {
+    const q = new URLSearchParams({ lat: String(lat), lng: String(lng), radiusM: String(radiusM), days: String(days) });
+    const resp = await apiFetch(`/api/street?${q}`, { signal: t.signal });
+    if (!resp.ok) throw await parseError(resp);
+    const body = (await resp.json()) as Partial<{ items: (Partial<StreetCaseWire> & { distanceM?: unknown })[]; radiusM: number; days: number }>;
+    if (!body || !Array.isArray(body.items)) throw new Error('street_nearby_bad_body');
+    const items: NearbyCase[] = body.items.map((w) => {
+      const c = decodeCase(w);
+      const d = typeof w.distanceM === 'number' && Number.isFinite(w.distanceM) ? Math.round(w.distanceM)
+        : c.lat != null && c.lng != null ? Math.round(metersBetween(lat, lng, c.lat, c.lng)) : 0;
+      return { ...c, distanceM: d };
+    });
+    return { items, radiusM: typeof body.radiusM === 'number' ? body.radiusM : radiusM, days: typeof body.days === 'number' ? body.days : days };
   } finally { t.done(); }
 }
