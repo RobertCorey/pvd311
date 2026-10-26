@@ -3,7 +3,7 @@
  * auth.ts verified a Firebase ID token; the public tracking reads in api.ts need none.
  *
  *   GET    /api/me                      profile + prefs + saved addresses + following + reporter quota (upserts users/{uid})
- *   PATCH  /api/me                      { displayName?, prefs? }
+ *   PATCH  /api/me                      { displayName?, prefs? }   prefs: emailUpdates · streetDigest · weekDigest (the Monday "This week in Providence" mail, week.ts)
  *   GET    /api/me/reports              reports owned by this account (newest first)
  *   GET    /api/me/following            followed reports
  *   PUT    /api/me/following/:id        follow   (204)
@@ -56,7 +56,7 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
 function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
   return {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
-    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [],
+    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true, weekDigest: u.prefs?.weekDigest === true }, addresses: u.addresses ?? [], following: u.following ?? [],
     cityFollowing: (u.cityFollowing ?? []).slice(0, MAX_CITY_FOLLOWING), createdAt: u.createdAt,
     quota,
   };
@@ -73,7 +73,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   if (path === '/api/me') {
     if (m === 'GET') return json(projectMe(user, !!deps.admin, await meQuota(store, user)));
     if (m === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown; streetDigest?: unknown } } | null;
+      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown; streetDigest?: unknown; weekDigest?: unknown } } | null;
       if (!body) return json({ error: 'invalid_body' }, 400);
       const patch: Record<string, unknown> = {};
       if ('displayName' in body) {
@@ -82,6 +82,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
       }
       if (body.prefs && typeof body.prefs === 'object' && 'emailUpdates' in body.prefs) patch['prefs.emailUpdates'] = body.prefs.emailUpdates === true;
       if (body.prefs && typeof body.prefs === 'object' && 'streetDigest' in body.prefs) patch['prefs.streetDigest'] = body.prefs.streetDigest === true;
+      if (body.prefs && typeof body.prefs === 'object' && 'weekDigest' in body.prefs) patch['prefs.weekDigest'] = body.prefs.weekDigest === true;
       if (Object.keys(patch).length) await store.patchUser(user.uid, patch);
       const fresh = (await store.getUser(user.uid)) ?? user;
       return json(projectMe(fresh, !!deps.admin, await meQuota(store, fresh)));

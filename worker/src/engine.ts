@@ -32,6 +32,7 @@ import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 import { syncCityCases, followUpCityCases, backfillCityCaseGeo } from './citycases.js';
 import { runStreetDigest } from './street.js';
+import { runWeekDigest } from './week.js';
 import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
 // Providence bounding box (same as Node engine).
@@ -647,9 +648,13 @@ export async function runDaily(env: Env): Promise<void> {
 
   // City cases (citycases.ts): one detail check for open cases that left the public feed's 7-day window.
   await followUpCityCases(env, store, { mailer }).catch((e) => console.error('[daily] city cases follow-up failed:', e instanceof Error ? e.message : e));
-  // "My street" (street.ts): coordinates for cases stored before geocoding existed; Mondays, the weekly digest.
+  // "My street" (street.ts): coordinates for cases stored before geocoding existed; Mondays, the weekly digests —
+  // per-address "This week near …" first, then the citywide "This week in Providence" (week.ts).
   await backfillCityCaseGeo(store).catch((e) => console.error('[daily] city cases geo backfill failed:', e instanceof Error ? e.message : e));
-  if (new Date().getUTCDay() === 1) await runStreetDigest(env, store, mailer).catch((e) => console.error('[daily] street digest failed:', e instanceof Error ? e.message : e));
+  if (new Date().getUTCDay() === 1) {
+    await runStreetDigest(env, store, mailer).catch((e) => console.error('[daily] street digest failed:', e instanceof Error ? e.message : e));
+    await runWeekDigest(env, store, mailer).catch((e) => console.error('[daily] week digest failed:', e instanceof Error ? e.message : e));
+  }
 
   // Digest: only mail when the queue snapshot differs from the last one we sent (meta/digest).
   // A month of identical "101 / 0 / 0 / 0 / 0" mails trains the inbox to ignore the real alerts.

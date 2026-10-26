@@ -665,6 +665,7 @@ export default function Street() {
       if (filtered.length === 0) return renderEmpty();
       return (
         <>
+          <Link to="/week" className="card street-week-link">{t('street.weekLink')}</Link>
           <h3 className="street-h">{t('street.city.top')}</h3>
           {topChips}
           {hoodSelect}

@@ -53,7 +53,7 @@ export interface UserDoc {
   provider: string;
   createdAt: string;
   lastSeenAt: string;
-  prefs: { emailUpdates: boolean; streetDigest?: boolean }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses
+  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses; Monday "This week in Providence" mail (week.ts)
   addresses: SavedAddress[];               // ≤ 10
   following: string[];                     // report ids (≤ 200)
   cityFollowing?: string[];                // public city case GUIDs (cityCases/{guid}), newest first (≤ 100) — cityfollow.ts
@@ -132,6 +132,8 @@ export interface Store {
   listCityCasesSince(since: string, limit: number): Promise<Record<string, unknown>[]>;
   /** Accounts that opted into the weekly street digest (prefs.streetDigest == true). */
   listStreetDigestUsers(limit: number): Promise<UserDoc[]>;
+  /** Accounts that opted into the Monday "This week in Providence" mail (prefs.weekDigest == true) — week.ts. */
+  listWeekDigestUsers(limit: number): Promise<UserDoc[]>;
   /** One public city case (with `id`), or null. */
   getCityCase(id: string): Promise<Record<string, unknown> | null>;
   /** Batch get of cityCases/{id}; missing ids skipped, order not guaranteed. */

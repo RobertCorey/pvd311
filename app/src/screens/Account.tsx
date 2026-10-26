@@ -125,11 +125,11 @@ function SignedIn() {
     e.preventDefault(); setSaving(true);
     try { setMe(await updateMe({ displayName: name.trim() || null })); } catch { setErr(true); } finally { setSaving(false); }
   }
-  async function togglePref(v: boolean) {
+  async function togglePref(patch: Partial<Me['prefs']>) {
     if (!me) return;
     const before = me;
-    setMe({ ...me, prefs: { emailUpdates: v } }); // optimistic; reverted below on failure
-    try { setMe(await updateMe({ prefs: { emailUpdates: v } })); } catch { setMe(before); setErr(true); }
+    setMe({ ...me, prefs: { ...me.prefs, ...patch } }); // optimistic (the other prefs kept); reverted below on failure
+    try { setMe(await updateMe({ prefs: patch })); } catch { setMe(before); setErr(true); }
   }
   async function addAddress(e: React.FormEvent) {
     e.preventDefault();
@@ -162,10 +162,15 @@ function SignedIn() {
       <h2>{t('account.prefs.title')}</h2>
       <div className="card account-prefs">
         <label className="account-toggle">
-          <input type="checkbox" checked={me.prefs.emailUpdates} onChange={(e) => togglePref(e.target.checked)} />
+          <input type="checkbox" checked={me.prefs.emailUpdates} onChange={(e) => togglePref({ emailUpdates: e.target.checked })} />
           <span>{t('account.prefs.emailUpdates')}</span>
         </label>
         <p className="hint">{t('account.prefs.emailUpdates.hint')}</p>
+        <label className="account-toggle">
+          <input type="checkbox" checked={me.prefs.weekDigest === true} onChange={(e) => togglePref({ weekDigest: e.target.checked })} />
+          <span>{t('account.prefs.weekDigest')}</span>
+        </label>
+        <p className="hint">{t('account.prefs.weekDigest.hint')}</p>
         <form className="account-inline" onSubmit={saveName}>
           <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
           <div className="account-row">

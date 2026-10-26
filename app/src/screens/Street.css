@@ -66,6 +66,10 @@
 .street-skel > span::before { content: ''; width: 36px; height: 36px; border-radius: 10px; background: var(--ink-soft); }
 .street-skel > span::after { content: ''; height: 12px; width: 70%; border-radius: 6px; background: var(--ink-soft); }
 
+/* "This week in Providence →": one card row at the top of the landing list, leading to /week. */
+.street-week-link { display: block; margin: 6px 0 0; padding: 12px 14px; text-decoration: none; color: var(--ink); font-family: var(--font-display); font-weight: 700; font-size: 1rem; }
+.street-week-link:hover { border-color: var(--ink); }
+
 /* Most-reported chips (buttons: tap = that type's group filter). */
 .street-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; gap: 6px; flex-wrap: wrap; }
 .street-top-item {

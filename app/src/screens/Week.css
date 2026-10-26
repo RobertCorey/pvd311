@@ -1,0 +1,97 @@
+/* /week — "This week in Providence" (Week.tsx). A plain scrolling page in the About/Privacy column: Ember & Harbor ink
+   on paper, numbers in Bricolage, rows that look like /street's (StreetParts.css supplies .street-icon / .street-type /
+   .street-addr / .street-when / .street-note). Light mode only. */
+
+.week { padding-block: 4px 8px; }
+
+/* ── Head: title + range left, Share right; one live region for "Link copied" ──────────────────── */
+.week-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title share' 'range share' 'flash flash'; gap: 2px 12px; align-items: start; }
+.week-head h1 { grid-area: title; font-size: 1.8rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 4px 0 0; }
+.week-range { grid-area: range; margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.4; }
+.week-share { grid-area: share; align-self: start; margin-top: 4px; }
+.week-flash { grid-area: flash; min-height: 1.3em; margin: 2px 0 0; font-size: 0.85rem; color: var(--ink); }
+
+/* Visually hidden (the loading announcement). */
+.week-vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ── Skeleton while the numbers load: static ink-soft bars, no spinner ─────────────────────────── */
+.week-skel { display: grid; gap: 10px; margin: 14px 0; }
+.week-skel > span { position: relative; display: block; height: 68px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.week-skel > span::after { content: ''; position: absolute; left: 14px; top: 16px; height: 12px; width: 58%; border-radius: 6px; background: var(--ink-soft); }
+.week-skel > .week-skel-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; height: auto; border: 0; background: none; }
+.week-skel > .week-skel-stats::after { content: none; }
+.week-skel-stats i { display: block; height: 84px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+
+/* ── Stat tiles: three .card tiles in one row; the delta is text (arrow glyph + words), never colour alone ── */
+.week-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; }
+.week-stat { display: grid; gap: 2px; align-content: start; min-width: 0; padding: 10px 10px 9px; }
+.week-stat dt { font-family: var(--font-display); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); line-height: 1.25; min-height: 2.5em; } /* two label lines, so the three numbers sit on one line */
+.week-stat dd { margin: 0; }
+.week-stat-n { font-family: var(--font-display); font-size: 1.65rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.week-delta { font-size: 0.72rem; line-height: 1.3; color: var(--muted); text-wrap: pretty; }
+@media (max-width: 359px) { .week-stats { grid-template-columns: 1fr 1fr; } .week-stat:last-child { grid-column: 1 / -1; } }
+
+/* ── Sections ──────────────────────────────────────────────────────────────────────────────────── */
+.week-h { font-size: 1.15rem; margin: 26px 0 8px; }
+.week-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.week-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: var(--tap);
+  padding: 10px 12px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  color: var(--ink); text-decoration: none; transition: border-color 0.15s;
+}
+.week-row:hover { border-color: var(--ink); }
+.week-row-main { display: grid; gap: 1px; min-width: 0; }
+.week-row-name { font-family: var(--font-display); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.week-row-sub { font-size: 0.8rem; color: var(--muted); }
+.week-row-n { font-family: var(--font-display); font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+
+/* By neighborhood: name + count on one line, the bar under them (width = n / max, count always in text). */
+.week-hood { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name n' 'bar bar'; gap: 4px 10px; }
+.week-hood-name { grid-area: name; font-family: var(--font-display); font-weight: 700; overflow-wrap: anywhere; }
+.week-hood .week-row-n { grid-area: n; }
+.week-hood-bar { grid-area: bar; display: block; height: 8px; border-radius: 4px; background: var(--ink-soft); overflow: hidden; }
+.week-hood-bar > span { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--ink) 26%, transparent); }
+
+/* What closing meant: one stacked bar + legend. Colours = AdminCityInsights.css --oc-* (dataviz categorical order,
+   validated on --surface; keep the two files in step). Three slots sit under 3:1, so every share is also text. */
+.week-outcomes { --oc-work_done: #2a78d6; --oc-enforcement: #eb6834; --oc-referred: #1baf7a; --oc-logged_elsewhere: #eda100;
+  --oc-info_only: #e87ba4; --oc-no_action: #008300; --oc-cancelled: #6250d6; }
+.week-oc-work_done { background: var(--oc-work_done); } .week-oc-enforcement { background: var(--oc-enforcement); }
+.week-oc-referred { background: var(--oc-referred); } .week-oc-logged_elsewhere { background: var(--oc-logged_elsewhere); }
+.week-oc-info_only { background: var(--oc-info_only); } .week-oc-no_action { background: var(--oc-no_action); }
+.week-oc-cancelled { background: var(--oc-cancelled); }
+.week-outbar { display: flex; gap: 2px; height: 14px; margin: 4px 0 10px; }
+.week-seg { min-width: 3px; height: 100%; }
+.week-seg:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.week-seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.week-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 0.85rem; color: var(--ink); }
+.week-legend li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.week-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; position: relative; top: 1px; }
+.week-legend-text { line-height: 1.35; }
+.week-legend-text b { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+.week-outcomes-hint { margin: 10px 0 0; max-width: 60ch; }
+@media (max-width: 359px) { .week-legend { grid-template-columns: 1fr; } }
+
+/* What got done: rows like /street's, the city's own note under the street. */
+.week-done-row { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+.week-done-row .street-note { margin-top: 0.35rem; }
+
+.week-busiest { margin: 18px 0 0; font-size: 0.95rem; color: var(--ink); }
+
+/* Error + Retry */
+.week-error { margin-top: 14px; }
+.week-retry { margin-top: 10px; width: auto; }
+
+/* Quiet week */
+.week-quiet { margin-top: 10px; }
+
+/* Monday digest card (mirrors .street-digest) */
+.week-digest { margin-top: 26px; display: grid; gap: 8px; }
+.week-digest h2 { margin: 0; font-size: 1.05rem; }
+.week-digest p { margin: 0; }
+.week-digest .btn-secondary { text-decoration: none; }
+.week-digest-on { display: grid; gap: 8px; }
+.week-digest-on .notice-ok { margin: 0; }
+.week-digest-on .btn { width: auto; justify-self: start; }
+
+.week-source { margin: 14px 0 0; }

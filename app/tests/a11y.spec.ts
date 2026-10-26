@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { API as WORKER, SESSION, feed } from './street-mocks';
+import { WEEK } from './week-mocks';
 
 // axe-core WCAG 2.x A/AA pass over the main screens, light and dark.
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
@@ -15,6 +16,7 @@ async function mocks(page: Page) {
   await page.route(`${API}/api/reports/asked12345`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'asked12345', category: 'noise', categoryLabel: 'Noise', address: '25 Dorrance St', lat: 41.8, lng: -71.4, photoUrl: null, createdAt: new Date().toISOString(), status: 'sent', portalCaseId: 'PVD2026-90113', portalStatus: 'Department Responded', mine: true, department: 'DPW Sewer', workOrder: { number: '0000206909', status: 'Completed', completedAt: new Date().toISOString() }, cityAsk: { askedAt: new Date().toISOString(), open: true, answered: false, answeredAt: null, id: 'a1', canAnswer: true, expiresAt: new Date().toISOString(), text: 'Please respond to this email by providing the address.', answers: [{ at: new Date().toISOString(), via: 'app', status: 'blocked', text: 'x' }] }, timeline: [{ at: new Date().toISOString(), label: 'The city asked for more information', kind: 'city_ask', text: 'Please respond.' }], nextUpdateHint: null }) }));
   await page.route(`${API}/api/nearby*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
   await page.route(`${API}/api/street/map*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed()) }));
+  await page.route(`${API}/api/week`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(WEEK) }));
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
 }
@@ -50,6 +52,7 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['my', (p) => p.goto('/my')],
   ['street', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St')],
   ['street-landing', (p) => p.goto('/street')],
+  ['week', (p) => p.goto('/week')],
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],
   ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); }],
   ['my-following', async (p) => { await signedIn(p); await p.goto('/my'); await p.locator('.followed-cases').waitFor(); }],

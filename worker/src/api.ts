@@ -8,6 +8,7 @@
  *   GET  /api/street/map  → the /street page's one feed: every city case of the window as tuples + index tables (street.ts)
  *   GET  /api/street/case/:guid → one case for a deep link older than the loaded window (street.ts)
  *   GET  /api/street      → "My street": city cases near a point (street.ts; kept for the weekly digest + old links)
+ *   GET  /api/week        → "This week in Providence": the last 7 days citywide vs the 7 before (week.ts; public, cached)
  *   GET  /api/stats       → { filed } public counter
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
@@ -30,6 +31,7 @@ import { cityResolutionMessage, workOrderOf } from './casedetail.js';
 import { answerCityAsk, askState, asksOf, cityText, mailInfo, sentAnswers } from './cityask.js';
 import { createMailer } from './email.js';
 import { handleStreet, handleStreetCase, handleStreetCity, handleStreetMap } from './street.js';
+import { handleWeek } from './week.js';
 import type { Mailer } from './contracts.js';
 
 const DEFAULT_ORIGINS = ['https://fixmypvd.org', 'https://www.fixmypvd.org', 'https://fixmypvd.com', 'https://pvdsnow.org', 'https://www.pvdsnow.org', 'https://pvd-snow-report.web.app', 'https://pvd-snow-report.firebaseapp.com'];
@@ -84,6 +86,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     else if (request.method === 'GET' && /^\/api\/street\/case\/[^/]{1,64}$/.test(url.pathname)) resp = await handleStreetCase(decodeURIComponent(url.pathname.split('/').pop()!), deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/street') resp = await handleStreet(url, deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/street/city') resp = await handleStreetCity(url, deps.store);
+    else if (request.method === 'GET' && url.pathname === '/api/week') resp = await handleWeek(url, deps.store);
     else if (request.method === 'GET' && url.pathname === '/api/stats') resp = await stats(deps);
     else if (request.method === 'GET' && /^\/api\/photos\/[A-Za-z0-9_-]{10,64}$/.test(url.pathname)) resp = await getPhoto(url.pathname.split('/').pop()!, deps);
     else resp = json({ error: 'not_found' }, 404);

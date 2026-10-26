@@ -285,11 +285,11 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.*, my.cityFollowing.* and admin.email.kind.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.* and week.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.');
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('week.');
   const enKeys = Object.keys(en).filter(ours);
   const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);

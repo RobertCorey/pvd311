@@ -53,7 +53,8 @@ export interface TypeRow extends Stats { caseType: string; examples: { text: str
 export interface GroupRow extends Stats { group: string; types: TypeRow[] }
 export interface Insights { at: string; days: number; since: string; total: Stats; groups: GroupRow[]; trackedSince: string | null }
 
-const median = (xs: number[]): number | null => {
+/** Median of a sample, null when empty (shared with week.ts — the week's medianCloseDays uses the same rule). */
+export const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b); const i = s.length >> 1;
   return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
