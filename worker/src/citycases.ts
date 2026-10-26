@@ -295,7 +295,7 @@ export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {})
       } else if (fromDraft && g) {
         hit = await geocodeStreetCached(store, r.street); // the Draft run cached this street: a meta read, no ArcGIS call
       }
-      if ((!e || fromDraft) && hit) newCases.push({ id: r.id, caseType: r.caseType, street: r.street, status: r.status, createdAt: r.createdAt, lat: hit.lat, lng: hit.lng });
+      if ((!e || fromDraft) && hit) newCases.push({ id: r.id, caseType: r.caseType, category: mapCategory(r.caseType), street: r.street, status: r.status, createdAt: r.createdAt, lat: hit.lat, lng: hit.lng });
       if (!Object.keys(fields).length) continue;
       await store.patchCityCase(r.id, fields);
       index[r.id] = { ...e, s: r.status, c: r.createdAt, ...(g ? { g } : {}) };

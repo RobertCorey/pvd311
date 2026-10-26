@@ -619,7 +619,7 @@ test('near, street watch: the checkbox sits under the phone row in the on-state,
   const box = row.getByRole('checkbox', { name: 'Tell me right away when something new is reported near my places' });
   await expect(row).toHaveAttribute('data-state', 'off');
   await expect(box).toBeEnabled();
-  expect(await digest.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]))).toEqual(['notice', 'btn', 'push-card', 'watch-row']);
+  expect(await digest.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]))).toEqual(['notice', 'btn', 'push-card', 'watch-row', 'watch-groups']);
   await box.check();
   await expect(box).toBeChecked(); // optimistic, before the Worker answers
   await expect(box).toHaveAttribute('aria-busy', 'true');

@@ -1,6 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+// push.ts has its own suite; here pushAll is a spy so the digest tests see the payload it hands over (hasPush stays real).
+vi.mock('../src/push.js', async (orig) => ({
+  ...(await orig<typeof import('../src/push.js')>()),
+  ensureVapid: vi.fn(async () => ({ publicKey: 'pub', privateJwk: { kty: 'EC' } })),
+  pushAll: vi.fn(async () => 1),
+}));
+
+import { pushAll } from '../src/push.js';
 import { nearbyCases, handleStreet, handleStreetCase, handleStreetCity, handleStreetMap, cityOverview, mapFeed, snapDays, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl, LOAD_LIMIT, KNOWN_STATUSES, type MapItem } from '../src/street.js';
-import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
+import type { Env, Mailer, PushSub, Store, UserDoc } from '../src/contracts.js';
 
 // Angell St / Thayer St corner (41.8282, -71.4005) as "home"; cases are placed by hand around it.
 const HOME = { lat: 41.8282, lng: -71.4005 };
@@ -132,6 +141,64 @@ describe('weekly digest', () => {
       expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 0 });
       expect(d.patched[0]).toEqual({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }] });
     } finally { vi.unstubAllGlobals(); }
+  });
+
+  describe('"Only tell me about…" (prefs.watchGroups, watchgroups.ts)', () => {
+    const sub: PushSub = { endpoint: 'https://push.test/1', p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg', ua: 'test', createdAt: '2026-10-01T00:00:00.000Z' };
+    const WORK = { lat: 41.8210, lng: -71.4120 }; // Dorrance St, ≈ 1.2 km from home — its own 300 m circle
+    // Near home: a pothole (streets), an older light fixed this week (lights — a close, not a new case), a trash case (trash). Near work: a pothole only.
+    const rows = () => [
+      row('p-home'),
+      row('l-home', { caseType: 'Street Light Out', category: 'street_light', createdAt: daysAgo(45), firstSeenAt: daysAgo(45), status: 'Resolved', detail: { resolutionDate: daysAgo(2), resolution: 'Bulb replaced' } }),
+      row('t-home', { caseType: 'Missed Trash Day Pick-up Issue', category: 'missed_trash' }),
+      row('p-work', { lat: WORK.lat, lng: WORK.lng, street: '1 Dorrance St' }),
+    ];
+    const two = (o: Partial<UserDoc> = {}) => user({
+      addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }, { id: 'a2', label: 'Work', address: '1 Dorrance St', lat: WORK.lat, lng: WORK.lng }],
+      push: [sub], ...o,
+    });
+    const picks = (watchGroups: string[]) => ({ emailUpdates: true, streetDigest: true, watchGroups: watchGroups as never });
+    beforeEach(() => { vi.mocked(pushAll).mockClear(); vi.mocked(pushAll).mockImplementation(async () => 1); });
+
+    it('sections list only the chosen groups; the subject and the push body count matching cases only; an address with nothing left is dropped', async () => {
+      const d = deps([two({ prefs: picks(['lights', 'trash']) })], rows());
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 1 });
+      expect(d.sent).toHaveLength(1);
+      expect(d.sent[0].subject).toBe('This week near Home: 1 new, 1 closed'); // Work had only a pothole → no section → "near Home", not "2 of your addresses"
+      expect(d.sent[0].html).toContain('Street Light Out');
+      expect(d.sent[0].html).toContain('Missed Trash Day Pick-up Issue');
+      expect(d.sent[0].html).not.toContain('Pothole');
+      expect(d.sent[0].html).not.toContain('Dorrance');
+      expect(d.sent[0].html).toContain('2 this week.');
+      expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => ({ uid: u.uid, ...p }))).toEqual([
+        { uid: 'u1', title: 'This week near Home', body: '1 new · 1 closed', url: streetUrl('https://fixmypvd.org', { lat: HOME.lat, lng: HOME.lng, address: '12 Angell St' }), tag: 'street:a1' },
+      ]);
+    });
+
+    it('an empty or absent selection is everything (both addresses, both pushes); a selection nothing matches sends no mail and no push', async () => {
+      const all = deps([two({ prefs: picks([]) }), two({ uid: 'u2', email: 'two@example.com', prefs: { emailUpdates: true, streetDigest: true } })], rows());
+      expect(await runStreetDigest(env, all.store, all.mailer, { now: NOW })).toEqual({ users: 2, mailed: 2, pushed: 4 });
+      for (const m of all.sent) {
+        expect(m.subject).toBe('This week near 2 of your addresses: 3 new, 1 closed');
+        expect(m.html).toContain('Dorrance');
+      }
+      expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => `${u.uid}:${p.tag}:${p.body}`)).toEqual(['u1:street:a1:2 new · 1 closed', 'u1:street:a2:1 new · 0 closed', 'u2:street:a1:2 new · 1 closed', 'u2:street:a2:1 new · 0 closed']);
+
+      vi.mocked(pushAll).mockClear();
+      const none = deps([two({ prefs: picks(['trees', 'water']) })], rows());
+      expect(await runStreetDigest(env, none.store, none.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+      expect(none.sent).toHaveLength(0);
+      expect(pushAll).not.toHaveBeenCalled();
+    });
+
+    it('an unmapped city type ("unsure") is group "other": only an ["other"] selection hears about it', async () => {
+      const odd = [row('odd', { caseType: 'Brand New City Type', category: 'unsure' })];
+      const yes = deps([two({ prefs: picks(['other']) })], odd);
+      expect(await runStreetDigest(env, yes.store, yes.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 1 });
+      expect(yes.sent[0].html).toContain('Brand New City Type');
+      const no = deps([two({ prefs: picks(['streets']) })], odd);
+      expect(await runStreetDigest(env, no.store, no.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+    });
   });
 
   it('the email names several addresses when more than one had activity', () => {

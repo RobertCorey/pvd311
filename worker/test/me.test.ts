@@ -123,14 +123,61 @@ describe('PATCH /api/me prefs.streetWatch (streetwatch.ts)', () => {
 
   it('is off by default, turns on and off as a boolean, and leaves the other prefs alone', async () => {
     const s = withDottedPatch(memStore());
-    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: false });
+    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: false, watchGroups: [] });
     let me = (await (await patch(s, 'alice', { prefs: { streetWatch: true } })).json()) as any;
-    expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true });
+    expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true, watchGroups: [] });
     expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, streetWatch: true }); // written as the dotted path 'prefs.streetWatch'
     me = (await (await patch(s, 'alice', { prefs: { streetDigest: true } })).json()) as any;
     expect(me.prefs).toMatchObject({ streetDigest: true, streetWatch: true });
     me = (await (await patch(s, 'alice', { prefs: { streetWatch: 'yes' } })).json()) as any; // anything but true is off
     expect(me.prefs.streetWatch).toBe(false);
+  });
+
+  describe('prefs.watchGroups — "Only tell me about…" (watchgroups.ts)', () => {
+    const ALL = ['trash', 'streets', 'traffic', 'trees', 'property', 'lights', 'nuisance', 'water', 'animals', 'other'];
+
+    it('defaults to [] (everything), stores the known groups deduped in GROUP_ORDER as the dotted path prefs.watchGroups, and leaves the other prefs alone', async () => {
+      const s = withDottedPatch(memStore());
+      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual([]);
+      await patch(s, 'alice', { prefs: { streetWatch: true } });
+      let me = (await (await patch(s, 'alice', { prefs: { watchGroups: ['streets', 'trash', 'streets', 'bogus', 7, null] } })).json()) as any;
+      expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true, watchGroups: ['trash', 'streets'] }); // deduped, unknowns dropped, GROUP_ORDER
+      expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, streetWatch: true, watchGroups: ['trash', 'streets'] });
+      me = (await (await patch(s, 'alice', { prefs: { streetDigest: true } })).json()) as any; // another pref: the selection stays
+      expect(me.prefs).toMatchObject({ streetDigest: true, watchGroups: ['trash', 'streets'] });
+      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual(['trash', 'streets']);
+    });
+
+    it('[] and null clear it back to everything; all ten (with repeats) store exactly the ten, never more', async () => {
+      const s = withDottedPatch(memStore());
+      await patch(s, 'alice', { prefs: { watchGroups: ['lights'] } });
+      expect(((await (await patch(s, 'alice', { prefs: { watchGroups: [] } })).json()) as any).prefs.watchGroups).toEqual([]);
+      await patch(s, 'alice', { prefs: { watchGroups: ['lights'] } });
+      expect(((await (await patch(s, 'alice', { prefs: { watchGroups: null } })).json()) as any).prefs.watchGroups).toEqual([]);
+      expect(s.users.get('uid_alice')!.prefs.watchGroups).toEqual([]);
+      const me = (await (await patch(s, 'alice', { prefs: { watchGroups: [...ALL, ...ALL, 'nope'].reverse() } })).json()) as any;
+      expect(me.prefs.watchGroups).toEqual(ALL);
+      expect(me.prefs.watchGroups).toHaveLength(10);
+    });
+
+    it('anything that is not an array is 400 invalid_groups and writes nothing — not even the other prefs in the same body', async () => {
+      const s = withDottedPatch(memStore());
+      await patch(s, 'alice', { prefs: { watchGroups: ['water'] } });
+      for (const bad of ['streets', 1, { streets: true }, true]) {
+        const r = await patch(s, 'alice', { prefs: { watchGroups: bad, streetWatch: true } });
+        expect(r.status).toBe(400);
+        expect(await r.json()).toEqual({ error: 'invalid_groups', field: 'watchGroups' });
+      }
+      expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, watchGroups: ['water'] }); // streetWatch never landed
+    });
+
+    it('a corrupt stored value reads as everything', async () => {
+      const s = withDottedPatch(memStore());
+      await call(s, 'alice', '/api/me');
+      const u = s.users.get('uid_alice')!;
+      s.users.set('uid_alice', { ...u, prefs: { ...u.prefs, watchGroups: 'streets' as unknown as never } });
+      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual([]);
+    });
   });
 });
 

@@ -327,17 +327,27 @@ test('Account → Updates: the row sits in the Updates card under the digest che
 const WATCH_NAME = 'Tell me right away when something new is reported near my places';
 /** A signed-in /account whose PATCH /api/me merges `prefs` into the account (so a checked box stays checked when the
  *  Worker answers), or fails with `patchStatus`; returns the PATCH bodies. */
-async function accountPrefs(page: Page, me: Record<string, unknown> = {}, o: { patchStatus?: number } = {}): Promise<unknown[]> {
+type PrefPatch = { prefs?: Record<string, unknown> };
+/** The mocked Worker applies a PATCH's prefs on ARRIVAL and answers with that snapshot — after `patch(body, i).delayMs`
+ *  when given, so two PATCHes can answer out of order; `status` fails that one (nothing applied); `answered` logs the
+ *  bodies in the order the answers left. */
+async function accountPrefs(page: Page, me: Record<string, unknown> = {}, o: { patchStatus?: number; patch?: (body: PrefPatch, i: number) => { status?: number; delayMs?: number }; answered?: unknown[] } = {}): Promise<unknown[]> {
   const patches: unknown[] = [];
   await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
   await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
   let acct = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: [], createdAt: new Date().toISOString(), ...me } as Record<string, unknown>;
-  await page.route(`${API}/api/me`, (r) => {
+  await page.route(`${API}/api/me`, async (r) => {
     if (r.request().method() === 'PATCH') {
-      const body = r.request().postDataJSON();
+      const body = r.request().postDataJSON() as PrefPatch;
+      const p = o.patch?.(body, patches.length) ?? {};
       patches.push(body);
-      if (o.patchStatus && o.patchStatus !== 200) return r.fulfill({ status: o.patchStatus, contentType: 'application/json', body: '{"error":"boom"}' });
-      acct = { ...acct, prefs: { ...(acct.prefs as object), ...(body.prefs ?? {}) } };
+      const status = p.status ?? o.patchStatus ?? 200;
+      if (status === 200) acct = { ...acct, prefs: { ...(acct.prefs as object), ...(body.prefs ?? {}) } };
+      const snapshot = JSON.stringify(acct);
+      if (p.delayMs) await new Promise((res) => setTimeout(res, p.delayMs));
+      o.answered?.push(body);
+      if (status !== 200) return r.fulfill({ status, contentType: 'application/json', body: '{"error":"boom"}' });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: snapshot });
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(acct) });
   });
@@ -437,4 +447,142 @@ test('Account → Updates, street watch in Spanish: the label and the needs-push
   await page.goto('/account');
   await expect(watchRow(page).getByRole('checkbox', { name: 'Avisarme de inmediato cuando se reporte algo nuevo cerca de mis lugares' })).toBeDisabled();
   await expect(watchRow(page).locator('.watch-hint')).toHaveText('Primero activa las notificaciones del teléfono.');
+});
+
+/* ── Only tell me about (components/WatchGroups) in Account → Updates ─────────────────────────── */
+const groupsRow = (page: Page) => page.locator('.account-prefs .watch-groups');
+const groupChip = (page: Page, name: string) => groupsRow(page).getByRole('button', { name, exact: true });
+
+test('Account → Updates, watch groups: no rail while neither the watch nor the digest is on; checking the watch brings it in right under the row with All pressed; a tap → one PATCH prefs.watchGroups alone after the debounce; unchecking the watch takes it away', async ({ page }) => {
+  const patches = await accountPrefs(page, { push: { endpoints: [ENDPOINT] } });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'off');
+  await expect(groupsRow(page)).toHaveCount(0);
+  await watchBox(page).check();
+  await expect(groupsRow(page)).toHaveCount(1);
+  const order = await page.locator('.account-prefs').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
+  expect(order.indexOf('watch-groups')).toBe(order.indexOf('watch-row') + 1);
+  expect(order.indexOf('watch-groups')).toBeLessThan(order.indexOf('account-inline'));
+  await expect(groupsRow(page).locator('.watch-groups-title')).toHaveText('Only tell me about');
+  await expect(groupsRow(page).getByRole('button')).toHaveCount(11);
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  expect((await groupChip(page, 'Trees').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await groupChip(page, 'Trees').click();
+  await expect(groupChip(page, 'Trees')).toHaveAttribute('aria-pressed', 'true'); // at once
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => patches).toEqual([{ prefs: { streetWatch: true } }, { prefs: { watchGroups: ['trees'] } }]);
+  await expect(groupChip(page, 'Trees')).toHaveAttribute('aria-pressed', 'true'); // and after the Worker's answer
+  await expect(watchBox(page)).toBeChecked(); // the answer kept the other prefs
+  await watchBox(page).uncheck();
+  await expect(groupsRow(page)).toHaveCount(0);
+  expect(patches).toHaveLength(3);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('Account → Updates, watch groups: the digest on (from /street) with the watch off still shows the rail with the saved selection — even in a browser without push, where there are no phone rows at all; a failed PATCH puts the selection back and says so; the next tap clears the alert', async ({ page }) => {
+  const patches = await accountPrefs(page, { prefs: { emailUpdates: true, streetDigest: true, watchGroups: ['streets', 'water'] } }, { patchStatus: 500 });
+  await stubPush(page, { pushManager: false });
+  await page.goto('/account');
+  await expect(page.locator('.account-prefs')).toBeVisible();
+  await expect(card(page, '.account-prefs')).toHaveCount(0);
+  await expect(watchRow(page)).toHaveCount(0);
+  await expect(groupsRow(page)).toHaveCount(1);
+  await expect(groupChip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true');
+  await expect(groupChip(page, 'Water')).toHaveAttribute('aria-pressed', 'true');
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  await groupChip(page, 'Streets').click();
+  await expect(groupChip(page, 'Streets')).toHaveAttribute('aria-pressed', 'false'); // optimistic
+  await expect(groupsRow(page).locator('.watch-error')).toHaveText("Couldn't save that. Try again.");
+  await expect(groupChip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true'); // put back
+  await expect(groupChip(page, 'Water')).toHaveAttribute('aria-pressed', 'true');
+  expect(patches).toEqual([{ prefs: { watchGroups: ['water'] } }]);
+  // The Worker is well again: the next tap clears the alert and sticks.
+  await page.unroute(`${API}/api/me`);
+  await page.route(`${API}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetDigest: true, watchGroups: ['water'] }, addresses: [], following: [], cityFollowing: [], createdAt: new Date().toISOString() }) }));
+  await groupChip(page, 'Streets').click();
+  await expect(groupsRow(page).locator('.watch-error')).toHaveCount(0);
+  await expect(groupChip(page, 'Streets')).toHaveAttribute('aria-pressed', 'false');
+  await page.waitForTimeout(600);
+  await expect(groupChip(page, 'Streets')).toHaveAttribute('aria-pressed', 'false');
+  await expect(groupChip(page, 'Water')).toHaveAttribute('aria-pressed', 'true');
+});
+
+const ON_WATCH = { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } };
+const groupsOf = (b: unknown) => ((b as PrefPatch).prefs?.watchGroups as string[]) ?? [];
+const pressedGroups = (page: Page) => groupsRow(page).locator('[data-group][aria-pressed="true"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-group')));
+
+test('Account → Updates, watch groups: a superseded PATCH answering late does not roll the rail back — tap Trees (slow PATCH), tap Animals (fast PATCH): when the first answer finally lands the rail still shows both, the watch box stays checked, no alert', async ({ page }) => {
+  const answered: unknown[] = [];
+  const patches = await accountPrefs(page, ON_WATCH, { answered, patch: (b) => ({ delayMs: groupsOf(b).length === 1 ? 2000 : 0 }) });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  await groupChip(page, 'Trees').click();
+  await expect.poll(() => patches).toEqual([{ prefs: { watchGroups: ['trees'] } }]); // A left and is in flight
+  await groupChip(page, 'Animals').click();
+  await expect.poll(() => answered).toEqual([{ prefs: { watchGroups: ['trees', 'animals'] } }]); // B left and answered first
+  await expect.poll(() => pressedGroups(page)).toEqual(['trees', 'animals']);
+  await expect.poll(() => answered, { timeout: 5000 }).toHaveLength(2); // now A answers with its stale snapshot
+  await page.waitForTimeout(250);
+  expect(await pressedGroups(page)).toEqual(['trees', 'animals']); // the Worker holds both; so does the rail
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  await expect(groupsRow(page).locator('.watch-error')).toHaveCount(0);
+  await expect(watchBox(page)).toBeChecked();
+  expect(patches).toHaveLength(2);
+});
+
+test('Account → Updates, watch groups: a superseded save that did land, then the latest save fails → the rail goes back to what the Worker took (Trees), not to the pre-burst All, with the alert', async ({ page }) => {
+  const answered: unknown[] = [];
+  const patches = await accountPrefs(page, ON_WATCH, { answered, patch: (b) => (groupsOf(b).length === 1 ? { delayMs: 800 } : { delayMs: 1600, status: 500 }) });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await groupChip(page, 'Trees').click();
+  await expect.poll(() => patches).toHaveLength(1);
+  await groupChip(page, 'Animals').click();
+  await expect.poll(() => patches).toHaveLength(2);
+  await expect.poll(() => answered, { timeout: 5000 }).toHaveLength(2); // A (success) at ~0.8 s, then B (500) at ~1.6 s
+  await expect(groupsRow(page).locator('.watch-error')).toHaveText("Couldn't save that. Try again.");
+  expect(await pressedGroups(page)).toEqual(['trees']);
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  expect(patches).toEqual([{ prefs: { watchGroups: ['trees'] } }, { prefs: { watchGroups: ['trees', 'animals'] } }]);
+});
+
+test('Account → Updates, watch groups: the latest save fails FIRST and the superseded one lands after — the rail reverts to All, then shows Trees (what the Worker took) once that answer arrives; the alert stays', async ({ page }) => {
+  const answered: unknown[] = [];
+  const patches = await accountPrefs(page, ON_WATCH, { answered, patch: (b) => (groupsOf(b).length === 1 ? { delayMs: 1500 } : { status: 500 }) });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await groupChip(page, 'Trees').click();
+  await expect.poll(() => patches).toHaveLength(1); // A has left and is slow
+  await groupChip(page, 'Animals').click();
+  await expect.poll(() => patches).toHaveLength(2);
+  await expect(groupsRow(page).locator('.watch-error')).toHaveText("Couldn't save that. Try again."); // B failed at once
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'true'); // nothing known to have landed yet
+  await expect.poll(() => answered, { timeout: 5000 }).toHaveLength(2);
+  await expect.poll(() => pressedGroups(page)).toEqual(['trees']);
+  await expect(groupsRow(page).locator('.watch-error')).toHaveText("Couldn't save that. Try again.");
+});
+
+test('Account → Updates, watch groups: a tap followed at once by leaving the page is not lost', async ({ page }) => {
+  const patches = await accountPrefs(page, { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } });
+  await page.route(`${API}/api/me/reports`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(groupChip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  await groupChip(page, 'Animals').click();
+  await page.getByRole('link', { name: 'My reports' }).click(); // inside the debounce: the unmount sends the tap right away
+  await expect(page).toHaveURL(/\/my$/);
+  await expect.poll(() => patches).toEqual([{ prefs: { watchGroups: ['animals'] } }]);
+});
+
+test('Account → Updates, watch groups in Spanish: the title, All, a group label and the hint', async ({ page }) => {
+  await accountPrefs(page, { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } });
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(groupsRow(page).locator('.watch-groups-title')).toHaveText('Solo avisarme sobre');
+  await expect(groupChip(page, 'Todo')).toHaveAttribute('aria-pressed', 'true');
+  await expect(groupChip(page, 'Calles')).toHaveAttribute('aria-pressed', 'false');
+  await expect(groupsRow(page).locator('.watch-groups-hint')).toHaveText('Aplica al correo semanal y a las notificaciones instantáneas cerca de tus lugares.');
 });

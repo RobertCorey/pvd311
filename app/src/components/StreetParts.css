@@ -111,3 +111,17 @@
 .watch-row .watch-toggle:has(input:disabled) { color: var(--muted); cursor: not-allowed; }
 .watch-row .watch-hint, .watch-row .watch-error { margin: 0; }
 .street-digest-on .watch-row { margin-top: -4px; }
+
+/* ── Only tell me about (WatchGroups) ──────────────────────────────────────────────────────────── */
+/* The third ink-soft row of the notifications block, under the watch row: a title, the filter rail's chip scroller
+   (All + ten groups; snap, hidden scrollbar, right-edge fade) and the one-line hint. Chips are the full 44 px here —
+   nothing above constrains the row to 44 — and a pressed chip is ink on paper (the icons' dark-mode look), so a
+   multi-select reads at a glance on the tinted row. From 720 px (the street page's desktop breakpoint) the rail wraps. */
+.watch-groups { display: grid; gap: 4px; min-width: 0; padding: 8px 12px 10px; border-radius: var(--radius); background: var(--ink-soft); color: var(--ink); }
+.watch-groups-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: .95rem; line-height: 1.3; }
+.watch-groups .street-rail { min-height: 48px; min-width: 0; }
+.watch-groups .chip { min-height: var(--tap); height: var(--tap); background: var(--surface); }
+.watch-groups .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.watch-groups .watch-groups-hint, .watch-groups .watch-error { margin: 0; }
+.street-digest-on .watch-groups { margin-top: -4px; }
+@media (min-width: 720px) { .watch-groups .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; } }

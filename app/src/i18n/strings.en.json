@@ -1278,5 +1278,9 @@
   "watch.needsPush": "Turn on phone notifications first.",
   "watch.noPushHere": "On for your other phones — this browser can't receive notifications.",
   "watch.on": "On — new requests near your places reach this phone right away.",
-  "watch.error": "Couldn't save that. Try again."
+  "watch.error": "Couldn't save that. Try again.",
+  "watch.groups.title": "Only tell me about",
+  "watch.groups.all": "All",
+  "watch.groups.hint": "Applies to the weekly email and the instant notifications near your places.",
+  "watch.groups.error": "Couldn't save that. Try again."
 }

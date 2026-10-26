@@ -67,6 +67,8 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['account-updates', async (p) => { await signedIn(p); await p.goto('/account'); await p.locator('.account-prefs .watch-row').waitFor(); }],
   // The same on a subscribed Android phone: the phone row "on", the street-watch row enabled and checked.
   ['account-updates-on', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/account'); await p.locator('.account-prefs .watch-row[data-state="on"]').waitFor(); }],
+  // The same with the "Only tell me about" rail under the watch row, two of its chips pressed (ink on paper, with the icons).
+  ['account-updates-groups', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetWatch: true, watchGroups: ['streets', 'trash'] }, push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/account'); await p.locator('.account-prefs .watch-groups [data-group="trash"][aria-pressed="true"]').waitFor(); }],
   // /street with the digest on for Home (the point itself): the digest card's on-state — notice, button, phone row "on", the watch row enabled and unchecked.
   ['street-digest-on', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }], push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-digest .watch-row[data-state="off"]').waitFor(); }],
 ];

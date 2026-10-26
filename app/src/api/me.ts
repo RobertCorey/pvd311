@@ -2,13 +2,16 @@
 import { apiFetch, parseError, withTimeout } from './client';
 import type { Quota, ReportView } from './types';
 import { authHeaders } from '../lib/auth';
+import type { GroupKey } from '@shared/categories';
 
 export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
 export interface Me {
   uid: string; email: string | null; emailVerified: boolean; displayName: string | null; provider: string;
   /** `streetWatch`: push-only "tell me right away" for new city cases within 300 m of a saved address (no email; the
    *  Worker pushes nothing to an account without subscriptions, so the app only lets it on while push is on). */
-  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean }; addresses: SavedAddress[]; following: string[]; createdAt: string;
+  /** `watchGroups`: "Only tell me about…" — the case-type groups (shared/categories GROUP_ORDER) the street watch AND the
+   *  Monday street digest are limited to; empty or absent = everything. The Worker validates, dedupes and caps at 10. */
+  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] }; addresses: SavedAddress[]; following: string[]; createdAt: string;
   /** City case GUIDs this account follows (cityCases, newest first, ≤ 100). Read it with `?? []`: an older Worker omits it. */
   cityFollowing: string[];
   /** True for an allow-listed Google-verified email (docs/api.md Admin). */
@@ -58,7 +61,7 @@ export interface PushRegistration { endpoint: string; keys: { p256dh: string; au
 export const registerPush = (sub: PushRegistration) => call<void>('/api/me/push', { method: 'POST', body: JSON.stringify(sub) });
 /** Forget one subscription by endpoint (204, idempotent). */
 export const unregisterPush = (endpoint: string) => call<void>('/api/me/push', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
-export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
+export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 export const myReports = () => call<{ items: MyReportView[] }>('/api/me/reports');
 export const followingReports = () => call<{ items: MyReportView[] }>('/api/me/following');
 export const follow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'PUT' });

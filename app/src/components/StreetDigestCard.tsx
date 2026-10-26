@@ -7,6 +7,7 @@ import { track } from '../lib/analytics';
 import { metersBetween } from '../lib/streetMap';
 import PushCard, { type PushState } from './PushCard';
 import StreetWatchRow from './StreetWatchRow';
+import WatchGroups from './WatchGroups';
 import './StreetParts.css';
 
 /** "Hear about this street every week": the one-tap opt-in to the Monday street digest, bound to a point.
@@ -14,7 +15,9 @@ import './StreetParts.css';
  *    signed in, off → ONE tap: PUT /api/me/addresses (unless a saved address is already this place) then
  *                     PATCH /api/me {prefs:{streetDigest:true}}; disabled until the account has loaded
  *    signed in, on  → "On — Mondays, for <label>", Turn off, the "Notify me on this phone" row (PushCard) and under it
- *                     the street-watch checkbox (StreetWatchRow), armed only while that row reports this phone as on
+ *                     the street-watch checkbox (StreetWatchRow), armed only while that row reports this phone as on,
+ *                     then the "Only tell me about" group chips (WatchGroups) — the digest is on here, so they always
+ *                     apply, with or without the two phone rows (`push`)
  *  "This place" = a saved address within SAME_PLACE_M of the point, or the same address line (case-insensitive).
  *  Lives on /street (the point view and the case card) and on the tracking page's "Near this request" section.
  *  The account is either the parent's (`account`: /street shares one GET /api/me with its Follow toggle and the
@@ -101,6 +104,7 @@ export default function StreetDigestCard({ lat, lng, label, address, from, retur
           <button type="button" className="btn btn-ghost" onClick={() => void disable()} disabled={state === 'saving'}>{t('street.digest.off')}</button>
           {push && <PushCard me={me} from={pushFrom} onState={setPushState} />}
           {push && <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from={pushFrom} />}
+          <WatchGroups me={me} onMe={setMe} from={pushFrom} />
         </div>
       )}
       {state === 'error' && <p className="hint" role="alert">{t('street.digest.error')}</p>}

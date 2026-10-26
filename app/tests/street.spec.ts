@@ -500,7 +500,7 @@ test('street watch: disabled with the "turn on notifications first" hint while p
   await expect(row.locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
   // The row sits right under the phone row, inside the on-state.
   const order = await page.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
-  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row']);
+  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row', 'watch-groups']);
   // Push comes on → the checkbox arms itself with the body copy; the label is the 44 px target.
   await push.getByRole('button', { name: 'Turn on' }).click();
   await expect(push).toHaveAttribute('data-state', 'on');
@@ -556,6 +556,87 @@ test('street watch, already on for the account: checked at once when this phone 
   await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
   await expect(page.locator('.street-digest .push-card')).toHaveCount(0);
   await expect(watchRow(page)).toHaveCount(0);
+});
+
+// ── Only tell me about (WatchGroups): the group chips closing the digest on-state, under the watch row ──
+const groups = (page: Page) => page.locator('.street-digest .watch-groups');
+const gchip = (page: Page, name: string) => groups(page).getByRole('button', { name, exact: true });
+const prefPatches = (calls: { method: string; body: unknown }[]) => calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
+const GROUP_LABELS = ['All', 'Trash', 'Streets', 'Traffic', 'Trees', 'Property', 'Lights', 'Nuisance', 'Water', 'Animals', 'Other'];
+
+test('watch groups: All pressed with nothing saved, the rail closes the on-state; two taps in one tick → ONE PATCH watchGroups after the debounce, in GROUP_ORDER order; untap → the rest; All clears → []; All again sends nothing', async ({ page }) => {
+  const calls = await setup(page, { signedIn: true, me: { ...WATCH_ME, push: { endpoints: [ENDPOINT] } } });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto(POINT);
+  await waitForMap(page);
+  const g = groups(page);
+  await expect(g.locator('.watch-groups-title')).toHaveText('Only tell me about');
+  await expect(g.locator('.watch-groups-hint')).toHaveText('Applies to the weekly email and the instant notifications near your places.');
+  const order = await page.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
+  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row', 'watch-groups']);
+  await expect(g.getByRole('button')).toHaveText(GROUP_LABELS);
+  await expect(g.getByRole('group', { name: 'Only tell me about' })).toHaveCount(1);
+  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  for (const name of GROUP_LABELS.slice(1)) await expect(gchip(page, name)).toHaveAttribute('aria-pressed', 'false');
+  await expect(g).toHaveAttribute('data-n', '0');
+  expect((await gchip(page, 'All').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await gchip(page, 'Trash').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // Two taps in one tick, well inside the 400 ms: both pressed at once, All released, one PATCH carrying both (trash first).
+  await g.evaluate((el) => { (el.querySelector('[data-group="streets"]') as HTMLElement).click(); (el.querySelector('[data-group="trash"]') as HTMLElement).click(); });
+  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true');
+  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'true');
+  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  await expect(g).toHaveAttribute('data-n', '2');
+  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: ['trash', 'streets'] } }]);
+  await page.waitForTimeout(500);
+  expect(prefPatches(calls)).toHaveLength(1); // nothing else trickled out, and the chips kept the Worker's answer
+  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true');
+  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'true');
+  // Untap Trash → the rest.
+  await gchip(page, 'Trash').click();
+  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: ['trash', 'streets'] } }, { prefs: { watchGroups: ['streets'] } }]);
+  // All clears.
+  await gchip(page, 'All').click();
+  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => prefPatches(calls)).toHaveLength(3);
+  expect(prefPatches(calls)[2]).toEqual({ prefs: { watchGroups: [] } });
+  // All when already All: nothing to send.
+  await gchip(page, 'All').click();
+  await page.waitForTimeout(600);
+  expect(prefPatches(calls)).toHaveLength(3);
+  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('watch groups: a saved selection is pressed on load (All released; a key this app does not know is ignored); on the case card where the pressed Follow toggle owns the phone row the rail still closes the digest on-state, with no watch row above it', async ({ page }) => {
+  await setup(page, { signedIn: true, me: { ...WATCH_ME, prefs: { ...WATCH_ME.prefs, watchGroups: ['lights', 'bogus'] }, push: { endpoints: [ENDPOINT] } } });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(gchip(page, 'Lights')).toHaveAttribute('aria-pressed', 'true');
+  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
+  await expect(groups(page)).toHaveAttribute('data-n', '1');
+
+  // Case c1 (10 Angell St, ~40 m from Home, so the digest is on for its street), followed: the Follow toggle carries the
+  // phone row; the digest card has neither phone row nor watch row, but the digest is on, so the groups still apply.
+  const calls = await setup(page, { signedIn: true, me: { ...WATCH_ME, cityFollowing: ['c1'], prefs: { ...WATCH_ME.prefs, watchGroups: ['lights'] } } });
+  await pushApi(page);
+  await stubPush(page);
+  await page.goto(`${POINT}&case=c1`);
+  await waitForMap(page);
+  const detail = page.locator('.street-detail');
+  await expect(detail.locator('.street-follow-btn')).toHaveAttribute('aria-pressed', 'true');
+  await expect(detail.locator('.street-digest .push-card')).toHaveCount(0);
+  await expect(detail.locator('.street-digest .watch-row')).toHaveCount(0);
+  expect(await detail.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]))).toEqual(['notice', 'btn', 'watch-groups']);
+  const lights = detail.locator('.watch-groups [data-group="lights"]');
+  await expect(lights).toHaveAttribute('aria-pressed', 'true');
+  await lights.click();
+  await expect(lights).toHaveAttribute('aria-pressed', 'false');
+  await expect(detail.locator('.watch-groups .watch-chip-all')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: [] } }]);
 });
 
 test('follow, signed out: the card offers a sign-in link that returns to this exact URL; no toggle', async ({ page }) => {

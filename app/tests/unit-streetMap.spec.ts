@@ -296,9 +296,10 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, week.
   expect(enKeys.filter((k) => !(k in es))).toEqual([]);
   expect(esKeys.filter((k) => !(k in en))).toEqual([]);
   for (const k of enKeys) { expect(typeof en[k], k).toBe('string'); expect(es[k].length, k).toBeGreaterThan(0); }
-  // The street-watch row's six keys, and the Spanish is a translation, not the English copied over.
-  expect(enKeys.filter((k) => k.startsWith('watch.')).sort()).toEqual(['watch.body', 'watch.error', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.title']);
-  for (const k of ['watch.title', 'watch.body', 'watch.needsPush', 'watch.noPushHere', 'watch.on']) expect(es[k], k).not.toBe(en[k]);
+  // The street-watch row's six keys plus the "Only tell me about" rail's four (components/WatchGroups.tsx), and the
+  // Spanish is a translation, not the English copied over.
+  expect(enKeys.filter((k) => k.startsWith('watch.')).sort()).toEqual(['watch.body', 'watch.error', 'watch.groups.all', 'watch.groups.error', 'watch.groups.hint', 'watch.groups.title', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.title']);
+  for (const k of ['watch.title', 'watch.body', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.groups.title', 'watch.groups.all', 'watch.groups.hint']) expect(es[k], k).not.toBe(en[k]);
   // The home strip's four keys (components/HomeWeekStrip.tsx), translated, with the line's two placeholders in both.
   expect(enKeys.filter((k) => k.startsWith('home.week.')).sort()).toEqual(['home.week.line', 'home.week.map', 'home.week.quiet', 'home.week.week']);
   for (const k of ['home.week.line', 'home.week.quiet', 'home.week.map', 'home.week.week']) expect(es[k], k).not.toBe(en[k]);

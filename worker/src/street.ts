@@ -20,6 +20,8 @@
  *
  *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
  *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
+ *   "Only tell me about…" (prefs.watchGroups, watchgroups.ts): a section lists only the cases whose picker group the
+ *   account chose; an address with nothing left after that filter gets no section, so no mail or push mentions it.
  */
 import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
@@ -27,6 +29,7 @@ import { CITY_GUID_RE, followedCaseView, type FollowedCase } from './cityfollow.
 import { geocodeStreetCached } from './cityfeed.js';
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
+import { groupAllowed } from './watchgroups.js';
 
 export const DEFAULT_RADIUS_M = 300;
 export const MAX_RADIUS_M = 1000;
@@ -348,7 +351,10 @@ export function streetDigestPush(s: DigestSection, since: string): PushPayload {
 }
 
 /** Mondays: one mail per opted-in account with activity near a saved address, and a push per such address to the
- *  account's subscribed phones (push.ts; mail needs a verified email, a push only needs the subscription). Returns counts for the log. */
+ *  account's subscribed phones (push.ts; mail needs a verified email, a push only needs the subscription). The account's
+ *  "Only tell me about…" groups (watchgroups.groupAllowed) are applied to each address's cases before a section is built,
+ *  so the mail's rows, the subject's counts and the push's "<new> new · <closed> closed" all count matching cases only.
+ *  Returns counts for the log. */
 export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
@@ -373,7 +379,7 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
       }
       addresses.push({ ...a, lat, lng });
       if (lat == null || lng == null) continue;
-      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now });
+      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now }).filter((c) => groupAllowed(u, c));
       if (items.length) sections.push({ id: a.id, label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }), items });
     }
     if (patched) await store.patchUser(u.uid, { addresses }).catch(() => {});

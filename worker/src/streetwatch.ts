@@ -13,7 +13,12 @@
  *   - never for Draft rows (the /street feed skips them too — a draft is not a report yet), never for an unlocated case;
  *   - never for the account's own just-filed report when its portal GUID is on one of their recent reports
  *     (portalEntityId / portalDraft.entityId — one findReportsByOwner read per account with a hit, so it costs nothing
- *     on the runs that have none).
+ *     on the runs that have none);
+ *   - only for the picker groups the account chose under "Only tell me about…" (prefs.watchGroups, watchgroups.ts
+ *     groupAllowed: the case's category key → its group, 'other' when unmapped; an empty list = everything). Applied in
+ *     matchWatchers, i.e. before a hit is pushed OR held for the morning, and again by the morning catch-up against the
+ *     selection as it stands then (each held item records the case's category), so a selection narrowed overnight
+ *     applies to the catch-up too.
  *
  * runStreetWatch reads the opted-in accounts (≤ WATCH_USERS_LIMIT, a Firestore equality query) only when the run has
  * fresh located cases, sends through push.pushAll, logs kind 'watch.pushed' with counts, and never throws into the sync.
@@ -34,6 +39,7 @@ import { caseUrl } from './cityfollow.js';
 import { haversineMeters, streetUrl } from './street.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
 import { logEvent } from './health.js';
+import { groupAllowed } from './watchgroups.js';
 
 export const WATCH_RADIUS_M = 300;
 export const WATCH_MAX_AGE_MS = 2 * 3_600_000;
@@ -84,6 +90,8 @@ export const isSyncFlushHour = (nowMs: number): boolean => { const h = nyHour(no
 export interface WatchCase {
   id: string;
   caseType: string;
+  /** Our category key for the city's type (cityfeed.mapCategory; 'unsure' when none matched) — the "Only tell me about…" filter reads its group. */
+  category: string;
   street: string;
   status: string;
   createdAt: string | null;
@@ -116,7 +124,8 @@ export function parseCreated(s: string | null | undefined): number | null {
 }
 
 /**
- * Which account hears about which case: for every watchable case and every opted-in account with a subscription, the
+ * Which account hears about which case: for every watchable case and every opted-in account with a subscription whose
+ * "Only tell me about…" selection covers the case's group (watchgroups.groupAllowed; an empty selection covers all), the
  * nearest saved address within `radiusM` — one hit per (account, case). Case order, then account order. Pure.
  * `prefs.streetWatch` is re-checked here so a stale query hit (the pref just turned off) still gets nothing.
  */
@@ -126,7 +135,7 @@ export function matchWatchers(newCases: WatchCase[], users: UserDoc[], o: WatchO
   for (const c of cases) {
     const told = new Set<string>(); // one hit per account per case, even if `users` names an account twice
     for (const u of users) {
-      if (!u || told.has(u.uid) || u.prefs?.streetWatch !== true || !hasPush(u)) continue;
+      if (!u || told.has(u.uid) || u.prefs?.streetWatch !== true || !hasPush(u) || !groupAllowed(u, c)) continue;
       let best: WatchHit | null = null;
       for (const a of u.addresses ?? []) {
         if (typeof a.lat !== 'number' || typeof a.lng !== 'number') continue;
@@ -176,6 +185,9 @@ export function ownCaseIds(reports: ReportDoc[]): Set<string> {
 export interface OvernightItem {
   uid: string; caseId: string; label: string; body: string; url: string; at: string;
   caseType: string; street: string; createdAt: string | null;
+  /** Our category key (WatchCase.category), so the morning re-checks the "Only tell me about…" selection as it stands
+   *  THEN, not as it stood when the sync held the hit; '' on a record written before this field existed → not re-checked. */
+  category: string;
   near: { address: string; lat: number | null; lng: number | null };
 }
 export interface OvernightRecord { items: OvernightItem[]; since: string | null; at?: string }
@@ -188,7 +200,7 @@ export function overnightItem(hit: WatchHit, base: string, now: number): Overnig
   const a = hit.address;
   return {
     uid: hit.user.uid, caseId: hit.case.id, label: placeLabel(a), body: p.body, url: p.url, at: new Date(now).toISOString(),
-    caseType: hit.case.caseType.trim(), street: hit.case.street.trim(), createdAt: hit.case.createdAt,
+    caseType: hit.case.caseType.trim(), street: hit.case.street.trim(), createdAt: hit.case.createdAt, category: hit.case.category,
     near: { address: a.address, lat: typeof a.lat === 'number' ? a.lat : null, lng: typeof a.lng === 'number' ? a.lng : null },
   };
 }
@@ -207,7 +219,7 @@ export function parseOvernight(rec: unknown): OvernightItem[] {
     const near = (i.near ?? {}) as Record<string, unknown>;
     out.push({
       uid: i.uid, caseId: i.caseId, label: str(i.label), body: str(i.body), url: str(i.url), at: str(i.at),
-      caseType: str(i.caseType), street: str(i.street), createdAt: typeof i.createdAt === 'string' && i.createdAt ? i.createdAt : null,
+      caseType: str(i.caseType), street: str(i.street), createdAt: typeof i.createdAt === 'string' && i.createdAt ? i.createdAt : null, category: str(i.category),
       near: { address: str(near.address), lat: num(near.lat), lng: num(near.lng) },
     });
   }
@@ -358,7 +370,9 @@ async function clearOvernight(store: Store, handled: OvernightItem[], now: numbe
 /**
  * From runDaily, and from runStreetWatch on the first awake syncs (isSyncFlushHour): everything the quiet-hour syncs
  * held (meta/watchOvernight), grouped per account, ONE push each (morningPush) to the accounts that still have
- * prefs.streetWatch and a subscription (re-read — the pref may have turned off overnight), then the record is cleared.
+ * prefs.streetWatch and a subscription (re-read — the pref may have turned off overnight), naming only the items whose
+ * group the account's "Only tell me about…" selection still covers (an account with nothing left counts as skippedOff;
+ * an item held before the category was recorded is not re-checked), then the record is cleared.
  * An item whose case is older than MORNING_MAX_AGE_MS is a stale record and is dropped. Outside 05:00–09:00 ET (a
  * manual run) nothing happens and the record is kept. Logs 'watch.morning' (and push.ts's 'push.sent', source
  * street_watch, morning: true) when the record held anything. Never throws.
@@ -387,8 +401,10 @@ export async function runWatchMorning(env: Env, store: Store, o: { now?: number 
       try {
         const u = await store.getUser(uid);
         if (!u || u.prefs?.streetWatch !== true || !hasPush(u)) { run.skippedOff++; continue; }
+        const wanted = items.filter((i) => !i.category || groupAllowed(u, { category: i.category })); // the selection may have narrowed overnight
+        if (!wanted.length) { run.skippedOff++; continue; }
         keys ??= await ensureVapid(store);
-        const n = await pushAll(store, u, morningPush(items, base), keys);
+        const n = await pushAll(store, u, morningPush(wanted, base), keys);
         run.pushed += n;
         if (n) run.pushedTo++;
       } catch (e) { console.error(`[watch] morning push failed for ${uid}:`, e instanceof Error ? e.message : e); }

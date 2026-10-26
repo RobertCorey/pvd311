@@ -1344,5 +1344,9 @@
   "watch.needsPush": "Primero activa las notificaciones del teléfono.",
   "watch.noPushHere": "Activado en tus otros teléfonos: este navegador no puede recibir notificaciones.",
   "watch.on": "Activado: las solicitudes nuevas cerca de tus lugares llegan a este teléfono de inmediato.",
-  "watch.error": "No se pudo guardar. Inténtalo de nuevo."
+  "watch.error": "No se pudo guardar. Inténtalo de nuevo.",
+  "watch.groups.title": "Solo avisarme sobre",
+  "watch.groups.all": "Todo",
+  "watch.groups.hint": "Aplica al correo semanal y a las notificaciones instantáneas cerca de tus lugares.",
+  "watch.groups.error": "No se pudo guardar. Inténtalo de nuevo."
 }

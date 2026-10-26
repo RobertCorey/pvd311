@@ -7,6 +7,7 @@ import { deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me,
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import PushCard, { type PushState } from '../components/PushCard';
 import StreetWatchRow from '../components/StreetWatchRow';
+import WatchGroups from '../components/WatchGroups';
 import './Account.css';
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
@@ -176,6 +177,7 @@ function SignedIn() {
         <p className="hint">{t('account.prefs.weekDigest.hint')}</p>
         <PushCard me={me} from="account" onState={setPushState} />
         <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from="account" />
+        {(me.prefs.streetWatch === true || me.prefs.streetDigest === true) && <WatchGroups me={me} onMe={setMe} from="account" />}
         <form className="account-inline" onSubmit={saveName}>
           <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
           <div className="account-row">

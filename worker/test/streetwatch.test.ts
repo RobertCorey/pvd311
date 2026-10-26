@@ -27,7 +27,7 @@ const user = (uid: string, o: Partial<UserDoc> = {}): UserDoc => ({
   uid, email: `${uid}@example.com`, emailVerified: true, displayName: null, provider: 'google', createdAt: '2026-10-01T00:00:00Z', lastSeenAt: '2026-10-01T00:00:00Z',
   prefs: { emailUpdates: true, streetWatch: true }, addresses: [addr('a1', 'Home', HOME.lat, HOME.lng)], following: [], push: [sub(1)], ...o,
 });
-const kase = (id: string, o: Partial<WatchCase> = {}): WatchCase => ({ id, caseType: 'Pothole', street: '10 Angell St', status: 'Submitted', createdAt: minutesAgo(20), lat: 41.8300, lng: HOME.lng, ...o }); // ≈ 200 m north of home
+const kase = (id: string, o: Partial<WatchCase> = {}): WatchCase => ({ id, caseType: 'Pothole', category: 'pothole', street: '10 Angell St', status: 'Submitted', createdAt: minutesAgo(20), lat: 41.8300, lng: HOME.lng, ...o }); // ≈ 200 m north of home
 
 describe('matchWatchers', () => {
   it('hits a located case inside 300 m of a saved address and not one outside', () => {
@@ -72,6 +72,94 @@ describe('matchWatchers', () => {
     const a = user('a'); const b = user('b', { addresses: [addr('b1', 'Shop', 41.8300, HOME.lng)] });
     const hits = matchWatchers([kase('c1'), kase('c2', { lat: 41.8302 })], [a, b], OPTS);
     expect(hits.map((h) => `${h.user.uid}:${h.case.id}`)).toEqual(['a:c1', 'b:c1', 'a:c2', 'b:c2']);
+  });
+});
+
+describe('"Only tell me about…" (prefs.watchGroups) in the watch', () => {
+  const trash = (id: string) => kase(id, { caseType: 'Missed Trash Day Pick-up Issue', category: 'missed_trash' });
+  const light = (id: string) => kase(id, { caseType: 'Street Light Out', category: 'street_light' });
+  const odd = (id: string) => kase(id, { caseType: 'Something the registry never saw', category: 'unsure' });
+  const groups = (uid: string, watchGroups: string[], o: Partial<UserDoc> = {}) => user(uid, { prefs: { emailUpdates: true, streetWatch: true, watchGroups: watchGroups as never }, ...o });
+  beforeEach(resetPush);
+
+  it('matchWatchers: a watcher with ["streets"] hits the pothole and not the trash case; an empty or absent list hits both; an unmapped type is group "other"', () => {
+    const streets = groups('streets', ['streets']);
+    const every = groups('every', []);
+    const absent = user('absent'); // no watchGroups key at all
+    const two = groups('two', ['trash', 'streets']);
+    const other = groups('other', ['other']);
+    const hits = matchWatchers([kase('pothole'), trash('bin'), odd('odd')], [streets, every, absent, two, other], OPTS);
+    expect(hits.map((h) => `${h.user.uid}:${h.case.id}`)).toEqual([
+      'streets:pothole', 'every:pothole', 'absent:pothole', 'two:pothole',
+      'every:bin', 'absent:bin', 'two:bin',
+      'every:odd', 'absent:odd', 'other:odd',
+    ]);
+  });
+
+  it('runStreetWatch: the ["streets"] watcher gets the pothole push only; the neighbor with no selection gets both; a ["lights"] watcher gets nothing and is not counted as a hit', async () => {
+    const s = memStore([groups('streets', ['streets']), user('neighbor'), groups('lights', ['lights'])]);
+    const r = await runStreetWatch(env, s.store, { newCases: [kase('p1'), trash('t1')], now: NOW });
+    expect(r).toEqual({ cases: 2, users: 3, hits: 3, pushed: 3, skippedOwn: 0, held: 0 });
+    expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => `${u.uid}:${p.tag}:${p.body}`)).toEqual([
+      'streets:watch:p1:Pothole · 10 Angell St · College Hill',
+      'neighbor:watch:p1:Pothole · 10 Angell St · College Hill',
+      'neighbor:watch:t1:Missed Trash Day Pick-up Issue · 10 Angell St · College Hill',
+    ]);
+    expect(s.events.find((e) => e.kind === 'watch.pushed')).toMatchObject({ data: { hits: 3, pushed: 3, accounts: 2 } });
+  });
+
+  it('nobody wants the group: users are read, nothing is pushed, nothing is logged', async () => {
+    const s = memStore([groups('a', ['trees']), groups('b', ['water', 'animals'])]);
+    expect(await runStreetWatch(env, s.store, { newCases: [light('l1')], now: NOW })).toEqual({ cases: 1, users: 2, hits: 0, pushed: 0, skippedOwn: 0, held: 0 });
+    expect(pushAll).not.toHaveBeenCalled();
+    expect(s.events).toHaveLength(0);
+  });
+
+  it('the morning catch-up respects it: a quiet-hours sync holds only the matching case, so the morning push names only that one and the filtered-out trash case is never heard of', async () => {
+    const QUIET = Date.parse('2026-10-27T06:00:00Z');   // 02:00 EDT
+    const MORNING = Date.parse('2026-10-27T11:00:00Z'); // 07:00 EDT
+    const at = (t: number) => new Date(t - 20 * 60_000).toISOString();
+    const s = memStore([groups('streets', ['streets']), user('neighbor')]);
+    const newCases = [kase('p1'), trash('t1'), trash('t2')].map((c) => ({ ...c, createdAt: at(QUIET) })); // all 20 min old at the quiet sync
+    const r = await runStreetWatch(env, s.store, { newCases, now: QUIET });
+    expect(r).toEqual({ cases: 3, users: 2, hits: 4, pushed: 0, skippedOwn: 0, held: 4 }); // streets:p1 + neighbor:p1,t1,t2
+    const held = (s.meta[OVERNIGHT_META].items as OvernightItem[]).map((i) => `${i.uid}:${i.caseId}`);
+    expect(held).toEqual(['streets:p1', 'neighbor:p1', 'neighbor:t1', 'neighbor:t2']);
+    expect(pushAll).not.toHaveBeenCalled();
+
+    const m = await runWatchMorning(env, s.store, { now: MORNING });
+    expect(m).toEqual({ ran: true, items: 4, stale: 0, accounts: 2, skippedOff: 0, pushedTo: 2, pushed: 2 });
+    expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => `${u.uid}: ${p.body}`)).toEqual([
+      'streets: 1 new request: Pothole · 10 Angell St',
+      'neighbor: 3 new requests near your places: Pothole · 10 Angell St · Missed Trash Day Pick-up Issue · 10 Angell St',
+    ]);
+    expect(s.meta[OVERNIGHT_META].items).toEqual([]);
+  });
+
+  it('the morning re-checks the selection as it stands THEN: the neighbor who picked ["trash"] overnight hears of the two trash cases only, the ["streets"] watcher who switched to ["lights"] gets nothing and counts as skippedOff; an item held before the category was recorded ("") is not re-checked; the record is cleared either way', async () => {
+    const QUIET = Date.parse('2026-10-27T06:00:00Z');   // 02:00 EDT
+    const MORNING = Date.parse('2026-10-27T11:00:00Z'); // 07:00 EDT
+    const at = (t: number) => new Date(t - 20 * 60_000).toISOString();
+    const users = [groups('streets', ['streets']), user('neighbor')];
+    const s = memStore(users);
+    const newCases = [kase('p1'), trash('t1'), trash('t2')].map((c) => ({ ...c, createdAt: at(QUIET) }));
+    await runStreetWatch(env, s.store, { newCases, now: QUIET });
+    const items = s.meta[OVERNIGHT_META].items as OvernightItem[];
+    expect(items.map((i) => `${i.uid}:${i.caseId}:${i.category}`)).toEqual(['streets:p1:pothole', 'neighbor:p1:pothole', 'neighbor:t1:missed_trash', 'neighbor:t2:missed_trash']);
+    // Overnight the selections change; the morning re-reads the user docs. One legacy item carries no category.
+    users[0].prefs = { ...users[0].prefs, watchGroups: ['lights'] as never };
+    users[1].prefs = { ...users[1].prefs, watchGroups: ['trash'] as never };
+    users.push(groups('legacy', ['trash']));
+    items.push({ ...items[0], uid: 'legacy', category: '' });
+    resetPush();
+
+    const m = await runWatchMorning(env, s.store, { now: MORNING });
+    expect(m).toEqual({ ran: true, items: 5, stale: 0, accounts: 3, skippedOff: 1, pushedTo: 2, pushed: 2 });
+    expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => `${u.uid}: ${p.body}`)).toEqual([
+      'neighbor: 2 new requests near your places: Missed Trash Day Pick-up Issue · 10 Angell St · Missed Trash Day Pick-up Issue · 10 Angell St',
+      'legacy: 1 new request: Pothole · 10 Angell St',
+    ]);
+    expect(s.meta[OVERNIGHT_META].items).toEqual([]);
   });
 });
 
@@ -238,7 +326,7 @@ describe('runStreetWatch in quiet hours', () => {
   const QUIET_ISO = new Date(QUIET).toISOString();
   const ago = (m: number) => new Date(QUIET - m * 60_000).toISOString();
   const q = (id: string, o: Partial<WatchCase> = {}) => kase(id, { createdAt: ago(20), ...o });
-  const blank = (uid: string, caseId: string): OvernightItem => ({ uid, caseId, label: 'Home', body: '', url: '', at: '', caseType: '', street: '', createdAt: null, near: { address: '', lat: null, lng: null } });
+  const blank = (uid: string, caseId: string): OvernightItem => ({ uid, caseId, label: 'Home', body: '', url: '', at: '', caseType: '', street: '', createdAt: null, category: '', near: { address: '', lat: null, lng: null } });
   beforeEach(resetPush);
 
   it('pushes nothing and holds every hit in meta/watchOvernight — one item per account × case, the push\'s own words — logging watch.held', async () => {
@@ -253,7 +341,7 @@ describe('runStreetWatch in quiet hours', () => {
     expect(items.map((i) => `${i.uid}:${i.caseId}`)).toEqual(['a:c1', 'b:c1', 'a:c2', 'b:c2']);
     expect(items[0]).toEqual({
       uid: 'a', caseId: 'c1', label: 'Home', body: 'Pothole · 10 Angell St · College Hill', url: 'https://fixmypvd.org/street?case=c1&lat=41.83000&lng=-71.40050', at: QUIET_ISO,
-      caseType: 'Pothole', street: '10 Angell St', createdAt: ago(20), near: { address: 'a1 Angell St', lat: HOME.lat, lng: HOME.lng },
+      caseType: 'Pothole', street: '10 Angell St', createdAt: ago(20), category: 'pothole', near: { address: 'a1 Angell St', lat: HOME.lat, lng: HOME.lng },
     });
     expect(items[2].body).toBe('Street Light Out · 10 Angell St · College Hill');
     expect(s.events.map((e) => e.kind)).toEqual(['watch.held']); // no watch.pushed, no push.sent
@@ -301,7 +389,7 @@ describe('runStreetWatch in quiet hours', () => {
     expect(mergeOvernight([], [blank('u', 'c'), blank('u', 'c')])).toHaveLength(1);
     expect(parseOvernight({ items: [blank('u', 'c1'), { uid: 'u' }, null, 'x', { uid: 'v', caseId: 'c', label: 7, near: { lat: 'no', lng: 1 } }] })).toEqual([
       blank('u', 'c1'),
-      { uid: 'v', caseId: 'c', label: '', body: '', url: '', at: '', caseType: '', street: '', createdAt: null, near: { address: '', lat: null, lng: 1 } },
+      { uid: 'v', caseId: 'c', label: '', body: '', url: '', at: '', caseType: '', street: '', createdAt: null, category: '', near: { address: '', lat: null, lng: 1 } },
     ]);
     expect(parseOvernight(null)).toEqual([]);
     expect(parseOvernight({ items: 'nope' })).toEqual([]);
@@ -344,7 +432,7 @@ describe('runWatchMorning', () => {
   const MAX_H = MORNING_MAX_AGE_MS / 3_600_000; // 13
   const item = (uid: string, caseId: string, o: Partial<OvernightItem> = {}): OvernightItem => ({
     uid, caseId, label: 'Home', body: 'Pothole · 10 Angell St · College Hill', url: `https://fixmypvd.org/street?case=${caseId}&lat=41.83000&lng=-71.40050`, at: hoursBefore(4),
-    caseType: 'Pothole', street: '10 Angell St', createdAt: hoursBefore(4), near: { address: 'a1 Angell St', lat: HOME.lat, lng: HOME.lng }, ...o,
+    caseType: 'Pothole', street: '10 Angell St', createdAt: hoursBefore(4), category: 'pothole', near: { address: 'a1 Angell St', lat: HOME.lat, lng: HOME.lng }, ...o,
   });
   const record = (items: OvernightItem[]) => ({ [OVERNIGHT_META]: { items, since: hoursBefore(8), at: hoursBefore(1) } });
   const EMPTY = { ran: true, items: 0, stale: 0, accounts: 0, skippedOff: 0, pushedTo: 0, pushed: 0 };

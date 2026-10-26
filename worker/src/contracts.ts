@@ -3,6 +3,7 @@
  * Runtime: Cloudflare Workers (nodejs_compat) + Browser Run. No KV/R2 — state lives in Firestore/Storage.
  */
 import type { Report, ReportStatus } from '../../shared/types.js';
+import type { GroupKey } from '../../shared/categories.js';
 import type { PortalControl } from './scout.js';
 import type { CityQuestionsDoc } from './cityquestions.js';
 import type { EmailRecord, EmailMeta } from './emaillog.js';
@@ -55,7 +56,7 @@ export interface UserDoc {
   provider: string;
   createdAt: string;
   lastSeenAt: string;
-  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses; Monday "This week in Providence" mail (week.ts); push the moment a new case is seen near a saved address (streetwatch.ts, push only)
+  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses; Monday "This week in Providence" mail (week.ts); push the moment a new case is seen near a saved address (streetwatch.ts, push only); "Only tell me about…" — the picker groups the street watch AND the street digest are narrowed to, [] / absent = everything (watchgroups.ts)
   addresses: SavedAddress[];               // ≤ 10
   following: string[];                     // report ids (≤ 200)
   cityFollowing?: string[];                // public city case GUIDs (cityCases/{guid}), newest first (≤ 100) — cityfollow.ts
