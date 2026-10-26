@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { SESSION, TRACK_NEAR, TRACK_PT, feed, nearWire, type Case } from './street-mocks';
-import { stubPush } from './push-mocks';
+import { ENDPOINT, stubPush } from './push-mocks';
 
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
 
@@ -604,6 +604,41 @@ test('near, signed in with this street already saved and on: the on-state, no se
   const calls = await signedIn(page, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '120 Benefit St, Providence, RI', lat: TRACK_PT.lat, lng: TRACK_PT.lng }] });
   await page.goto('/r/abc');
   await expect(near(page).locator('.street-digest-on .notice-ok')).toContainText('for Home');
+  expect(calls).toEqual([]);
+});
+
+test('near, street watch: the checkbox sits under the phone row in the on-state, armed because this phone is subscribed; check → one PATCH streetWatch true; a slow PATCH shows the optimistic state once', async ({ page }) => {
+  await mockReport(page, view());
+  await mockNear(page, TRACK_NEAR);
+  const calls = await signedIn(page, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '120 Benefit St, Providence, RI', lat: TRACK_PT.lat, lng: TRACK_PT.lng }], push: { endpoints: [ENDPOINT] } }, { delayMs: 400 });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/r/abc');
+  const digest = near(page).locator('.street-digest');
+  await expect(digest.locator('.push-card')).toHaveAttribute('data-state', 'on');
+  const row = digest.locator('.watch-row');
+  const box = row.getByRole('checkbox', { name: 'Tell me right away when something new is reported near my places' });
+  await expect(row).toHaveAttribute('data-state', 'off');
+  await expect(box).toBeEnabled();
+  expect(await digest.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]))).toEqual(['notice', 'btn', 'push-card', 'watch-row']);
+  await box.check();
+  await expect(box).toBeChecked(); // optimistic, before the Worker answers
+  await expect(box).toHaveAttribute('aria-busy', 'true');
+  await expect(box).not.toHaveAttribute('aria-busy', 'true');
+  await expect(box).toBeChecked();
+  await expect(row.locator('.watch-hint')).toHaveText('On — new requests near your places reach this phone right away.');
+  expect(calls).toEqual([{ method: 'PATCH', body: { prefs: { streetWatch: true } } }]);
+});
+
+test('near, street watch under the suite\'s iPhone tab (no push yet): the checkbox is disabled with the hint, and nothing is sent', async ({ page }) => {
+  await mockReport(page, view());
+  const calls = await signedIn(page, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '120 Benefit St, Providence, RI', lat: TRACK_PT.lat, lng: TRACK_PT.lng }] });
+  await page.goto('/r/abc');
+  const digest = near(page).locator('.street-digest');
+  await expect(digest.locator('.push-card')).toHaveAttribute('data-state', 'ios-needs-install');
+  const row = digest.locator('.watch-row');
+  await expect(row).toHaveAttribute('data-state', 'needs-push');
+  await expect(row.getByRole('checkbox')).toBeDisabled();
+  await expect(row.locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
   expect(calls).toEqual([]);
 });
 

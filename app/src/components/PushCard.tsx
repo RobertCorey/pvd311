@@ -19,13 +19,19 @@ import './StreetParts.css';
  *  inside the digest card's on-state (/street and the tracking page) and under the pressed Follow toggle on /street,
  *  and in Account → Updates. */
 
+/** The card's state as its `data-state` reads it: the support verdict, else whether this phone is on the account. */
+export type PushState = PushSupport | 'on' | 'off';
+
 export interface PushCardProps {
   me: Me | null;
   /** Analytics only: where the toggle lives ('track' = the digest card on the tracking page). */
   from: 'street' | 'case' | 'account' | 'track';
+  /** Reports every state change to the parent (the street-watch row only arms itself while this phone is 'on').
+   *  Called with 'unsupported' too, when the card renders nothing. */
+  onState?: (state: PushState) => void;
 }
 
-export default function PushCard({ me, from }: PushCardProps) {
+export default function PushCard({ me, from, onState }: PushCardProps) {
   const t = useT();
   const titleId = useId();
   const [support, setSupport] = useState<PushSupport>(() => pushSupport());
@@ -45,6 +51,8 @@ export default function PushCard({ me, from }: PushCardProps) {
 
   const known = me?.push?.endpoints;
   const on = !!endpoint && (known == null || known.includes(endpoint) || registered.includes(endpoint));
+  const state: PushState = support !== 'ready' ? support : on ? 'on' : 'off';
+  useEffect(() => { onState?.(state); }, [state, onState]);
 
   async function enable() {
     if (busy || endpoint === undefined) return;
@@ -76,7 +84,6 @@ export default function PushCard({ me, from }: PushCardProps) {
   }
 
   if (support === 'unsupported') return null;
-  const state = support !== 'ready' ? support : on ? 'on' : 'off';
   return (
     <div className="push-card" data-state={state}>
       <p className="push-title" id={titleId}>

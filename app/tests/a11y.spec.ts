@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { API as WORKER, SESSION, TRACK_NEAR, feed, nearWire } from './street-mocks';
 import { WEEK, DATED } from './week-mocks';
+import { ENDPOINT, stubPush } from './push-mocks';
 
 // axe-core WCAG 2.x A/AA pass over the main screens, light and dark.
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
@@ -23,12 +24,13 @@ async function mocks(page: Page) {
   await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
 }
 
-/** A signed-in account that follows city case c1 (the /street card's pressed toggle; /my's followed section). */
-async function signedIn(page: Page) {
+/** A signed-in account that follows city case c1 (the /street card's pressed toggle; /my's followed section); `over` adjusts GET /api/me. */
+async function signedIn(page: Page, over: Record<string, unknown> = {}) {
   await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
-  const me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: ['c1'], createdAt: new Date().toISOString() };
+  const me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: ['c1'], createdAt: new Date().toISOString(), ...over };
   await page.route(`${WORKER}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }));
   await page.route(`${WORKER}/api/me/reports`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
+  await page.route(`${WORKER}/api/me/following`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
   const c1 = { id: 'c1', caseType: 'Pothole', category: 'pothole', street: '10 Angell St', status: 'Assigned', open: true, createdAt: new Date().toISOString(), closedAt: null, resolution: null, lat: 41.82856, lng: -71.4005, followedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   const c2 = { ...c1, id: 'c2', caseType: 'Street Light Out', category: 'street_light', street: '22 Thayer St', status: 'Resolved', open: false, closedAt: new Date().toISOString(), resolution: 'Bulb replaced.' };
   await page.route((u) => u.href.startsWith(`${WORKER}/api/me/city`), (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [c1, c2] }) }));
@@ -59,6 +61,12 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],
   ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); }],
   ['my-following', async (p) => { await signedIn(p); await p.goto('/my'); await p.locator('.followed-cases').waitFor(); }],
+  // Account → Updates: the checkboxes, the phone row (the iPhone install hint under the suite's UA) and the disabled street-watch row.
+  ['account-updates', async (p) => { await signedIn(p); await p.goto('/account'); await p.locator('.account-prefs .watch-row').waitFor(); }],
+  // The same on a subscribed Android phone: the phone row "on", the street-watch row enabled and checked.
+  ['account-updates-on', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/account'); await p.locator('.account-prefs .watch-row[data-state="on"]').waitFor(); }],
+  // /street with the digest on for Home (the point itself): the digest card's on-state — notice, button, phone row "on", the watch row enabled and unchecked.
+  ['street-digest-on', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }], push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-digest .watch-row[data-state="off"]').waitFor(); }],
 ];
 
 for (const scheme of ['light'] as const) {

@@ -5,7 +5,8 @@ import { shortLabel } from '../lib/categories';
 import { GOOGLE_CLIENT_ID, authErrorKey, completeSignInLink, isSignInLink, pendingEmail, sendSignInLink, signOut, takeReturnTo, useSession } from '../lib/auth';
 import { deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
 import GoogleSignInButton from '../components/GoogleSignInButton';
-import PushCard from '../components/PushCard';
+import PushCard, { type PushState } from '../components/PushCard';
+import StreetWatchRow from '../components/StreetWatchRow';
 import './Account.css';
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
@@ -110,6 +111,7 @@ function SignedIn() {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [addr, setAddr] = useState({ label: '', address: '' });
+  const [pushState, setPushState] = useState<PushState | undefined>(undefined);
 
   const load = useCallback(async () => {
     try {
@@ -172,7 +174,8 @@ function SignedIn() {
           <span>{t('account.prefs.weekDigest')}</span>
         </label>
         <p className="hint">{t('account.prefs.weekDigest.hint')}</p>
-        <PushCard me={me} from="account" />
+        <PushCard me={me} from="account" onState={setPushState} />
+        <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from="account" />
         <form className="account-inline" onSubmit={saveName}>
           <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
           <div className="account-row">

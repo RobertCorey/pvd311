@@ -102,6 +102,38 @@ describe('PUT / DELETE /api/me/city/:guid', () => {
   });
 });
 
+describe('PATCH /api/me prefs.streetWatch (streetwatch.ts)', () => {
+  const patch = (s: ReturnType<typeof memStore>, token: string, body: unknown) =>
+    handleApi(new Request('https://api.test/api/me', { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }), env, { store: s.store }) as Promise<Response>;
+
+  /** memStore merges shallowly; the route writes Firestore dotted paths ('prefs.streetWatch'), so nest them here as the Store would. */
+  const withDottedPatch = (s: ReturnType<typeof memStore>) => {
+    (s.store as unknown as { patchUser: Store['patchUser'] }).patchUser = async (uid, f) => {
+      const u: Record<string, unknown> = { ...(s.users.get(uid) ?? {}) };
+      for (const [k, v] of Object.entries(f)) {
+        const dot = k.indexOf('.');
+        if (dot < 0) { u[k] = v; continue; }
+        const [head, tail] = [k.slice(0, dot), k.slice(dot + 1)];
+        u[head] = { ...((u[head] ?? {}) as Record<string, unknown>), [tail]: v };
+      }
+      s.users.set(uid, u as unknown as UserDoc);
+    };
+    return s;
+  };
+
+  it('is off by default, turns on and off as a boolean, and leaves the other prefs alone', async () => {
+    const s = withDottedPatch(memStore());
+    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: false });
+    let me = (await (await patch(s, 'alice', { prefs: { streetWatch: true } })).json()) as any;
+    expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true });
+    expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, streetWatch: true }); // written as the dotted path 'prefs.streetWatch'
+    me = (await (await patch(s, 'alice', { prefs: { streetDigest: true } })).json()) as any;
+    expect(me.prefs).toMatchObject({ streetDigest: true, streetWatch: true });
+    me = (await (await patch(s, 'alice', { prefs: { streetWatch: 'yes' } })).json()) as any; // anything but true is off
+    expect(me.prefs.streetWatch).toBe(false);
+  });
+});
+
 describe('GET /api/me/city', () => {
   it('returns the followed cases in cityFollowing order (newest follow first), skipping vanished records', async () => {
     const s = memStore({

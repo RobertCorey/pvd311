@@ -1255,5 +1255,11 @@
   "push.off": "Turn off on this phone",
   "push.blocked": "Notifications are blocked for this site. Allow them in your browser's settings, then come back here.",
   "push.iosInstall": "On iPhone, add FixMyPVD to your Home Screen first (Share → Add to Home Screen) and open it from there to turn on notifications.",
-  "push.error": "Couldn't save that. Try again."
+  "push.error": "Couldn't save that. Try again.",
+  "watch.title": "Tell me right away when something new is reported near my places",
+  "watch.body": "A notification on this phone when the city logs a new request within a few blocks of a saved address — usually within half an hour. No email.",
+  "watch.needsPush": "Turn on phone notifications first.",
+  "watch.noPushHere": "On for your other phones — this browser can't receive notifications.",
+  "watch.on": "On — new requests near your places reach this phone right away.",
+  "watch.error": "Couldn't save that. Try again."
 }

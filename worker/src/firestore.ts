@@ -542,6 +542,15 @@ export function createStore(env: Env): Store {
       return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as UserDoc), uid: d.name.split('/').pop() as string }));
     },
 
+    async listStreetWatchUsers(limit): Promise<UserDoc[]> {
+      const docs = await runQuery(env, {
+        from: [{ collectionId: 'users' }],
+        where: fieldFilter('prefs.streetWatch', 'EQUAL', { booleanValue: true }),
+        limit,
+      });
+      return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as UserDoc), uid: d.name.split('/').pop() as string }));
+    },
+
     async listCityQuestions() {
       const docs = await runQuery(env, { from: [{ collectionId: 'cityQuestions' }], limit: 500 });
       return docs.map((d) => ({ ...(decodeFields(d.fields ?? {}) as unknown as CityQuestionsDoc), category: d.name.split('/').pop() as string }));

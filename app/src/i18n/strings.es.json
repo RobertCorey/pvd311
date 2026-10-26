@@ -1321,5 +1321,11 @@
   "push.off": "Desactivar en este teléfono",
   "push.blocked": "Las notificaciones están bloqueadas para este sitio. Permítelas en la configuración de tu navegador y vuelve aquí.",
   "push.iosInstall": "En iPhone, primero agrega FixMyPVD a tu pantalla de inicio (Compartir → Agregar a pantalla de inicio) y ábrelo desde ahí para activar las notificaciones.",
-  "push.error": "No se pudo guardar. Inténtalo de nuevo."
+  "push.error": "No se pudo guardar. Inténtalo de nuevo.",
+  "watch.title": "Avisarme de inmediato cuando se reporte algo nuevo cerca de mis lugares",
+  "watch.body": "Una notificación en este teléfono cuando la ciudad registre una solicitud nueva a unas cuadras de una dirección guardada, normalmente en menos de media hora. Sin correo.",
+  "watch.needsPush": "Primero activa las notificaciones del teléfono.",
+  "watch.noPushHere": "Activado en tus otros teléfonos: este navegador no puede recibir notificaciones.",
+  "watch.on": "Activado: las solicitudes nuevas cerca de tus lugares llegan a este teléfono de inmediato.",
+  "watch.error": "No se pudo guardar. Inténtalo de nuevo."
 }

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
+import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
 
 // /street — the map-first "My street" page (.claude/street-map-spec.md): one mocked GET /api/street/map, everything else
 // (bbox, counts, clusters, hoods, URL) computed in the browser. Mobile project = iPhone 13 (390×664); one desktop describe.
@@ -399,6 +400,86 @@ test('digest from a case card: one tap saves that case\'s street and coordinates
 test('digest, signed in with this address saved and on: shows the on state without asking again', async ({ page }) => {
   await point(page, { signedIn: true, me: { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] } });
   await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
+});
+
+// ── Street watch (StreetWatchRow): the push-only "tell me right away" checkbox under the phone row in the digest on-state ──
+/** Digest on for Home = 481 Angell St (the point itself), so the on-state — phone row + watch row — renders at once. */
+const WATCH_ME = { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] };
+const WATCH_NAME = 'Tell me right away when something new is reported near my places';
+const watchRow = (page: Page) => page.locator('.street-digest .watch-row');
+const watchBox = (page: Page) => watchRow(page).getByRole('checkbox', { name: WATCH_NAME });
+
+test('street watch: disabled with the "turn on notifications first" hint while push is off; Turn on arms it; check → PATCH streetWatch true + the on-copy; uncheck → false; push off disarms it', async ({ page }) => {
+  const calls = await setup(page, { signedIn: true, me: WATCH_ME });
+  await pushApi(page);
+  await stubPush(page); // Android, no subscription yet: the phone row reads "off"
+  await page.goto(POINT);
+  await waitForMap(page);
+  const push = page.locator('.street-digest .push-card');
+  await expect(push).toHaveAttribute('data-state', 'off');
+  const row = watchRow(page), box = watchBox(page);
+  await expect(row).toHaveAttribute('data-state', 'needs-push');
+  await expect(box).toBeDisabled();
+  await expect(box).not.toBeChecked();
+  await expect(row.locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
+  // The row sits right under the phone row, inside the on-state.
+  const order = await page.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
+  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row']);
+  // Push comes on → the checkbox arms itself with the body copy; the label is the 44 px target.
+  await push.getByRole('button', { name: 'Turn on' }).click();
+  await expect(push).toHaveAttribute('data-state', 'on');
+  await expect(row).toHaveAttribute('data-state', 'off');
+  await expect(box).toBeEnabled();
+  await expect(row.locator('.watch-hint')).toHaveText('A notification on this phone when the city logs a new request within a few blocks of a saved address — usually within half an hour. No email.');
+  expect((await row.locator('.watch-toggle').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]); // turning push on is not a pref
+  await box.check();
+  await expect(box).toBeChecked();
+  await expect(row).toHaveAttribute('data-state', 'on');
+  await expect(row.locator('.watch-hint')).toHaveText('On — new requests near your places reach this phone right away.');
+  expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ prefs: { streetWatch: true } }]);
+  await box.uncheck();
+  await expect(box).not.toBeChecked();
+  await expect(row).toHaveAttribute('data-state', 'off');
+  expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ prefs: { streetWatch: true } }, { prefs: { streetWatch: false } }]);
+  // Push off again → disarmed (unchecked, so there is nothing left to turn off here).
+  await push.getByRole('button', { name: 'Turn off on this phone' }).click();
+  await expect(push).toHaveAttribute('data-state', 'off');
+  await expect(row).toHaveAttribute('data-state', 'needs-push');
+  await expect(box).toBeDisabled();
+  expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
+});
+
+test('street watch, already on for the account: checked at once when this phone is subscribed; checked but still enabled under the iPhone install hint (so it can be turned off here); no row in a browser that cannot push unless it is on', async ({ page }) => {
+  const ON = { ...WATCH_ME, prefs: { ...WATCH_ME.prefs, streetWatch: true }, push: { endpoints: [ENDPOINT] } };
+  await setup(page, { signedIn: true, me: ON });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(page.locator('.street-digest .push-card')).toHaveAttribute('data-state', 'on');
+  await expect(watchBox(page)).toBeChecked();
+  await expect(watchBox(page)).toBeEnabled();
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'on');
+
+  // The suite's own iPhone UA in a Safari tab: the install hint above, the checkbox checked and enabled below.
+  await setup(page, { signedIn: true, me: ON });
+  await stubPush(page, { ua: IPHONE, pushManager: false });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(page.locator('.street-digest .push-card')).toHaveAttribute('data-state', 'ios-needs-install');
+  await expect(watchBox(page)).toBeChecked();
+  await expect(watchBox(page)).toBeEnabled();
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'needs-push');
+  await expect(watchRow(page).locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
+
+  // A browser with no push at all and the watch off: the phone row renders nothing, so neither does the watch row.
+  await setup(page, { signedIn: true, me: WATCH_ME });
+  await stubPush(page, { pushManager: false });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
+  await expect(page.locator('.street-digest .push-card')).toHaveCount(0);
+  await expect(watchRow(page)).toHaveCount(0);
 });
 
 test('follow, signed out: the card offers a sign-in link that returns to this exact URL; no toggle', async ({ page }) => {

@@ -322,3 +322,119 @@ test('Account → Updates: the row sits in the Updates card under the digest che
   expect(order.indexOf('push-card')).toBeLessThan(order.indexOf('account-inline'));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+/* ── Street watch (components/StreetWatchRow) in Account → Updates ─────────────────────────────── */
+const WATCH_NAME = 'Tell me right away when something new is reported near my places';
+/** A signed-in /account whose PATCH /api/me merges `prefs` into the account (so a checked box stays checked when the
+ *  Worker answers), or fails with `patchStatus`; returns the PATCH bodies. */
+async function accountPrefs(page: Page, me: Record<string, unknown> = {}, o: { patchStatus?: number } = {}): Promise<unknown[]> {
+  const patches: unknown[] = [];
+  await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+  await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
+  let acct = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: [], createdAt: new Date().toISOString(), ...me } as Record<string, unknown>;
+  await page.route(`${API}/api/me`, (r) => {
+    if (r.request().method() === 'PATCH') {
+      const body = r.request().postDataJSON();
+      patches.push(body);
+      if (o.patchStatus && o.patchStatus !== 200) return r.fulfill({ status: o.patchStatus, contentType: 'application/json', body: '{"error":"boom"}' });
+      acct = { ...acct, prefs: { ...(acct.prefs as object), ...(body.prefs ?? {}) } };
+    }
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(acct) });
+  });
+  await page.route(`${API}/api/me/following`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }));
+  return patches;
+}
+const watchRow = (page: Page) => page.locator('.account-prefs .watch-row');
+const watchBox = (page: Page) => watchRow(page).getByRole('checkbox', { name: WATCH_NAME });
+
+test('Account → Updates, street watch: the row sits right under the phone row; disabled with the hint while push is off; Turn on arms it; check / uncheck PATCH prefs.streetWatch alone, the other prefs untouched', async ({ page }) => {
+  const patches = await accountPrefs(page, { prefs: { emailUpdates: false, weekDigest: true } });
+  await pushApi(page);
+  await stubPush(page);
+  await page.goto('/account');
+  const prefs = page.locator('.account-prefs');
+  const order = await prefs.evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
+  expect(order.indexOf('watch-row')).toBe(order.indexOf('push-card') + 1);
+  expect(order.indexOf('watch-row')).toBeLessThan(order.indexOf('account-inline'));
+  const row = watchRow(page), box = watchBox(page);
+  await expect(row).toHaveAttribute('data-state', 'needs-push');
+  await expect(box).toBeDisabled();
+  await expect(row.locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
+  await card(page, '.account-prefs').getByRole('button', { name: 'Turn on' }).click();
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'on');
+  await expect(box).toBeEnabled();
+  await expect(row).toHaveAttribute('data-state', 'off');
+  expect((await row.locator('.watch-toggle').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await box.check();
+  await expect(box).toBeChecked();
+  await expect(row).toHaveAttribute('data-state', 'on');
+  await expect(row.locator('.watch-hint')).toHaveText('On — new requests near your places reach this phone right away.');
+  expect(patches).toEqual([{ prefs: { streetWatch: true } }]);
+  // The other preferences are as they were (the PATCH carried only streetWatch; the Worker's answer kept them).
+  await expect(page.getByRole('checkbox', { name: 'Email me when the city updates my reports' })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Email me "This week in Providence" every Monday' })).toBeChecked();
+  await box.uncheck();
+  await expect(box).not.toBeChecked();
+  expect(patches).toEqual([{ prefs: { streetWatch: true } }, { prefs: { streetWatch: false } }]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('Account → Updates, street watch: a failed PATCH puts the box back and says so; the next try clears the alert', async ({ page }) => {
+  const patches = await accountPrefs(page, { push: { endpoints: [ENDPOINT] } }, { patchStatus: 500 });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  const row = watchRow(page), box = watchBox(page);
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'on');
+  await expect(box).toBeEnabled();
+  await box.check();
+  await expect(row.locator('.watch-error')).toHaveText("Couldn't save that. Try again.");
+  await expect(box).not.toBeChecked();
+  await expect(row).toHaveAttribute('data-state', 'off');
+  expect(patches).toEqual([{ prefs: { streetWatch: true } }]);
+  await page.unroute(`${API}/api/me`);
+  await page.route(`${API}/api/me`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetWatch: true }, addresses: [], following: [], cityFollowing: [], createdAt: new Date().toISOString(), push: { endpoints: [ENDPOINT] } }) }));
+  await box.check();
+  await expect(box).toBeChecked();
+  await expect(row.locator('.watch-error')).toHaveCount(0);
+  await expect(row).toHaveAttribute('data-state', 'on');
+});
+
+test('Account → Updates, street watch already on for the account: checked on a subscribed phone; checked and enabled (to turn it off) when this phone is blocked; no row at all in a browser without push unless it is on', async ({ page }) => {
+  await accountPrefs(page, { prefs: { emailUpdates: true, streetWatch: true }, push: { endpoints: [ENDPOINT] } });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(watchBox(page)).toBeChecked();
+  await expect(watchBox(page)).toBeEnabled();
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'on');
+
+  await stubPush(page, { permission: 'denied' });
+  await page.goto('/account');
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'blocked');
+  await expect(watchBox(page)).toBeChecked();
+  await expect(watchBox(page)).toBeEnabled();
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'needs-push');
+  await expect(watchRow(page).locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
+
+  await stubPush(page, { pushManager: false });
+  await page.goto('/account');
+  await expect(card(page, '.account-prefs')).toHaveCount(0);
+  await expect(watchRow(page)).toHaveCount(1); // on → it stays, so it can be turned off from here
+  await expect(watchBox(page)).toBeChecked();
+  await expect(watchBox(page)).toBeEnabled();
+  await expect(watchRow(page).locator('.watch-hint')).toHaveText("On for your other phones — this browser can't receive notifications."); // no phone row above to point at
+
+  await accountPrefs(page, { prefs: { emailUpdates: true } });
+  await page.goto('/account');
+  await expect(page.locator('.account-prefs')).toBeVisible();
+  await expect(card(page, '.account-prefs')).toHaveCount(0);
+  await expect(watchRow(page)).toHaveCount(0);
+});
+
+test('Account → Updates, street watch in Spanish: the label and the needs-push hint', async ({ page }) => {
+  await accountPrefs(page);
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await stubPush(page);
+  await page.goto('/account');
+  await expect(watchRow(page).getByRole('checkbox', { name: 'Avisarme de inmediato cuando se reporte algo nuevo cerca de mis lugares' })).toBeDisabled();
+  await expect(watchRow(page).locator('.watch-hint')).toHaveText('Primero activa las notificaciones del teléfono.');
+});
