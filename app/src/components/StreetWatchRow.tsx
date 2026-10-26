@@ -27,9 +27,11 @@ export interface StreetWatchRowProps {
   pushState: PushState | undefined;
   /** Analytics only: where the row lives. */
   from: 'street' | 'case' | 'account' | 'track';
+  /** Element id on the row (Account → Updates: the summary's phone line jumps here where no PushCard renders). */
+  id?: string;
 }
 
-export default function StreetWatchRow({ me, onMe, pushState, from }: StreetWatchRowProps) {
+export default function StreetWatchRow({ me, onMe, pushState, from, id }: StreetWatchRowProps) {
   const t = useT();
   const hintId = useId();
   const [pending, setPending] = useState<boolean | null>(null); // the optimistic value while a PATCH is in flight
@@ -51,7 +53,7 @@ export default function StreetWatchRow({ me, onMe, pushState, from }: StreetWatc
   }
 
   return (
-    <div className="watch-row" data-state={!pushOn ? 'needs-push' : checked ? 'on' : 'off'}>
+    <div className="watch-row" id={id} data-state={!pushOn ? 'needs-push' : checked ? 'on' : 'off'}>
       <label className="watch-toggle">
         <input type="checkbox" checked={checked} disabled={!enabled} aria-describedby={hintId} aria-busy={pending !== null || undefined} onChange={(e) => void toggle(e.target.checked)} />
         <span>{t('watch.title')}</span>

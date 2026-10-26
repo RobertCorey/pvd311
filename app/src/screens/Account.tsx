@@ -7,7 +7,9 @@ import { deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me,
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import PushCard, { type PushState } from '../components/PushCard';
 import StreetWatchRow from '../components/StreetWatchRow';
+import UpdatesSummary from '../components/UpdatesSummary';
 import WatchGroups from '../components/WatchGroups';
+import { GROUPS_ID, PHONE_ID, WATCH_ID } from '../lib/updatesSummary';
 import './Account.css';
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
@@ -113,6 +115,9 @@ function SignedIn() {
   const [saving, setSaving] = useState(false);
   const [addr, setAddr] = useState({ label: '', address: '' });
   const [pushState, setPushState] = useState<PushState | undefined>(undefined);
+  // This browser's push endpoint as the card reports it (kept after Turn off: the summary discounts it from `me.push`).
+  const [pushEndpoint, setPushEndpoint] = useState<string | null>(null);
+  const onPushState = useCallback((state: PushState, endpoint: string | null) => { setPushState(state); setPushEndpoint(endpoint); }, []);
 
   const load = useCallback(async () => {
     try {
@@ -165,6 +170,7 @@ function SignedIn() {
 
       <h2>{t('account.prefs.title')}</h2>
       <div className="card account-prefs">
+        <UpdatesSummary me={me} pushState={pushState} pushEndpoint={pushEndpoint} />
         <label className="account-toggle">
           <input type="checkbox" checked={me.prefs.emailUpdates} onChange={(e) => togglePref({ emailUpdates: e.target.checked })} />
           <span>{t('account.prefs.emailUpdates')}</span>
@@ -175,9 +181,9 @@ function SignedIn() {
           <span>{t('account.prefs.weekDigest')}</span>
         </label>
         <p className="hint">{t('account.prefs.weekDigest.hint')}</p>
-        <PushCard me={me} from="account" onState={setPushState} />
-        <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from="account" />
-        {(me.prefs.streetWatch === true || me.prefs.streetDigest === true) && <WatchGroups me={me} onMe={setMe} from="account" />}
+        <PushCard me={me} from="account" onState={onPushState} id={PHONE_ID} />
+        <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from="account" id={WATCH_ID} />
+        {(me.prefs.streetWatch === true || me.prefs.streetDigest === true) && <WatchGroups me={me} onMe={setMe} from="account" id={GROUPS_ID} />}
         <form className="account-inline" onSubmit={saveName}>
           <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
           <div className="account-row">

@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { API, POINT, PT, SESSION, setup, waitForMap } from './street-mocks';
 import { ANDROID, ENDPOINT, IPAD, IPHONE, KEY, KEY_BYTES, pushApi, pushLog, stubPush } from './push-mocks';
 import { isIOS, pushSupport, urlBase64ToUint8Array, type PushEnv } from '../src/lib/push';
+import { GROUPS_ID, PHONE_ID, WATCH_ID, summaryItems, type SummaryItem, type Tr } from '../src/lib/updatesSummary';
+import type { Me } from '../src/api/me';
 
 // "Notify me on this phone" (components/PushCard, lib/push.ts, src/sw.ts). The browser side is stubbed in
 // addInitScript (tests/push-mocks.ts stubPush) — navigator.userAgent, window.Notification, window.PushManager and
@@ -66,6 +68,69 @@ test.describe('lib/push', () => {
     expect(Object.keys(es).filter((k) => k.startsWith('push.') && !(k in en))).toEqual([]);
     for (const k of enKeys) { expect(es[k].length, k).toBeGreaterThan(0); }
     expect(es['push.title']).not.toBe(en['push.title']);
+  });
+});
+
+/* ── What you'll hear about (lib/updatesSummary): the lines, without a browser ─────────────────── */
+test.describe('lib/updatesSummary', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const en = JSON.parse(readFileSync(resolve(here, '../src/i18n/strings.en.json'), 'utf8')) as Record<string, string>;
+  const t: Tr = (k, vars) => { let s = en[k] ?? k; for (const [a, b] of Object.entries(vars ?? {})) s = s.split(`{${a}}`).join(String(b)); return s; };
+  const text = (items: SummaryItem[]) => items.map((i) => `${i.before}${i.link}${i.after}`);
+  const ME: Me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: [], createdAt: '2026-10-01T00:00:00Z' };
+  const HOME = { id: 'a1', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 };
+  const WORK = { id: 'a2', label: 'Work', address: '25 Dorrance St, Providence', lat: 41.8239, lng: -71.4128 };
+  const UNPLACED = { id: 'a3', label: 'Old', address: 'Somewhere, Providence', lat: null, lng: null };
+
+  test('nothing on → no lines (a left-over type filter alone is not a line); everything on → the five lines in the card\'s order, each with its link and target; the groups follow GROUP_ORDER and stop at four + N', () => {
+    expect(summaryItems({ ...ME, prefs: { emailUpdates: false } }, 'off', t)).toEqual([]);
+    expect(summaryItems({ ...ME, prefs: { emailUpdates: false, watchGroups: ['trash'] } }, 'off', t)).toEqual([]);
+    const all = summaryItems({ ...ME, prefs: { emailUpdates: true, streetDigest: true, weekDigest: true, streetWatch: true, watchGroups: ['water', 'trash', 'lights', 'streets', 'trees'] }, addresses: [HOME, WORK, UNPLACED], cityFollowing: ['c1', 'c2', 'c3'], push: { endpoints: [ENDPOINT, 'https://push.example.test/send/other'] } }, 'on', t);
+    expect(all.map((i) => i.key)).toEqual(['reports', 'street', 'week', 'watch', 'groups']);
+    expect(text(all)).toEqual([
+      'City updates on your reports and the 3 requests you follow',
+      'Monday email for 2 saved places', // the unplaced address does not count
+      'This week in Providence every Monday',
+      'Instant notifications on this phone',
+      'Only about: Trash, Streets, Trees, Lights +1',
+    ]);
+    expect(all.map((i) => i.link)).toEqual(['your reports and the 3 requests you follow', '2 saved places', 'This week in Providence', 'Instant notifications', 'Trash, Streets, Trees, Lights +1']);
+    expect(all.map((i) => i.to)).toEqual(['/my', '/street', '/week', `#${PHONE_ID}`, `#${GROUPS_ID}`]);
+    expect(all.map((i) => i.icon)).toEqual(['mail', 'calendar', 'calendar', 'bell', 'filter']);
+    // Exactly four groups: no "+0".
+    expect(summaryItems({ ...ME, prefs: { emailUpdates: false, streetDigest: true, watchGroups: ['trash', 'streets', 'trees', 'lights'] } }, 'off', t).map((i) => i.link)).toEqual(['save a place on the map first', 'Trash, Streets, Trees, Lights']);
+    // An unknown group key (an older selection) is skipped rather than shown raw.
+    expect(summaryItems({ ...ME, prefs: { emailUpdates: false, streetDigest: true, watchGroups: ['bogus' as never, 'water'] } }, 'off', t).map((i) => i.link)).toEqual(['save a place on the map first', 'Water']);
+  });
+
+  test('the singular and empty forms; the phone line follows the PushCard: on here, else the other devices (1 → singular), else turn it on first; where no PushCard renders the line jumps to the watch row', () => {
+    const one = summaryItems({ ...ME, prefs: { emailUpdates: true, streetDigest: true }, addresses: [HOME], cityFollowing: ['c1'] }, 'off', t);
+    expect(text(one)).toEqual(['City updates on your reports and the one request you follow', 'Monday email for 1 saved place']);
+    expect(text(summaryItems({ ...ME, prefs: { emailUpdates: true, streetDigest: true }, addresses: [UNPLACED] }, 'off', t))).toEqual(['City updates on your reports', 'Monday email — save a place on the map first']);
+    expect(summaryItems({ ...ME, prefs: { emailUpdates: true, streetDigest: true }, addresses: [UNPLACED] }, 'off', t).map((i) => i.to)).toEqual(['/my', '/street']);
+    const watch = (pushState: Parameters<typeof summaryItems>[1], endpoints: string[]) => summaryItems({ ...ME, prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints } }, pushState, t)[0];
+    expect(text([watch('on', [ENDPOINT])])).toEqual(['Instant notifications on this phone']);
+    expect(text([watch('on', [])])).toEqual(['Instant notifications on this phone']); // just registered; GET /api/me not refreshed yet
+    expect(text([watch('off', ['a', 'b'])])).toEqual(['Instant notifications on 2 other devices']);
+    expect(text([watch('off', ['a'])])).toEqual(['Instant notifications on 1 other device']);
+    expect(text([watch(undefined, ['a'])])).toEqual(['Instant notifications on 1 other device']); // before the card's first report
+    expect(text([watch('blocked', ['a'])])).toEqual(['Instant notifications on 1 other device']);
+    expect(text([watch('off', [])])).toEqual(['Instant notifications — turn on phone notifications first']);
+    expect(watch('off', []).link).toBe('turn on phone notifications first');
+    expect(watch('off', []).to).toBe(`#${PHONE_ID}`);
+    expect(watch('ios-needs-install', []).to).toBe(`#${PHONE_ID}`); // the card renders the install hint there
+    expect(watch('unsupported', ['a']).to).toBe(`#${WATCH_ID}`);
+    expect(text([watch('unsupported', ['a'])])).toEqual(['Instant notifications on 1 other device']);
+    // An older Worker without `push`: no devices known.
+    expect(text(summaryItems({ ...ME, prefs: { emailUpdates: false, streetWatch: true } }, 'off', t))).toEqual(['Instant notifications — turn on phone notifications first']);
+    // This phone's own endpoint is never "another device": after Turn off the account's list still carries it until
+    // the next GET /api/me; under another account (off, not in the list) the filter changes nothing.
+    const mine = (pushState: Parameters<typeof summaryItems>[1], endpoints: string[], thisPhone: string | null) => summaryItems({ ...ME, prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints } }, pushState, t, thisPhone)[0];
+    expect(text([mine('off', [ENDPOINT], ENDPOINT)])).toEqual(['Instant notifications — turn on phone notifications first']);
+    expect(text([mine('off', [ENDPOINT, 'a'], ENDPOINT)])).toEqual(['Instant notifications on 1 other device']);
+    expect(text([mine('off', ['a', 'b'], ENDPOINT)])).toEqual(['Instant notifications on 2 other devices']);
+    expect(text([mine('off', ['a'], null)])).toEqual(['Instant notifications on 1 other device']);
+    expect(text([mine('on', [ENDPOINT], ENDPOINT)])).toEqual(['Instant notifications on this phone']);
   });
 });
 
@@ -585,4 +650,173 @@ test('Account → Updates, watch groups in Spanish: the title, All, a group labe
   await expect(groupChip(page, 'Todo')).toHaveAttribute('aria-pressed', 'true');
   await expect(groupChip(page, 'Calles')).toHaveAttribute('aria-pressed', 'false');
   await expect(groupsRow(page).locator('.watch-groups-hint')).toHaveText('Aplica al correo semanal y a las notificaciones instantáneas cerca de tus lugares.');
+});
+
+/* ── What you'll hear about (components/UpdatesSummary) at the top of Account → Updates ─────────── */
+const summary = (page: Page) => page.locator('.account-prefs .account-summary');
+const summaryRows = (page: Page) => summary(page).locator('.account-summary-row');
+const summaryLine = (page: Page, item: string) => summary(page).locator(`[data-item="${item}"] .account-summary-row`);
+const OTHER = 'https://push.example.test/send/other-phone';
+const HOME = { id: 'a1', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 };
+/** Everything on: three follows, two located places and one unplaced, five groups, this phone plus one more. */
+const EVERYTHING = { prefs: { emailUpdates: true, streetDigest: true, weekDigest: true, streetWatch: true, watchGroups: ['trash', 'streets', 'trees', 'lights', 'water'] }, addresses: [HOME, { id: 'a2', label: 'Work', address: '25 Dorrance St, Providence', lat: 41.8239, lng: -71.4128 }, { id: 'a3', label: 'Old', address: 'Somewhere, Providence', lat: null, lng: null }], cityFollowing: ['c1', 'c2', 'c3'], push: { endpoints: [ENDPOINT, OTHER] } };
+
+test('Account → Updates, summary: everything on → the title and five lines first in the card, each the whole row a ≥ 44 px link (/my, /street, /week, the phone block, the group rail); the in-page links land on the rows they describe; nothing scrolls sideways', async ({ page }) => {
+  await accountPrefs(page, EVERYTHING);
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(summary(page).locator('.account-summary-title')).toHaveText("What you'll hear about");
+  await expect(summaryRows(page)).toHaveText([
+    'City updates on your reports and the 3 requests you follow',
+    'Monday email for 2 saved places',
+    'This week in Providence every Monday',
+    'Instant notifications on this phone',
+    'Only about: Trash, Streets, Trees, Lights +1',
+  ]);
+  expect(await summaryRows(page).evaluateAll((els) => els.map((e) => e.getAttribute('href')))).toEqual(['/my', '/street', '/week', '#account-phone', '#account-groups']);
+  // The river phrase is the part of each sentence that names where it goes.
+  await expect(summary(page).locator('.account-summary-go')).toHaveText(['your reports and the 3 requests you follow', '2 saved places', 'This week in Providence', 'Instant notifications', 'Trash, Streets, Trees, Lights +1']);
+  for (const row of await summaryRows(page).all()) expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(summary(page).locator('.account-summary-none')).toHaveCount(0);
+  await expect(summary(page).getByRole('button')).toHaveCount(0); // text and links only
+  const order = await page.locator('.account-prefs').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
+  expect(order[0]).toBe('account-summary');
+  expect(order.indexOf('account-toggle')).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // The two in-page lines point at the controls below and scroll them in.
+  await expect(page.locator('#account-phone')).toHaveClass(/push-card/);
+  await expect(page.locator('#account-groups')).toHaveClass(/watch-groups/);
+  await summaryLine(page, 'groups').click();
+  await expect(page).toHaveURL(/\/account#account-groups$/);
+  await expect(page.locator('#account-groups')).toBeInViewport();
+  await summaryLine(page, 'watch').click();
+  await expect(page).toHaveURL(/\/account#account-phone$/);
+  await expect(page.locator('#account-phone')).toBeInViewport();
+  // The route lines navigate.
+  await summaryLine(page, 'week').click();
+  await expect(page).toHaveURL(/\/week$/);
+  await page.goBack();
+  await summaryLine(page, 'reports').click();
+  await expect(page).toHaveURL(/\/my$/);
+});
+
+test('Account → Updates, summary: nothing on → "Nothing yet", no list (a left-over type filter does not count); checking a box brings its line in at once and unchecking takes it out; the digest off hides its filter line too', async ({ page }) => {
+  await accountPrefs(page, { prefs: { emailUpdates: false, watchGroups: ['trash'] }, push: { endpoints: [ENDPOINT] } });
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(summary(page).locator('.account-summary-none')).toHaveText('Nothing yet — pick what you want below.');
+  await expect(summaryRows(page)).toHaveCount(0);
+  await expect(summary(page)).toHaveAttribute('data-n', '0');
+  const email = page.getByRole('checkbox', { name: 'Email me when the city updates my reports' });
+  await email.check();
+  await expect(summaryRows(page)).toHaveText(['City updates on your reports']); // no follows: the sentence ends there
+  await expect(summaryLine(page, 'reports')).toHaveAttribute('href', '/my');
+  await expect(summary(page).locator('.account-summary-none')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Email me "This week in Providence" every Monday' }).check();
+  await expect(summaryRows(page)).toHaveText(['City updates on your reports', 'This week in Providence every Monday']);
+  await watchBox(page).check(); // this phone is on, so the watch line reads "on this phone" and the saved filter shows
+  await expect(summaryRows(page)).toHaveText(['City updates on your reports', 'This week in Providence every Monday', 'Instant notifications on this phone', 'Only about: Trash']);
+  await watchBox(page).uncheck();
+  await expect(summaryRows(page)).toHaveText(['City updates on your reports', 'This week in Providence every Monday']);
+  await email.uncheck();
+  await expect(summaryRows(page)).toHaveText(['This week in Providence every Monday']);
+  await page.getByRole('checkbox', { name: 'Email me "This week in Providence" every Monday' }).uncheck();
+  await expect(summary(page).locator('.account-summary-none')).toHaveText('Nothing yet — pick what you want below.');
+});
+
+test('Account → Updates, summary, the phone line: subscribed on other phones only → "on 2 other devices" / "on 1 other device"; nothing subscribed → "turn on phone notifications first", and Turn on flips it to "on this phone"; a browser without push keeps the count and points the link at the watch row', async ({ page }) => {
+  const line = () => summaryLine(page, 'watch');
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [OTHER, 'https://push.example.test/send/third'] } });
+  await stubPush(page); // push-capable, not subscribed
+  await page.goto('/account');
+  await expect(line()).toHaveText('Instant notifications on 2 other devices');
+  await expect(line()).toHaveAttribute('href', '#account-phone');
+  await expect(summaryRows(page)).toHaveCount(1);
+
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [OTHER] } });
+  await page.goto('/account');
+  await expect(line()).toHaveText('Instant notifications on 1 other device');
+
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [] } });
+  await pushApi(page);
+  await page.goto('/account');
+  await expect(line()).toHaveText('Instant notifications — turn on phone notifications first');
+  await expect(line().locator('.account-summary-go')).toHaveText('turn on phone notifications first');
+  await line().click();
+  await expect(page.locator('#account-phone')).toBeInViewport();
+  await card(page, '.account-prefs').getByRole('button', { name: 'Turn on' }).click();
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'on');
+  await expect(line()).toHaveText('Instant notifications on this phone');
+
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [OTHER] } });
+  await stubPush(page, { pushManager: false });
+  await page.goto('/account');
+  await expect(card(page, '.account-prefs')).toHaveCount(0);
+  await expect(line()).toHaveText('Instant notifications on 1 other device');
+  await expect(line()).toHaveAttribute('href', '#account-watch');
+  await expect(page.locator('#account-watch')).toHaveClass(/watch-row/);
+});
+
+test('Account → Updates, summary, the phone line after Turn off: the account\'s endpoint list still holds this phone until the next GET /api/me, so the line discounts it — the only phone → "turn on phone notifications first", this phone plus one more → "on 1 other device"; Turn on again → "on this phone"', async ({ page }) => {
+  const line = () => summaryLine(page, 'watch');
+  const off = () => card(page, '.account-prefs').getByRole('button', { name: 'Turn off on this phone' });
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [ENDPOINT] } });
+  let calls = await pushApi(page);
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(line()).toHaveText('Instant notifications on this phone');
+  await off().click();
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'off');
+  expect(calls.map((x) => x.method)).toEqual(['DELETE']);
+  await expect(line()).toHaveText('Instant notifications — turn on phone notifications first');
+  await expect(watchRow(page)).toHaveAttribute('data-state', 'needs-push');
+  // On again on the same phone: the re-registered endpoint is this phone's, not another device.
+  await card(page, '.account-prefs').getByRole('button', { name: 'Turn on' }).click();
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'on');
+  await expect(line()).toHaveText('Instant notifications on this phone');
+
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true }, push: { endpoints: [ENDPOINT, OTHER] } });
+  calls = await pushApi(page);
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(line()).toHaveText('Instant notifications on this phone');
+  await off().click();
+  await expect(card(page, '.account-prefs')).toHaveAttribute('data-state', 'off');
+  expect(calls.map((x) => x.method)).toEqual(['DELETE']);
+  await expect(line()).toHaveText('Instant notifications on 1 other device');
+});
+
+test('Account → Updates, summary, singulars and the empty places: one follow and one saved place; the digest on with no located address says to save a place on the map first (link → /street)', async ({ page }) => {
+  await accountPrefs(page, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [HOME], cityFollowing: ['c1'] });
+  await stubPush(page);
+  await page.goto('/account');
+  await expect(summaryRows(page)).toHaveText(['City updates on your reports and the one request you follow', 'Monday email for 1 saved place']);
+  await expect(summaryLine(page, 'street')).toHaveAttribute('href', '/street');
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetDigest: true }, addresses: [{ ...HOME, lat: null, lng: null }] });
+  await page.goto('/account');
+  await expect(summaryRows(page)).toHaveText(['Monday email — save a place on the map first']);
+  await expect(summaryLine(page, 'street')).toHaveAttribute('href', '/street');
+  await expect(summaryLine(page, 'street').locator('.account-summary-go')).toHaveText('save a place on the map first');
+});
+
+test('Account → Updates, summary in Spanish: the title and the five lines', async ({ page }) => {
+  await accountPrefs(page, EVERYTHING);
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await stubPush(page, { subscribed: true, permission: 'granted' });
+  await page.goto('/account');
+  await expect(summary(page).locator('.account-summary-title')).toHaveText('De qué te vamos a avisar');
+  await expect(summaryRows(page)).toHaveText([
+    'Actualizaciones de la ciudad sobre tus reportes y las 3 solicitudes que sigues',
+    'Correo los lunes sobre 2 lugares guardados',
+    'Esta semana en Providence cada lunes',
+    'Notificaciones instantáneas en este teléfono',
+    'Solo sobre: Basura, Calles, Árboles, Luces +1',
+  ]);
+  await accountPrefs(page, { prefs: { emailUpdates: false, streetWatch: true, streetDigest: true }, push: { endpoints: [OTHER] }, cityFollowing: [] });
+  await stubPush(page);
+  await page.goto('/account');
+  await expect(summaryRows(page)).toHaveText(['Correo los lunes — primero guarda un lugar en el mapa', 'Notificaciones instantáneas en otro dispositivo']);
+  await accountPrefs(page, { prefs: { emailUpdates: false } });
+  await page.goto('/account');
+  await expect(summary(page).locator('.account-summary-none')).toHaveText('Nada todavía — elige abajo lo que quieres recibir.');
 });

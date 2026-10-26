@@ -29,11 +29,13 @@ export interface WatchGroupsProps {
   onMe: (me: Me) => void;
   /** Analytics only: where the rail lives. */
   from: 'street' | 'case' | 'account' | 'track';
+  /** Element id on the rail (Account → Updates: the summary's "Only about" line jumps here). */
+  id?: string;
 }
 
 const isGroup = (g: unknown): g is GroupKey => typeof g === 'string' && (GROUP_ORDER as string[]).includes(g);
 
-export default function WatchGroups({ me, onMe, from }: WatchGroupsProps) {
+export default function WatchGroups({ me, onMe, from, id }: WatchGroupsProps) {
   const t = useT();
   const titleId = useId();
   const hintId = useId();
@@ -93,7 +95,7 @@ export default function WatchGroups({ me, onMe, from }: WatchGroupsProps) {
   const clear = () => { if (selRef.current.length) pick([]); };
 
   return (
-    <div className="watch-groups" data-n={sel.length}>
+    <div className="watch-groups" id={id} data-n={sel.length}>
       <p className="watch-groups-title" id={titleId}>{t('watch.groups.title')}</p>
       <div className="street-rail watch-groups-rail" role="group" aria-labelledby={titleId} aria-describedby={hintId}>
         <button type="button" className="chip street-chip watch-chip watch-chip-all" aria-pressed={sel.length === 0} onClick={clear}>

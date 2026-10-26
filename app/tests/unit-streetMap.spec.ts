@@ -306,11 +306,11 @@ test.describe('neighborhoods', () => {
   });
 });
 
-test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin.engagement.*, week.*, track.near.*, watch.* and home.* key exists in both languages', () => {
+test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin.engagement.*, week.*, track.near.*, watch.*, home.* and account.summary.* key exists in both languages', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
-  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('admin.engagement.') || k.startsWith('admin.tab.engagement') || k.startsWith('admin.tabsub.engagement') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.') || k.startsWith('home.');
+  const ours = (k: string) => k.startsWith('street.') || k.startsWith('my.cityFollowing.') || k.startsWith('admin.email.kind.') || k.startsWith('admin.engagement.') || k.startsWith('admin.tab.engagement') || k.startsWith('admin.tabsub.engagement') || k.startsWith('week.') || k.startsWith('track.near.') || k.startsWith('watch.') || k.startsWith('home.') || k.startsWith('account.summary.');
   const enKeys = Object.keys(en).filter(ours);
   const esKeys = Object.keys(es).filter(ours);
   expect(enKeys.length).toBeGreaterThan(0);
@@ -330,6 +330,13 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin
   expect(enKeys.filter((k) => /^admin\.engagement\.tile\.[a-zA-Z]+$/.test(k) && !k.endsWith('What')).sort()).toEqual(['accounts', 'follows', 'groups', 'push', 'query', 'streetDigest', 'streetWatch', 'weekDigest'].map((k) => `admin.engagement.tile.${k}`)); // seven tiles + the query cross-check line
   const holes = (s: string) => (s.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
   for (const k of enKeys.filter((k) => k.startsWith('admin.engagement.'))) expect(holes(es[k]), k).toEqual(holes(en[k]));
+  // The Updates summary (lib/updatesSummary.ts): 21 keys, every one translated except the "+N" tail, the {link} slot and
+  // {n} agree, and every sentence key keeps its {link} slot (the component splits on it).
+  const sum = enKeys.filter((k) => k.startsWith('account.summary.'));
+  expect(sum).toHaveLength(21);
+  for (const k of sum) { expect(holes(es[k]), k).toEqual(holes(en[k])); if (k !== 'account.summary.groups.more') expect(es[k], k).not.toBe(en[k]); }
+  for (const k of ['account.summary.reports', 'account.summary.street', 'account.summary.street.none', 'account.summary.week', 'account.summary.watch.here', 'account.summary.watch.other', 'account.summary.watch.other.one', 'account.summary.watch.none', 'account.summary.groups']) for (const d of [en, es]) expect(d[k].split('{link}'), k).toHaveLength(2);
+  for (const k of ['account.summary.reports.link', 'account.summary.street.link', 'account.summary.watch.other']) for (const d of [en, es]) expect(d[k], k).toContain('{n}');
 });
 
 // ── likelyOwnCase: the report itself in the city's list (TrackNear drops it from "Near this request") ──

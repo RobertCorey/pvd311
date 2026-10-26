@@ -27,16 +27,22 @@ export interface PushCardProps {
   /** Analytics only: where the toggle lives ('track' = the digest card on the tracking page). */
   from: 'street' | 'case' | 'account' | 'track';
   /** Reports every state change to the parent (the street-watch row only arms itself while this phone is 'on').
-   *  Called with 'unsupported' too, when the card renders nothing. */
-  onState?: (state: PushState) => void;
+   *  Called with 'unsupported' too, when the card renders nothing. `endpoint` is this browser's subscription endpoint,
+   *  kept after Turn off: `me.push.endpoints` lags until the next GET /api/me, so a parent counting the account's
+   *  other devices (Account → Updates' summary) can discount this phone. null while being read or when there is none. */
+  onState?: (state: PushState, endpoint: string | null) => void;
+  /** Element id on the row (Account → Updates: the summary's "Instant notifications" line jumps here). */
+  id?: string;
 }
 
-export default function PushCard({ me, from, onState }: PushCardProps) {
+export default function PushCard({ me, from, onState, id }: PushCardProps) {
   const t = useT();
   const titleId = useId();
   const [support, setSupport] = useState<PushSupport>(() => pushSupport());
   // This browser's subscription endpoint: undefined while being read, null when there is none.
   const [endpoint, setEndpoint] = useState<string | null | undefined>(undefined);
+  // The endpoint this browser last held — survives disable(), which nulls `endpoint` to flip the card off.
+  const [held, setHeld] = useState<string | null>(null);
   // Endpoints this card registered itself (so the on-state does not wait for a fresh GET /api/me).
   const [registered, setRegistered] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -45,14 +51,14 @@ export default function PushCard({ me, from, onState }: PushCardProps) {
   useEffect(() => {
     if (support !== 'ready') return;
     let live = true;
-    currentSubscription(swRegistration()).then((s) => { if (live) setEndpoint(s?.endpoint ?? null); }).catch(() => { if (live) setEndpoint(null); });
+    currentSubscription(swRegistration()).then((s) => { if (!live) return; setEndpoint(s?.endpoint ?? null); if (s?.endpoint) setHeld(s.endpoint); }).catch(() => { if (live) setEndpoint(null); });
     return () => { live = false; };
   }, [support]);
 
   const known = me?.push?.endpoints;
   const on = !!endpoint && (known == null || known.includes(endpoint) || registered.includes(endpoint));
   const state: PushState = support !== 'ready' ? support : on ? 'on' : 'off';
-  useEffect(() => { onState?.(state); }, [state, onState]);
+  useEffect(() => { onState?.(state, held); }, [state, held, onState]);
 
   async function enable() {
     if (busy || endpoint === undefined) return;
@@ -66,7 +72,7 @@ export default function PushCard({ me, from, onState }: PushCardProps) {
       if (!json.endpoint || !p256dh || !auth) throw new Error('bad_subscription');
       await registerPush({ endpoint: json.endpoint, keys: { p256dh, auth }, ua: navigator.userAgent.slice(0, 200) });
       setRegistered((r) => [...r, json.endpoint!]);
-      setEndpoint(json.endpoint);
+      setEndpoint(json.endpoint); setHeld(json.endpoint);
       track('push_on', { from });
     } catch { setError(true); } finally { setBusy(false); }
   }
@@ -85,7 +91,7 @@ export default function PushCard({ me, from, onState }: PushCardProps) {
 
   if (support === 'unsupported') return null;
   return (
-    <div className="push-card" data-state={state}>
+    <div className="push-card" id={id} data-state={state}>
       <p className="push-title" id={titleId}>
         <svg className="push-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>
         {t('push.title')}
