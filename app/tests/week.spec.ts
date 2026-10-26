@@ -203,8 +203,8 @@ test('copy as post, Spanish: the button and its status are translated while the 
   await setupWeek(page);
   await page.goto('/week');
   await expect(page.locator('main h1')).toHaveText('Esta semana en Providence');
-  await page.getByRole('button', { name: 'Copiar resumen' }).click();
-  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Resumen copiado');
+  await page.getByRole('button', { name: 'Copiar como post' }).click();
+  await expect(page.locator('.week-flash[role="status"]')).toHaveText('Post copiado');
   expect(await page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toBe(POST);
 });
 
@@ -471,7 +471,7 @@ test('Spanish, dated: title by range, weekday subtitle, the nav', async ({ page 
   await setupWeek(page);
   await page.goto('/week?until=2026-10-18');
   await expect(page.locator('main h1')).toHaveText('Providence, 12 oct – 18 oct');
-  await expect(page.locator('.week-range')).toHaveText('lunes a domingo · 7 días');
+  await expect(page.locator('.week-range')).toHaveText('del lunes al domingo · 7 días');
   const nav = page.getByRole('navigation', { name: 'Otras semanas' });
   await expect(nav.getByRole('link', { name: 'Semana anterior' })).toHaveAttribute('href', '/week?until=2026-10-11');
   await expect(nav.getByRole('link', { name: 'Semana siguiente' })).toHaveAttribute('href', '/week?until=2026-10-25');

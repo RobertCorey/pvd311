@@ -581,7 +581,7 @@ test('Account → Updates, watch groups in Spanish: the title, All, a group labe
   await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
   await stubPush(page, { subscribed: true, permission: 'granted' });
   await page.goto('/account');
-  await expect(groupsRow(page).locator('.watch-groups-title')).toHaveText('Solo avisarme sobre');
+  await expect(groupsRow(page).locator('.watch-groups-title')).toHaveText('Avisarme solo de');
   await expect(groupChip(page, 'Todo')).toHaveAttribute('aria-pressed', 'true');
   await expect(groupChip(page, 'Calles')).toHaveAttribute('aria-pressed', 'false');
   await expect(groupsRow(page).locator('.watch-groups-hint')).toHaveText('Aplica al correo semanal y a las notificaciones instantáneas cerca de tus lugares.');

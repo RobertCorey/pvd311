@@ -660,5 +660,5 @@ test('near: Spanish title, summary and map link (singulars included); the city\'
   await expect(near(page).locator('.track-near-summary')).toHaveText('1 otra solicitud abierta a unas cuadras · 1 cerrada este mes');
   await expect(near(page).getByRole('link', { name: 'Verlas en el mapa' })).toHaveAttribute('href', MAP_HREF);
   await expect(near(page).locator('.street-row-btn').first()).toContainText('a 28 m');
-  await expect(near(page).locator('.street-row-btn').first().locator('.my-status')).toHaveText('Asignado');
+  await expect(near(page).locator('.street-row-btn').first().locator('.my-status')).toHaveText('Asignada');
 });
