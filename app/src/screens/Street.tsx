@@ -36,7 +36,7 @@ import './Street.css';
 
 /** "My street", map-first (spec: .claude/street-map-spec.md, 2026-10-25). One GET /api/street/map load; every count,
  *  filter, cluster and list is computed in the browser from that array (lib/streetMap.ts). The page is a full-bleed
- *  Leaflet stage with floating search + filter rail, a three-detent sheet (phone) or a fixed panel (≥720 px), and is
+ *  Leaflet stage with floating search + one row of filters (Show · When · Type), a three-detent sheet (phone) or a fixed panel (≥720 px), and is
  *  never empty: landing (city), viewport list, case card, stack, quiet-street and error states all show something.
  *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood), g/s/d (filters), case.
  *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
@@ -45,7 +45,10 @@ import './Street.css';
  *  to list), the card leads with the key facts and adds what GET /api/street/case/:id knows (timeline, answers); pins
  *  carry their type's glyph and only new cases pulse; the "Map key" button explains every mark. */
 
-const RAIL_BOTTOM = 110;
+/** The phone's floating controls end here, from the stage's top: 10 + 48 search pill + 8 + 44 Show row + 8 + 44
+ *  When / Type row (Street.css .street-controls; StreetParts.css .street-filters). Fits, the in-view band and the
+ *  city's edges read it. */
+const RAIL_BOTTOM = 162;
 /** The sheet/panel title's id: the case card is labelled by it (the overlay's header is the case's title). */
 const TITLE_ID = 'street-title';
 /** The overlay header's status pill: the case card is described by it (it sits before the card, outside it). */
@@ -274,16 +277,19 @@ export default function Street() {
   const refitRef = useRef(false); // a case= that was the URL's sole target and missing from the 30-day set: fit to it when the 90-day set has it
   useEffect(() => {
     if (!url.caseId) { handledCaseRef.current = null; return; }
-    if (!data || handledCaseRef.current === url.caseId) return;
+    if (!data) return;
     if (!selectedCase && lookedUp?.id !== url.caseId) {
-      // Not in this window (a followed case may be months old): ask for the case itself, once per id. The effect
-      // runs again when the answer lands; a failed request counts as gone (there is nothing else to try).
+      // Not in this window (a followed case may be months old, or the window shrank under an open card — Clear or
+      // When 90 → 30 while a 45-day-old case is shown): ask for the case itself, once per id. This comes before the
+      // handled check so an already-shown case is fetched too, and drawn as extraCase. The effect runs again when
+      // the answer lands; a failed request counts as gone (there is nothing else to try).
       if (lookupRef.current !== url.caseId) {
         const id = url.caseId; lookupRef.current = id;
         getStreetCase(id).then((c) => setLookedUp({ id, c }), () => setLookedUp({ id, c: null }));
       }
       return;
     }
+    if (handledCaseRef.current === url.caseId && selectedCase) return; // selected already: a new window only redraws it
     handledCaseRef.current = url.caseId;
     const via = selectViaRef.current ?? 'url'; selectViaRef.current = null;
     if (!selectedCase) {
@@ -883,7 +889,7 @@ export default function Street() {
   ) : undefined;
 
   const shareBtn = <button type="button" className="street-ico" aria-label={t('street.detail.share')} onClick={share}>{ShareIcon}</button>;
-  const rail = <StreetFilters filters={filters} counts={counts} loading={feedState === 'loading' && !!data} disabled={feedState === 'error' && !data} onChange={onFilters} />;
+  const filterBar = <StreetFilters filters={filters} counts={counts} loading={feedState === 'loading' && !!data} disabled={feedState === 'error' && !data} onChange={onFilters} />;
   const wholeCityBtn = <button type="button" className="street-vh street-vh-btn" onClick={seeCity}>{t('street.wholeCity')}</button>;
   const hasText = text !== '' || !!point;
   const controls = desktop ? (
@@ -896,7 +902,7 @@ export default function Street() {
         <button type="submit" className="btn btn-secondary" disabled={busy || text.trim().length < 3}>{t('street.search')}</button>
         <button type="button" className="btn btn-ghost street-locate" onClick={locate} disabled={busy}>{t('street.useLocation')}</button>
       </form>
-      {rail}
+      {filterBar}
       {msg && <p className="hint street-msg" role="status">{msg}</p>}
       {wholeCityBtn}
     </>
@@ -910,7 +916,7 @@ export default function Street() {
         </form>
         <button type="submit" form="street-search" className="street-ico" aria-label={t('street.search.go')} disabled={busy}>{SearchIcon}</button>
       </div>
-      {rail}
+      {filterBar}
       {msg && <p className="hint street-msg" role="status">{msg}</p>}
       {wholeCityBtn}
     </div>

@@ -233,6 +233,18 @@ test.describe('url state', () => {
     expect(writeStreetUrl({ s: 'closed', g: 'trash' }).toString()).toBe('g=trash&s=closed');
   });
 
+  test('old filter links map onto the one-choice Show: no s (both statuses on) → All, s=open → Open, s=closed → Closed; g / d as before', () => {
+    // The chip rail could never turn both statuses off, so every link it wrote is one of these three.
+    expect(parseStreetUrl(new URLSearchParams('lat=41.82820&lng=-71.40050')).s).toBeNull();
+    expect(parseStreetUrl(new URLSearchParams('s=open')).s).toBe('open');
+    expect(parseStreetUrl(new URLSearchParams('s=closed')).s).toBe('closed');
+    expect(parseStreetUrl(new URLSearchParams('s=both')).s).toBeNull();
+    expect(parseStreetUrl(new URLSearchParams('g=trash&d=7'))).toMatchObject({ g: 'trash', d: 7, s: null });
+    expect(parseStreetUrl(new URLSearchParams('g=other')).g).toBe('other'); // /week's "Most reported" → Other
+    // All writes nothing, so a cleared view's link is the bare page.
+    expect(writeStreetUrl({ s: null, g: null, d: 30 }).toString()).toBe('');
+  });
+
   test('parseStreetUrl drops unknown or malformed values', () => {
     const st = parseStreetUrl(new URLSearchParams('lat=abc&lng=-71.4&q=x&c=41.8&z=16&n=narnia&g=nope&s=maybe&d=15&case='));
     expect(st).toEqual(EMPTY_URL_STATE);
@@ -318,6 +330,11 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin
   expect(enKeys.filter((k) => !(k in es))).toEqual([]);
   expect(esKeys.filter((k) => !(k in en))).toEqual([]);
   for (const k of enKeys) { expect(typeof en[k], k).toBe('string'); expect(es[k].length, k).toBeGreaterThan(0); }
+  // The /street filters (components/StreetFilters.tsx): Show / When / Type, All, All types, Clear (visible) + its full
+  // name — translated (Spanish "Todas" for the requests, "Todos los tipos" for the types).
+  expect(enKeys.filter((k) => k.startsWith('street.filter.')).sort()).toEqual(['street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.show', 'street.filter.type', 'street.filter.when']);
+  for (const k of ['street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.show', 'street.filter.type', 'street.filter.when']) expect(es[k], k).not.toBe(en[k]);
+  expect(es['street.filter.all']).toBe('Todas');
   // The street-watch row's six keys plus the "Only tell me about" rail's four (components/WatchGroups.tsx), and the
   // Spanish is a translation, not the English copied over.
   expect(enKeys.filter((k) => k.startsWith('watch.')).sort()).toEqual(['watch.body', 'watch.error', 'watch.groups.all', 'watch.groups.error', 'watch.groups.hint', 'watch.groups.title', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.title']);

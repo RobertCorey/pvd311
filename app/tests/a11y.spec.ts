@@ -62,6 +62,8 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['my', (p) => p.goto('/my')],
   ['street', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St')],
   ['street-landing', (p) => p.goto('/street')],
+  // The filter row off its defaults: Show = Open (filled ink), a type and the week picked, Clear leading the row (pinned left).
+  ['street-filtered', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&s=open&g=trash&d=7'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-clear').waitFor(); }],
   // The landing's half sheet, signed in with a saved address: the "Your places this week" card over the week link.
   ['street-places', async (p) => { await signedIn(p, { addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }] }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-places-card').waitFor(); }],
   // The landing's half sheet on a return visit (seenAt 2 days ago, 2nd visit, the suite's iPhone UA): the second subtitle line, the New pills, the home-screen nudge with its iPhone hint revealed.
@@ -90,6 +92,27 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   // /street with the digest on for Home (the point itself): the digest card's on-state — notice, button, phone row "on", the watch row enabled and unchecked.
   ['street-digest-on', async (p) => { await signedIn(p, { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }], push: { endpoints: [ENDPOINT] } }); await stubPush(p, { subscribed: true, permission: 'granted' }); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-digest .watch-row[data-state="off"]').waitFor(); }],
 ];
+
+// The desktop panel (≥720 px): the filters as three labelled rows, at the 440 px and the 360 px panel widths.
+const DESKTOP_SCREENS: Array<[string, { width: number; height: number }, (p: Page) => Promise<unknown>]> = [
+  ['street-desktop', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-row-btn').first().waitFor(); }],
+  ['street-desktop-filtered', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&s=closed&g=lights&d=90'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-clear').waitFor(); }],
+  ['street-desktop-landing-narrow', { width: 800, height: 800 }, async (p) => { await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); }],
+];
+
+test.describe('a11y desktop (light)', () => {
+  test.use({ colorScheme: 'light', isMobile: false, hasTouch: false });
+  for (const [name, viewport, go] of DESKTOP_SCREENS) {
+    test(name, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await mocks(page);
+      await go(page);
+      await page.waitForTimeout(500);
+      const v = await violations(page);
+      expect(v, v.join('\n')).toEqual([]);
+    });
+  }
+});
 
 for (const scheme of ['light'] as const) {
   test.describe(`a11y (${scheme})`, () => {

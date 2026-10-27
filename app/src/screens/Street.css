@@ -1,5 +1,5 @@
 /* /street — the map-first "My street" page (.claude/street-map-spec.md § layout, 2026-10-25). Ember & Harbor.
-   Rows, the case card and the filter rail live in components/StreetParts.css; the sheet in components/StreetSheet.css;
+   Rows, the case card and the filters live in components/StreetParts.css; the sheet in components/StreetSheet.css;
    pins and clusters in components/MapView.css. This file owns the shell (body.is-street), the stage, the floating
    controls, the sheet-body sections (landing, empty states, digest, source, tail) and the desktop grid. */
 
@@ -22,7 +22,7 @@
   justify-self: start; background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: var(--radius); font: inherit; font-weight: 600; cursor: pointer;
 }
 
-/* ── Floating controls over the map (phone): 10 + 48 pill + 8 + 44 rail = 110 px = --rail-bottom ─ */
+/* ── Floating controls over the map (phone): 10 + 48 pill + 8 + 44 filter row = 110 px = RAIL_BOTTOM ─ */
 .street-controls { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 2; display: grid; gap: 8px; }
 .street-pill {
   display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px;
@@ -53,8 +53,8 @@
 .street-search-row .street-locate { grid-column: 1 / -1; justify-self: start; }
 
 /* The map key (components/MapKey): on phones a round button at the top right of the band, under the rail (110 + 8),
-   clear of the rail's chips; its dialog may run down over the sheet to the stage's bottom less 12 px. Not drawn at FULL. */
-.street-stage > .street-key { top: 118px; right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - 118px - 12px); }
+   clear of the filter row; its dialog may run down over the sheet to the stage's bottom less 12 px. Not drawn at FULL. */
+.street-stage > .street-key { top: 170px; right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - 170px - 12px); }
 
 /* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles; it stops
    short of the map key's button at the right. */

@@ -122,9 +122,10 @@ const MIN_BAND_PX = 80;
 /** Keep the map on Providence (Rob, 2026-10-27): every case is in the city (live check that day: all 497 located cases
  *  within 0.003° of PVD_BOUNDS) and every search, locate and report pin is gated by inProvidence(), so there is
  *  nothing to see further out — and the self-hosted basemap stops a few km past the line (scripts/fetch-basemap.sh).
- *  Zoom out stops at the landing view: the deepest zoom at which the whole city fits the container less `cityFit` (on
- *  /street's phone layout the band between the rail and the PEEK sheet → z11; beside the 1280×800 panel → z12; the
- *  report picker → the whole container; recomputed on resize and when `cityFit` changes). Panning stops ~1 km past the city — plus the chrome over the map: the rail's height (and a pin head) on
+ *  Zoom out stops at the landing view: the deepest zoom at which the whole city fits the container less `cityFit`, but
+ *  never more than one step below the whole-container fit (on /street's phone layout the band between the filter rows
+ *  and the PEEK sheet → z11; beside the 1280×800 panel → z12; the report picker → the whole container; recomputed on
+ *  resize and when `cityFit` changes). Panning stops ~1 km past the city — plus the chrome over the map: the rail's height (and a pin head) on
  *  the north and the sheet's height on the south, in pixels at the zoom being moved to, so any edge case can still be
  *  brought into the visible band above a half-raised sheet (a pin head's height is added on both sides: the north one
  *  keeps an edge pin's head clear of the rail, the south one keeps the limit's centre on the band's centre, which is
@@ -163,16 +164,20 @@ function keepInCity(map: L.Map, insets: () => MapInsets, cityFit: () => MapInset
   const base = m._getBoundsOffset;
   m._getBoundsOffset = function (this: L.Map, px, _bounds, zoom) { return base.call(this, px, at(zoom ?? this.getZoom()), zoom); };
 
-  /** The deepest zoom at which the whole city fits the band. getBoundsZoom clamps to the current minZoom, so lift it
-   *  first; a band too thin to mean anything falls back to the whole container. */
+  /** The deepest zoom at which the whole city fits the band — but never more than one step below the zoom at which it
+   *  fills the whole map: on a short phone the chrome (two filter rows + the PEEK sheet) leaves a band a few pixels
+   *  shorter than the city at z11, and z10 would show half of Rhode Island; one step keeps the city's edges at most a
+   *  few pixels under the chrome. getBoundsZoom clamps to the current minZoom, so lift it first; a band too thin to
+   *  mean anything falls back to the whole container. */
   const cityZoom = (): number | null => {
     const size = map.getSize();
     if (!size.x || !size.y) return null;
     const fit = cityFit();
     const chrome = fit ? fit.top + fit.bottom : 0;
     map.options.minZoom = 0;
-    const z = map.getBoundsZoom(CITY_LL, false, L.point(0, size.y - chrome >= MIN_BAND_PX ? chrome : 0));
-    return Math.max(MIN_ZOOM_FLOOR, z);
+    const whole = map.getBoundsZoom(CITY_LL, false);
+    const band = map.getBoundsZoom(CITY_LL, false, L.point(0, size.y - chrome >= MIN_BAND_PX ? chrome : 0));
+    return Math.max(MIN_ZOOM_FLOOR, band, whole - 1);
   };
   const refresh = () => { map.options.maxBounds = at(map.getZoom()); };
   let frame = 0;

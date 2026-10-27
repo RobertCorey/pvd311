@@ -27,9 +27,10 @@ export type Detent = 'peek' | 'half' | 'full';
 /** How the user changed the detent (the parent adds 'auto' for its own programmatic changes). */
 export type DetentVia = 'drag' | 'button';
 const DETENTS: readonly Detent[] = ['peek', 'half', 'full'];
-/** FULL stops this many px under the stage top: 10 + 48 pill + 8 + 44 rail (= 110) + 6 gap + 17 px OSM attribution
- *  (lifted by --sheet-h, it must stay readable and tappable at every detent) + 9 breathing room. */
-export const SHEET_FULL_INSET = 142;
+/** FULL stops this many px under the stage top: 10 + 48 pill + 8 + 44 Show + 8 + 44 When / Type (= 162, Street.tsx
+ *  RAIL_BOTTOM) + 6 gap + 17 px OSM attribution (lifted by --sheet-h, it must stay readable and tappable at every
+ *  detent) + 9 breathing room. */
+export const SHEET_FULL_INSET = 194;
 /** Header height with no places row and a one-line subtitle — the PEEK detent before measurement. */
 export const SHEET_PEEK_MIN = 104;
 

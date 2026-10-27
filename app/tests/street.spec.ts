@@ -13,7 +13,15 @@ const grab = (page: Page) => page.locator('.street-grab');
 const title = (page: Page) => page.locator('.street-title');
 const sub = (page: Page) => page.locator('.street-sub');
 const rows = (page: Page) => page.locator('.street-row-btn');
-const chip = (page: Page, name: RegExp) => page.getByRole('button', { name });
+/** The filters (components/StreetFilters.tsx): Show = three radios named "All, n" / "Open, n" / "Closed, n"; the When and
+ *  Type selects, named by their labels; Clear (visible "Clear", named "Clear filters"). */
+const radio = (page: Page, name: RegExp) => page.getByRole('radio', { name });
+const whenSel = (page: Page) => page.getByLabel('When', { exact: true });
+const typeSel = (page: Page) => page.getByLabel('Type', { exact: true });
+const clearBtn = (page: Page) => page.getByRole('button', { name: 'Clear filters', exact: true });
+/** The phone's floating filter rows (Street.tsx RAIL_BOTTOM = 162 px into the stage = their bottom edge). */
+const FILTER_ROW = '.street-filters';
+const RAIL_BOTTOM = 162;
 /** The case overlay's header × — "Back to list" (the card itself has no back button any more). */
 const backX = (page: Page) => page.getByRole('button', { name: 'Back to list' });
 
@@ -131,47 +139,87 @@ test('auto-widen: nothing at z16 → one step to z15 with the note; still nothin
   await expect(page.locator('.street-widened')).toHaveCount(0);
 });
 
-test('filters: status toggles, group chip, Clear, and the window select (7 cuts locally, 90 refetches once)', async ({ page }) => {
+test('filters: Show is one choice of three (All / Open / Closed) with counts, Type is a select, Clear resets; When: 7 cuts locally, 90 refetches once', async ({ page }) => {
   const calls = await point(page);
   await expect(page.locator('.map-case')).toHaveCount(3);
-  await chip(page, /^Closed, 1$/).click();
+  const show = page.getByRole('group', { name: 'Show' });
+  await expect(show.getByRole('radio')).toHaveCount(3);
+  await expect(radio(page, /^All, 3$/)).toBeChecked();
+  await expect(radio(page, /^Open, 2$/)).not.toBeChecked();
+  await expect(radio(page, /^Closed, 1$/)).not.toBeChecked();
+  await expect(clearBtn(page)).toHaveCount(0);
+  // Open: the closed pin and row go.
+  await radio(page, /^Open, 2$/).click();
+  await expect(radio(page, /^Open, 2$/)).toBeChecked();
+  await expect(radio(page, /^All, 3$/)).not.toBeChecked();
   await expect(rows(page)).toHaveCount(2);
   await expect(page.locator('.map-pin--closed')).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]s=open/);
-  await expect(chip(page, /^Closed, /)).toHaveAttribute('aria-pressed', 'false');
-  // Open off while Closed is off → no-op (status alone can never empty the map)
-  await chip(page, /^Open, /).click();
-  await expect(chip(page, /^Open, /)).toHaveAttribute('aria-pressed', 'true');
-  await expect(page).toHaveURL(/[?&]s=open/);
-  await chip(page, /^Clear filters$/).click();
+  // One choice: Closed replaces Open — there is no "both off" any more.
+  await radio(page, /^Closed, 1$/).click();
+  await expect(radio(page, /^Open, 2$/)).not.toBeChecked();
+  await expect(radio(page, /^Closed, 1$/)).toBeChecked();
+  await expect(page).toHaveURL(/[?&]s=closed/);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(page.locator('.map-case:not(.map-pin--closed)')).toHaveCount(0);
+  await radio(page, /^All, 3$/).click();
   await expect(page).not.toHaveURL(/[?&]s=/);
   await expect(rows(page)).toHaveCount(3);
-  await chip(page, /^Streets, 1$/).click();
-  await expect(chip(page, /^Streets, /)).toHaveAttribute('aria-pressed', 'true');
+  await expect(clearBtn(page)).toHaveCount(0);
+  // Type: a select with every group and its count; picking one writes the same g= the old chips did.
+  await expect(typeSel(page)).toHaveValue('');
+  await typeSel(page).selectOption('streets');
   await expect(page).toHaveURL(/[?&]g=streets/);
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first()).toContainText('Pothole');
   await expect(page.locator('.map-case')).toHaveCount(1);
-  await expect(chip(page, /^All, 3$/)).toBeVisible();
+  await expect(typeSel(page).locator('option:checked')).toHaveText('Streets · 1');
+  await expect(typeSel(page).locator('option').first()).toHaveText('All types · 3');
+  // Show's counts follow the type (status released, type applied).
+  await expect(radio(page, /^All, 1$/)).toBeChecked();
+  await expect(radio(page, /^Open, 1$/)).toBeVisible();
+  await expect(radio(page, /^Closed, 0$/)).toBeVisible();
+  // Clear shows off the defaults (visible "Clear", named "Clear filters") and resets everything.
+  await expect(clearBtn(page)).toBeVisible();
+  await expect(clearBtn(page)).toHaveText('Clear');
+  await radio(page, /^Open, 1$/).click();
+  await expect(page).toHaveURL(/[?&]g=streets&s=open/);
+  await clearBtn(page).click();
+  await expect(page).not.toHaveURL(/[?&](g|s|d)=/);
+  await expect(clearBtn(page)).toHaveCount(0);
+  await expect(radio(page, /^All, 3$/)).toBeChecked();
+  await expect(typeSel(page)).toHaveValue('');
+  await expect(rows(page)).toHaveCount(3);
+  // When: a select labelled "When"; the window alone also counts as a filter for Clear.
+  await expect(whenSel(page)).toHaveValue('30');
+  await expect(whenSel(page).locator('option')).toHaveText(['This week', '30 days', '90 days']);
   const before = mapCalls(calls).length;
-  await page.getByLabel('Time window').selectOption('7');
+  await whenSel(page).selectOption('7');
   await expect(page).toHaveURL(/[?&]d=7/);
+  await expect(clearBtn(page)).toBeVisible();
   await page.waitForTimeout(300);
   expect(mapCalls(calls).length).toBe(before);
-  await page.getByLabel('Time window').selectOption('90');
+  await whenSel(page).selectOption('90');
   await expect(page).toHaveURL(/[?&]d=90/);
   await expect.poll(() => mapCalls(calls).filter((c) => c.url.endsWith('days=90')).length).toBe(1);
   expect(mapCalls(calls).length).toBe(before + 1);
+  await clearBtn(page).click();
+  await expect(page).not.toHaveURL(/[?&]d=/);
+  await expect(whenSel(page)).toHaveValue('30');
+  await expect(clearBtn(page)).toHaveCount(0);
 });
 
-test('faceted counts: a chip reads what tapping it would show; a zero chip stays enabled and leads to the counted empty state', async ({ page }) => {
+test('faceted counts: each choice reads what picking it would show; a zero type is still listed, pickable, and leads to the counted empty state', async ({ page }) => {
   await point(page, {}, `${POINT}&s=open`);
-  await expect(chip(page, /^Closed, 1$/)).toHaveAttribute('aria-pressed', 'false');
-  await expect(chip(page, /^Open, 2$/)).toHaveAttribute('aria-pressed', 'true');
-  const trees = chip(page, /^Trees, 0$/);
-  await expect(trees).toBeVisible();
-  await expect(trees).not.toHaveAttribute('aria-disabled', 'true');
-  await trees.click();
+  await expect(radio(page, /^Closed, 1$/)).not.toBeChecked();
+  await expect(radio(page, /^Open, 2$/)).toBeChecked();
+  await expect(radio(page, /^All, 3$/)).not.toBeChecked();
+  // Every group, in GROUP_ORDER, with its count under Open (the closed street light makes Lights 0); zeros included.
+  await expect(typeSel(page).locator('option')).toHaveText([
+    'All types · 2', 'Trash · 1', 'Streets · 1', 'Traffic · 0', 'Trees · 0', 'Property · 0', 'Lights · 0', 'Nuisance · 0', 'Water · 0', 'Animals · 0', 'Other · 0',
+  ]);
+  await typeSel(page).selectOption('trees');
+  await expect(page).toHaveURL(/[?&]g=trees/);
   await expect(sub(page)).toHaveText('0 in view · 0 open · 0 closed');
   await expect(page.locator('.street-none')).toContainText('Nothing here in the last 30 days with these filters.');
   const fix = page.getByRole('button', { name: 'Show all types (2)' });
@@ -179,7 +227,124 @@ test('faceted counts: a chip reads what tapping it would show; a zero chip stays
   await expect(page.getByRole('button', { name: /^Include closed/ })).toHaveCount(0); // closed trees in view: 0 → hidden
   await fix.click();
   await expect(page).not.toHaveURL(/[?&]g=/);
+  await expect(typeSel(page)).toHaveValue('');
   await expect(rows(page)).toHaveCount(2);
+});
+
+test('filters: old links restore — no s (both statuses) → All, s=open → Open, s=closed → Closed, g=trash (/week\'s links) → Trash, d=7 → This week; unknown values fall back to the defaults', async ({ page }) => {
+  await point(page);
+  await expect(radio(page, /^All, 3$/)).toBeChecked();
+  await expect(typeSel(page)).toHaveValue('');
+  await expect(whenSel(page)).toHaveValue('30');
+  await expect(clearBtn(page)).toHaveCount(0);
+  await page.goto(`${POINT}&s=open`);
+  await expect(radio(page, /^Open, 2$/)).toBeChecked();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(clearBtn(page)).toBeVisible();
+  await page.goto(`${POINT}&s=closed`);
+  await expect(radio(page, /^Closed, 1$/)).toBeChecked();
+  await expect(rows(page)).toHaveCount(1);
+  await page.goto(`${POINT}&g=trash`);
+  await expect(typeSel(page)).toHaveValue('trash');
+  await expect(typeSel(page).locator('option:checked')).toHaveText('Trash · 1');
+  await expect(radio(page, /^All, 1$/)).toBeChecked();
+  await expect(rows(page)).toHaveCount(1);
+  await page.goto(`${POINT}&d=7&s=open&g=lights`);
+  await expect(whenSel(page)).toHaveValue('7');
+  await expect(radio(page, /^Open, 0$/)).toBeChecked();
+  await expect(typeSel(page)).toHaveValue('lights');
+  // A value no build ever wrote (s=both, g=nope, d=15) is the default — and Clear has nothing to clear.
+  await page.goto(`${POINT}&s=both&g=nope&d=15`);
+  await expect(rows(page)).toHaveCount(3);
+  await expect(radio(page, /^All, 3$/)).toBeChecked();
+  await expect(typeSel(page)).toHaveValue('');
+  await expect(whenSel(page)).toHaveValue('30');
+  await expect(clearBtn(page)).toHaveCount(0);
+  // /week's "Most reported" rows land on the landing with the type picked.
+  await page.goto('/street?g=other');
+  await waitForMap(page);
+  await expect(typeSel(page)).toHaveValue('other');
+});
+
+test('filters: keyboard — one Tab stop for Show, the arrow keys move the choice within it (and wrap), with a visible ring; then When, then Type', async ({ page }) => {
+  await point(page);
+  await radio(page, /^All, 3$/).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(radio(page, /^Open, 2$/)).toBeFocused();
+  await expect(radio(page, /^Open, 2$/)).toBeChecked();
+  await expect(page).toHaveURL(/[?&]s=open/);
+  await page.keyboard.press('ArrowRight');
+  await expect(radio(page, /^Closed, 1$/)).toBeFocused();
+  await expect(radio(page, /^Closed, 1$/)).toBeChecked();
+  await expect(page).toHaveURL(/[?&]s=closed/);
+  const ring = await page.locator('.street-seg-opt[data-show="closed"] .street-seg-face').evaluate((el) => getComputedStyle(el).outlineStyle);
+  expect(ring).toBe('solid');
+  await page.keyboard.press('ArrowRight');
+  await expect(radio(page, /^All, 3$/)).toBeChecked();
+  await expect(page).not.toHaveURL(/[?&]s=/);
+  await page.keyboard.press('ArrowLeft');
+  await expect(radio(page, /^Closed, 1$/)).toBeChecked();
+  await page.keyboard.press('Tab');
+  await expect(whenSel(page)).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(typeSel(page)).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(radio(page, /^Closed, 1$/)).toBeFocused(); // back into the group lands on the chosen radio
+});
+
+test('filters on the phone: two 44 px rows under the search pill — Show across the width, then When, Type and Clear; labels visually hidden but naming them; they end at RAIL_BOTTOM with or without Clear, clear of the map key; nothing is off-screen or scrolls sideways (Type included, also from a /week deep link); the selects never make iOS zoom', async ({ page }) => {
+  await point(page);
+  const row = page.locator(`.street-controls ${FILTER_ROW}`);
+  await expect(row).toHaveCount(1);
+  const stage = await box(page, '.street-stage'), pill = await box(page, '.street-pill');
+  /** Every control lies inside the screen's 12 px gutters — nothing hidden past an edge. */
+  const inside = async (b: { x: number; width: number }) => { expect(b.x).toBeGreaterThanOrEqual(12 - 0.5); expect(b.x + b.width).toBeLessThanOrEqual(390 - 12 + 0.5); };
+  const check = async () => {
+    const r = (await row.boundingBox())!;
+    expect(r.height).toBeCloseTo(44 + 8 + 44, 0);
+    expect(r.y + r.height - stage.y).toBeCloseTo(RAIL_BOTTOM, 0); // the fits, the in-view band and the city's edges read this constant
+    expect(r.y).toBeGreaterThanOrEqual(pill.y + pill.height);
+    await inside(r);
+    const key = (await page.getByRole('button', { name: 'Map key', exact: true }).boundingBox())!;
+    expect(key.y).toBeGreaterThanOrEqual(r.y + r.height); // nothing in the rows overlaps the map key
+    return r;
+  };
+  const r = await check();
+  // Row 1: the Show segments across the full width, each a 44 px target. Row 2: When then Type, side by side.
+  const seg = await box(page, '.street-controls .street-seg'), when = (await whenSel(page).boundingBox())!, type = (await typeSel(page).boundingBox())!;
+  expect(seg.y).toBeCloseTo(r.y, 0);
+  expect(seg.width).toBeCloseTo(r.width, 0);
+  for (const o of await row.locator('.street-seg-input').all()) expect((await o.boundingBox())!.height).toBeCloseTo(44, 0);
+  for (const b of [when, type]) { expect(b.y).toBeCloseTo(r.y + 52, 0); expect(b.height).toBeCloseTo(44, 0); await inside(b); }
+  expect(when.x + when.width).toBeLessThanOrEqual(type.x);
+  // Labels: visually hidden, still the names (the legend names the group).
+  for (const l of await row.locator('.street-filter-label').all()) expect((await l.boundingBox())!.width).toBeLessThanOrEqual(1);
+  await expect(page.getByRole('group', { name: 'Show' })).toHaveCount(1);
+  expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // iOS Safari zooms the page into any select under 16 px on focus: When and Type are 16 px.
+  expect(await row.locator('select').evaluateAll((els) => els.map((el) => getComputedStyle(el).fontSize))).toEqual(['16px', '16px']);
+  // Clear: the third cell of row 2, in sight, after Type in the tab order; the rows keep their height and bottom.
+  await radio(page, /^Open, 2$/).click();
+  await expect(clearBtn(page)).toBeVisible();
+  await check();
+  const c = (await clearBtn(page).boundingBox())!, type2 = (await typeSel(page).boundingBox())!;
+  expect(c.y).toBeCloseTo(r.y + 52, 0);
+  expect(c.height).toBeCloseTo(44, 0);
+  expect(c.x).toBeGreaterThanOrEqual(type2.x + type2.width);
+  await inside(c);
+  // Clear from the keyboard: the filters reset and focus lands on the checked "All", not <body>.
+  await clearBtn(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(clearBtn(page)).toHaveCount(0);
+  await expect(radio(page, /^All, /)).toBeFocused();
+  // A /week deep link (?g=animals) shows the picked type in its select, in sight — no sideways scroll needed.
+  await page.goto('/street?g=animals');
+  await waitForMap(page);
+  await expect(typeSel(page)).toHaveValue('animals');
+  await inside((await typeSel(page).boundingBox())!);
+  await check();
 });
 
 test('selection via row: the card takes focus, writes case=, marks the pin; Back and Escape return focus to the row', async ({ page }) => {
@@ -276,6 +441,41 @@ test('deep link to a case older than the window (the follow mail, a /my row): fe
   expect(lookups()).toEqual(['old1', 'old2']);
 });
 
+test('a case only the 90-day window holds stays open when the window shrinks under it — Clear, or When → 30 days: fetched by itself, card, × and pin kept', async ({ page }) => {
+  // Closed 45 days ago, 30 m from the point: in the 90-day feed only.
+  const old: Case = { id: 'old3', t: 4, status: 'Resolved', createdDaysAgo: 60, closedDaysAgo: 45, lat: 41.8279, lng: -71.4008, street: '30 Angell St', res: 'Painted over.' };
+  await setup(page, { items90: [...DEFAULT_ITEMS, old] });
+  const card = page.locator('.street-detail');
+  const kept = async () => {
+    await expect(page).toHaveURL(/[?&]case=old3/);
+    await expect(card.locator('.street-fact-place')).toHaveText('30 Angell St');
+    await expect(page.locator('.street-skel--case')).toHaveCount(0);
+    await expect(title(page)).toHaveText('Graffiti');
+    await expect(backX(page)).toBeVisible();
+    await expect(page.locator('.map-pin--selected')).toHaveCount(1);
+  };
+  // Clear (it resets the window too) while the card is open.
+  await page.goto(`${POINT}&d=90`);
+  await waitForMap(page);
+  await page.locator('.street-row-btn[data-id="old3"]').click();
+  await expect(card.locator('.street-fact-place')).toHaveText('30 Angell St');
+  await clearBtn(page).click();
+  await expect(page).not.toHaveURL(/[?&](g|s|d)=/);
+  await expect(whenSel(page)).toHaveValue('30');
+  await kept();
+  // When → 30 days on a deep link to it.
+  await page.goto(`${POINT}&d=90&case=old3`);
+  await waitForMap(page);
+  await expect(card.locator('.street-fact-place')).toHaveText('30 Angell St');
+  await whenSel(page).selectOption('30');
+  await expect(page).not.toHaveURL(/[?&]d=/);
+  await kept();
+  // × still closes it.
+  await backX(page).click();
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(page.locator('.map-pin--selected')).toHaveCount(0);
+});
+
 // ── The case overlay (Rob, 2026-10-27: "When you click on a pin it should show an overlay with all the case details") ──
 const caseCalls = (calls: { url: string }[], id: string) => calls.filter((c) => c.url.endsWith(`/api/street/case/${id}`)).length;
 const box = async (page: Page, sel: string) => (await page.locator(sel).first().boundingBox())!;
@@ -322,7 +522,7 @@ test('case overlay: a pin tap at PEEK → the header is the case (type, status p
     expect(b.y + b.height, sel).toBeLessThanOrEqual(Math.min(bd.y + bd.height, tabTop));
   }
   // The tapped pin is still in the band between the rail and the sheet.
-  const pin = await box(page, '.map-pin--selected'), rail = await box(page, '.street-rail');
+  const pin = await box(page, '.map-pin--selected'), rail = await box(page, FILTER_ROW);
   expect(pin.y + pin.height).toBeLessThanOrEqual(sh.y + 1);
   expect(pin.y).toBeGreaterThanOrEqual(rail.y + rail.height - 1);
   // The rest of the card is reachable by scrolling the body at this detent (it was clipped at HALF before).
@@ -376,6 +576,8 @@ test('case overlay detail: GET /api/street/case/:id once per case — the timeli
   // Closed case: Reported → Closed "8 days after it was reported"; the city's note; no answers; the address only
   // repeats the street (case aside) → not shown.
   await backX(page).click();
+  await setView(page, NEAR[1].lat!, NEAR[1].lng!, 16); // c2 in the band (the HALF band under the two filter rows is short)
+  await page.waitForTimeout(400);
   await page.locator('.street-row-btn[data-id="c2"]').click();
   await expect(card.locator('.street-tl-step')).toHaveCount(2, { timeout: 5000 });
   await expect(card.locator('.street-tl-label')).toHaveText(['Reported', 'Closed']);
@@ -490,25 +692,32 @@ test('pins say more than open/closed: each type group\'s glyph in white in the p
   await expect(page.locator('.map-pin--halo')).toHaveCount(0);
 });
 
-test('legend: the Open and Closed chips lead with a dot in the pin colours (decorative); the chip names are unchanged', async ({ page }) => {
+test('legend: the Open and Closed choices lead with a dot in the pin colours (decorative; All has none); their names are unchanged', async ({ page }) => {
   await point(page);
-  const open = chip(page, /^Open, 2$/), closed = chip(page, /^Closed, 1$/);
-  const dots = page.locator('.street-chip-dot');
-  await expect(dots).toHaveCount(2);
-  await expect(open.locator('.street-chip-dot--open')).toHaveAttribute('aria-hidden', 'true');
-  await expect(closed.locator('.street-chip-dot--closed')).toHaveAttribute('aria-hidden', 'true');
+  await expect(radio(page, /^Open, 2$/)).toBeVisible();
+  await expect(radio(page, /^Closed, 1$/)).toBeVisible();
+  const open = page.locator('.street-seg-opt[data-show="open"]'), closed = page.locator('.street-seg-opt[data-show="closed"]');
+  await expect(page.locator('.street-dot')).toHaveCount(2);
+  await expect(page.locator('.street-seg-opt[data-show="all"] .street-dot')).toHaveCount(0);
+  await expect(open.locator('.street-dot--open')).toHaveAttribute('aria-hidden', 'true');
+  await expect(closed.locator('.street-dot--closed')).toHaveAttribute('aria-hidden', 'true');
   const fillOf = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).fill);
   const bgOf = (sel: string) => page.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(await bgOf('.street-chip-dot--open')).toBe(await fillOf('.mapview .map-case:not(.map-pin--closed) svg > path:nth-of-type(2)'));
-  expect(await bgOf('.street-chip-dot--closed')).toBe(await fillOf('.mapview .map-pin--closed svg > path:nth-of-type(2)'));
-  // The dot comes first in the chip, before the label.
-  expect(await open.evaluate((el) => (el.firstElementChild as HTMLElement).className)).toContain('street-chip-dot');
+  const openPin = await fillOf('.mapview .map-case:not(.map-pin--closed) svg > path:nth-of-type(2)');
+  expect(await bgOf('.street-dot--open')).toBe(openPin);
+  expect(await bgOf('.street-dot--closed')).toBe(await fillOf('.mapview .map-pin--closed svg > path:nth-of-type(2)'));
+  // The dot comes first, before the word.
+  expect(await open.locator('.street-seg-name').evaluate((el) => (el.firstElementChild as HTMLElement).className)).toContain('street-dot');
+  // Chosen (filled ink), the dot keeps the pin colour — only its ring turns paper.
+  await radio(page, /^Open, 2$/).click();
+  await expect(radio(page, /^Open, 2$/)).toBeChecked();
+  expect(await bgOf('.street-dot--open')).toBe(openPin);
 });
 
 test('map key: a 44 px button under the rail opens a dialog drawn with the map\'s own markers — every entry\'s classes match the map\'s, the open pin is the same markup; Escape, ×, the button and an outside tap close it and focus returns to the button', async ({ page }) => {
   await point(page);
   const btn = page.getByRole('button', { name: 'Map key', exact: true });
-  const b = (await btn.boundingBox())!, rail = await box(page, '.street-rail');
+  const b = (await btn.boundingBox())!, rail = await box(page, FILTER_ROW);
   expect(b.width).toBeGreaterThanOrEqual(44);
   expect(b.height).toBeGreaterThanOrEqual(44);
   expect(b.y).toBeGreaterThanOrEqual(rail.y + rail.height); // not in the rail
@@ -676,7 +885,7 @@ test('neighborhoods: the select writes n=, draws the outline and fits; a pan cle
   await expect(page).toHaveURL(/[?&]n=fox-point/);
   await expect(page.locator('.map-hood')).toHaveCount(1);
   await expect(title(page)).toHaveText('Fox Point');
-  await expect.poll(() => zoomOf(page)).toBeGreaterThanOrEqual(13);
+  await expect.poll(() => zoomOf(page)).toBeGreaterThanOrEqual(12); // fitted into the HALF band under the two filter rows
   await page.goto('/street?n=elmhurst');
   await waitForMap(page);
   await expect(title(page)).toHaveText('Elmhurst');
@@ -1150,7 +1359,13 @@ test('error states: a failed feed shows the notice + retry inside the sheet with
   await expect(err).toContainText("Couldn't load the city's list right now.");
   await expect(page.locator('.mapview')).toBeVisible();
   await expect(page.locator('.map-home')).toHaveCount(1);
-  await expect(chip(page, /^Open$/)).toHaveAttribute('aria-disabled', 'true');
+  // The filters stay named and focusable but inert: Show's radios aria-disabled (counts "—"), the selects disabled.
+  await expect(radio(page, /^Open$/)).toHaveAttribute('aria-disabled', 'true');
+  await expect(radio(page, /^All$/)).toBeChecked();
+  await expect(page.locator('.street-seg-n')).toHaveText(['—', '—', '—']);
+  await expect(whenSel(page)).toBeDisabled();
+  await expect(typeSel(page)).toBeDisabled();
+  await expect(typeSel(page).locator('option').first()).toHaveText('All types · —');
   fail = false;
   await err.getByRole('button', { name: 'Try again' }).click();
   await expect(rows(page)).toHaveCount(3);
@@ -1160,7 +1375,7 @@ test('error states: a failed feed shows the notice + retry inside the sheet with
   await waitForMap(page);
   await expect(rows(page)).toHaveCount(3);
   fail = true;
-  await page.getByLabel('Time window').selectOption('90');
+  await whenSel(page).selectOption('90');
   await expect(page.locator('.street-extra')).toContainText('Showing the list from');
   await expect(rows(page)).toHaveCount(3);
 });
@@ -1177,15 +1392,15 @@ test('share: with navigator.share absent the URL lands on the clipboard and the 
   await expect(sub(page)).toHaveText('3 in view · 2 open · 1 closed', { timeout: 5000 });
 });
 
-test('history: Back to list from a deep-linked case never leaves the app, even after a pan or a chip tap; card → card is one entry', async ({ page }) => {
-  // An external link (digest mail, share) with case=: the entry is not ours. Pan, tap a chip, then Back to list.
+test('history: Back to list from a deep-linked case never leaves the app, even after a pan or a filter change; card → card is one entry', async ({ page }) => {
+  // An external link (digest mail, share) with case=: the entry is not ours. Pan, pick Open, then Back to list.
   await setup(page);
   await page.goto(`${POINT}&case=c2`);
   await waitForMap(page);
   await expect(title(page)).toHaveText('Street Light Out');
   await userPan(page, 120, 0);
   await page.waitForTimeout(500);
-  await chip(page, /^Closed, /).click();
+  await radio(page, /^Open, /).click();
   await expect(page).toHaveURL(/[?&]s=open/);
   await backX(page).click();
   await expect(page).toHaveURL(/\/street\?lat=41\.82820&lng=-71\.40050&q=481/);
@@ -1208,14 +1423,14 @@ test('history: Back to list from a deep-linked case never leaves the app, even a
   await backX(page).click();
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(page.locator('.street-detail')).toHaveCount(0);
-  await expect(rows(page)).toHaveCount(3);
+  await expect(rows(page).first()).toBeVisible(); // the in-view list is back (how many fit depends on the band)
   // Escape on a card opened from the list pops the entry we pushed: the card is still there going forward.
   await page.locator('.street-row-btn[data-id="c3"]').click();
   await expect(page.locator('.street-detail')).toBeFocused();
   await page.locator('.street-row-btn[data-id="c3"]').waitFor({ state: 'detached' });
   await page.keyboard.press('Escape');
   await expect(page).not.toHaveURL(/[?&]case=/);
-  await expect(rows(page)).toHaveCount(3);
+  await expect(rows(page).first()).toBeVisible(); // the in-view list is back (how many fit depends on the band)
   await page.goForward();
   await expect(page).toHaveURL(/[?&]case=c3/);
   await expect(title(page)).toHaveText('Overflowing Dumpster');
@@ -1251,7 +1466,7 @@ test('the OSM attribution stays visible and clickable at every detent, and never
     await grab(page).click();
     await expect(sheet(page)).toHaveAttribute('data-detent', d);
     await page.waitForTimeout(300);
-    const a = (await attr.boundingBox())!, sh = (await sheet(page).boundingBox())!, rail = (await page.locator('.street-rail').boundingBox())!;
+    const a = (await attr.boundingBox())!, sh = (await sheet(page).boundingBox())!, rail = (await page.locator(FILTER_ROW).boundingBox())!;
     expect(a.y + a.height).toBeLessThanOrEqual(sh.y);
     expect(a.y).toBeGreaterThanOrEqual(rail.y + rail.height);
     await expect(attr.getByRole('link', { name: 'OpenStreetMap' })).toBeVisible();
@@ -1274,10 +1489,13 @@ test('the map stays on Providence: zoom out stops where the whole city fits; a j
   expect(await mapEval<number>(page, 'm => m.getMinZoom()')).toBe(landingZ);
   await mapEval<void>(page, 'm => m.setZoom(4, { animate: false })');
   await expect.poll(() => zoomOf(page)).toBe(landingZ);
-  // …once the PEEK sheet has settled: the whole city between the rail's bottom and the sheet's top.
+  // …once the PEEK sheet has settled: the whole city between the filter rows and the sheet — the band is a few pixels
+  // shorter than the city at z11 and the floor is never more than one step below the whole-map fit (z12), so its
+  // edges may sit a few pixels under the chrome, never more.
   const peekTop = (await sheet(page).boundingBox())!.y;
-  await expect.poll(() => pageY(page, 41.772, -71.42)).toBeLessThanOrEqual(peekTop);
-  expect(await pageY(page, 41.871, -71.42)).toBeGreaterThanOrEqual(176); // the rail's bottom on this screen
+  const railBottom0 = await page.locator(FILTER_ROW).evaluate((el) => el.getBoundingClientRect().bottom);
+  await expect.poll(() => pageY(page, 41.772, -71.42)).toBeLessThanOrEqual(peekTop + 12);
+  expect(await pageY(page, 41.871, -71.42)).toBeGreaterThanOrEqual(railBottom0 - 12);
 
   // Newport (south-east): the view stops at the corner — east edge at maxLng + 0.01°.
   await setView(page, 41.49, -71.31, 15);
@@ -1294,7 +1512,7 @@ test('the map stays on Providence: zoom out stops where the whole city fits; a j
   await setView(page, 42.0, -71.51, 15);
   v = await edges(page);
   expect(v.w).toBeCloseTo(-71.483, 3);
-  const railBottom = await page.locator('.street-rail').evaluate((el) => el.getBoundingClientRect().bottom);
+  const railBottom = await page.locator(FILTER_ROW).evaluate((el) => el.getBoundingClientRect().bottom);
   expect(Math.abs(await pageY(page, 41.881, -71.48) - (railBottom + 38))).toBeLessThanOrEqual(2); // margin line + rail + pin head
   expect(await pageY(page, 41.871, -71.42)).toBeGreaterThan(railBottom);
 
@@ -1328,13 +1546,74 @@ test.describe('desktop', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const map = (await page.locator('.mapview').boundingBox())!, panel = (await page.locator('.street-panel').boundingBox())!;
     expect(map.x + map.width).toBeLessThanOrEqual(panel.x + 1);
-    await expect(page.locator('.street-panel .street-rail')).toBeVisible();
+    await expect(page.locator(`.street-panel ${FILTER_ROW}`)).toBeVisible();
     await page.goto(POINT);
     await waitForMap(page);
     await expect(rows(page)).toHaveCount(3);
     await rows(page).first().hover();
     await expect(page.locator('.map-pin--hover')).toHaveCount(1);
     await page.screenshot({ path: 'tests/__screenshots__/street-desktop.png' });
+  });
+  test('filters in the panel: three labelled rows — Show, When, Type — label left, control right, lined up; Clear under them only off the defaults; the narrow panel puts the labels above, and no segment overflows (4-digit city counts, Spanish)', async ({ page }) => {
+    await point(page);
+    const f = page.locator(`.street-panel ${FILTER_ROW}`);
+    await expect(f.locator('.street-filter-label')).toHaveText(['Show', 'When', 'Type']);
+    await expect(page.locator(`.street-controls`)).toHaveCount(0); // no floating row on desktop
+    const layout = () => f.locator('.street-filter').evaluateAll((els) => els.map((el) => {
+      const r = (x: Element | null) => { const b = x!.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+      return { label: r(el.querySelector('.street-filter-label')), control: r(el.querySelector('.street-seg, select')) };
+    }));
+    const wide = await layout();
+    expect(wide).toHaveLength(3);
+    for (const { label, control } of wide) {
+      expect(label.x + label.w).toBeLessThanOrEqual(control.x);                                   // label left of its control
+      expect(Math.abs(label.y + label.h / 2 - (control.y + control.h / 2))).toBeLessThanOrEqual(2); // on its line
+      expect(control.h).toBeCloseTo(44, 0);
+      expect(control.x).toBeCloseTo(wide[0].control.x, 0);                                         // the controls line up
+      expect(control.w).toBeCloseTo(wide[0].control.w, 0);
+    }
+    expect(wide[0].control.y + wide[0].control.h).toBeLessThanOrEqual(wide[1].control.y);
+    expect(wide[1].control.y + wide[1].control.h).toBeLessThanOrEqual(wide[2].control.y);
+    // Selected = filled ink with paper text; the others outlined surface.
+    const faceBg = (k: string) => page.locator(`.street-panel .street-seg-opt[data-show="${k}"] .street-seg-face`).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await faceBg('all')).toBe('rgb(22, 33, 58)');
+    expect(await faceBg('open')).not.toBe('rgb(22, 33, 58)');
+    // Clear: only off the defaults, a small text button under the rows at the right.
+    await expect(clearBtn(page)).toHaveCount(0);
+    await radio(page, /^Open, 2$/).click();
+    await expect(clearBtn(page)).toBeVisible();
+    const c = (await clearBtn(page).boundingBox())!, typeRow = wide[2].control;
+    expect(c.y).toBeGreaterThanOrEqual(typeRow.y + typeRow.h);
+    expect(Math.abs(c.x + c.width - (typeRow.x + typeRow.w))).toBeLessThanOrEqual(2);
+    await expect.poll(() => faceBg('open')).toBe('rgb(22, 33, 58)'); // after the .15 s fill transition
+    await clearBtn(page).click();
+    await expect(clearBtn(page)).toHaveCount(0);
+    await expect(radio(page, /^All, 3$/)).toBeChecked();
+    // No segment's words or count are cut, at 1280 (440 px panel) and 800 (360 px panel), citywide (4-digit counts), English and Spanish.
+    const uncut = () => page.locator('.street-panel .street-seg-face').evaluateAll((els) => els.every((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight));
+    await page.goto('/street');
+    await waitForMap(page);
+    await expect(radio(page, /^All, 1234$/)).toBeChecked();
+    expect(await uncut()).toBe(true);
+    const stacked = async () => (await layout()).every(({ label, control }) => label.y + label.h <= control.y + 1);
+    const besides = async () => (await layout()).every(({ label, control }) => label.x + label.w <= control.x);
+    expect(await besides()).toBe(true);
+    await page.setViewportSize({ width: 800, height: 800 });
+    await expect.poll(stacked).toBe(true); // labels above their controls in the 360 px panel
+    expect(await uncut()).toBe(true);
+    await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+    await page.goto('/street');
+    await waitForMap(page);
+    await expect(f.locator('.street-filter-label')).toHaveText(['Mostrar', 'Cuándo', 'Tipo']);
+    await expect(radio(page, /^Todas, 1234$/)).toBeChecked();
+    await expect(page.getByLabel('Tipo', { exact: true }).locator('option').first()).toHaveText('Todos los tipos · 1234');
+    await expect(page.getByLabel('Cuándo', { exact: true })).toHaveValue('30');
+    expect(await stacked()).toBe(true);
+    expect(await uncut()).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect.poll(besides).toBe(true);
+    expect(await uncut()).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
   test('case overlay in the panel: the panel header is the case (type, pill, ×) with the same card; the map key sits in the map\'s top-right corner', async ({ page }) => {
     await setup(page, { details: { c2: detailFor(NEAR[1]) } });
