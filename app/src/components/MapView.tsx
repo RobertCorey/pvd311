@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './MapView.css';
 import { clusterGrid, type Bounds, type Cluster, type ClusterPoint } from '../lib/streetMap';
+import { CITY_MARGIN_DEG, PVD_BOUNDS } from '../lib/geo';
 
 /** A located city case to draw. Pass the whole filtered set: MapView keeps the ones inside `getBounds().pad(0.25)`. */
 export interface MapPoint { id: string; lat: number; lng: number; open: boolean }
@@ -42,6 +43,8 @@ export interface MapViewProps {
   hood?: [number, number][][] | null;
   fit?: MapFit | null;
   insets?: MapInsets;
+  /** The chrome the whole city must fit between at the furthest zoom-out (the landing's detent). Default: none. */
+  cityFit?: MapInsets;
   /** Move the map for a new `selectedId` (panInside its pin, or setView 17 when it is hidden in a cluster) and again
    *  when `insets.bottom` grows while it is selected. Default true. The parent passes false while a URL restore has
    *  framed the view itself (shared c/z, point, neighborhood) so the sender's framing is kept. */
@@ -113,6 +116,106 @@ const SELECTED_Z = 1000;
 const PIN_HEAD_PX = 38;
 /** panInside / centred setView only when the band between the insets is at least this tall (at FULL it is ~8 px). */
 const MIN_BAND_PX = 80;
+
+/** Keep the map on Providence (Rob, 2026-10-27): every case is in the city (live check that day: all 497 located cases
+ *  within 0.003° of PVD_BOUNDS) and every search, locate and report pin is gated by inProvidence(), so there is
+ *  nothing to see further out — and the self-hosted basemap stops a few km past the line (scripts/fetch-basemap.sh).
+ *  Zoom out stops at the landing view: the deepest zoom at which the whole city fits the container less `cityFit` (on
+ *  /street's phone layout the band between the rail and the PEEK sheet → z11; beside the 1280×800 panel → z12; the
+ *  report picker → the whole container; recomputed on resize and when `cityFit` changes). Panning stops ~1 km past the city — plus the chrome over the map: the rail's height (and a pin head) on
+ *  the north and the sheet's height on the south, in pixels at the zoom being moved to, so any edge case can still be
+ *  brought into the visible band above a half-raised sheet (a pin head's height is added on both sides: the north one
+ *  keeps an edge pin's head clear of the rail, the south one keeps the limit's centre on the band's centre, which is
+ *  where Leaflet puts a view taller than the limit). Leaflet takes maxBounds as fixed LatLngs, so the bounds
+ *  are re-derived per zoom by wrapping the one helper every maxBounds check goes through (setView/fitBounds/zoom at the
+ *  target zoom, inertia and keyboard pans); options.maxBounds is kept at the current zoom's value for the drag's
+ *  viscosity, which reads it at dragstart. The after-the-fact correction (a fly or a pinch that ends outside) is ours,
+ *  not setMaxBounds' moveend handler: that one pans with animation from inside the moveend that setView's _stop()
+ *  fires, and the new pan then runs on after the setView, landing ~420 px off (seen on desktop: the default z13 view
+ *  is wider than the limit, the correction started, the point fit interrupted it). Ours waits a frame and skips
+ *  while anything is still animating — that animation's own moveend checks again. */
+const LIMIT_BASE = L.latLngBounds(
+  [PVD_BOUNDS.minLat - CITY_MARGIN_DEG, PVD_BOUNDS.minLng - CITY_MARGIN_DEG],
+  [PVD_BOUNDS.maxLat + CITY_MARGIN_DEG, PVD_BOUNDS.maxLng + CITY_MARGIN_DEG],
+);
+const CITY_LL = L.latLngBounds([PVD_BOUNDS.minLat, PVD_BOUNDS.minLng], [PVD_BOUNDS.maxLat, PVD_BOUNDS.maxLng]);
+/** A container too small to fit the city at any sane zoom (collapsed, hidden) still stops here. */
+const MIN_ZOOM_FLOOR = 10;
+
+interface CityLimit { insetsChanged(): void; resized(): void; dispose(): void }
+/** Leaflet never clears _flyToFrame when a flight ends, so keepInCity clears it on every moveend (a flight in progress
+ *  fires none; a stopped one had its frame cancelled before the interrupting move's moveend). */
+type MapInternals = { _animatingZoom?: boolean; _panAnim?: { _inProgress?: boolean }; _flyToFrame?: number | null };
+
+/** `run` wraps the limit's own moves like any other move MapView makes, so a forced zoom is never taken for a gesture. */
+function keepInCity(map: L.Map, insets: () => MapInsets, cityFit: () => MapInsets | undefined, run: (fn: () => void) => void): CityLimit {
+  const at = (zoom: number) => {
+    if (!Number.isFinite(zoom)) return LIMIT_BASE; // an unmeasured map's fit (NaN zoom): never throw from the limit
+    const ins = insets();
+    const nw = map.project(LIMIT_BASE.getNorthWest(), zoom).subtract([0, ins.top + PIN_HEAD_PX]);
+    const se = map.project(LIMIT_BASE.getSouthEast(), zoom).add([0, ins.bottom + PIN_HEAD_PX]);
+    return L.latLngBounds(map.unproject(nw, zoom), map.unproject(se, zoom));
+  };
+  type Offset = (px: L.Bounds, bounds: L.LatLngBounds, zoom?: number) => L.Point;
+  const m = map as unknown as { _getBoundsOffset: Offset };
+  const base = m._getBoundsOffset;
+  m._getBoundsOffset = function (this: L.Map, px, _bounds, zoom) { return base.call(this, px, at(zoom ?? this.getZoom()), zoom); };
+
+  /** The deepest zoom at which the whole city fits the band. getBoundsZoom clamps to the current minZoom, so lift it
+   *  first; a band too thin to mean anything falls back to the whole container. */
+  const cityZoom = (): number | null => {
+    const size = map.getSize();
+    if (!size.x || !size.y) return null;
+    const fit = cityFit();
+    const chrome = fit ? fit.top + fit.bottom : 0;
+    map.options.minZoom = 0;
+    const z = map.getBoundsZoom(CITY_LL, false, L.point(0, size.y - chrome >= MIN_BAND_PX ? chrome : 0));
+    return Math.max(MIN_ZOOM_FLOOR, z);
+  };
+  const refresh = () => { map.options.maxBounds = at(map.getZoom()); };
+  let frame = 0;
+  const enforce = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const m = map as unknown as MapInternals;
+      if (m._animatingZoom || m._panAnim?._inProgress || m._flyToFrame) return;
+      refresh();
+      const c = map.getCenter();
+      const lim = (map as unknown as { _limitCenter(c: L.LatLng, z: number, b: L.LatLngBounds): L.LatLng })._limitCenter(c, map.getZoom(), map.options.maxBounds as L.LatLngBounds);
+      if (!c.equals(lim)) run(() => map.panTo(lim));
+    });
+  };
+  const resized = () => {
+    const z = cityZoom();
+    if (z != null) {
+      if (map.getZoom() < z) run(() => map.setMinZoom(z));
+      else map.setMinZoom(z);
+    }
+    refresh();
+    enforce();
+  };
+  /** The chrome moved (the sheet changed detent): a lowered sheet tightens the limit, so bring the view back inside now
+   *  rather than on the first frame of the next drag (the drag's viscosity would snap it there). */
+  const insetsChanged = () => { refresh(); enforce(); };
+
+  // First view: clamp without animating (setMinZoom would zoom there), then hold it inside the limit.
+  const z0 = cityZoom();
+  if (z0 != null) {
+    map.options.minZoom = z0;
+    if (map.getZoom() < z0) map.setView(map.getCenter(), z0, { animate: false });
+  }
+  refresh();
+  map.panInsideBounds(map.options.maxBounds!, { animate: false });
+  const flightOver = () => { (map as unknown as MapInternals)._flyToFrame = null; };
+  map.on('zoomend', refresh);
+  map.on('moveend', flightOver);
+  map.on('moveend', enforce);
+  map.on('resize', resized);
+  return {
+    insetsChanged, resized,
+    dispose: () => { cancelAnimationFrame(frame); map.off('zoomend', refresh); map.off('moveend', flightOver); map.off('moveend', enforce); map.off('resize', resized); },
+  };
+}
 
 const fill = (color: string) => (color.startsWith('--') ? `var(${color})` : color);
 
@@ -418,7 +521,19 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     else fn();
   };
 
+  /** A fit needs a measured container: at zero height (the first paint, before the page shell lays out) Leaflet's
+   *  getBoundsZoom returns NaN. Re-measure once; still empty → hold the fit until the map reports a size ('resize'). */
+  let pendingFit: MapFit | null = null;
+  const hasSize = () => {
+    let s = map.getSize();
+    if (!s.x || !s.y) { map.invalidateSize({ pan: false }); s = map.getSize(); }
+    return !!(s.x && s.y);
+  };
+  map.on('resize', () => { if (pendingFit && hasSize()) { const f = pendingFit; pendingFit = null; fit(f); } });
+
   function fit(f: MapFit) {
+    if (!hasSize()) { pendingFit = f; return; }
+    pendingFit = null;
     const first = fitCount++ === 0;
     whenZoomIdle(() => run(() => map.fitBounds(f.bounds, { paddingTopLeft: [0, f.paddingTop], paddingBottomRight: [0, f.paddingBottom], maxZoom: f.maxZoom, animate: !first && !reduced })));
   }
@@ -439,19 +554,20 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     group.clearLayers(); entries.clear();
   }
 
-  return { redraw, scheduleView, selectionChanged, bringSelectedIntoBand, hoverChanged, fit, setView, dispose };
+  return { redraw, scheduleView, selectionChanged, bringSelectedIntoBand, hoverChanged, fit, setView, run, dispose };
 }
 type Controller = ReturnType<typeof createController>;
 
 export default function MapView(props: MapViewProps) {
   const {
     center, zoom, draggablePin = null, height, ariaLabel, frameless = false, zoomControl = true,
-    points, selectedId = null, hoverId = null, home = null, ring = null, hood = null, fit = null, insets,
+    points, selectedId = null, hoverId = null, home = null, ring = null, hood = null, fit = null, insets, cityFit,
   } = props;
   const elRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const ctlRef = useRef<Controller | null>(null);
   const pinRef = useRef<L.Marker | null>(null);
+  const limitRef = useRef<CityLimit | null>(null);
 
   // Keep the latest props in a ref so the init effect stays mount-only and map handlers never go stale.
   const propsRef = useRef(props);
@@ -468,7 +584,11 @@ export default function MapView(props: MapViewProps) {
       zoomControl,
       attributionControl: false,
       keyboard: true,
+      maxBoundsViscosity: 1,
     });
+    const limit = keepInCity(map, () => propsRef.current.insets ?? { top: 0, bottom: 0 }, () => propsRef.current.cityFit,
+      (fn) => { if (ctlRef.current) ctlRef.current.run(fn); else fn(); });
+    limitRef.current = limit;
     L.control.attribution({ position: frameless ? 'bottomleft' : 'bottomright' }).addTo(map);
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', ariaLabel);
@@ -480,7 +600,7 @@ export default function MapView(props: MapViewProps) {
     ctlRef.current = ctl;
     mapRef.current = map;
     // Leaflet can mis-measure if the container animates in; correct on next frame, then report the first view.
-    const t = window.setTimeout(() => { map.invalidateSize(); ctl.scheduleView(); }, 0);
+    const t = window.setTimeout(() => { map.invalidateSize(); limit.resized(); ctl.scheduleView(); }, 0);
 
     const w = window as unknown as { __streetMap?: L.Map };
     if (propsRef.current.testHook) w.__streetMap = map;
@@ -489,11 +609,13 @@ export default function MapView(props: MapViewProps) {
     return () => {
       alive = false;
       window.clearTimeout(t);
+      limit.dispose();
       ctl.dispose();
       map.remove();
       if (w.__streetMap === map) delete w.__streetMap;
       mapRef.current = null;
       ctlRef.current = null;
+      limitRef.current = null;
       pinRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -548,6 +670,16 @@ export default function MapView(props: MapViewProps) {
   useEffect(() => {
     ctlRef.current?.selectionChanged();
   }, [selectedId]);
+
+  // The band moved: re-derive the pan limit for the new chrome (enforced a frame later, and not while a fit animates).
+  useEffect(() => {
+    limitRef.current?.insetsChanged();
+  }, [insets?.top, insets?.bottom]);
+
+  // The landing band changed (the PEEK sheet was measured): re-derive the zoom-out floor.
+  useEffect(() => {
+    limitRef.current?.resized();
+  }, [cityFit?.top, cityFit?.bottom]);
 
   // The sheet rose (or the rail changed) under a selected pin: pan it back into the visible band.
   const insetBottom = insets?.bottom ?? 0;

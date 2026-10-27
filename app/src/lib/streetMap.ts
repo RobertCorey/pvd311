@@ -4,7 +4,7 @@
  *  `map.project(...)` and the unit spec passes a linear scale. The wire types mirror worker/src/street.ts (MapFeed). */
 import { GROUP_ORDER } from '@shared/categories';
 import { groupOf, type GroupKey } from './categories';
-import { PVD_BOUNDS } from './geo';
+import { inCityLimit, PVD_BOUNDS } from './geo';
 import { hoodFromSlug, hoodSlug, NEIGHBORHOOD_NAMES } from './neighborhoods';
 
 /* ── Wire format (GET /api/street/map) ─────────────────────────────────────────────────────────── */
@@ -38,12 +38,18 @@ const minToIso = (min: number): string | null => (Number.isFinite(min) && min > 
 
 /** Tuples → cases: minutes → ISO, `res || null`, open from CLOSED_STATUSES, `group = groupOf(category) ?? 'other'`.
  *  A bad type/status index degrades to '' rather than throwing (one odd row must not blank the page). Array order kept. */
+/** A coordinate pair the map can show. One geocoded past the city margin (the Worker accepts anything in Rhode Island)
+ *  is treated as unplaced — listed with "not on the map yet" — because the map cannot pan there (MapView keepInCity). */
+function isPlaced(lat: unknown, lng: unknown): boolean {
+  return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) && inCityLimit(lat, lng);
+}
+
 export function decodeFeed(feed: MapFeed): StreetMap {
   const types = feed.types ?? [], statuses = feed.statuses ?? [];
   const cases: MapCase[] = (feed.items ?? []).map(([id, t, s, createdMin, closedMin, lat, lng, street, res]) => {
     const [caseType, category] = types[t] ?? ['', 'unsure'];
     const status = statuses[s] ?? '';
-    const located = typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng);
+    const located = isPlaced(lat, lng);
     return {
       id: String(id), caseType, category, group: groupOf(category) ?? 'other', status, open: !CLOSED_STATUSES.has(status),
       createdAt: minToIso(createdMin), closedAt: minToIso(closedMin), street: street || '',
@@ -63,7 +69,7 @@ export interface StreetCaseWire {
 export function decodeCase(w: Partial<StreetCaseWire>): MapCase {
   const status = typeof w.status === 'string' ? w.status : '';
   const category = typeof w.category === 'string' && w.category ? w.category : 'unsure';
-  const located = typeof w.lat === 'number' && typeof w.lng === 'number' && Number.isFinite(w.lat) && Number.isFinite(w.lng);
+  const located = isPlaced(w.lat, w.lng);
   return {
     id: String(w.id ?? ''), caseType: typeof w.caseType === 'string' ? w.caseType : '', category, group: groupOf(category) ?? 'other', status, open: !CLOSED_STATUSES.has(status),
     createdAt: typeof w.createdAt === 'string' ? w.createdAt : null, closedAt: typeof w.closedAt === 'string' ? w.closedAt : null,

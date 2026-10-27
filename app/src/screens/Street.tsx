@@ -14,6 +14,12 @@ import {
   parseStreetUrl, placeActivity, sortForPoint, summaryOf, topTypes, writeStreetUrl, type Bounds, type Filters, type LatLng, type StreetUrlState,
 } from '../lib/streetMap';
 import { DESKTOP_MQ, useMediaQuery } from '../lib/useMediaQuery';
+import { useInstallPrompt } from '../lib/useInstallPrompt';
+import { currentEnv, isIOS } from '../lib/push';
+import {
+  bumpVisits, INSTALL_FROM_VISIT, installSnoozed, isNewSince, newCutoff, newestCreated, newSince, readSeenAt, readSeenFeedAt,
+  sinceCutoff, sinceWhen, snoozeInstall, writeSeenAt, writeSeenFeedAt,
+} from '../lib/streetVisit';
 import MapView, { type MapFit, type MapPoint, type MapViewChange } from '../components/MapView';
 import StreetSheet, { SHEET_FULL_INSET, SHEET_PEEK_MIN, type Detent, type DetentVia } from '../components/StreetSheet';
 import StreetFilters from '../components/StreetFilters';
@@ -143,7 +149,6 @@ export default function Street() {
     ro?.observe(stage);
     return () => { mo.disconnect(); ro?.disconnect(); window.clearTimeout(timer); };
   }, [desktop]);
-  useEffect(() => { if (!desktop && detent === 'peek' && sheetH > 0) setPeekH(sheetH); }, [desktop, detent, sheetH]);
 
   /** The sheet height at detent `d` — the height it is about to have, not the one the 60 ms mirror last saw.
    *  `stage` overrides the mirrored stage height (doFit passes the live measurement: a fit can run before the mirror has). */
@@ -157,6 +162,8 @@ export default function Street() {
   // clear of the HALF sheet in the same commit that raises it (the mirrored --sheet-h would still read PEEK).
   const sheetTop = sheetHeightAt(detent);
   const insets = useMemo(() => (desktop ? { top: 0, bottom: 0 } : { top: RAIL_BOTTOM, bottom: sheetTop }), [desktop, sheetTop]);
+  const peekTop = sheetHeightAt('peek');
+  const cityFit = useMemo(() => (desktop ? undefined : { top: RAIL_BOTTOM, bottom: peekTop }), [desktop, peekTop]);
 
   /** A programmatic fit: the point/bounds centred in the band between the rail and the sheet at detent `d`. */
   const doFit = useCallback((bounds: L.LatLngBoundsLiteral, d: Detent, name: string, maxZoom?: number) => {
@@ -215,6 +222,21 @@ export default function Street() {
     else if (target === 'case') { /* the case effect fits when the feed arrives */ }
     else if (prev == null || prev.startsWith('pt:')) doFit(CITY_LL, 'peek', target); // first paint, or the × cleared the address; a pan that left a hood never recentres
   }, [url.hood, pointKey, goSeq, nb, url.caseId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The PEEK sheet settles after the first city fit (the subtitle wraps, the "since you last looked" line lands), and
+  // the city is the furthest out the map goes: refit the untouched city view so its southern edge is not left under it.
+  const peekFitRef = useRef(peekH);
+  useEffect(() => {
+    if (peekFitRef.current === peekH) return;
+    peekFitRef.current = peekH;
+    // Only while the map still shows that fit — read live, not from the debounced view: moving the map rewrites the
+    // summary, which resizes the header and lands here within the debounce (and a cluster flight is not a gesture).
+    const m = map as (L.Map & { _flyToFrame?: number | null; _animatingZoom?: boolean; _panAnim?: { _inProgress?: boolean } }) | null;
+    const f = fittedRef.current;
+    if (!m || !f || m._flyToFrame || m._animatingZoom || m._panAnim?._inProgress) return;
+    const c = m.getCenter();
+    const untouched = Math.round(m.getZoom()) === Math.round(f.zoom) && metersBetween(c.lat, c.lng, f.center.lat, f.center.lng) <= 30;
+    if (!desktop && lastTargetRef.current === 'city' && !moved && untouched && detent === 'peek' && !url.caseId) doFit(CITY_LL, 'peek', 'city');
+  }, [peekH]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Selection (case=) ────────────────────────────────────────────────────────────────────────── */
   // A case= missing from the loaded window is looked up on its own; `lookedUp.c === null` = the city's record is gone.
@@ -408,6 +430,8 @@ export default function Street() {
   useEffect(() => { setText(url.q); }, [url.q]);
 
   function go(address: string, la: number, ln: number) {
+    // Search and locate check this already; a saved place (Account accepts any address) must too — the map cannot go there.
+    if (!inProvidence(la, ln)) { setMsg(t('street.outside')); return; }
     setMsg(null); setStackIds(null); setGoSeq((s) => s + 1);
     setUrl({ lat: la, lng: ln, q: address, caseId: null, hood: null, center: null, zoom: null }, false);
     setDetent('half', 'auto');
@@ -456,7 +480,9 @@ export default function Street() {
     setStackIds(null);
     setUrl({ hood: null, center: null, zoom: null, caseId: null }, true);
     lastTargetRef.current = 'city';
-    doFit(CITY_LL, detent, 'city');
+    // The whole city fits the PEEK band (MapView's zoom-out floor is derived from it), so lower the sheet with the fit.
+    setDetent('peek', 'auto');
+    doFit(CITY_LL, 'peek', 'city');
   };
   const zoomOut = () => { if (map) map.setZoom(Math.max(10, map.getZoom() - 2)); };
 
@@ -523,10 +549,11 @@ export default function Street() {
 
   /* ── Render helpers ───────────────────────────────────────────────────────────────────────────── */
   const [hover, setHover] = useState<string | null>(null);
-  const row = (c: MapCase) => (
+  const rowWith = (c: MapCase, tag?: string) => (
     <StreetRow key={c.id} c={c} hood={hoodOf(c)} distanceM={point ? distanceM(c, point) : null} selected={c.id === url.caseId}
-      onSelect={(id) => selectCase(id, 'row')} onHover={desktop ? setHover : undefined} nowMs={nowMs} />
+      onSelect={(id) => selectCase(id, 'row')} onHover={desktop ? setHover : undefined} nowMs={nowMs} tag={tag} />
   );
+  const row = (c: MapCase) => rowWith(c);
   const topChips = top3.length > 0 && (
     <ul className="street-top" aria-label={t('street.city.top')}>
       {top3.map((x) => (
@@ -637,6 +664,87 @@ export default function Street() {
     </section>
   );
 
+  /* ── Return visit: "since you last looked" + the home-screen nudge (lib/streetVisit.ts) ─────────── */
+  // The previous visit's seenAt is read once at mount; the new one and the visit count are written only after the feed
+  // has loaded with the landing sheet on screen (once per mount) — so the comparison is always against the PREVIOUS visit,
+  // and a digest link straight to an address never counts as having looked at the landing.
+  const [prevSeenAt] = useState(() => readSeenAt());
+  const [prevSeenFeedAt] = useState(() => readSeenFeedAt());
+  const [visitNo, setVisitNo] = useState<number | null>(null);
+  const landingShown = landing && !url.caseId && !stackIds && !!data;
+  const visitedRef = useRef(false);
+  useEffect(() => {
+    if (!landingShown || visitedRef.current) return;
+    visitedRef.current = true;
+    const now = Date.now();
+    writeSeenAt(now);
+    writeSeenFeedAt(Math.min(now, newestCreated(data?.cases ?? []) ?? now));
+    setVisitNo(bumpVisits());
+  }, [landingShown]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The second subtitle line + the "New" tags: only with a previous visit at least an hour old (sinceCutoff), over the
+  // whole loaded feed (not the filters) — cases the city did not have last time. Plain text in the header (StreetSheet
+  // `note`), never a second live region.
+  const visitCutoff = sinceCutoff(prevSeenAt, nowMs);
+  const cutoff = newCutoff(visitCutoff, prevSeenFeedAt); // what counts as new: after the newest case that visit saw
+  const sinceN = useMemo(() => (cutoff != null && data ? newSince(data.cases, cutoff) : null), [cutoff, data]);
+  let sinceNote: string | undefined;
+  if (landingShown && visitCutoff != null && sinceN != null) {
+    const w = sinceWhen(visitCutoff, nowMs); // "when" is the visit, not the newest case it showed
+    const when = w === 'today' ? t('street.ago.today') : w === 'yesterday' ? t('street.ago.yesterday') : w === 'while' ? t('street.since.while') : t('street.ago.days', { n: w.days });
+    sinceNote = sinceN === 0 ? t('street.since.none', { when }) : t(sinceN === 1 ? 'street.since.one' : 'street.since', { n: num(sinceN), when });
+  }
+  // Home-screen nudge: from the 2nd landing visit, on a phone that can install (Chromium's beforeinstallprompt, or any
+  // iPhone browser tab — iOS has no prompt event and only pushes from a Home Screen app), never once installed
+  // (standalone), never at ≥ 720 px, held 30 days by "Not now". In the body (the sheet's PEEK height does not move).
+  const { canInstall, install } = useInstallPrompt();
+  const [env] = useState(() => currentEnv());
+  const iosTab = isIOS(env) && !env.standalone;
+  const [installState, setInstallState] = useState<'offer' | 'hint' | 'done'>(() => (installSnoozed(Date.now()) ? 'done' : 'offer'));
+  const nudgeShown = landingShown && !desktop && !env.standalone && installState !== 'done' && visitNo != null && visitNo >= INSTALL_FROM_VISIT && (canInstall || iosTab) && filtered.length > 0;
+  const nudgeTracked = useRef(false);
+  useEffect(() => {
+    if (!nudgeShown || nudgeTracked.current) return;
+    nudgeTracked.current = true;
+    track('street_install_shown', { via: canInstall ? 'prompt' : 'ios' });
+  }, [nudgeShown, canInstall]);
+  // Both buttons remove themselves (the CTA on iPhone, the whole card otherwise): focus moves on with them, to the hint
+  // or to the next control in the sheet after the card, instead of falling to <body>.
+  const installRef = useRef<HTMLElement | null>(null);
+  const installHintRef = useRef<HTMLParagraphElement | null>(null);
+  const afterInstallRef = useRef<HTMLElement | null>(null);
+  const installFocus = useRef(false);
+  const leaveInstall = () => {
+    const card = installRef.current;
+    installFocus.current = !!card && card.contains(document.activeElement);
+    if (!card || !installFocus.current) return;
+    const sheetEl = card.closest('.street-sheet, .street-panel') ?? document;
+    const all = Array.from(sheetEl.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), select:not([disabled]), input:not([disabled])'));
+    afterInstallRef.current = all.find((el) => !card.contains(el) && !!(card.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) ?? null;
+  };
+  useEffect(() => {
+    if (!installFocus.current) return;
+    if (installState === 'hint') installHintRef.current?.focus();
+    else if (installState === 'done') { installFocus.current = false; if (afterInstallRef.current?.isConnected) afterInstallRef.current.focus(); afterInstallRef.current = null; }
+  }, [installState]);
+  const installTap = async () => {
+    track('street_install_tap', { via: canInstall ? 'prompt' : 'ios' });
+    leaveInstall();
+    if (canInstall) { try { await install(); } catch { /* the browser declined to show its prompt */ } setInstallState('done'); }
+    else setInstallState('hint');
+  };
+  const installLater = () => { track('street_install_later'); leaveInstall(); snoozeInstall(Date.now()); setInstallState('done'); };
+  const installCard = (
+    <section ref={installRef} className="card street-install" aria-labelledby="street-install-h">
+      <h3 id="street-install-h" className="street-install-title">{t('street.install.title')}</h3>
+      <p className="street-install-body">{t('street.install.body')}</p>
+      <p ref={installHintRef} className="street-install-ios" role="status" tabIndex={-1}>{installState === 'hint' ? t('street.install.ios') : null}</p>
+      <div className="street-install-actions">
+        {installState !== 'hint' && <button type="button" className="btn btn-secondary street-install-cta" onClick={() => { void installTap(); }}>{t('street.install.cta')}</button>}
+        <button type="button" className="btn btn-ghost street-install-later" onClick={installLater}>{t('street.install.later')}</button>
+      </div>
+    </section>
+  );
+
   function renderBody(): ReactNode {
     if (!data) {
       if (feedState === 'error') return <div className="notice notice-error"><span>{t('street.error')}</span><button type="button" className="btn btn-ghost" onClick={() => setRetryTick((x) => x + 1)}>{t('street.retry')}</button></div>;
@@ -676,13 +784,14 @@ export default function Street() {
       if (filtered.length === 0) return renderEmpty();
       return (
         <>
+          {nudgeShown && installCard}
           {placesShown && placesCard}
           <Link to="/week" className="card street-week-link">{t('street.weekLink')}</Link>
           <h3 className="street-h">{t('street.city.top')}</h3>
           {topChips}
           {hoodSelect}
           <h3 className="street-h">{t('street.city.latest')}</h3>
-          <ul className="street-list">{filtered.slice(0, LATEST).map(row)}</ul>
+          <ul className="street-list">{filtered.slice(0, LATEST).map((c) => rowWith(c, isNewSince(c, cutoff) ? t('street.newTag') : undefined))}</ul>
         </>
       );
     }
@@ -779,10 +888,11 @@ export default function Street() {
       <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
       {!desktop && controls}
       <StreetSheet
-        detent={detent} onDetent={setDetent} title={title} subtitle={flash ?? subtitle}
+        detent={detent} onDetent={setDetent} title={title} subtitle={flash ?? subtitle} note={sinceNote}
         labels={{ show: t('street.sheet.show'), more: t('street.sheet.more'), hide: t('street.sheet.hide'), map: t('street.sheet.map') }}
         places={places} extra={extraLines.length ? extraLines : undefined} actions={shareBtn} controls={desktop ? controls : undefined}
         tail={tail} desktop={desktop} panelLabel={t('street.title')} busy={feedState === 'loading' && !!data}
+        onPeekHeight={desktop ? undefined : setPeekH}
       >
         {body}
       </StreetSheet>
@@ -791,7 +901,7 @@ export default function Street() {
         ariaLabel={t('street.map.label')} frameless={!desktop} zoomControl={desktop}
         points={points} selectedId={url.caseId} hoverId={hover} panToSelection={panToSelection}
         onSelect={(id) => selectCase(id, 'pin')} onStackTap={onStackTap} onClusterTap={onClusterTap} onBackgroundTap={onBackgroundTap} onViewChange={onViewChange}
-        home={point} ring={point ? RING_M : null} hood={hoodRings} fit={fit} insets={insets}
+        home={point} ring={point ? RING_M : null} hood={hoodRings} fit={fit} insets={insets} cityFit={cityFit}
         onReady={(m) => { setMap(m); m.getContainer().setAttribute('aria-describedby', 'street-map-hint'); }}
         testHook={TEST_HOOK}
       />

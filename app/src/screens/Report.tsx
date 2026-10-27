@@ -628,7 +628,13 @@ export default function Report() {
           </button>
         )}
         <label className="label" htmlFor="address">{t('report.location.label')}</label>
-        <SavedAddresses onPick={(a) => { setAddress(a.address); geocodedFor.current = a.address; setOutside(false); setAddrFeedback(null); if (a.lat != null && a.lng != null) setLoc({ lat: a.lat, lng: a.lng }); }} />
+        <SavedAddresses onPick={(a) => {
+          setAddress(a.address); geocodedFor.current = a.address;
+          // Account accepts any address: one saved outside the city is refused like a typed one.
+          if (a.lat != null && a.lng != null && !inProvidence(a.lat, a.lng)) { setOutside(true); setLoc(null); setAddrFeedback(t('report.location.savedOutside')); return; }
+          setOutside(false); setAddrFeedback(null);
+          if (a.lat != null && a.lng != null) setLoc({ lat: a.lat, lng: a.lng });
+        }} />
         <input id="address" className="input" value={address} placeholder={t('report.location.placeholder')}
           autoComplete="street-address" onChange={(e) => { setAddress(e.target.value); setAddrFeedback(null); if (!photoHasGps) { setLoc(null); setOutside(false); } }} onBlur={geocodeAddress} />
         {addrFeedback && <div className="notice notice-warn" role="alert">{addrFeedback}</div>}

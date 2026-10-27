@@ -3,11 +3,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
+  ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, DAY_MS, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
   inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, neighborhoodAt, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
+import { INSTALL_FROM_VISIT, INSTALL_SNOOZE_MS, isNewSince, newCutoff, newestCreated, newSince, SINCE_MIN_MS, sinceCutoff, sinceWhen, WHILE_DAYS } from '../src/lib/streetVisit';
 import { hoodOf, hoodSlug as sharedHoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES as SHARED_NAMES, ringBounds as sharedRingBounds } from '../../shared/neighborhoods';
 
 // Pure-module unit tests for the /street map page: no browser, no page fixture — Playwright's runner imports the TS
@@ -399,4 +400,52 @@ test.describe('placeActivity', () => {
     expect(edge(0.00269)).toBe(1);
     expect(edge(0.00272)).toBe(0);
   });
+});
+
+test('streetVisit: sinceCutoff needs a previous visit at least an hour old; isNewSince/newSince count createdAt strictly after it (closing is not new, an unparseable date never is); sinceWhen phrases; the nudge constants', () => {
+  const now = Date.parse('2026-10-26T12:00:00Z');
+  expect(sinceCutoff(null, now)).toBeNull();
+  expect(sinceCutoff(now - SINCE_MIN_MS + 1, now)).toBeNull();
+  expect(sinceCutoff(now - SINCE_MIN_MS, now)).toBe(now - SINCE_MIN_MS);
+  expect(sinceCutoff(now + 60_000, now)).toBeNull(); // a clock that went backwards: nothing to compare
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const mk = (createdAt: string | null, closedAt: string | null = null): MapCase => ({ id: 'x', caseType: 'Pothole', category: 'pothole', group: 'streets', status: 'Submitted', open: true, createdAt, closedAt, street: '', resolution: null, lat: null, lng: null });
+  const cut = now - 2 * DAY_MS;
+  expect(isNewSince(mk(iso(cut + 1)), cut)).toBe(true);
+  expect(isNewSince(mk(iso(cut)), cut)).toBe(false);
+  expect(isNewSince({ ...mk(iso(cut - 1), iso(now)), open: false, status: 'Resolved' }, cut)).toBe(false); // closed since: not "new"
+  expect(isNewSince(mk(null), cut)).toBe(false);
+  expect(isNewSince(mk('garbage'), cut)).toBe(false);
+  expect(isNewSince(mk(iso(now)), null)).toBe(false);
+  expect(newSince([mk(iso(now)), mk(iso(cut - DAY_MS)), mk(iso(cut + 60_000)), mk(null)], cut)).toBe(2);
+  expect(sinceWhen(now - 3 * 60 * 60_000, now)).toBe('today');
+  expect(sinceWhen(now - DAY_MS, now)).toBe('yesterday');
+  expect(sinceWhen(now - 2.5 * DAY_MS, now)).toEqual({ days: 2 });
+  expect(sinceWhen(now - (WHILE_DAYS - 1) * DAY_MS, now)).toEqual({ days: WHILE_DAYS - 1 });
+  expect(sinceWhen(now - WHILE_DAYS * DAY_MS, now)).toBe('while');
+  expect(sinceWhen(now - 400 * DAY_MS, now)).toBe('while');
+  expect(INSTALL_SNOOZE_MS).toBe(30 * DAY_MS);
+  expect(INSTALL_FROM_VISIT).toBe(2);
+});
+
+test('streetVisit: newestCreated is the latest parseable createdAt; newCutoff is the newest case the visit saw, capped at the visit, the visit itself without one, null without a visit', () => {
+  const mk = (createdAt: string | null) => ({ ...DECODED.cases[0], createdAt });
+  expect(newestCreated([])).toBeNull();
+  expect(newestCreated([mk(null), mk('nope')])).toBeNull();
+  expect(newestCreated([mk('2026-10-20T10:00:00.000Z'), mk(null), mk('2026-10-21T09:00:00.000Z')])).toBe(Date.parse('2026-10-21T09:00:00.000Z'));
+  expect(newCutoff(null, 5)).toBeNull();
+  expect(newCutoff(1000, null)).toBe(1000);
+  expect(newCutoff(1000, 400)).toBe(400);
+  expect(newCutoff(1000, 4000)).toBe(1000); // a clock-skewed case newer than the visit never pushes the cutoff past it
+});
+
+test('decode: a case geocoded past the city margin is unplaced (the map cannot pan there); one just over the line is kept', () => {
+  const feed: MapFeed = { ...FEED, items: [
+    ['far', 0, 0, 29_000_000, 0, 41.70, -71.42, 'Warwick Ave', 0],
+    ['edge', 0, 0, 29_000_000, 0, 41.874, -71.428, 'Florence St', 0],
+  ] };
+  const [far, edge] = decodeFeed(feed).cases;
+  expect([far.lat, far.lng]).toEqual([null, null]);
+  expect([edge.lat, edge.lng]).toEqual([41.874, -71.428]);
+  expect(decodeCase({ id: 'x', lat: 42.0, lng: -71.4 }).lat).toBeNull();
 });

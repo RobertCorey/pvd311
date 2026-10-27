@@ -1,4 +1,10 @@
 export const PVD_BOUNDS = { minLat: 41.772, maxLat: 41.871, minLng: -71.473, maxLng: -71.37 } as const;
+/** How far past PVD_BOUNDS the map may pan (MapView) and a city case may sit and still be drawn (streetMap decode):
+ *  ~1 km. Live 2026-10-27, every located case was within 0.003° of the box. */
+export const CITY_MARGIN_DEG = 0.01;
+export const inCityLimit = (lat: number, lng: number) =>
+  lat >= PVD_BOUNDS.minLat - CITY_MARGIN_DEG && lat <= PVD_BOUNDS.maxLat + CITY_MARGIN_DEG &&
+  lng >= PVD_BOUNDS.minLng - CITY_MARGIN_DEG && lng <= PVD_BOUNDS.maxLng + CITY_MARGIN_DEG;
 export const inProvidence = (lat: number, lng: number) =>
   lat >= PVD_BOUNDS.minLat && lat <= PVD_BOUNDS.maxLat && lng >= PVD_BOUNDS.minLng && lng <= PVD_BOUNDS.maxLng;
 

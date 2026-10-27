@@ -35,6 +35,9 @@
 }
 /* Wraps when it must (ellipsis would eat "last 30 days"); the measured PEEK follows. Muted on surface: 5.9:1. */
 .street-sub { margin: 0; font-size: 0.8rem; line-height: 20px; color: var(--muted); text-wrap: pretty; }
+/* Return visit: the second subtitle line ("3 new since you last looked (2 days ago)") — the subtitle's metrics, in ink and a
+   touch heavier: the payoff of coming back. Its own class (not .street-sub) so the live summary stays one element. */
+.street-since { margin: 0; font-size: 0.8rem; line-height: 20px; color: var(--ink); font-weight: 600; text-wrap: pretty; }
 .street-head-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .street-map-chip { min-height: 40px; padding: 6px 12px; font-size: 0.9rem; }
 

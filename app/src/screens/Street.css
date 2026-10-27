@@ -82,6 +82,19 @@
 .street-place-n--quiet { color: var(--muted); }
 .street-place-go { flex: 0 0 auto; color: var(--muted); font-size: 1.1rem; line-height: 1; }
 
+/* Home-screen nudge (landing, from the 2nd visit, on a phone that can install and has not): one compact card at the top
+   of the list — title, one line of why, the 44 px CTA (ember-stroked, the action) and a ghost "Not now". The iPhone
+   hint ("Share → Add to Home Screen") fills the status line once the CTA is tapped; empty it takes no room. */
+.street-install { margin: 6px 0 0; padding: 12px 14px; display: grid; gap: 4px; }
+.street-install-title { margin: 0; font-family: var(--font-display); font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; color: var(--ink); }
+.street-install-body { margin: 0; font-size: 0.85rem; line-height: 1.4; color: var(--muted); }
+.street-install-ios { margin: 2px 0 0; font-weight: 600; color: var(--ink); }
+.street-install-ios:empty { margin: 0; } /* kept in the tree (no display:none) so VoiceOver hears it fill */
+.street-install-ios:focus { outline: none; }
+.street-install-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.street-install-actions .btn { width: auto; min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; }
+.street-install-actions .btn-secondary { border-color: var(--ember); }
+
 /* "This week in Providence →": one card row at the top of the landing list, leading to /week. */
 .street-week-link { display: block; margin: 6px 0 0; padding: 12px 14px; text-decoration: none; color: var(--ink); font-family: var(--font-display); font-weight: 700; font-size: 1rem; }
 .street-week-link:hover { border-color: var(--ink); }

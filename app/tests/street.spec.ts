@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
-import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
+import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
 import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
 
 // /street — the map-first "My street" page (.claude/street-map-spec.md): one mocked GET /api/street/map, everything else
@@ -309,7 +309,8 @@ test('the in-view list follows the map: an empty corner → zeros, plain empty c
   await page.getByRole('button', { name: 'Zoom out' }).click();
   await expect.poll(() => zoomOf(page)).toBe(14);
   await page.locator('.street-none').getByRole('button', { name: 'See the whole city' }).click();
-  await expect.poll(() => zoomOf(page)).toBeLessThanOrEqual(13);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek'); // the whole city is the PEEK band's view
+  await expect.poll(() => zoomOf(page)).toBe(await mapEval<number>(page, 'm => m.getMinZoom()'));
   await expect(title(page)).toHaveText('Providence');
   await expect(page).not.toHaveURL(/[?&][cz]=/);
 });
@@ -907,6 +908,59 @@ test('the OSM attribution stays visible and clickable at every detent, and never
   expect(await attr.locator('a').first().evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('auto');
 });
 
+/** The view's edges, and where a latitude line sits on the page (map container top + container y). */
+const edges = (page: Page) => mapEval<{ n: number; s: number; e: number; w: number; z: number }>(page, 'm => { const b = m.getBounds(); return { n: b.getNorth(), s: b.getSouth(), e: b.getEast(), w: b.getWest(), z: m.getZoom() }; }');
+const pageY = (page: Page, lat: number, lng: number) => mapEval<number>(page, `m => m.getContainer().getBoundingClientRect().top + m.latLngToContainerPoint([${lat}, ${lng}]).y`);
+
+test('the map stays on Providence: zoom out stops where the whole city fits; a jump or a pan far away stops ~1 km past the line — further south only by the sheet, so the southern edge still clears it', async ({ page }) => {
+  await landing(page);
+  // The landing is the furthest out: the whole city between the rail and the PEEK sheet (390×514 map → z11).
+  const landingZ = await zoomOf(page);
+  expect(landingZ).toBe(11);
+  expect(await mapEval<number>(page, 'm => m.getMinZoom()')).toBe(landingZ);
+  await mapEval<void>(page, 'm => m.setZoom(4, { animate: false })');
+  await expect.poll(() => zoomOf(page)).toBe(landingZ);
+  // …once the PEEK sheet has settled: the whole city between the rail's bottom and the sheet's top.
+  const peekTop = (await sheet(page).boundingBox())!.y;
+  await expect.poll(() => pageY(page, 41.772, -71.42)).toBeLessThanOrEqual(peekTop);
+  expect(await pageY(page, 41.871, -71.42)).toBeGreaterThanOrEqual(176); // the rail's bottom on this screen
+
+  // Newport (south-east): the view stops at the corner — east edge at maxLng + 0.01°.
+  await setView(page, 41.49, -71.31, 15);
+  let v = await edges(page);
+  expect(v.z).toBe(15);
+  expect(v.e).toBeCloseTo(-71.36, 3);
+  // The south limit is the margin line (41.762) dropped by the sheet's height + a pin head: that line sits exactly
+  // a pin head above the sheet, and the city's southern line clears it.
+  const sheetTop = (await sheet(page).boundingBox())!.y;
+  expect(Math.abs(await pageY(page, 41.762, -71.42) - (sheetTop - 38))).toBeLessThanOrEqual(2);
+  expect(await pageY(page, 41.772, -71.42)).toBeLessThan(sheetTop - 16);
+
+  // Woonsocket (north-west): west edge at minLng − 0.01°, the northern line clear of the search rail.
+  await setView(page, 42.0, -71.51, 15);
+  v = await edges(page);
+  expect(v.w).toBeCloseTo(-71.483, 3);
+  const railBottom = await page.locator('.street-rail').evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(Math.abs(await pageY(page, 41.881, -71.48) - (railBottom + 38))).toBeLessThanOrEqual(2); // margin line + rail + pin head
+  expect(await pageY(page, 41.871, -71.42)).toBeGreaterThan(railBottom);
+
+  // A user pan 5000 px east from the middle of the city is pulled back to the same line — also after a cluster flight
+  // (Leaflet leaves its flight marker set once a flyTo ends; the correction must not take that for a flight in progress).
+  await mapEval<void>(page, 'm => m.flyTo([41.82, -71.41], 14, { duration: 0.2 })');
+  await page.waitForTimeout(600);
+  await setView(page, 41.824, -71.41, 15);
+  await userPan(page, 5000, 0);
+  await expect.poll(async () => (await edges(page)).e).toBeCloseTo(-71.36, 3);
+});
+
+test('the map stays on Providence: a saved place outside the city is refused like a typed one (the map could not go there)', async ({ page }) => {
+  await landing(page, { signedIn: true, me: { addresses: [{ id: 'a9', label: 'Cousin', address: '1 Main St, Pawtucket', lat: 41.878, lng: -71.383 }] } });
+  await page.locator('.street-places').getByRole('button', { name: 'Cousin' }).click();
+  await expect(page.getByText("That's outside Providence — the city's 311 only covers the city.")).toBeVisible();
+  await expect(page).not.toHaveURL(/lat=/);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+});
+
 test.describe('desktop', () => {
   test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
   test('panel beside the map, no sheet, zoom control, row hover highlights its pin', async ({ page }) => {
@@ -927,6 +981,25 @@ test.describe('desktop', () => {
     await rows(page).first().hover();
     await expect(page.locator('.map-pin--hover')).toHaveCount(1);
     await page.screenshot({ path: 'tests/__screenshots__/street-desktop.png' });
+  });
+  test('the map stays on Providence: zoom out stops where the whole city fits the map beside the panel, and the − button greys out there', async ({ page }) => {
+    await landing(page);
+    const min = await mapEval<number>(page, 'm => m.getMinZoom()');
+    expect(min).toBe(12); // 1280×800 less the header: z13 needs ~775 px of height
+    await mapEval<void>(page, `m => m.setZoom(${min}, { animate: false })`);
+    await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
+    await page.locator('.leaflet-control-zoom-out').click({ force: true });
+    await page.waitForTimeout(400);
+    expect(await zoomOf(page)).toBe(min);
+  });
+
+  test('no home-screen nudge at 1280 px, even on a later visit with the prompt on offer', async ({ page }) => {
+    await stubInstallPrompt(page);
+    await page.addInitScript(() => localStorage.setItem('fixmypvd.street.visits', '4'));
+    await landing(page);
+    await expect(page.locator('a.street-week-link')).toBeVisible();
+    await expect(page.locator('.street-install')).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('fixmypvd.street.visits'))).toBe('5');
   });
 });
 
@@ -952,4 +1025,194 @@ test('the self-hosted basemap renders vector tiles and credits Protomaps; a miss
   await page.goto(POINT);
   await expect(page.locator('.mapview img.leaflet-tile').first()).toBeAttached({ timeout: 20_000 });
   await expect(page.locator('.mapview .leaflet-control-attribution')).not.toContainText('Protomaps');
+});
+
+/* ── Coming back: "since you last looked" + the home-screen nudge (lib/streetVisit.ts) ──────────────────────────────── */
+
+const SEEN = 'fixmypvd.street.seenAt', SEEN_FEED = 'fixmypvd.street.seenFeedAt', VISITS = 'fixmypvd.street.visits', SNOOZE = 'fixmypvd.street.installDismissed';
+const ls = (page: Page, key: string) => page.evaluate((k) => localStorage.getItem(k), key);
+const note = (page: Page) => page.locator('.street-since');
+const newTags = (page: Page) => page.locator('.street-row .my-status--new');
+const nudge = (page: Page) => page.locator('.street-install');
+/** The ten fixture cases without the filler: created today (c3), 1 d (s1) and 2 d (s2) are fresher than a visit 2½ days
+ *  ago; c1 (3 d), z2 (4 d), s3–s6 and c2 (created 9 d ago, CLOSED yesterday) are not. */
+const RETURN_ITEMS: Case[] = [...NEAR, UNPLACED, ...STACK_CASES];
+/** Land again with seenAt set `agoMs` ago (and, optionally, another feed): the routes persist across navigations. */
+async function revisit(page: Page, agoMs: number, items?: Case[]) {
+  await page.evaluate(([k, s, f]) => { localStorage.setItem(k, s); localStorage.removeItem(f); }, [SEEN, new Date(Date.now() - agoMs).toISOString(), SEEN_FEED]);
+  if (items) { await page.unrouteAll({ behavior: 'ignoreErrors' }); await setup(page, { items }); }
+  await page.goto('/street');
+  await waitForMap(page);
+  await expect(page.locator('.map-cluster').first()).toBeVisible();
+}
+/** Chromium's beforeinstallprompt, fired until a listener preventDefaults it (the hooks mount after the init script);
+ *  prompt() is logged on window.__install and the native sheet reads "dismissed". */
+async function stubInstallPrompt(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __install: string[] };
+    w.__install = [];
+    const fire = () => {
+      const e = new Event('beforeinstallprompt', { cancelable: true });
+      Object.assign(e, { prompt: async () => { w.__install.push('prompt'); }, userChoice: Promise.resolve({ outcome: 'dismissed' }) });
+      window.dispatchEvent(e);
+      if (!e.defaultPrevented) setTimeout(fire, 100);
+    };
+    setTimeout(fire, 50);
+  });
+}
+const installLog = (page: Page) => page.evaluate(() => (window as unknown as { __install: string[] }).__install);
+
+test('since you last looked: nothing on a first visit (no line, no New), seenAt + the visit count written once the landing has loaded — a point URL never counts; a key under an hour old is the same sitting', async ({ page }) => {
+  await setup(page);
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(rows(page)).toHaveCount(3);
+  expect(await ls(page, SEEN)).toBeNull();
+  expect(await ls(page, VISITS)).toBeNull();
+  await page.goto('/street');
+  await waitForMap(page);
+  await expect(page.locator('.map-cluster').first()).toBeVisible();
+  await expect(note(page)).toHaveCount(0);
+  await expect.poll(() => ls(page, SEEN)).toMatch(/^\d{4}-\d\d-\d\dT/);
+  expect(Date.now() - Date.parse((await ls(page, SEEN))!)).toBeLessThan(60_000);
+  expect(await ls(page, VISITS)).toBe('1');
+  await grab(page).click();
+  await expect(rows(page).first()).toBeVisible();
+  await expect(newTags(page)).toHaveCount(0);
+  // Ten minutes ago: nothing to compare against yet.
+  await revisit(page, 10 * 60_000);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await expect(note(page)).toHaveCount(0);
+  await grab(page).click();
+  await expect(rows(page).first()).toBeVisible();
+  await expect(newTags(page)).toHaveCount(0);
+  expect(await ls(page, VISITS)).toBe('2');
+});
+
+test('since you last looked: a return visit 2½ days later → the second subtitle line at PEEK (plain text, not a live region), New on the three fresher Latest rows only, the key moved to now; singular, none and "a while ago"; Spanish', async ({ page }) => {
+  const seen = new Date(Date.now() - 2.5 * 86_400_000).toISOString();
+  // Only the first load (init scripts re-run on every navigation; the later revisits set their own seenAt).
+  await page.addInitScript(([k, s]) => { if (!localStorage.getItem(k)) localStorage.setItem(k, s); }, [SEEN, seen]);
+  await landing(page, { items: RETURN_ITEMS });
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await expect(note(page)).toHaveText('3 new since you last looked (2 days ago)');
+  await expect(note(page)).toBeVisible(); // in the header: readable at PEEK, under the live summary
+  await expect(sub(page)).toHaveText('10 requests · 6 open · 4 closed · last 30 days');
+  expect(await note(page).evaluate((el) => [el.hasAttribute('role'), el.hasAttribute('aria-live'), el.tagName])).toEqual([false, false, 'P']);
+  // The key moved to now (the next visit compares against this one).
+  await expect.poll(async () => Date.now() - Date.parse((await ls(page, SEEN))!)).toBeLessThan(60_000);
+  await grab(page).click();
+  await expect(newTags(page)).toHaveCount(3);
+  await expect(newTags(page)).toHaveText(['New', 'New', 'New']);
+  expect((await page.locator('.street-row-btn:has(.my-status--new)').evaluateAll((els) => els.map((e) => e.getAttribute('data-id')))).sort()).toEqual(['c3', 's1', 's2']);
+  // One pill per row: c2 (closed yesterday, created 9 days ago) keeps its status pill alone.
+  await expect(page.locator('.street-row-btn[data-id="c2"] .my-status')).toHaveText(['Closed']);
+  await expect(page.locator('.street-row-btn[data-id="c3"] .my-status')).toHaveText(['New', 'In progress']);
+  // Singular, none, and the far past.
+  const quiet = [UNPLACED, ...STACK_CASES]; // freshest is s1, one day old
+  await revisit(page, 1.5 * 86_400_000, quiet);
+  await expect(note(page)).toHaveText('1 new since you last looked (yesterday)');
+  await revisit(page, 2 * 60 * 60_000);
+  await expect(note(page)).toHaveText('Nothing new since you last looked (today)');
+  await grab(page).click();
+  await expect(rows(page).first()).toBeVisible();
+  await expect(newTags(page)).toHaveCount(0);
+  await revisit(page, 45 * 86_400_000, RETURN_ITEMS);
+  await expect(note(page)).toHaveText('10 new since you last looked (a while ago)');
+  // Spanish: the feminine of "solicitud", and the nudge copy (the suite's iPhone UA, a later visit).
+  await page.evaluate(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await revisit(page, 2.5 * 86_400_000);
+  await expect(note(page)).toHaveText('3 nuevas desde tu última visita (hace 2 días)');
+  await grab(page).click();
+  await expect(newTags(page)).toHaveText(['Nueva', 'Nueva', 'Nueva']);
+  await expect(nudge(page).getByRole('heading', { name: 'Guárdala en tu pantalla de inicio' })).toBeVisible();
+  await expect(nudge(page).getByRole('button', { name: 'Agregar a pantalla de inicio' })).toBeVisible();
+  await expect(nudge(page).getByRole('button', { name: 'Ahora no' })).toBeVisible();
+});
+
+test('since you last looked: "new" starts after the newest case that visit saw, not at the visit — a case the city made before it but the feed stored after it still counts', async ({ page }) => {
+  const h = 3_600_000;
+  // Last visit 3 h ago; the newest case it showed was 5 h old. The feed now has one made 4 h ago (stored late) and older ones.
+  await page.addInitScript(([k, s, f, fv]) => { if (!localStorage.getItem(k)) { localStorage.setItem(k, s); localStorage.setItem(f, fv); } },
+    [SEEN, new Date(Date.now() - 3 * h).toISOString(), SEEN_FEED, new Date(Date.now() - 5 * h).toISOString()]);
+  const late: Case = { id: 'late1', t: 0, status: 'Submitted', createdDaysAgo: 4 / 24, lat: 41.8282, lng: -71.4005, street: '481 Angell St' };
+  await landing(page, { items: [late, ...STACK_CASES] });
+  await expect(note(page)).toHaveText('1 new since you last looked (today)');
+  // This visit's cutoff is its own newest case (late1, 4 h old), never later than now.
+  await expect.poll(async () => Math.round((Date.now() - Date.parse((await ls(page, SEEN_FEED))!)) / h)).toBe(4);
+});
+
+test('install nudge: not on the first visit; from the second, with beforeinstallprompt on offer, the card tops the list (PEEK height untouched) with 44 px buttons — the CTA calls prompt() and the card goes; never once installed (standalone)', async ({ page }) => {
+  await stubInstallPrompt(page);
+  await landing(page);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  // The PEEK height the sheet publishes (its target, not a frame of the 220 ms height transition), once the extra lines have landed.
+  const peekH = () => page.locator('.street-stage').evaluate((el) => getComputedStyle(el).getPropertyValue('--sheet-h').trim());
+  await page.waitForTimeout(400);
+  const firstPeek = await peekH();
+  expect(firstPeek).toMatch(/^\d+px$/);
+  await grab(page).click();
+  await expect(page.locator('a.street-week-link')).toBeVisible();
+  await expect(nudge(page)).toHaveCount(0);
+  expect(await ls(page, VISITS)).toBe('1');
+  await revisit(page, 5 * 60_000);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  // The nudge lives in the body, not the measured header: PEEK is exactly the first visit's height, not + a card.
+  await expect(page.locator('#street-sheet-body .street-install')).toHaveCount(1);
+  await expect.poll(peekH).toBe(firstPeek);
+  await grab(page).click();
+  const card = nudge(page);
+  await expect(card.getByRole('heading', { name: 'Keep it on your home screen' })).toBeVisible();
+  await expect(card).toContainText('One tap to check your street. Notifications work only from the installed app on iPhone.');
+  expect(await page.evaluate(() => {
+    const c = document.querySelector('.street-install')!; const a = document.querySelector('a.street-week-link')!;
+    return c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';
+  })).toBe('above');
+  const cta = card.getByRole('button', { name: 'Add to home screen' });
+  expect((await cta.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await card.getByRole('button', { name: 'Not now' }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(card.locator('.street-install-ios')).toBeHidden(); // the iPhone hint has no business on a phone with the prompt
+  await cta.click();
+  await expect.poll(() => installLog(page)).toEqual(['prompt']);
+  await expect(card).toHaveCount(0);
+  expect(await ls(page, VISITS)).toBe('2');
+  expect(await ls(page, SNOOZE)).toBeNull(); // a tap is not "Not now"
+  // Installed (display-mode / navigator.standalone): never, whatever the count.
+  await stubPush(page, { standalone: true });
+  await revisit(page, 5 * 60_000);
+  await grab(page).click();
+  await expect(page.locator('a.street-week-link')).toBeVisible();
+  await expect(nudge(page)).toHaveCount(0);
+  expect(await ls(page, VISITS)).toBe('3');
+});
+
+test('install nudge, iPhone in a Safari tab (no prompt event): the CTA reveals "Share → Add to Home Screen" in the card\'s status line; Not now stamps a 30-day snooze; a 31-day-old snooze shows it again', async ({ page }) => {
+  await stubPush(page, { ua: IPHONE, pushManager: false });
+  await page.addInitScript((k) => localStorage.setItem(k, '1'), VISITS);
+  await landing(page);
+  await grab(page).click();
+  const card = nudge(page);
+  await expect(card).toBeVisible();
+  const ios = card.locator('.street-install-ios');
+  await expect(ios).toHaveAttribute('role', 'status');
+  await expect(ios).toBeHidden();
+  await card.getByRole('button', { name: 'Add to home screen' }).click();
+  await expect(ios).toHaveText('Share → Add to Home Screen');
+  await expect(ios).toBeFocused(); // the tapped button is gone: focus lands on the hint it revealed, not on <body>
+  await expect(card.getByRole('button', { name: 'Add to home screen' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Not now' })).toBeVisible();
+  expect(await ls(page, SNOOZE)).toBeNull();
+  await card.getByRole('button', { name: 'Not now' }).click();
+  await expect(card).toHaveCount(0);
+  // …and with the card gone, on the next control in the sheet.
+  expect(await page.evaluate(() => { const a = document.activeElement; return !!a && a !== document.body && !!a.closest('.street-sheet'); })).toBe(true);
+  expect(Date.now() - Date.parse((await ls(page, SNOOZE))!)).toBeLessThan(60_000);
+  await revisit(page, 5 * 60_000);
+  await grab(page).click();
+  await expect(page.locator('a.street-week-link')).toBeVisible();
+  await expect(nudge(page)).toHaveCount(0);
+  await page.evaluate((k) => localStorage.setItem(k, new Date(Date.now() - 31 * 86_400_000).toISOString()), SNOOZE);
+  await revisit(page, 5 * 60_000);
+  await grab(page).click();
+  await expect(nudge(page).getByRole('button', { name: 'Add to home screen' })).toBeVisible();
 });

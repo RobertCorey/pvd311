@@ -29,6 +29,9 @@
 .street-row .my-status--resolved, .street-detail .my-status--resolved,
 .street-row .my-status--received, .street-detail .my-status--received { border-color: var(--ink); color: var(--ink); }
 .street-row .my-status--cityCancelled, .street-detail .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
+/* "New" since your last visit (the landing's Latest, screens/Street.tsx): sits before the type; ember as text — the one
+   pill that is not ink, because it marks the payoff of coming back (ember-text on surface ≥ 4.5:1). */
+.street-row .my-status--new { margin-right: 6px; vertical-align: 2px; font-family: var(--font-body); border-color: var(--ember); color: var(--ember-text); }
 
 /* ── Case card ─────────────────────────────────────────────────────────────────────────────────── */
 .street-detail { display: grid; gap: .6rem; }

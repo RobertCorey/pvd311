@@ -58,6 +58,8 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['street-landing', (p) => p.goto('/street')],
   // The landing's half sheet, signed in with a saved address: the "Your places this week" card over the week link.
   ['street-places', async (p) => { await signedIn(p, { addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }] }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-places-card').waitFor(); }],
+  // The landing's half sheet on a return visit (seenAt 2 days ago, 2nd visit, the suite's iPhone UA): the second subtitle line, the New pills, the home-screen nudge with its iPhone hint revealed.
+  ['street-return', async (p) => { await p.addInitScript(() => { localStorage.setItem('fixmypvd.street.seenAt', new Date(Date.now() - 2 * 86_400_000).toISOString()); localStorage.setItem('fixmypvd.street.visits', '1'); }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-since').waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-install .street-install-cta').click(); await p.locator('.street-install-ios:not(:empty)').waitFor(); }],
   ['week', (p) => p.goto('/week')],
   ['week-dated', (p) => p.goto('/week?until=2026-10-18')],
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],

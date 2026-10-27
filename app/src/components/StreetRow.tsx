@@ -59,9 +59,11 @@ export interface StreetRowProps {
   /** Desktop row hover ⇄ pin `.map-pin--hover`; also fires on keyboard focus/blur. */
   onHover?: (id: string | null) => void;
   nowMs: number;
+  /** A small pill before the type — the landing's "New" (t('street.newTag')) on a case created since the last visit. One per row. */
+  tag?: string;
 }
 
-export default function StreetRow({ c, hood, distanceM, selected = false, onSelect, onHover, nowMs }: StreetRowProps) {
+export default function StreetRow({ c, hood, distanceM, selected = false, onSelect, onHover, nowMs, tag }: StreetRowProps) {
   const t = useT();
   const enter = onHover ? () => onHover(c.id) : undefined;
   const leave = onHover ? () => onHover(null) : undefined;
@@ -80,7 +82,7 @@ export default function StreetRow({ c, hood, distanceM, selected = false, onSele
       >
         <span className="street-icon"><CategoryIcon k={c.category} size={24} /></span>
         <span className="street-main">
-          <span className="street-type">{c.caseType || t(`street.g.${c.group}`)}</span>
+          <span className="street-type">{tag && <span className="my-status my-status--new">{tag}</span>}{c.caseType || t(`street.g.${c.group}`)}</span>
           <PlaceLine c={c} hood={hood} distanceM={distanceM} />
           <WhenLine c={c} nowMs={nowMs} />
           {!c.open && c.resolution && <span className="street-note">{c.resolution}</span>}

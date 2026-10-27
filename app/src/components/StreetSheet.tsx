@@ -50,6 +50,9 @@ export interface StreetSheetProps {
   title: string;
   /** The live summary ("42 in view · 18 open · 24 closed"). The parent debounces it (400 ms, only when changed). */
   subtitle: string;
+  /** A second subtitle line ("3 new since you last looked (2 days ago)"): plain text, NOT a live region — it changes
+   *  with the summary and must not be announced twice. Inside the measured header, so PEEK grows by its 20 px. */
+  note?: string;
   labels: SheetLabels;
   /** "Your places" chip row (SavedAddresses). Rendered under the subtitle inside the header; PEEK grows by its height (40 px). */
   places?: ReactNode;
@@ -69,6 +72,8 @@ export interface StreetSheetProps {
   panelLabel?: string;
   /** aria-busy on the body while a window refetches (the previous set stays on screen). */
   busy?: boolean;
+  /** The measured PEEK height (the header), whenever it changes — not the live --sheet-h, which lags a detent change. */
+  onPeekHeight?: (h: number) => void;
 }
 
 interface Heights { peek: number; half: number; full: number }
@@ -98,13 +103,15 @@ interface Drag { active: boolean; id: number; startY: number; startH: number; dr
 const idleDrag = (): Drag => ({ active: false, id: -1, startY: 0, startH: 0, dragged: false, samples: [] });
 
 export default function StreetSheet(props: StreetSheetProps) {
-  const { detent, onDetent, title, subtitle, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
+  const { detent, onDetent, title, subtitle, note, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement | null>(null);
   const heightsRef = useRef<Heights>(sheetHeights(0, SHEET_PEEK_MIN));
+  const onPeekRef = useRef(props.onPeekHeight);
+  onPeekRef.current = props.onPeekHeight;
   const dragRef = useRef<Drag>(idleDrag());
   const detentRef = useRef(detent);
   const onDetentRef = useRef(onDetent);
@@ -124,6 +131,7 @@ export default function StreetSheet(props: StreetSheetProps) {
       const peekH = top.offsetHeight + sheet.clientTop; // + the top border, so the header is never clipped at PEEK
       heightsRef.current = sheetHeights(stageH, peekH);
       if (!dragRef.current.active) publish(heightsRef.current[detentRef.current]);
+      onPeekRef.current?.(heightsRef.current.peek);
     };
     // First paint lands directly on the detent: no 220 ms slide up from the CSS fallback height.
     sheet.classList.add('is-mounting');
@@ -234,6 +242,7 @@ export default function StreetSheet(props: StreetSheetProps) {
       <div className="street-head-text">
         <h2 className="street-title">{title}</h2>
         <p className="street-sub" role="status" aria-live="polite">{subtitle}</p>
+        {note && <p className="street-since">{note}</p>}
       </div>
       {(actions || (!desktop && detent === 'full' && labels.map)) && (
         <div className="street-head-actions">
