@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getWeek, resetWeekCache, WEEK_OUTCOMES, type WeekNotable, type WeekSummary } from '../api/week';
-import { getMe, updateMe, type Me } from '../api/me';
+import { getWeek, resetWeekCache, WEEK_OUTCOMES, type WeekHood, type WeekNotable, type WeekSummary } from '../api/week';
+import { getMe, placedAddresses, updateMe, type Me } from '../api/me';
 import { ApiError } from '../api/types';
 import { useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
 import { groupOf } from '../lib/categories';
 import { addDays, todayNY, weekLinkProblem, WEEK_TZ as TZ, YMD } from '../lib/week';
+import { hoodOfSync, hoodSlug, loadNeighborhoods } from '../lib/neighborhoods';
 import { weekPostMarkdown } from '../lib/weekPost';
 import { BRAND } from '../brand';
 import { agoText } from '../components/StreetRow';
@@ -24,7 +25,13 @@ import './Week.css';
  *
  *  Stable links (2026-10-26): `/week?until=YYYY-MM-DD` is the week ending at the end of that Providence day, so a
  *  Monday Reddit post still means the same week on Thursday. Share always copies the dated url (the Worker names
- *  it in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links. */
+ *  it in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links.
+ *
+ *  Your neighborhood (2026-10-27): every hood row says "N closed · median X days" (the Worker's per-hood median); signed
+ *  in, the hoods of the reader's saved places (api/me placedAddresses — /street's "Your places this week" list) are
+ *  tagged "Yours" and pinned on top even outside the top 8 or with nothing this week, and the first of them with a median
+ *  gets one line against the city's. "Show all N neighborhoods" opens the rest; "Show fewer" scrolls the button back into
+ *  view. Each count is "N requests" to a screen reader. */
 
 const HOODS_SHOWN = 8;
 const FLASH_MS = 2500;
@@ -169,6 +176,27 @@ export default function Week() {
     setDigest('saving');
     try { setMe(await updateMe({ prefs: { weekDigest: on } })); setDigest('idle'); track(on ? 'week_digest_on' : 'week_digest_off'); } catch { setDigest('error'); }
   }
+
+  /* ── "Yours": the neighborhoods of the saved places ─────────────────────────────────────────────── */
+  /** Hood names of the reader's saved places with coordinates, in the account's order, once each; [] signed out, without
+   *  places, or until the rings have loaded — lib/neighborhoods' lazy chunk, fetched only when there are places. */
+  const places = useMemo(() => (session && me ? placedAddresses(me.addresses) : []), [session, me]);
+  const [resolvedHoods, setResolvedHoods] = useState<string[]>([]);
+  const yourHoods = places.length ? resolvedHoods : [];
+  useEffect(() => {
+    if (!places.length) return;
+    let live = true;
+    loadNeighborhoods().then((nb) => {
+      if (!live) return;
+      const names: string[] = [];
+      for (const a of places) { const h = hoodOfSync(nb, a.lat, a.lng); if (h && !names.includes(h)) names.push(h); }
+      setResolvedHoods((cur) => (cur.join('|') === names.join('|') ? cur : names));   // a prefs PATCH re-runs this; keep the same list
+    }).catch(() => { /* the rings did not load: the plain list */ });
+    return () => { live = false; };
+  }, [places]);
+  const [allHoods, setAllHoods] = useState(false);
+  const hoodsMore = useRef<HTMLButtonElement>(null);
+
   const digestCard = (
     <div className="card week-digest">
       <h2>{t('week.digest.title')}</h2>
@@ -270,8 +298,22 @@ export default function Week() {
 
   const closedSum = WEEK_OUTCOMES.reduce((a, o) => a + data.outcomes[o], 0);
   const outcomeParts = WEEK_OUTCOMES.filter((o) => data.outcomes[o] > 0);
-  const hoods = data.neighborhoods.slice(0, HOODS_SHOWN);
-  const hoodMax = hoods.reduce((m, h) => Math.max(m, h.n), 0);
+  // Yours first, in the list's own order (n desc), then any with nothing this week in the places' order; under them the top
+  // 8 of the rest, or all of it once "Show all" is pressed. Signed out (yourHoods = []) this is the plain top 8.
+  const yours = new Set(yourHoods);
+  const active = new Set(data.neighborhoods.map((h) => h.name));
+  const pinned: WeekHood[] = [
+    ...data.neighborhoods.filter((h) => yours.has(h.name)),
+    ...yourHoods.filter((name) => !active.has(name)).map((name) => ({ name, slug: hoodSlug(name), n: 0, open: 0, closed: 0, medianCloseDays: null })),
+  ];
+  const others = data.neighborhoods.filter((h) => !yours.has(h.name));
+  const topOthers = data.neighborhoods.slice(0, HOODS_SHOWN).filter((h) => !yours.has(h.name));
+  const hoods = [...pinned, ...(allHoods ? others : topOthers)];
+  const hoodsHidden = others.length > topOthers.length;
+  const hoodMax = data.neighborhoods.reduce((m, h) => Math.max(m, h.n), 0);
+  const daysText = (d: number) => t(d === 1 ? 'week.hoods.days.one' : 'week.hoods.days', { n: num(d) });
+  /** The first yours-hood with a median, against the city's. */
+  const compare = data.medianCloseDays != null ? pinned.find((h) => h.medianCloseDays != null) : undefined;
 
   return (
     <article className="week section" aria-labelledby="week-title">
@@ -306,17 +348,40 @@ export default function Week() {
       {hoods.length > 0 && (
         <section aria-labelledby="week-hoods-h">
           <h2 id="week-hoods-h" className="week-h">{t('week.hoods.title')}</h2>
-          <ol className="week-list week-hoods">
-            {hoods.map((h) => (
-              <li key={h.slug}>
-                <Link to={`/street?n=${encodeURIComponent(h.slug)}`} className="week-row week-hood">
-                  <span className="week-hood-name">{h.name}</span>
-                  <b className="week-row-n">{num(h.n)}</b>
-                  <span className="week-hood-bar" aria-hidden="true"><span style={{ width: `${hoodMax ? Math.max(2, Math.round((100 * h.n) / hoodMax)) : 0}%` }} /></span>
-                </Link>
-              </li>
-            ))}
+          <ol className="week-list week-hoods" id="week-hoods-list">
+            {hoods.map((h) => {
+              const mine = yours.has(h.name);
+              const quiet = h.n === 0;
+              // "6 closed · median 2.5 days" (the median left out when the hood had no dated close); a quiet yours-hood says so instead.
+              const sub = quiet ? t('week.hoods.none') : [
+                t(h.closed === 1 ? 'week.hoods.closed.one' : 'week.hoods.closed', { n: num(h.closed) }),
+                h.medianCloseDays != null ? t('week.hoods.median', { days: daysText(h.medianCloseDays) }) : '',
+              ].filter(Boolean).join(' · ');
+              return (
+                <li key={h.slug}>
+                  <Link to={`/street?n=${encodeURIComponent(h.slug)}`} className={`week-row week-hood${mine ? ' week-hood--yours' : ''}`}>
+                    <span className="week-hood-name">{h.name}{mine && <>{' '}<span className="week-hood-yours">{t('week.hoods.yours')}</span></>}</span>
+                    {/* The count named for a screen reader ("48 requests"), so it never reads as a bare number next to "18 closed". */}
+                    {!quiet && <b className="week-row-n"><span aria-hidden="true">{num(h.n)}</span><span className="week-vh">{t(h.n === 1 ? 'week.hoods.requests.one' : 'week.hoods.requests', { n: num(h.n) })}</span></b>}
+                    <span className="week-row-sub week-hood-sub">{sub}</span>
+                    {!quiet && <span className="week-hood-bar" aria-hidden="true"><span style={{ width: `${hoodMax ? Math.max(2, Math.round((100 * h.n) / hoodMax)) : 0}%` }} /></span>}
+                  </Link>
+                </li>
+              );
+            })}
           </ol>
+          {/* The same button element either way, so focus stays on it when the list grows or shrinks above it. Show fewer
+              drops up to 17 rows (~1,500 px) above it, and nothing holds the scroll: iOS Safari has no scroll anchoring and
+              Chrome's anchor is one of the removed rows — so once the short list has rendered, the button comes back on screen. */}
+          {hoodsHidden && (
+            <button ref={hoodsMore} type="button" className="btn btn-ghost week-hoods-more" aria-expanded={allHoods} aria-controls="week-hoods-list" onClick={() => {
+              if (allHoods) requestAnimationFrame(() => hoodsMore.current?.scrollIntoView({ block: 'nearest' }));
+              setAllHoods((v) => !v);
+            }}>
+              {allHoods ? t('week.hoods.fewer') : t('week.hoods.all', { n: num(pinned.length + others.length) })}
+            </button>
+          )}
+          {compare && <p className="week-hood-compare">{t('week.hoods.compare', { hood: compare.name, days: daysText(compare.medianCloseDays!), city: num(data.medianCloseDays!) })}</p>}
         </section>
       )}
 

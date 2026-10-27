@@ -11,7 +11,9 @@ export type WeekOutcome = 'work_done' | 'enforcement' | 'referred' | 'logged_els
 export const WEEK_OUTCOMES: readonly WeekOutcome[] = ['work_done', 'enforcement', 'referred', 'logged_elsewhere', 'info_only', 'no_action', 'cancelled'];
 
 export interface WeekTopType { caseType: string; category: string; n: number; prevN: number }
-export interface WeekHood { name: string; slug: string; n: number; open: number; closed: number }
+/** `medianCloseDays` (2026-10-27): the hood's own median days to close over this week's closes in it, 1 dp; null when it
+ *  had none. Optional — an older Worker leaves it out (decodeWeek then sets null). */
+export interface WeekHood { name: string; slug: string; n: number; open: number; closed: number; medianCloseDays?: number | null }
 /** A case closed this week WITH the city's own Resolution Message (cut to 240 chars by the Worker). */
 export interface WeekNotable {
   id: string; caseType: string; category: string; street: string; neighborhood: string | null; status: string;
@@ -70,6 +72,8 @@ export function resetWeekCache(): void { cache.clear(); inflight.clear(); }
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const str = (v: unknown, d = ''): string => (typeof v === 'string' ? v : d);
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+/** A median in days, or null (absent, null or not a finite number). */
+const days = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Shape-check the body so a partial or older Worker degrades to zeros and empty lists instead of a crash. */
 export function decodeWeek(d: Partial<WeekSummary> | null | undefined): WeekSummary {
@@ -84,9 +88,9 @@ export function decodeWeek(d: Partial<WeekSummary> | null | undefined): WeekSumm
     prev: { total: num(d.prev?.total), closed: num(d.prev?.closed) },
     topTypes: arr<Partial<WeekTopType>>(d.topTypes).map((x) => ({ caseType: str(x.caseType), category: str(x.category, 'unsure'), n: num(x.n), prevN: num(x.prevN) })),
     neighborhoods: arr<Partial<WeekHood>>(d.neighborhoods).filter((x) => x && typeof x.name === 'string')
-      .map((x) => ({ name: x.name!, slug: str(x.slug, x.name!.trim().toLowerCase().replace(/\s+/g, '-')), n: num(x.n), open: num(x.open), closed: num(x.closed) })),
+      .map((x) => ({ name: x.name!, slug: str(x.slug, x.name!.trim().toLowerCase().replace(/\s+/g, '-')), n: num(x.n), open: num(x.open), closed: num(x.closed), medianCloseDays: days(x.medianCloseDays) })),
     outcomes,
-    medianCloseDays: typeof d.medianCloseDays === 'number' && Number.isFinite(d.medianCloseDays) ? d.medianCloseDays : null,
+    medianCloseDays: days(d.medianCloseDays),
     notable: arr<Partial<WeekNotable>>(d.notable).filter((x) => x && typeof x.id === 'string').map((x) => ({
       id: x.id!, caseType: str(x.caseType), category: str(x.category, 'unsure'), street: str(x.street), neighborhood: typeof x.neighborhood === 'string' ? x.neighborhood : null,
       status: str(x.status), closedAt: typeof x.closedAt === 'string' ? x.closedAt : null, resolution: str(x.resolution),

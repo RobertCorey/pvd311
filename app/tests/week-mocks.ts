@@ -13,7 +13,8 @@ export const TODAY = '2026-10-25';
 export const FLOOR = '2026-08-30';
 const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 
-/** A busy week: 312 requests (+22 on last week), 114 closed (−16), outcomes summing to 114, ten hoods (eight shown),
+/** A busy week: 312 requests (+22 on last week), 114 closed (−16), outcomes summing to 114, ten hoods (eight shown; each
+ *  with its own median days to close, Washington Park without one, Smith Hill with 1 close of 1 day),
  *  six types across five groups plus an unknown category, three notable closes (the third unplaced). The current
  *  week (ending now): untilDate = today, a previous week, no next. */
 export const WEEK = {
@@ -30,16 +31,16 @@ export const WEEK = {
     { caseType: 'Mystery Request', category: 'zzz_not_a_category', n: 9, prevN: 4 },
   ],
   neighborhoods: [
-    { name: 'Elmhurst', slug: 'elmhurst', n: 48, open: 30, closed: 18 },
-    { name: 'West End', slug: 'west-end', n: 41, open: 25, closed: 16 },
-    { name: 'Downtown', slug: 'downtown', n: 36, open: 20, closed: 16 },
-    { name: 'Fox Point', slug: 'fox-point', n: 30, open: 19, closed: 11 },
-    { name: 'Upper South Providence', slug: 'upper-south-providence', n: 27, open: 18, closed: 9 },
-    { name: 'Mount Pleasant', slug: 'mount-pleasant', n: 24, open: 15, closed: 9 },
-    { name: 'Silver Lake', slug: 'silver-lake', n: 22, open: 14, closed: 8 },
-    { name: 'Washington Park', slug: 'washington-park', n: 19, open: 12, closed: 7 },
-    { name: 'Smith Hill', slug: 'smith-hill', n: 17, open: 11, closed: 6 },
-    { name: 'Hope', slug: 'hope', n: 16, open: 10, closed: 6 },
+    { name: 'Elmhurst', slug: 'elmhurst', n: 48, open: 30, closed: 18, medianCloseDays: 2.5 as number | null },
+    { name: 'West End', slug: 'west-end', n: 41, open: 25, closed: 16, medianCloseDays: 3 },
+    { name: 'Downtown', slug: 'downtown', n: 36, open: 20, closed: 16, medianCloseDays: 1.5 },
+    { name: 'Fox Point', slug: 'fox-point', n: 30, open: 19, closed: 11, medianCloseDays: 4.5 },
+    { name: 'Upper South Providence', slug: 'upper-south-providence', n: 27, open: 18, closed: 9, medianCloseDays: 6 },
+    { name: 'Mount Pleasant', slug: 'mount-pleasant', n: 24, open: 15, closed: 9, medianCloseDays: 3.5 },
+    { name: 'Silver Lake', slug: 'silver-lake', n: 22, open: 14, closed: 8, medianCloseDays: 2 },
+    { name: 'Washington Park', slug: 'washington-park', n: 19, open: 12, closed: 7, medianCloseDays: null },   // no dated close: no median
+    { name: 'Smith Hill', slug: 'smith-hill', n: 17, open: 16, closed: 1, medianCloseDays: 1 },              // the singulars
+    { name: 'Hope', slug: 'hope', n: 16, open: 10, closed: 6, medianCloseDays: 2 },
   ],
   outcomes: { work_done: 40, enforcement: 10, referred: 30, logged_elsewhere: 20, info_only: 5, no_action: 9, cancelled: 0 },
   medianCloseDays: 3.5,
@@ -70,6 +71,14 @@ export function datedWeek(untilDate: string): typeof WEEK {
 }
 
 export const QUIET = { ...WEEK, total: 0, open: 0, closed: 0, located: 0, prev: { total: 0, closed: 0 }, topTypes: [], neighborhoods: [], outcomes: { work_done: 0, enforcement: 0, referred: 0, logged_elsewhere: 0, info_only: 0, no_action: 0, cancelled: 0 }, medianCloseDays: null, notable: [], busiestDay: null };
+
+/** Saved places in three neighborhoods (real points, checked against the rings): Hope is 10th of 10 this week (outside
+ *  the top 8), College Hill had nothing this week, Fox Point is 4th. Account order: Hope, College Hill, Fox Point. */
+export const PLACES = [
+  { id: 'p1', label: 'Home', address: '120 Summit Ave, Providence', lat: 41.8525, lng: -71.4024 },
+  { id: 'p2', label: 'Work', address: '69 Brown St, Providence', lat: 41.8262, lng: -71.4032 },
+  { id: 'p3', label: 'Mom', address: '10 Wickenden St, Providence', lat: 41.8170, lng: -71.3930 },
+];
 
 export interface Call { method: string; url: string; body: unknown }
 

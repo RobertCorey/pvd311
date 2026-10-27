@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { API, QUIET, WEEK, setupWeek } from './week-mocks';
+import { API, PLACES, QUIET, WEEK, setupWeek } from './week-mocks';
 import { setup as setupStreet, waitForMap } from './street-mocks';
 import { todayNY, weekLinkProblem } from '../src/lib/week';
 
@@ -60,10 +60,18 @@ test('renders every section from the feed: numbers, deltas, types, hoods, outcom
     '/street?n=mount-pleasant', '/street?n=silver-lake', '/street?n=washington-park',
   ]);
   await expect(hoods.nth(0)).toContainText('Elmhurst');
-  await expect(hoods.nth(0).locator('.week-row-n')).toHaveText('48');
+  // The count is named for a screen reader ("48 requests"), so it never reads as a bare number next to "18 closed".
+  await expect(hoods.nth(0).locator('.week-row-n > [aria-hidden="true"]')).toHaveText('48');
+  await expect(hoods.nth(0).locator('.week-row-n .week-vh')).toHaveText('48 requests');
+  await expect(hoods.nth(0)).toHaveAccessibleName(/^Elmhurst\s*48 requests\s*18 closed · median 2\.5 days$/);
   expect(await hoods.nth(0).locator('.week-hood-bar > span').evaluate((e) => (e as HTMLElement).style.width)).toBe('100%');
   expect(await hoods.nth(7).locator('.week-hood-bar > span').evaluate((e) => (e as HTMLElement).style.width)).toBe('40%'); // 19 / 48
+  // Each row's second line: closes and the hood's own median; a hood without a dated close has no median.
+  await expect(hoods.nth(0).locator('.week-hood-sub')).toHaveText('18 closed · median 2.5 days');
+  await expect(hoods.nth(2).locator('.week-hood-sub')).toHaveText('16 closed · median 1.5 days');
+  await expect(hoods.nth(7).locator('.week-hood-sub')).toHaveText('7 closed');
   await expect(main(page)).not.toContainText('Smith Hill');
+  await expect(page.getByRole('button', { name: 'Show all 10 neighborhoods' })).toHaveAttribute('aria-expanded', 'false');
 
   // What closing meant: the stacked bar names every share; the legend carries counts and percentages; zero buckets are left out.
   const bar = page.locator('.week-outbar');
@@ -505,4 +513,165 @@ test('the /street landing sheet shows the week link above Most reported', async 
   await link.click();
   await expect(page).toHaveURL(/\/week$/);
   await expect(page.locator('main h1')).toHaveText('This week in Providence');
+});
+
+/* ── By neighborhood: the second line, Show all, and "Yours" for a signed-in reader's saved places ─────────────── */
+
+const hoodRows = (page: Page) => page.locator('.week-hoods .week-row');
+const hoodHrefs = (page: Page) => hoodRows(page).evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+const TOP8 = ['/street?n=elmhurst', '/street?n=west-end', '/street?n=downtown', '/street?n=fox-point', '/street?n=upper-south-providence', '/street?n=mount-pleasant', '/street?n=silver-lake', '/street?n=washington-park'];
+/** Whether the page fetched the neighborhood rings chunk (lib/neighborhoods' lazy import of shared/neighborhoods). */
+const ringsLoaded = (page: Page) => page.evaluate(() => performance.getEntriesByType('resource').some((e) => /\/assets\/neighborhoods-[^/]*\.js$/.test(e.name)));
+
+test('neighborhoods: Show all 10 / Show fewer opens and closes the rest — aria-expanded, a 44 px target, focus stays on the button; the singular line', async ({ page }) => {
+  await open(page);
+  await expect(hoodRows(page)).toHaveCount(8);
+  const toggle = page.locator('.week-hoods-more');
+  await expect(toggle).toHaveText('Show all 10 neighborhoods');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toHaveAttribute('aria-controls', 'week-hoods-list');
+  await expect(page.locator('#week-hoods-list')).toHaveCount(1);
+  expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await toggle.click();
+  await expect(toggle).toHaveText('Show fewer');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toBeFocused();
+  await expect(hoodRows(page)).toHaveCount(10);
+  expect(await hoodHrefs(page)).toEqual([...TOP8, '/street?n=smith-hill', '/street?n=hope']);
+  // One close of one day: both singular.
+  await expect(hoodRows(page).nth(8).locator('.week-hood-sub')).toHaveText('1 closed · median 1 day');
+  await expect(hoodRows(page).nth(9).locator('.week-hood-sub')).toHaveText('6 closed · median 2 days');
+  expect(await hoodRows(page).nth(9).locator('.week-hood-bar > span').evaluate((e) => (e as HTMLElement).style.width)).toBe('33%'); // 16 / 48
+  // The keyboard closes it again, and focus is still on it.
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toHaveText('Show all 10 neighborhoods');
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toBeInViewport({ ratio: 1 });
+  await expect(hoodRows(page)).toHaveCount(8);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+/** A full week: all 25 neighborhoods with activity, the last with a single request. */
+const ALL25 = [
+  ...WEEK.neighborhoods,
+  ...['Blackstone', 'Mount Hope', 'College Hill', 'Wayland', 'Federal Hill', 'Valley', 'Elmwood', 'South Elmwood', 'Lower South Providence', 'Reservoir', 'Olneyville', 'Hartford', 'Manton', 'Charles', 'Wanskuck']
+    .map((name, i) => ({ name, slug: name.toLowerCase().replace(/ /g, '-'), n: 15 - i, open: 15 - i, closed: 0, medianCloseDays: null })),
+];
+
+test('neighborhoods: a full week of 25 — Show fewer tapped at the bottom of the open list brings the button back on screen (17 rows, ~1,500 px, go from above it)', async ({ page }) => {
+  await open(page, { body: { ...WEEK, neighborhoods: ALL25 } });
+  const toggle = page.locator('.week-hoods-more');
+  await toggle.click();
+  await expect(hoodRows(page)).toHaveCount(25);
+  await expect(hoodRows(page).last()).toHaveAccessibleName(/^Wanskuck\s*1 request\s*0 closed$/);   // the singular
+  // Read down to the end of the list: the button sits in the lower part of the screen, the rows about to go above it.
+  await toggle.evaluate((e) => window.scrollBy(0, e.getBoundingClientRect().bottom - window.innerHeight * 0.75));
+  const vh = page.viewportSize()!.height;
+  expect((await toggle.boundingBox())!.y).toBeGreaterThan(vh / 2);
+  await toggle.click();
+  await expect(hoodRows(page)).toHaveCount(8);
+  await expect(toggle).toHaveText('Show all 25 neighborhoods');
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toBeInViewport({ ratio: 1 });
+  const box = (await toggle.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(vh);
+});
+
+test('neighborhoods: eight or fewer with activity → no Show all button; an older Worker without medianCloseDays → "N closed" alone', async ({ page }) => {
+  await open(page, { body: { ...WEEK, neighborhoods: WEEK.neighborhoods.slice(0, 8).map(({ medianCloseDays: _m, ...h }) => h) } });
+  await expect(hoodRows(page)).toHaveCount(8);
+  await expect(page.locator('.week-hoods-more')).toHaveCount(0);
+  await expect(hoodRows(page).nth(0).locator('.week-hood-sub')).toHaveText('18 closed');
+  await expect(page.locator('.week-hood-compare')).toHaveCount(0);
+});
+
+test('signed out: the plain top 8 — no Yours tag, no comparison line, no account call, and the rings never load', async ({ page }) => {
+  const calls = await open(page);
+  await expect(hoodRows(page)).toHaveCount(8);
+  expect(await hoodHrefs(page)).toEqual(TOP8);
+  await expect(page.locator('.week-hood-yours')).toHaveCount(0);
+  await expect(page.locator('.week-hood-compare')).toHaveCount(0);
+  expect(calls.filter((c) => c.url.includes('/api/me'))).toEqual([]);
+  await page.waitForTimeout(300);
+  expect(await ringsLoaded(page)).toBe(false);
+});
+
+test('signed in without placed addresses (none, or none with coordinates): the plain list, and the rings never load', async ({ page }) => {
+  await open(page, { signedIn: true, me: { addresses: [{ id: 'x', label: 'Somewhere', address: 'Unplaced Rd', lat: null, lng: null }] } });
+  await expect(page.getByRole('button', { name: 'Email me every Monday' })).toBeVisible();   // the account has loaded
+  await page.waitForTimeout(300);
+  expect(await hoodHrefs(page)).toEqual(TOP8);
+  await expect(page.locator('.week-hood-yours')).toHaveCount(0);
+  expect(await ringsLoaded(page)).toBe(false);
+});
+
+test('signed in with saved places: their hoods say Yours and are pinned on top in list order — one outside the top 8, one with nothing this week — and one line compares the first median with the city\'s', async ({ page }) => {
+  const calls = await open(page, { signedIn: true, me: { addresses: PLACES } });
+  const yours = page.locator('.week-hood-yours');
+  await expect(yours).toHaveCount(3);
+  expect(calls.filter((c) => c.method === 'GET' && c.url.endsWith('/api/me'))).toHaveLength(1);   // the account the digest card loads; no new endpoint
+  expect(await ringsLoaded(page)).toBe(true);
+  // Fox Point (4th) and Hope (10th) in the list's order, then College Hill (no activity); then the rest of the top 8.
+  expect(await hoodHrefs(page)).toEqual([
+    '/street?n=fox-point', '/street?n=hope', '/street?n=college-hill',
+    '/street?n=elmhurst', '/street?n=west-end', '/street?n=downtown', '/street?n=upper-south-providence', '/street?n=mount-pleasant', '/street?n=silver-lake', '/street?n=washington-park',
+  ]);
+  const rows = hoodRows(page);
+  await expect(yours.first()).toHaveText('Yours');
+  for (const i of [0, 1, 2]) await expect(rows.nth(i)).toHaveClass(/week-hood--yours/);
+  await expect(rows.nth(3)).not.toHaveClass(/week-hood--yours/);
+  await expect(rows.nth(0)).toHaveAccessibleName(/^Fox Point\s*Yours\s*30 requests\s*11 closed · median 4\.5 days$/);
+  await expect(rows.nth(1).locator('.week-row-n > [aria-hidden="true"]')).toHaveText('16');
+  await expect(rows.nth(1).locator('.week-hood-sub')).toHaveText('6 closed · median 2 days');
+  // Nothing this week: no count, no bar, the words instead — still a door into /street.
+  await expect(rows.nth(2).locator('.week-hood-name')).toHaveText('College Hill Yours');
+  await expect(rows.nth(2).locator('.week-hood-sub')).toHaveText('Nothing this week');
+  await expect(rows.nth(2).locator('.week-row-n')).toHaveCount(0);
+  await expect(rows.nth(2).locator('.week-hood-bar')).toHaveCount(0);
+  await expect(page.locator('.week-hood-compare')).toHaveText("In Fox Point, closed requests took a median 4.5 days — the city's was 3.5.");
+  // Show all adds only what was hidden (Smith Hill); the pinned rows stay on top and Hope is not listed twice. The
+  // button names the rows the open list will hold (10 with activity + quiet College Hill), not the 10 with activity.
+  await page.getByRole('button', { name: 'Show all 11 neighborhoods' }).click();
+  await expect(rows).toHaveCount(11);
+  expect((await hoodHrefs(page)).slice(0, 3)).toEqual(['/street?n=fox-point', '/street?n=hope', '/street?n=college-hill']);
+  expect((await hoodHrefs(page)).filter((h) => h === '/street?n=hope')).toHaveLength(1);
+  await expect(rows.last()).toHaveAttribute('href', '/street?n=smith-hill');
+  await rows.nth(2).click();
+  await expect(page).toHaveURL(/\/street\?n=college-hill$/);
+});
+
+test('the comparison takes the first yours-hood WITH a median (singular day); a reader whose only hood was quiet gets that row pinned and no comparison', async ({ page }) => {
+  const body = { ...WEEK, neighborhoods: WEEK.neighborhoods.map((h) => (h.slug === 'fox-point' ? { ...h, medianCloseDays: null } : h.slug === 'hope' ? { ...h, medianCloseDays: 1 } : h)) };
+  await open(page, { signedIn: true, me: { addresses: PLACES }, body });
+  await expect(page.locator('.week-hood-yours')).toHaveCount(3);
+  await expect(hoodRows(page).nth(0).locator('.week-hood-sub')).toHaveText('11 closed');
+  await expect(page.locator('.week-hood-compare')).toHaveText("In Hope, closed requests took a median 1 day — the city's was 3.5.");
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await setupWeek(page, { signedIn: true, me: { addresses: [PLACES[1]] } });
+  await page.goto('/week');
+  await expect(page.locator('.week-hood-yours')).toHaveCount(1);
+  expect(await hoodHrefs(page)).toEqual(['/street?n=college-hill', ...TOP8]);
+  await expect(hoodRows(page).nth(0).locator('.week-hood-sub')).toHaveText('Nothing this week');
+  await expect(page.locator('.week-hood-compare')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show all 11 neighborhoods' })).toBeVisible();
+});
+
+test('Spanish: the second line, Tuyo, Nada esta semana, the toggle and the comparison read in es', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await setupWeek(page, { signedIn: true, me: { addresses: PLACES } });
+  await page.goto('/week');
+  await expect(page.locator('.week-hood-yours')).toHaveCount(3);
+  const rows = hoodRows(page);
+  await expect(page.locator('.week-hood-yours').first()).toHaveText('Tuyo');
+  await expect(rows.nth(0).locator('.week-hood-sub')).toHaveText('11 cerradas · mediana de 4,5 días');
+  await expect(rows.nth(0)).toHaveAccessibleName(/^Fox Point\s*Tuyo\s*30 solicitudes\s*11 cerradas · mediana de 4,5 días$/);
+  await expect(rows.nth(2).locator('.week-hood-sub')).toHaveText('Nada esta semana');
+  await expect(page.locator('.week-hood-compare')).toHaveText('En Fox Point, las solicitudes cerradas tardaron una mediana de 4,5 días; en toda la ciudad, 3,5.');
+  const toggle = page.locator('.week-hoods-more');
+  await expect(toggle).toHaveText('Ver los 11 vecindarios'); // the 10 with activity + the reader's quiet College Hill
+  await toggle.click();
+  await expect(toggle).toHaveText('Ver menos');
+  await expect(rows.last().locator('.week-hood-sub')).toHaveText('1 cerrada · mediana de 1 día');
 });

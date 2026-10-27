@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { weekSummary, handleWeek, weekDigestEmail, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
+import { weekSummary, medianDays, handleWeek, weekDigestEmail, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
 import { resetStreetCache, LOAD_LIMIT } from '../src/street.js';
 import { hoodOf, hoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES } from '../../shared/neighborhoods.js';
 import { weekPostMarkdown, OUTCOME_LABELS_EN, GROUP_LABELS_EN } from '../../shared/weekPost.js';
@@ -114,15 +114,52 @@ describe('weekSummary', () => {
     const s = weekSummary(rows, { now: NOW });
     expect(s).toMatchObject({ total: 5, located: 4 });
     expect(s.neighborhoods).toEqual([
-      { name: 'College Hill', slug: 'college-hill', n: 2, open: 1, closed: 1 },
-      { name: 'Elmhurst', slug: 'elmhurst', n: 1, open: 1, closed: 0 },
+      { name: 'College Hill', slug: 'college-hill', n: 2, open: 1, closed: 1, medianCloseDays: 2 },
+      { name: 'Elmhurst', slug: 'elmhurst', n: 1, open: 1, closed: 0, medianCloseDays: null },
     ]);
     expect(s.neighborhoods.map((h) => h.n).reduce((a, b) => a + b, 0)).toBe(3);
   });
 
   it('takes an injected hoodOf', () => {
     const s = weekSummary([row('a')], { now: NOW, hoodOf: () => 'Testville' });
-    expect(s.neighborhoods).toEqual([{ name: 'Testville', slug: 'testville', n: 1, open: 1, closed: 0 }]);
+    expect(s.neighborhoods).toEqual([{ name: 'Testville', slug: 'testville', n: 1, open: 1, closed: 0, medianCloseDays: null }]);
+  });
+
+  it("each neighborhood's medianCloseDays is the median over ITS closes this week with both times known, rounded like the city's; null without one", () => {
+    const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
+    const rows = [
+      closedRow('ch-1d', 2, 1),                                                    // College Hill: 1 day
+      closedRow('ch-3d', 4, 1),                                                    // 3 days
+      row('ch-40h', { createdAt: hoursAgo(80), firstSeenAt: hoursAgo(80), status: 'Resolved', detail: { resolutionDate: hoursAgo(40), resolution: 'Done.' } }), // 1.667 days
+      row('ch-open'),
+      row('elm-open', { ...ELMHURST }),
+      closedRow('elm-undated', 5, 1, { ...ELMHURST, createdAt: null }),           // a close with no created time: no duration
+      closedRow('elm-old', 12, 9, { ...ELMHURST }),                                // closed last week: not one of this week's closes
+    ];
+    const s = weekSummary(rows, { now: NOW });
+    expect(s.neighborhoods).toEqual([
+      { name: 'College Hill', slug: 'college-hill', n: 4, open: 1, closed: 3, medianCloseDays: 1.7 },
+      { name: 'Elmhurst', slug: 'elmhurst', n: 2, open: 1, closed: 1, medianCloseDays: null },
+    ]);
+    // Every dated close is College Hill's, so the city median is the same number by the same rounding.
+    expect(s.medianCloseDays).toBe(1.7);
+    // Two hoods, two medians, neither the city's: College Hill [1, 2] → 1.5, Elmhurst [4] → 4, the city [1, 2, 4] → 2.
+    const split = weekSummary([closedRow('a', 2, 1), closedRow('b', 3, 1), closedRow('c', 5, 1, { ...ELMHURST })], { now: NOW });
+    expect(split.neighborhoods.map((h) => [h.name, h.medianCloseDays])).toEqual([['College Hill', 1.5], ['Elmhurst', 4]]);
+    expect(split.medianCloseDays).toBe(2);
+    // An unlocated close counts for the city's median and joins no hood.
+    const loose = weekSummary([closedRow('a', 2, 1), closedRow('far', 11, 1, { lat: null, lng: null })], { now: NOW });
+    expect(loose.neighborhoods).toEqual([{ name: 'College Hill', slug: 'college-hill', n: 1, open: 0, closed: 1, medianCloseDays: 1 }]);
+    expect(loose.medianCloseDays).toBe(5.5);
+  });
+
+  it('medianDays: the shared 1-dp rounding (half up), null for none', () => {
+    expect(medianDays([])).toBeNull();
+    expect(medianDays([2])).toBe(2);
+    expect(medianDays([1, 2.25])).toBe(1.6);           // 1.625
+    expect(medianDays([1, 1.5, 40 / 24])).toBe(1.5);
+    expect(medianDays([10, 1, 3])).toBe(3);           // unsorted input
+    expect(medianDays([0.04, 0.06])).toBe(0.1);       // 0.05
   });
 
   it('classifies this week\'s closes by what closing meant', () => {
@@ -327,7 +364,7 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
     });
     expect(s.notable.map((n) => n.id)).toEqual(['closed-in']);
     // Neighborhood rows split by the same window rule: 'closed-after' (status Resolved today) was open that week.
-    expect(s.neighborhoods).toEqual([{ name: 'College Hill', slug: 'college-hill', n: 4, open: 3, closed: 1 }]);
+    expect(s.neighborhoods).toEqual([{ name: 'College Hill', slug: 'college-hill', n: 4, open: 3, closed: 1, medianCloseDays: 14.1 }]);
     expect(s.notable[0].closedAt).toBe(iso('2026-10-15T15:00:00Z'));
     expect(Object.values(s.outcomes).reduce((a, b) => a + b, 0)).toBe(1);
     expect(s.medianCloseDays).toBe(14.1);

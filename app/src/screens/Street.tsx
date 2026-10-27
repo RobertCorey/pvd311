@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
 import { getStreetCase, getStreetMap, peekStreetMap, type MapCase, type MapDays, type StreetMap } from '../api/street';
-import { followCity, getMe, unfollowCity, type Me } from '../api/me';
+import { followCity, getMe, placedAddresses, unfollowCity, type Me } from '../api/me';
 import { isSafeReturnTo, useSession } from '../lib/auth';
 import { forwardGeocode, inProvidence, reverseGeocode } from '../lib/geo';
 import { track } from '../lib/analytics';
@@ -46,8 +46,7 @@ const RING_M = 300;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
 const LATEST = 20;
-/** "Your places this week": at most this many saved addresses, each counted over the last 7 days within RING_M. */
-const PLACES_MAX = 5;
+/** "Your places this week": api/me placedAddresses (≤ 5 saved addresses), each counted over the last 7 days within RING_M. */
 const PLACES_DAYS = 7;
 const CITY_LL: L.LatLngBoundsLiteral = [[CITY_BOUNDS.south, CITY_BOUNDS.west], [CITY_BOUNDS.north, CITY_BOUNDS.east]];
 const at = (p: LatLng): L.LatLngBoundsLiteral => [[p.lat, p.lng], [p.lat, p.lng]];
@@ -630,8 +629,8 @@ export default function Street() {
   // filters are not applied — it is the glanceable answer to "anything at my places?", not a view of the map.
   const placeRows = useMemo(() => {
     if (!session || !me || !data) return [];
-    return me.addresses.filter((a) => a.lat != null && a.lng != null).slice(0, PLACES_MAX)
-      .map((a) => ({ a, lat: a.lat as number, lng: a.lng as number, ...placeActivity(data.cases, { lat: a.lat as number, lng: a.lng as number }, nowMs, RING_M, PLACES_DAYS) }));
+    return placedAddresses(me.addresses)
+      .map((a) => ({ a, lat: a.lat, lng: a.lng, ...placeActivity(data.cases, { lat: a.lat, lng: a.lng }, nowMs, RING_M, PLACES_DAYS) }));
   }, [session, me, data, nowMs]);
   /** The card sits at the top of the landing list (signed in, ≥ 1 saved address with coordinates); a row does what
    *  its "Your places" chip does. Counted as one street_places_view per page mount. */

@@ -5,6 +5,12 @@ import { authHeaders } from '../lib/auth';
 import type { GroupKey } from '@shared/categories';
 
 export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
+/** "Your places": at most this many saved addresses — /street's "Your places this week" card and /week's "Yours" hoods. */
+export const PLACES_MAX = 5;
+/** The saved addresses with coordinates, in the account's order, at most PLACES_MAX — the one list both pages use. */
+export const placedAddresses = (addresses: SavedAddress[]): (SavedAddress & { lat: number; lng: number })[] =>
+  addresses.filter((a): a is SavedAddress & { lat: number; lng: number } => a.lat != null && a.lng != null).slice(0, PLACES_MAX);
+
 export interface Me {
   uid: string; email: string | null; emailVerified: boolean; displayName: string | null; provider: string;
   /** `streetWatch`: push-only "tell me right away" for new city cases within 300 m of a saved address (no email; the

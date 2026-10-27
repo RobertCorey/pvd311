@@ -32,7 +32,8 @@
 
 /* ── Skeleton while the numbers load: static ink-soft bars, no spinner ─────────────────────────── */
 /* Same geometry as the loaded page at phone width (measured 2026-10-26: stat tile 113 px, h2 21 px with 26/8 margins,
-   type row 64 px, neighborhood row 62 px, 8 px gaps), so the swap moves nothing in view. Keep in step with .week-stat,
+   type row 64 px, 8 px gaps; neighborhood row 82 px since its "N closed · median" line, 2026-10-27), so the swap moves
+   nothing in view. Keep in step with .week-stat,
    .week-h and .week-row below. The head reserves the range line (20 px) and the week nav row (44 px) the same way. */
 .week-range--skel { display: flex; align-items: center; height: 20px; }
 .week-range--skel > span { display: block; height: 10px; width: 46%; border-radius: 5px; background: var(--ink-soft); }
@@ -46,7 +47,7 @@
 .week-skel-list { display: grid; gap: 8px; }
 .week-skel-list i { position: relative; display: block; height: 64px; border: 2px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
 .week-skel-list i::after { content: ''; position: absolute; left: 12px; top: 20px; height: 12px; width: 58%; border-radius: 6px; background: var(--ink-soft); }
-.week-skel-list--hoods i { height: 62px; }
+.week-skel-list--hoods i { height: 82px; }
 @media (max-width: 359px) { .week-skel-stats { grid-template-columns: 1fr 1fr; } .week-skel-stats i:last-child { grid-column: 1 / -1; } }
 
 /* ── Stat tiles: three .card tiles in one row; the delta is text (arrow glyph + words), never colour alone ── */
@@ -72,12 +73,20 @@
 .week-row-sub { font-size: 0.8rem; color: var(--muted); }
 .week-row-n { font-family: var(--font-display); font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
 
-/* By neighborhood: name + count on one line, the bar under them (width = n / max, count always in text). */
-.week-hood { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name n' 'bar bar'; gap: 4px 10px; }
+/* By neighborhood: name + count on one line, "N closed · median X days" under them, then the bar (width = n / max,
+   count always in text). A reader's own hoods carry the "Yours" tag (words, not colour) and an ink border; one with
+   nothing this week has no count and no bar, just "Nothing this week". */
+.week-hood { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name n' 'sub sub' 'bar bar'; gap: 1px 10px; }
 .week-hood-name { grid-area: name; font-family: var(--font-display); font-weight: 700; overflow-wrap: anywhere; }
 .week-hood .week-row-n { grid-area: n; }
-.week-hood-bar { grid-area: bar; display: block; height: 8px; border-radius: 4px; background: var(--ink-soft); overflow: hidden; }
+.week-hood-sub { grid-area: sub; line-height: 18px; }
+.week-hood-bar { grid-area: bar; display: block; height: 8px; margin-top: 4px; border-radius: 4px; background: var(--ink-soft); overflow: hidden; }
 .week-hood-bar > span { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--ink) 26%, transparent); }
+.week-hood--yours { border-color: var(--ink); }
+.week-hood-yours { display: inline-block; margin-left: 2px; padding: 0 .5rem; border: 1.5px solid var(--ink); border-radius: 999px; font-family: var(--font-body); font-size: .72rem; font-weight: 700; letter-spacing: .02em; line-height: 1.5; vertical-align: 2px; color: var(--ink); background: var(--surface); white-space: nowrap; }
+/* Show all N neighborhoods / Show fewer: a ghost button under the list, a full 44 px target. */
+.week-hoods-more { margin-top: 8px; width: auto; }
+.week-hood-compare { margin: 12px 0 0; font-size: 0.95rem; color: var(--ink); max-width: 60ch; }
 
 /* What closing meant: one stacked bar + legend. Colours = AdminCityInsights.css --oc-* (dataviz categorical order,
    validated on --surface; keep the two files in step). Three slots sit under 3:1, so every share is also text. */

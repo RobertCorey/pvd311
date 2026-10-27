@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { API as WORKER, SESSION, TRACK_NEAR, feed, nearWire } from './street-mocks';
-import { WEEK, DATED } from './week-mocks';
+import { WEEK, DATED, PLACES } from './week-mocks';
 import { ENDPOINT, stubPush } from './push-mocks';
 
 // axe-core WCAG 2.x A/AA pass over the main screens, light and dark.
@@ -62,6 +62,8 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['street-return', async (p) => { await p.addInitScript(() => { localStorage.setItem('fixmypvd.street.seenAt', new Date(Date.now() - 2 * 86_400_000).toISOString()); localStorage.setItem('fixmypvd.street.visits', '1'); }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-since').waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-install .street-install-cta').click(); await p.locator('.street-install-ios:not(:empty)').waitFor(); }],
   ['week', (p) => p.goto('/week')],
   ['week-dated', (p) => p.goto('/week?until=2026-10-18')],
+  // Signed in with saved places: their hoods tagged "Yours" and pinned (one with nothing this week), the comparison line, the list opened by Show all.
+  ['week-yours', async (p) => { await signedIn(p, { addresses: PLACES }); await p.goto('/week'); await p.locator('.week-hood-compare').waitFor(); await p.locator('.week-hoods-more').click(); await p.locator('.week-hoods-more[aria-expanded="true"]').waitFor(); }],
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],
   ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); }],
   ['my-following', async (p) => { await signedIn(p); await p.goto('/my'); await p.locator('.followed-cases').waitFor(); }],

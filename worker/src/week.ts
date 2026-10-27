@@ -28,7 +28,7 @@
  * earlier and the "vs last week" delta is like for like. A case created ten days ago and closed two days ago is in
  * BOTH weeks (last week as a new request, this week as a close); for this week that equals activity ≥ since. Open /
  * closed from cityinsights' CLOSED set; outcomes from its classifyResolution / outcomeOf; neighborhoods by
- * point-in-polygon over the shared rings.
+ * point-in-polygon over the shared rings, each with its own median days to close (/week's "Your neighborhood" line).
  */
 import type { Env, Mailer, Store } from './contracts.js';
 import { CLOSED, closedAt, median, outcomeOf, type CaseLike, type Outcome } from './cityinsights.js';
@@ -62,7 +62,9 @@ export const WEEK_OUTCOMES = ['work_done', 'enforcement', 'referred', 'logged_el
 export type WeekOutcome = typeof WEEK_OUTCOMES[number];
 
 export interface WeekType { caseType: string; category: string; n: number; prevN: number }
-export interface WeekHood { name: string; slug: string; n: number; open: number; closed: number }
+/** `medianCloseDays`: the hood's own median days created → closed over this week's closes in it with both times known
+ *  (medianDays, the city-wide rule and rounding); null when it had none (2026-10-27, /week "Your neighborhood"). */
+export interface WeekHood { name: string; slug: string; n: number; open: number; closed: number; medianCloseDays: number | null }
 export interface WeekNotable {
   id: string; caseType: string; category: string; street: string; neighborhood: string | null; status: string;
   closedAt: string | null; resolution: string; lat: number | null; lng: number | null;
@@ -85,7 +87,7 @@ export interface WeekSummary {
   prev: { total: number; closed: number };
   /** Top 6 case types by n this week, with last week's count for each. */
   topTypes: WeekType[];
-  /** Every neighborhood with activity this week, n desc (name asc on ties); located cases only. */
+  /** Every neighborhood with activity this week, n desc (name asc on ties); located cases only; each with its own median. */
   neighborhoods: WeekHood[];
   /** Closed this week, by what closing meant (cityinsights). */
   outcomes: Record<WeekOutcome, number>;
@@ -109,6 +111,12 @@ const parse = (iso: unknown): number | null => {
   return Number.isNaN(v) ? null : v;
 };
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** Median of close durations in days, to 1 dp (the city-wide `medianCloseDays` and each hood's); null for none. */
+export const medianDays = (days: number[]): number | null => {
+  const m = median(days);
+  return m == null ? null : Math.round(m * 10) / 10;
+};
 
 /** YYYY-MM-DD in New York (en-CA formats ISO-style). */
 const nyDay = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -206,7 +214,8 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf; unt
 
   let open = 0; let closed = 0; let located = 0;
   const types = new Map<string, WeekType>();
-  const hoods = new Map<string, WeekHood>();
+  const hoods = new Map<string, Omit<WeekHood, 'medianCloseDays'>>();
+  const hoodDays = new Map<string, number[]>();
   const outcomes = Object.fromEntries(WEEK_OUTCOMES.map((k) => [k, 0])) as Record<WeekOutcome, number>;
   const closeDays: number[] = [];
   const notable: (WeekNotable & { sort: number })[] = [];
@@ -234,7 +243,11 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf; unt
     if (!isClosed) continue;
     const oc = outcomeOf(x.row as unknown as CaseLike) as Outcome;
     if (oc !== 'open') outcomes[oc as WeekOutcome]++;
-    if (x.closed != null && x.created != null && x.closed >= x.created) closeDays.push((x.closed - x.created) / 86_400_000);
+    if (x.closed != null && x.created != null && x.closed >= x.created) {
+      const d = (x.closed - x.created) / 86_400_000;
+      closeDays.push(d);
+      if (hood) { const ds = hoodDays.get(hood); if (ds) ds.push(d); else hoodDays.set(hood, [d]); }
+    }
     if (x.resolution) {
       notable.push({
         id: x.id, caseType: x.caseType, category: x.category, street: x.street, neighborhood: hood, status: x.status,
@@ -246,9 +259,9 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf; unt
   for (const x of prev) { const t = types.get(x.caseType); if (t) t.prevN++; }
 
   const topTypes = [...types.values()].sort((a, b) => b.n - a.n || a.caseType.localeCompare(b.caseType)).slice(0, TOP_TYPES_N);
-  const neighborhoods = [...hoods.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  const neighborhoods: WeekHood[] = [...hoods.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+    .map((h) => ({ ...h, medianCloseDays: medianDays(hoodDays.get(h.name) ?? []) }));
   notable.sort((a, b) => b.sort - a.sort);
-  const mc = median(closeDays);
   let busiestDay: WeekSummary['busiestDay'] = null;
   for (const [date, n] of days) if (!busiestDay || n > busiestDay.n || (n === busiestDay.n && date > busiestDay.date)) busiestDay = { date, n };
 
@@ -258,7 +271,7 @@ export function weekSummary(rows: Row[], o: { now?: number; hoodOf?: HoodOf; unt
     total: week.length, open, closed, located,
     prev: { total: prev.length, closed: prevClosed },
     topTypes, neighborhoods, outcomes,
-    medianCloseDays: mc == null ? null : Math.round(mc * 10) / 10,
+    medianCloseDays: medianDays(closeDays),
     notable: notable.slice(0, NOTABLE_N).map(({ sort: _s, ...rest }) => rest),
     busiestDay,
   };
