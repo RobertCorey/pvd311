@@ -3,10 +3,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './MapView.css';
 import { clusterGrid, type Bounds, type Cluster, type ClusterPoint } from '../lib/streetMap';
+import { caseMarker, casePinKey, clusterHtml, clusterMarker, clusterSize, homeMarker, type MarkerParts } from '../lib/mapMarkers';
 import { CITY_MARGIN_DEG, PVD_BOUNDS } from '../lib/geo';
 
-/** A located city case to draw. Pass the whole filtered set: MapView keeps the ones inside `getBounds().pad(0.25)`. */
-export interface MapPoint { id: string; lat: number; lng: number; open: boolean }
+/** A located city case to draw. Pass the whole filtered set: MapView keeps the ones inside `getBounds().pad(0.25)`.
+ *  `group` picks the white type glyph in the pin's head; `isNew` (open, reported in the last 48 h) earns the halo. */
+export interface MapPoint { id: string; lat: number; lng: number; open: boolean; group?: string; isNew?: boolean }
 /** Debounced (150 ms) after every moveend/zoomend. `bounds` is the unpadded viewport; pad it yourself for the band. */
 export interface MapViewChange { bounds: Bounds; center: { lat: number; lng: number }; zoom: number; userGesture: boolean }
 /** A programmatic fit, applied whenever `key` changes. A degenerate bounds + `maxZoom` is "setView(point, maxZoom)"
@@ -101,8 +103,8 @@ async function addBasemap(map: L.Map, alive: () => boolean): Promise<'vector' | 
 
 const VIEW_DEBOUNCE_MS = 150;
 const DRAW_PAD = 0.25;
-/** Halos: only from this zoom, only this many open pins, never under reduced motion (nothing loops at city scale). */
-const HALO_ZOOM = 16;
+/** Halos mark NEW cases only (open, reported in the last 48 h — Rob, 2026-10-27: pins should say more than open/closed),
+ *  at any zoom a pin is drawn: at most this many, never under reduced motion. */
 const HALO_MAX = 60;
 const DROP_STEP_MS = 30;
 const DROP_MAX_INDEX = 20;
@@ -217,61 +219,22 @@ function keepInCity(map: L.Map, insets: () => MapInsets, cityFit: () => MapInset
   };
 }
 
-const fill = (color: string) => (color.startsWith('--') ? `var(${color})` : color);
+const divIcon = (m: MarkerParts, className = m.className): L.DivIcon =>
+  L.divIcon({ className, html: m.html, iconSize: m.size, iconAnchor: m.anchor, popupAnchor: [0, -m.anchor[1] + 2] });
 
-const PIN_PATH = 'M12 1C6.9 1 3 5.1 3 10.2c0 6.6 7.4 17.4 8.3 18.6a.9.9 0 0 0 1.4 0C13.6 27.6 21 16.8 21 10.2 21 5.1 17.1 1 12 1z';
-
-/** Two-ink pin: colored plate off-register behind an ink pin with the × mark (matches BrandMark), with a slow halo.
- *  Used by the report screen's picker and, as `.map-home`, for "the spot you picked" on /street. */
-function pinHtml(color: string): string {
-  return (
-    `<span class="map-pin-halo" style="--halo:${fill(color)}"></span>` +
-    `<svg width="32" height="40" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
-    `<circle cx="15" cy="12.6" r="7.4" style="fill:${fill(color)}"/>` +
-    `<path d="${PIN_PATH}" style="fill:var(--ink);stroke:var(--bg);stroke-width:1.4"/>` +
-    `<path d="M9.4 7.6l5.2 5.2M14.6 7.6l-5.2 5.2" style="stroke:var(--bg);stroke-width:2.2;stroke-linecap:round"/>` +
-    `</svg>`
-  );
+/** The report screen's draggable pin (and /street's `.map-home`): the × pin, markup in lib/mapMarkers. */
+function markerIcon(className = 'map-pin'): L.DivIcon {
+  return divIcon(homeMarker(), className);
 }
 
-function markerIcon(color: string, className = 'map-pin'): L.DivIcon {
-  return L.divIcon({
-    className,
-    html: pinHtml(color),
-    iconSize: [32, 40],
-    iconAnchor: [16, 38],
-    popupAnchor: [0, -36],
-  });
+/** Case pins: one cached divIcon per (group, open, new) — never one per case (ten groups × three looks = 30 at most). */
+const caseIcons = new Map<string, L.DivIcon>();
+function caseIcon(group: string | undefined, open: boolean, isNew: boolean | undefined): L.DivIcon {
+  const key = casePinKey(group ?? 'other', open, !!isNew);
+  let icon = caseIcons.get(key);
+  if (!icon) { icon = divIcon(caseMarker(group ?? 'other', open, !!isNew)); caseIcons.set(key, icon); }
+  return icon;
 }
-
-/** A city case: a plain two-ink teardrop, no ×, no plate. Open = ember fill 26×32 with a halo span (shown only while
- *  the marker carries `.map-pin--halo`); closed = muted fill 22×27 at .85 opacity, no halo. A --bg outline behind the
- *  1.4 ink stroke keeps it legible on OSM's pale tiles. Category is not encoded on the pin (chips, rows and the card do). */
-function casePinHtml(open: boolean): string {
-  const [w, h] = open ? [26, 32] : [22, 27];
-  const c = open ? 'var(--ember)' : 'var(--muted)';
-  return (
-    (open ? `<span class="map-pin-halo" style="--halo:var(--ember)"></span>` : '') +
-    `<svg width="${w}" height="${h}" viewBox="0 0 24 30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
-    `<path d="${PIN_PATH}" style="fill:none;stroke:var(--bg);stroke-width:3.4"/>` +
-    `<path d="${PIN_PATH}" style="fill:${c};stroke:var(--ink);stroke-width:1.4"/>` +
-    `</svg>`
-  );
-}
-
-const CASE_ICON_OPEN = L.divIcon({ className: 'map-pin map-case', html: casePinHtml(true), iconSize: [26, 32], iconAnchor: [13, 31] });
-const CASE_ICON_CLOSED = L.divIcon({ className: 'map-pin map-case map-pin--closed', html: casePinHtml(false), iconSize: [22, 27], iconAnchor: [11, 26] });
-const caseIcon = (open: boolean) => (open ? CASE_ICON_OPEN : CASE_ICON_CLOSED);
-
-/** Cluster disc: the count in Bricolage ink on surface inside a 2 px ink border, wrapped in a 5 px conic ring —
- *  ember for the open share, muted for the rest (the only place colour encodes status at city scale; the count is the
- *  accessible fact, in the list). The disc is 36 / 44 / 52 px via `.map-cluster--s|m|l`; the marker box is a fixed 52. */
-function clusterHtml(n: number, openShare: number): string {
-  const deg = Math.round(Math.min(1, Math.max(0, openShare)) * 360);
-  return `<span class="map-cluster-ring" style="--share:${deg}deg"><span class="map-cluster-disc">${n}</span></span>`;
-}
-const clusterSize = (n: number): 's' | 'm' | 'l' => (n < 10 ? 's' : n < 100 ? 'm' : 'l');
-const CLUSTER_BOX = 52;
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -284,7 +247,7 @@ const hideFromAt = (el: HTMLElement | undefined) => {
   el.setAttribute('tabindex', '-1');
 };
 
-type Keyed = { layer: L.Marker | L.Circle | L.Polygon; sig: string; cluster?: Cluster; open?: boolean; hood?: unknown };
+type Keyed = { layer: L.Marker | L.Circle | L.Polygon; sig: string; cluster?: Cluster; icon?: string; hood?: unknown };
 
 /** Everything that outlives a render: the layer group, the keyed markers, gesture tracking and the debounced redraw.
  *  Created once per map in the init effect; reads the latest props through `propsRef`. */
@@ -345,13 +308,16 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     el.classList.add('map-pin--drop');
   };
 
+  /** `data-id` on the marker element (not in the shared icon) so a test or a debugger can find a case's pin. */
+  const tagPin = (el: HTMLElement | undefined, id: string) => { hideFromAt(el); if (el) el.dataset.id = id; };
+
   function makePin(p: MapPoint, i: number): Keyed {
-    const m = L.marker([p.lat, p.lng], { icon: caseIcon(p.open), keyboard: false, interactive: true });
+    const m = L.marker([p.lat, p.lng], { icon: caseIcon(p.group, p.open, p.isNew), keyboard: false, interactive: true });
     m.on('click', () => propsRef.current.onSelect?.(p.id));
     group.addLayer(m);
-    hideFromAt(m.getElement());
+    tagPin(m.getElement(), p.id);
     drop(m.getElement(), i);
-    return { layer: m, sig: `${p.lat},${p.lng}`, open: p.open };
+    return { layer: m, sig: `${p.lat},${p.lng}`, icon: casePinKey(p.group ?? 'other', p.open, !!p.isNew) };
   }
 
   function onClusterClick(key: string) {
@@ -366,7 +332,7 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   }
 
   function makeCluster(key: string, c: Cluster, i: number): Keyed {
-    const icon = L.divIcon({ className: `map-cluster map-cluster--${clusterSize(c.n)}`, html: clusterHtml(c.n, c.open / c.n), iconSize: [CLUSTER_BOX, CLUSTER_BOX], iconAnchor: [CLUSTER_BOX / 2, CLUSTER_BOX / 2] });
+    const icon = divIcon(clusterMarker(c.n, c.open / c.n));
     const m = L.marker([c.lat, c.lng], { icon, keyboard: false, interactive: true });
     m.on('click', () => onClusterClick(key));
     group.addLayer(m);
@@ -412,16 +378,16 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
       hysteresis = { zoom, clustered: res.clustered };
 
       let halos = 0;
-      const haloOk = zoom >= HALO_ZOOM && !reduced;
       for (const id of res.singles) {
         const p = byId.get(id); if (!p) continue;
         const key = `c:${id}`; want.add(key); nextSingles.add(id);
-        const halo = haloOk && p.open && halos < HALO_MAX; if (halo) halos++;
+        const halo = !reduced && p.open && !!p.isNew && halos < HALO_MAX; if (halo) halos++;
         let e = entries.get(key);
         if (!e) { e = makePin(p, created++); entries.set(key, e); }
         else {
           const m = e.layer as L.Marker;
-          if (e.open !== p.open) { m.setIcon(caseIcon(p.open)); e.open = p.open; hideFromAt(m.getElement()); }
+          const icon = casePinKey(p.group ?? 'other', p.open, !!p.isNew);
+          if (e.icon !== icon) { m.setIcon(caseIcon(p.group, p.open, p.isNew)); e.icon = icon; tagPin(m.getElement(), id); }
           const sig = `${p.lat},${p.lng}`; if (e.sig !== sig) { m.setLatLng([p.lat, p.lng]); e.sig = sig; }
         }
         applyPinState(e, id, halo);
@@ -443,7 +409,7 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
       const e = entries.get('home');
       if (!e) {
         // Pointer-transparent: a tap on your own spot is a tap on the map (deselect), never a swallowed click.
-        const m = L.marker([home.lat, home.lng], { icon: markerIcon('--ember', 'map-pin map-home'), keyboard: false, interactive: false, zIndexOffset: SELECTED_Z + 1 });
+        const m = L.marker([home.lat, home.lng], { icon: markerIcon('map-pin map-home'), keyboard: false, interactive: false, zIndexOffset: SELECTED_Z + 1 });
         group.addLayer(m); hideFromAt(m.getElement());
         entries.set('home', { layer: m, sig });
       } else if (e.sig !== sig) { (e.layer as L.Marker).setLatLng([home.lat, home.lng]); e.sig = sig; }
@@ -638,7 +604,7 @@ export default function MapView(props: MapViewProps) {
     if (!pinRef.current) {
       // The address field is the accessible input for the location; the pin is a
       // pointer-only convenience, so keep it out of the tab order and the a11y tree.
-      const pin = L.marker(pos, { icon: markerIcon('--ember'), draggable: true, keyboard: false, alt: 'Report location' });
+      const pin = L.marker(pos, { icon: markerIcon(), draggable: true, keyboard: false, alt: 'Report location' });
       pin.on('dragend', () => { const ll = pin.getLatLng(); propsRef.current.onPinMove?.(ll.lat, ll.lng); });
       pin.addTo(map);
       hideFromAt(pin.getElement());
@@ -694,5 +660,5 @@ export default function MapView(props: MapViewProps) {
     ctlRef.current?.hoverChanged();
   }, [hoverId]);
 
-  return <div ref={elRef} className={frameless ? 'mapview is-frameless' : 'mapview'} style={height ? { height: `${height}px` } : undefined} />;
+  return <div ref={elRef} className={frameless ? 'mapview map-pins is-frameless' : 'mapview map-pins'} style={height ? { height: `${height}px` } : undefined} />;
 }

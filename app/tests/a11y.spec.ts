@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { API as WORKER, SESSION, TRACK_NEAR, feed, nearWire } from './street-mocks';
+import { API as WORKER, DEFAULT_ITEMS, SESSION, TRACK_NEAR, caseWire, detailFor, feed, nearWire } from './street-mocks';
 import { WEEK, DATED, PLACES } from './week-mocks';
 import { ENDPOINT, stubPush } from './push-mocks';
 
@@ -19,6 +19,12 @@ async function mocks(page: Page) {
   // The tracking page's "Near this request" card (the demo report sits at 41.8, -71.4): rows, pills, the map link, the digest card.
   await page.route(`${API}/api/street?*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(nearWire(TRACK_NEAR, { lat: 41.8, lng: -71.4 })) }));
   await page.route(`${API}/api/street/map*`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed()) }));
+  // The case overlay's GET /api/street/case/:id: every fixture case with a full detail (timeline, answers, address).
+  await page.route(`${API}/api/street/case/*`, (r) => {
+    const c = DEFAULT_ITEMS.find((x) => x.id === decodeURIComponent(new URL(r.request().url()).pathname.split('/').pop() ?? ''));
+    if (!c) return r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...caseWire(c), detail: detailFor(c, { address: `1${c.street}, Providence, RI, 02906, USA`, workCompletedDaysAgo: 0 }) }) });
+  });
   await page.route((u) => u.origin + u.pathname === `${API}/api/week`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(new URL(r.request().url()).searchParams.get('until') === '2026-10-18' ? DATED : WEEK) }));
   await page.route(/tile\.openstreetmap\.org/, (r) => r.fulfill({ status: 200, body: '' }));
   await page.route('**/map/basemap.json', (r) => r.fulfill({ status: 404, body: '' }));
@@ -65,6 +71,10 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   // Signed in with saved places: their hoods tagged "Yours" and pinned (one with nothing this week), the comparison line, the list opened by Show all.
   ['week-yours', async (p) => { await signedIn(p, { addresses: PLACES }); await p.goto('/week'); await p.locator('.week-hood-compare').waitFor(); await p.locator('.week-hoods-more').click(); await p.locator('.week-hoods-more[aria-expanded="true"]').waitFor(); }],
   ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],
+  // The case overlay with everything GET /api/street/case/:id adds: full address, timeline with the close, the city's note, answers.
+  ['street-case-detail', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c2'); await p.locator('.street-detail .street-tl-step[data-step="resolved"]').waitFor(); await p.locator('.street-detail .street-answers').waitFor(); }],
+  // The map key's dialog open over the point view (swatches, the dialog's ×, the button's expanded state).
+  ['street-key', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-row-btn').first().waitFor(); await p.getByRole('button', { name: 'Map key', exact: true }).click(); await p.locator('.street-key-pop').waitFor(); }],
   ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); }],
   ['my-following', async (p) => { await signedIn(p); await p.goto('/my'); await p.locator('.followed-cases').waitFor(); }],
   // Account → Updates: the checkboxes, the phone row (the iPhone install hint under the suite's UA) and the disabled street-watch row.

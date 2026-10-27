@@ -20,6 +20,10 @@ export const TYPES: [string, string][] = [
   ['Graffiti', 'graffiti'],                     // 4 property
   ['Abandoned Vehicle', 'abandoned_vehicle'],   // 5 traffic
   ['Tree Down', 'tree'],                        // 6 trees
+  ['Noise Complaint', 'noise'],                 // 7 nuisance
+  ['Water Leak', 'water_leak'],                 // 8 water
+  ['Animal Control', 'animal_control'],         // 9 animals
+  ['Something Else', 'unsure'],                 // 10 other
 ];
 
 export interface Case {
@@ -92,6 +96,22 @@ export function caseWire(c: Case) {
   };
 }
 
+/** A `detail` for GET /api/street/case/:id (worker/src/street.ts StreetCaseDetail) for a fixture case: the full address,
+ *  the form's dates (received + routed on the day it was reported, resolved for a closed case) and two answers. */
+export function detailFor(c: Case, o: { address?: string | null; answers?: { label: string; value: string }[]; workCompletedDaysAgo?: number } = {}) {
+  const iso = (days: number) => new Date(minsAgo(days) * 60_000).toISOString();
+  const later = (days: number, mins: number) => new Date((minsAgo(days) + mins) * 60_000).toISOString();
+  return {
+    address: o.address === undefined ? `${c.street}, Providence, RI, 02906, USA` : o.address,
+    timeline: {
+      reported: iso(c.createdDaysAgo), received: later(c.createdDaysAgo, 1), routed: later(c.createdDaysAgo, 2),
+      workCompleted: o.workCompletedDaysAgo == null ? null : iso(o.workCompletedDaysAgo), resolved: c.closedDaysAgo == null ? null : iso(c.closedDaysAgo),
+    },
+    answers: o.answers ?? [{ label: 'Type of Property', value: "Residential (someone else's property)" }, { label: 'Is Property Abandoned', value: 'Yes' }],
+    statusHistory: [{ status: 'Submitted', at: iso(c.createdDaysAgo) }],
+  };
+}
+
 /** The tracking page's point (120 Benefit St, the track.spec fixture) and the four city cases around it: two open
  *  (28 m, three days ago / 130 m, today), two closed (80 m yesterday with the city's note / 150 m) — the fourth is counted, never a row. */
 export const TRACK_PT = { lat: 41.8268, lng: -71.4053 };
@@ -139,6 +159,12 @@ export interface SetupOpts {
   items?: Case[]; items90?: Case[]; signedIn?: boolean; me?: Record<string, unknown>;
   /** Cases GET /api/street/case/:id knows beyond the window sets (a followed case months old); anything else is 404. */
   extraCases?: Case[];
+  /** GET /api/street/case/:id's `detail` per case id (worker/src/street.ts streetCaseDetail); absent → omitted. */
+  details?: Record<string, unknown>;
+  /** Status for GET /api/street/case/:id per id (default 200 / 404) — e.g. () => 500 for the overlay's failure path. */
+  caseStatus?: (id: string) => number | undefined;
+  /** Hold every GET /api/street/case/:id this long (the overlay's skeleton). */
+  caseDelayMs?: number;
   /** Status for GET /api/me per call (default 200) — e.g. (n) => (n === 1 ? 500 : 200) for the retry path. */
   meStatus?: (n: number) => number;
   /** Hold every GET /api/me this long (the "Loading your account…" state). */
@@ -173,13 +199,17 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed({ days, items })) });
   });
   // One case by id (the deep-link fallback): the window sets plus `extraCases`; 404 otherwise.
-  await page.route(`${API}/api/street/case/*`, (r) => {
+  await page.route(`${API}/api/street/case/*`, async (r) => {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split('/').pop() ?? '');
     calls.push({ method: 'GET', url: r.request().url(), body: null });
+    if (o.caseDelayMs) await new Promise((res) => setTimeout(res, o.caseDelayMs));
+    const forced = o.caseStatus?.(id);
+    if (forced && forced !== 200) return r.fulfill({ status: forced, contentType: 'application/json', body: '{"error":"boom"}' });
     const all = [...(o.items ?? DEFAULT_ITEMS), ...(o.items90 ?? []), ...(o.extraCases ?? [])];
     const c = all.find((x) => x.id === id);
     if (!c) return r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' });
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(caseWire(c)) });
+    const detail = o.details?.[id];
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...caseWire(c), ...(detail ? { detail } : {}) }) });
   });
   // The old endpoints must never be called by the page.
   await page.route(`${API}/api/street/city*`, (r) => { calls.push({ method: 'GET', url: r.request().url(), body: null }); return r.fulfill({ status: 500, body: '' }); });

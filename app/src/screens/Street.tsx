@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
-import { getStreetCase, getStreetMap, peekStreetMap, type MapCase, type MapDays, type StreetMap } from '../api/street';
+import { getStreetCase, getStreetCaseFull, getStreetMap, peekStreetCase, peekStreetMap, type CaseDetail, type MapCase, type MapDays, type StreetMap } from '../api/street';
 import { followCity, getMe, placedAddresses, unfollowCity, type Me } from '../api/me';
 import { isSafeReturnTo, useSession } from '../lib/auth';
 import { forwardGeocode, inProvidence, reverseGeocode } from '../lib/geo';
@@ -10,7 +10,7 @@ import { useI18n } from '../i18n';
 import type { GroupKey } from '../lib/categories';
 import { hoodOfSync, loadNeighborhoods, ringBounds, type NeighborhoodTable, type Rings } from '../lib/neighborhoods';
 import {
-  applyFilters, CITY_BOUNDS, distanceM, facetCounts, hoodCounts, inBounds, isDefaultView, metersBetween, padBounds,
+  applyFilters, CITY_BOUNDS, distanceM, facetCounts, hoodCounts, inBounds, isDefaultView, isNewCase, metersBetween, padBounds,
   parseStreetUrl, placeActivity, sortForPoint, summaryOf, topTypes, writeStreetUrl, type Bounds, type Filters, type LatLng, type StreetUrlState,
 } from '../lib/streetMap';
 import { DESKTOP_MQ, useMediaQuery } from '../lib/useMediaQuery';
@@ -23,8 +23,9 @@ import {
 import MapView, { type MapFit, type MapPoint, type MapViewChange } from '../components/MapView';
 import StreetSheet, { SHEET_FULL_INSET, SHEET_PEEK_MIN, type Detent, type DetentVia } from '../components/StreetSheet';
 import StreetFilters from '../components/StreetFilters';
-import StreetRow from '../components/StreetRow';
+import StreetRow, { StatusPill } from '../components/StreetRow';
 import StreetDetail from '../components/StreetDetail';
+import MapKey from '../components/MapKey';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
 import PushCard from '../components/PushCard';
 import StreetDigestCard, { addressLabel } from '../components/StreetDigestCard';
@@ -39,9 +40,16 @@ import './Street.css';
  *  never empty: landing (city), viewport list, case card, stack, quiet-street and error states all show something.
  *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood), g/s/d (filters), case.
  *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
- *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone". */
+ *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone".
+ *  A selected case is an overlay (Rob, 2026-10-27): the sheet/panel header becomes the case (type, status pill, × = Back
+ *  to list), the card leads with the key facts and adds what GET /api/street/case/:id knows (timeline, answers); pins
+ *  carry their type's glyph and only new cases pulse; the "Map key" button explains every mark. */
 
 const RAIL_BOTTOM = 110;
+/** The sheet/panel title's id: the case card is labelled by it (the overlay's header is the case's title). */
+const TITLE_ID = 'street-title';
+/** The overlay header's status pill: the case card is described by it (it sits before the card, outside it). */
+const BADGE_ID = 'street-badge';
 const RING_M = 300;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
@@ -54,6 +62,8 @@ const at = (p: LatLng): L.LatLngBoundsLiteral => [[p.lat, p.lng], [p.lat, p.lng]
 const TEST_HOOK = import.meta.env.MODE !== 'production' || (typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
 
 type FeedState = 'loading' | 'error' | 'ok';
+/** What GET /api/street/case/:id added to the selected case (api/street caches it per id). */
+interface CaseMore { id: string; state: 'loading' | 'ok' | 'error'; detail: CaseDetail | null }
 interface DigestTarget { lat: number; lng: number; label: string }
 /** history.state of entries this page pushes: `street` = ours; `back` = pushed by selectCase from a list view of this
  *  page, so "Back to list" may navigate(-1) (a deep-linked case=, or one re-selected by replace, gets the param removed). */
@@ -332,6 +342,25 @@ export default function Street() {
     el?.focus({ preventScroll: true });
   }, [url.caseId]);
 
+  /* ── The selected case's detail: GET /api/street/case/:id once per id (api/street caches it; the stale deep-link
+   *  lookup above already filled the cache for its case). The card shows at once; the detail block follows. ────── */
+  const [caseMore, setCaseMore] = useState<CaseMore | null>(null);
+  const selectedId = selectedCase?.id ?? null;
+  useEffect(() => {
+    if (!selectedId) return;
+    let live = true;
+    getStreetCaseFull(selectedId).then(
+      (r) => { if (live) setCaseMore({ id: selectedId, state: 'ok', detail: r?.detail ?? null }); },
+      () => { if (live) setCaseMore({ id: selectedId, state: 'error', detail: null }); },
+    );
+    return () => { live = false; };
+  }, [selectedId]);
+  const moreFor = (id: string): CaseMore => {
+    if (caseMore?.id === id) return caseMore;
+    const hit = peekStreetCase(id); // settled already (a reopened case, the deep-link lookup): no skeleton flash
+    return hit !== undefined ? { id, state: 'ok', detail: hit?.detail ?? null } : { id, state: 'loading', detail: null };
+  };
+
   const onBackgroundTap = () => {
     if (urlRef.current.caseId) { closeCase(); if (raisedRef.current) { raisedRef.current = false; setDetent('peek', 'auto'); } }
     setStackIds(null);
@@ -355,10 +384,12 @@ export default function Street() {
   const windowed = useMemo(() => (data ? applyFilters(data.cases, { g: null, s: null, d: filters.d }, nowMs) : []), [data, filters.d, nowMs]);
   const filtered = useMemo(() => (data ? applyFilters(data.cases, filters, nowMs) : []), [data, filters, nowMs]);
   const points = useMemo<MapPoint[]>(() => {
-    const pts = filtered.flatMap((c) => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open }] : []));
-    if (extraCase && extraCase.lat != null && extraCase.lng != null) pts.push({ id: extraCase.id, lat: extraCase.lat, lng: extraCase.lng, open: extraCase.open });
+    // The pin draws the type's glyph; a case open and reported in the last 48 h gets the halo.
+    const pin = (c: MapCase): MapPoint[] => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open, group: c.group, isNew: isNewCase(c, nowMs) }] : []);
+    const pts = filtered.flatMap(pin);
+    if (extraCase) pts.push(...pin(extraCase));
     return pts;
-  }, [filtered, extraCase]);
+  }, [filtered, extraCase, nowMs]);
   const inView = useMemo(() => {
     if (!bandBounds) return [];
     const list = filtered.filter((c) => inBounds(c, bandBounds));
@@ -768,7 +799,10 @@ export default function Street() {
           account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
           onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} push={<PushCard me={me} from="case" />} />
       );
-      return <StreetDetail c={selectedCase} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share} nowMs={nowMs} follow={follow} digest={tg ? digestCard(tg, 'case', !followed) : undefined} />;
+      return (
+        <StreetDetail c={selectedCase} labelledBy={TITLE_ID} describedBy={BADGE_ID} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share}
+          nowMs={nowMs} follow={follow} digest={tg ? digestCard(tg, 'case', !followed) : undefined} more={moreFor(id)} />
+      );
     }
     if (stackCases) {
       return (
@@ -833,14 +867,15 @@ export default function Street() {
     </nav>
   );
 
+  // The case overlay's header is the case: no list lines under it (the "as of" status line stays — it is about the data).
   const showTeach = landing && !moved && params.toString() === '' && detent === 'peek';
   const extraLines: ReactNode[] = [];
   if (showTeach) extraLines.push(<p key="teach" className="hint">{t('street.teach')}</p>);
-  if (data && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{t('street.unplaced', { n: num(summary.unplaced) })}</p>);
-  if (data?.truncated && filters.d === 90) extraLines.push(<p key="trunc" className="hint">{t('street.truncated')}</p>);
+  if (data && !selectedCase && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{t('street.unplaced', { n: num(summary.unplaced) })}</p>);
+  if (data?.truncated && filters.d === 90 && !selectedCase) extraLines.push(<p key="trunc" className="hint">{t('street.truncated')}</p>);
   if (data && feedState === 'error') extraLines.push(<p key="asof" className="hint" role="status">{t('street.asOf', { time: new Date(data.at).toLocaleTimeString(lang, { hour: 'numeric', minute: '2-digit' }) })}</p>);
 
-  const places = session && me && me.addresses.length > 0 ? (
+  const places = session && me && me.addresses.length > 0 && !selectedCase ? (
     <div className="street-places-row">
       <span className="street-places-label">{t('street.places')}</span>
       <SavedAddresses onPick={(a) => { if (a.lat != null && a.lng != null) go(a.address, a.lat, a.lng); else setMsg(t('street.notFound')); }} />
@@ -886,15 +921,21 @@ export default function Street() {
       <h1 className="street-vh">{t('street.title')}</h1>
       <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
       {!desktop && controls}
+      {!desktop && <MapKey hidden={detent === 'full'} />}
+      {/* A selected case is an overlay: the header is the case (type, status pill, × = Back to list) and the card the
+          body; Share moves into the card's actions, the summary line gives way (it still carries "Link copied"). */}
       <StreetSheet
-        detent={detent} onDetent={setDetent} title={title} subtitle={flash ?? subtitle} note={sinceNote}
+        detent={detent} onDetent={setDetent} title={title} titleId={TITLE_ID} badgeId={BADGE_ID} subtitle={flash ?? (selectedCase ? '' : subtitle)} note={sinceNote}
+        badge={selectedCase ? <StatusPill status={selectedCase.status} /> : undefined}
+        onClose={selectedCase ? closeCase : undefined} closeLabel={t('street.detail.back')} overlay={!!selectedCase}
         labels={{ show: t('street.sheet.show'), more: t('street.sheet.more'), hide: t('street.sheet.hide'), map: t('street.sheet.map') }}
-        places={places} extra={extraLines.length ? extraLines : undefined} actions={shareBtn} controls={desktop ? controls : undefined}
+        places={places} extra={extraLines.length ? extraLines : undefined} actions={selectedCase ? undefined : shareBtn} controls={desktop ? controls : undefined}
         tail={tail} desktop={desktop} panelLabel={t('street.title')} busy={feedState === 'loading' && !!data}
         onPeekHeight={desktop ? undefined : setPeekH}
       >
         {body}
       </StreetSheet>
+      {desktop && <MapKey withText />}
       <MapView
         key={desktop ? 'desk' : 'phone'}
         ariaLabel={t('street.map.label')} frameless={!desktop} zoomControl={desktop}

@@ -13,7 +13,8 @@ import './StreetSheet.css';
  * Gestures (ownership is exact so the map, the sheet and the list never fight):
  *  - pointer drag on the header (grabber + title row + places row) with pointer capture; release snaps to the
  *    nearest detent, or one detent in the drag direction when |velocity| > 0.5 px/ms;
- *  - body at HALF: no scrolling; a touch move of 24 px up raises to FULL, 24 px down drops to PEEK;
+ *  - body at HALF: no scrolling; a touch move of 24 px up raises to FULL, 24 px down drops to PEEK — except under
+ *    `overlay` (the case card), where it scrolls like FULL and a pull down from the top drops to PEEK;
  *  - body at FULL: scrolls normally; a 24 px pull down that started at scrollTop 0 drops to HALF;
  *  - grabber: click / Enter / Space cycle peek → half → full → peek, ArrowUp / ArrowDown step one detent.
  *
@@ -46,8 +47,21 @@ export interface SheetLabels {
 export interface StreetSheetProps {
   detent: Detent;
   onDetent: (d: Detent, via: DetentVia) => void;
-  /** One line, ellipsised — "Providence", the neighborhood, the address, the case type… */
+  /** One line, ellipsised — "Providence", the neighborhood, the address, the case type (two lines under `overlay`). */
   title: string;
+  /** id of the title's <h2>, so a card in the body can be labelled by it (the case overlay has no title of its own). */
+  titleId?: string;
+  /** Left of the subtitle on its line — the case's status pill under `overlay`. */
+  badge?: ReactNode;
+  /** id of the badge's span, so the card in the body can be described by it (the pill sits in the header, before it). */
+  badgeId?: string;
+  /** A 44 px × at the right of the title row (the case overlay's "Back to list"); `closeLabel` names it. */
+  onClose?: () => void;
+  closeLabel?: string;
+  /** The body is one item (the selected case's card): the title may wrap to two lines and the body scrolls at HALF,
+   *  so everything on the card is reachable at the detent a pin tap opens (Rob, 2026-10-27: "an overlay with all the
+   *  case details"). */
+  overlay?: boolean;
   /** The live summary ("42 in view · 18 open · 24 closed"). The parent debounces it (400 ms, only when changed). */
   subtitle: string;
   /** A second subtitle line ("3 new since you last looked (2 days ago)"): plain text, NOT a live region — it changes
@@ -103,7 +117,7 @@ interface Drag { active: boolean; id: number; startY: number; startH: number; dr
 const idleDrag = (): Drag => ({ active: false, id: -1, startY: 0, startH: 0, dragged: false, samples: [] });
 
 export default function StreetSheet(props: StreetSheetProps) {
-  const { detent, onDetent, title, subtitle, note, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
+  const { detent, onDetent, title, titleId, badge, badgeId, onClose, closeLabel, overlay = false, subtitle, note, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -115,7 +129,8 @@ export default function StreetSheet(props: StreetSheetProps) {
   const dragRef = useRef<Drag>(idleDrag());
   const detentRef = useRef(detent);
   const onDetentRef = useRef(onDetent);
-  useLayoutEffect(() => { detentRef.current = detent; onDetentRef.current = onDetent; });
+  const overlayRef = useRef(overlay);
+  useLayoutEffect(() => { detentRef.current = detent; onDetentRef.current = onDetent; overlayRef.current = overlay; });
 
   const publish = (h: number) => { stageRef.current?.style.setProperty('--sheet-h', `${Math.round(h)}px`); };
 
@@ -164,10 +179,10 @@ export default function StreetSheet(props: StreetSheetProps) {
       if (!tracking || fired || e.touches.length !== 1) return;
       const dy = e.touches[0].clientY - startY; // finger down = positive
       const d = detentRef.current;
-      if (d === 'half') {
+      if (d === 'half' && !overlayRef.current) {
         if (dy <= -SWIPE_PX) { fired = true; onDetentRef.current('full', 'drag'); }
         else if (dy >= SWIPE_PX) { fired = true; onDetentRef.current('peek', 'drag'); }
-      } else if (d === 'full' && atTop && dy >= SWIPE_PX && body.scrollTop <= 0) { fired = true; onDetentRef.current('half', 'drag'); }
+      } else if (d !== 'peek' && atTop && dy >= SWIPE_PX && body.scrollTop <= 0) { fired = true; onDetentRef.current(d === 'full' ? 'half' : 'peek', 'drag'); }
     };
     const onEnd = () => { tracking = false; };
     body.addEventListener('touchstart', onStart, { passive: true });
@@ -237,19 +252,22 @@ export default function StreetSheet(props: StreetSheetProps) {
   const cycle = () => go(detent === 'full' ? 'peek' : up(detent), 'button');
   const grabLabel = detent === 'peek' ? labels.show : detent === 'half' ? labels.more : labels.hide;
 
+  // The one live region (the summary, "Link copied") keeps its element in every mode; under a badge it shares its line.
+  const sub = <p className="street-sub" role="status" aria-live="polite">{subtitle}</p>;
   const headRow = (
     <div className="street-head-row">
       <div className="street-head-text">
-        <h2 className="street-title">{title}</h2>
-        <p className="street-sub" role="status" aria-live="polite">{subtitle}</p>
+        <h2 id={titleId} className="street-title">{title}</h2>
+        {badge ? <div className="street-sub-row"><span id={badgeId} className="street-badge">{badge}</span>{sub}</div> : sub}
         {note && <p className="street-since">{note}</p>}
       </div>
-      {(actions || (!desktop && detent === 'full' && labels.map)) && (
+      {(actions || onClose || (!desktop && detent === 'full' && labels.map)) && (
         <div className="street-head-actions">
           {!desktop && detent === 'full' && labels.map && (
             <button type="button" className="chip street-map-chip" onClick={() => go('half', 'button')}>{labels.map}</button>
           )}
           {actions}
+          {onClose && <button type="button" className="street-ico street-close" aria-label={closeLabel} title={closeLabel} onClick={onClose}><span aria-hidden="true">×</span></button>}
         </div>
       )}
     </div>
@@ -257,7 +275,7 @@ export default function StreetSheet(props: StreetSheetProps) {
 
   if (desktop) {
     return (
-      <aside className="street-panel" aria-label={panelLabel ?? title}>
+      <aside className="street-panel" aria-label={panelLabel ?? title} data-overlay={overlay || undefined}>
         {controls && <div className="street-panel-controls">{controls}</div>}
         {headRow}
         {extra && <div className="street-extra">{extra}</div>}
@@ -271,7 +289,7 @@ export default function StreetSheet(props: StreetSheetProps) {
   }
 
   return (
-    <div ref={sheetRef} className="street-sheet" data-detent={detent}>
+    <div ref={sheetRef} className="street-sheet" data-detent={detent} data-overlay={overlay || undefined}>
       <div ref={topRef} className="street-sheet-top" onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={(e) => endDrag(e, false)} onPointerCancel={(e) => endDrag(e, true)} onClickCapture={onClickCapture}>
         <div className="street-head">

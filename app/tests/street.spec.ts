@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
-import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
+import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, detailFor, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
+import { GROUP_GLYPHS } from '../src/lib/mapMarkers';
 import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
 
 // /street — the map-first "My street" page (.claude/street-map-spec.md): one mocked GET /api/street/map, everything else
@@ -13,6 +14,8 @@ const title = (page: Page) => page.locator('.street-title');
 const sub = (page: Page) => page.locator('.street-sub');
 const rows = (page: Page) => page.locator('.street-row-btn');
 const chip = (page: Page, name: RegExp) => page.getByRole('button', { name });
+/** The case overlay's header × — "Back to list" (the card itself has no back button any more). */
+const backX = (page: Page) => page.getByRole('button', { name: 'Back to list' });
 
 async function landing(page: Page, o: Parameters<typeof setup>[1] = {}) {
   const calls = await setup(page, o);
@@ -185,19 +188,20 @@ test('selection via row: the card takes focus, writes case=, marks the pin; Back
   await row.click();
   const card = page.locator('.street-detail');
   await expect(card).toBeFocused();
-  await expect(card).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await expect(card).toContainText('22 Thayer St');
-  await expect(card.locator('.my-status')).toHaveText('Closed');
+  await expect(page.locator('.street-badge .my-status')).toHaveText('Closed');
   await expect(card.locator('.street-note')).toHaveText('Bulb replaced.');
   await expect(page).toHaveURL(/[?&]case=c2/);
   await expect(page.locator('.map-pin--selected')).toHaveCount(1);
   await expect(title(page)).toHaveText('Street Light Out');
-  await card.getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(page.locator('.street-row-btn[data-id="c2"]')).toBeFocused();
   await expect(page.locator('.map-pin--selected')).toHaveCount(0);
   await page.locator('.street-row-btn[data-id="c1"]').click();
   await expect(page.locator('.street-detail')).toBeFocused();
+  await expect(page.locator('.street-detail')).toHaveAccessibleDescription('Assigned'); // the header's pill, before the card
   await page.keyboard.press('Escape');
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(page.locator('.street-row-btn[data-id="c1"]')).toBeFocused();
@@ -210,7 +214,7 @@ test('selection via pin and deep link: a pin tap raises peek → half; ?case= op
   await setView(page, NEAR[0].lat!, NEAR[0].lng!, 17);
   await page.waitForTimeout(400);
   await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
-  await expect(page.locator('.street-detail')).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
   await expect(page).toHaveURL(/[?&]case=c1/);
   await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
   await expect(page.locator('.map-pin--selected')).toHaveCount(1);
@@ -222,7 +226,7 @@ test('selection via pin and deep link: a pin tap raises peek → half; ?case= op
 
   await page.goto(`${POINT}&case=c1`);
   await waitForMap(page);
-  await expect(page.locator('.street-detail')).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
   await expect(page.locator('.street-detail')).toBeFocused();
   await expect(page.locator('.map-pin--selected')).toHaveCount(1);
   await expect(title(page)).toHaveText('Pothole');
@@ -246,7 +250,7 @@ test('deep link to a case older than the window (the follow mail, a /my row): fe
   await page.goto('/street?case=old1&lat=41.83000&lng=-71.41000');
   await waitForMap(page);
   const card = page.locator('.street-detail');
-  await expect(card).toContainText('Tree Down');
+  await expect(title(page)).toHaveText('Tree Down');
   await expect(card).toContainText('5 Elm St');
   await expect(card).toBeFocused();
   await expect(page).toHaveURL(/[?&]case=old1/);
@@ -258,18 +262,368 @@ test('deep link to a case older than the window (the follow mail, a /my row): fe
   // Follow works on it like any card (signed out here: the sign-in link returns to this URL).
   expect(decodeURIComponent((await card.locator('a.street-follow-signin').getAttribute('href'))!)).toBe('/account?returnTo=/street?case=old1&lat=41.83000&lng=-71.41000');
   // Back to list drops the case and its pin; the window's rows are what is listed.
-  await card.getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(page.locator('.map-pin--selected')).toHaveCount(0);
 
   // Bare case= on an unplaced closed case: the card (with the city's note) over the whole city, no pin.
   await page.goto('/street?case=old2');
   await waitForMap(page);
-  await expect(card).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
   await expect(card.locator('.street-note')).toHaveText('Filled.');
   await expect(page.locator('.map-pin--selected')).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]case=old2/);
   expect(lookups()).toEqual(['old1', 'old2']);
+});
+
+// ── The case overlay (Rob, 2026-10-27: "When you click on a pin it should show an overlay with all the case details") ──
+const caseCalls = (calls: { url: string }[], id: string) => calls.filter((c) => c.url.endsWith(`/api/street/case/${id}`)).length;
+const box = async (page: Page, sel: string) => (await page.locator(sel).first().boundingBox())!;
+
+test('case overlay: a pin tap at PEEK → the header is the case (type, status pill, 44 px ×) with no second title in the card; status, street, hood · distance and reported · closed after N days are in view at 390×664 without scrolling, the pin stays in the band above, and the card scrolls at HALF to the rest', async ({ page }) => {
+  await point(page, { details: { c2: detailFor(NEAR[1]) } });
+  await grab(page).press('ArrowDown');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await setView(page, NEAR[1].lat!, NEAR[1].lng!, 17);
+  await page.waitForTimeout(400);
+  await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
+  await expect(page).toHaveURL(/[?&]case=c2/);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(sheet(page)).toHaveAttribute('data-overlay', 'true');
+  // The header is the case: type, pill, ×; the list's Share icon and summary give way.
+  await expect(title(page)).toHaveText('Street Light Out');
+  await expect(page.locator('.street-badge .my-status')).toHaveText('Closed');
+  const x = (await backX(page).boundingBox())!;
+  expect(x.width).toBeGreaterThanOrEqual(44);
+  expect(x.height).toBeGreaterThanOrEqual(44);
+  await expect(page.locator('.street-head-actions').getByRole('button', { name: 'Share' })).toHaveCount(0);
+  await expect(sub(page)).toHaveText('');
+  // No duplicated title: the card holds no type text and is named by the header's h2.
+  const card = page.locator('.street-detail');
+  await expect(card).toBeFocused();
+  await expect(card).toHaveAttribute('aria-labelledby', 'street-title');
+  await expect(card.getByText('Street Light Out')).toHaveCount(0);
+  await expect(card.locator('h3', { hasText: 'Street Light Out' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Street Light Out' })).toBeFocused();
+  // …and described by the header's status pill: it sits before the card, so reading on from the card never reaches it.
+  await expect(card).toHaveAttribute('aria-describedby', 'street-badge');
+  await expect(card).toHaveAccessibleDescription('Closed');
+  // Key facts, above the fold at HALF.
+  await expect(card.locator('.street-fact-place')).toHaveText('22 Thayer St');
+  await expect(card.locator('.street-addr')).toHaveText('College Hill · 56 m away');
+  await expect(card.locator('.street-fact-when')).toHaveText(/^Reported [A-Z][a-z]{2} \d{1,2} · closed after 8 days$/);
+  const body = page.locator('#street-sheet-body');
+  expect(await body.evaluate((el) => el.scrollTop)).toBe(0);
+  const sh = await box(page, '.street-sheet'), bd = await box(page, '#street-sheet-body');
+  const tabTop = (await box(page, '.tabbar')).y;
+  for (const sel of ['.street-badge .my-status', '.street-fact-place', '.street-detail .street-addr', '.street-fact-when']) {
+    const b = await box(page, sel);
+    expect(b.y, sel).toBeGreaterThanOrEqual(sh.y);
+    expect(b.y + b.height, sel).toBeLessThanOrEqual(Math.min(bd.y + bd.height, tabTop));
+  }
+  // The tapped pin is still in the band between the rail and the sheet.
+  const pin = await box(page, '.map-pin--selected'), rail = await box(page, '.street-rail');
+  expect(pin.y + pin.height).toBeLessThanOrEqual(sh.y + 1);
+  expect(pin.y).toBeGreaterThanOrEqual(rail.y + rail.height - 1);
+  // The rest of the card is reachable by scrolling the body at this detent (it was clipped at HALF before).
+  expect(await body.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  const share = card.getByRole('button', { name: 'Share' });
+  await share.scrollIntoViewIfNeeded();
+  expect(await body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  const sb = (await share.boundingBox())!;
+  expect(sb.y).toBeGreaterThanOrEqual(bd.y);
+  expect(sb.y + sb.height).toBeLessThanOrEqual(Math.min(bd.y + bd.height, tabTop));
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half'); // scrolled, not raised
+});
+
+test('case overlay detail: GET /api/street/case/:id once per case — the timeline lists only the steps with dates (the close says how long it took), "What was reported" as label/value text (never HTML), the full address only when it says more than the street; a skeleton while it loads', async ({ page }) => {
+  const c1 = NEAR[0];
+  const calls = await point(page, {
+    caseDelayMs: 900,
+    details: {
+      c1: detailFor(c1, { address: '12 Angell St, Providence, RI, 02906, USA', workCompletedDaysAgo: 1, answers: [{ label: 'Type of Property', value: '<b>Residential</b>' }, { label: 'Is Property Abandoned', value: 'Yes' }] }),
+      c2: { ...detailFor(NEAR[1]), address: '22 THAYER ST, Providence, RI, 02906, USA', timeline: { ...detailFor(NEAR[1]).timeline, received: null, routed: null }, answers: [] },
+    },
+  });
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  const card = page.locator('.street-detail');
+  // The basic card is there at once; the detail block is a skeleton until the request lands.
+  await expect(card.locator('.street-fact-place')).toHaveText('10 Angell St');
+  await expect(card.locator('.street-detail-skel')).toBeVisible();
+  await expect(card).toHaveAttribute('aria-busy', 'true');
+  await expect(card.locator('.street-tl')).toBeVisible({ timeout: 5000 });
+  await expect(card.locator('.street-detail-skel')).toHaveCount(0);
+  await expect(card).not.toHaveAttribute('aria-busy', 'true');
+  // Open case: Reported, Received, Sent to the department, Work completed — no Closed step.
+  const steps = card.locator('.street-tl-step');
+  expect(await steps.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.step))).toEqual(['reported', 'received', 'routed', 'workCompleted']);
+  await expect(steps.locator('.street-tl-label')).toHaveText(['Reported', 'Received by the city', 'Sent to the department', 'Work completed']);
+  for (const tm of await steps.locator('time').all()) {
+    await expect(tm).toHaveText(/^[A-Z][a-z]{2} \d{1,2}$/);
+    expect(Number.isFinite(Date.parse((await tm.getAttribute('datetime'))!))).toBe(true);
+  }
+  await expect(card.locator('.street-tl-days')).toHaveCount(0);
+  // "What was reported": a definition list, the value as typed — markup stays text.
+  await expect(card.getByRole('heading', { name: 'What was reported' })).toBeVisible();
+  await expect(card.locator('.street-answers dt')).toHaveText(['Type of Property', 'Is Property Abandoned']);
+  await expect(card.locator('.street-answers dd')).toHaveText(['<b>Residential</b>', 'Yes']);
+  await expect(card.locator('.street-answers b')).toHaveCount(0);
+  // The city's address has a different house number than its street field → shown, without ", USA".
+  await expect(card.locator('.street-fulladdr')).toHaveText('Full address 12 Angell St, Providence, RI, 02906');
+  expect(caseCalls(calls, 'c1')).toBe(1);
+
+  // Closed case: Reported → Closed "8 days after it was reported"; the city's note; no answers; the address only
+  // repeats the street (case aside) → not shown.
+  await backX(page).click();
+  await page.locator('.street-row-btn[data-id="c2"]').click();
+  await expect(card.locator('.street-tl-step')).toHaveCount(2, { timeout: 5000 });
+  await expect(card.locator('.street-tl-label')).toHaveText(['Reported', 'Closed']);
+  await expect(card.locator('.street-tl-step[data-step="resolved"] .street-tl-days')).toHaveText('8 days after it was reported');
+  await expect(card.locator('.street-note')).toHaveText('Bulb replaced.');
+  await expect(card.locator('.street-answers')).toHaveCount(0);
+  await expect(card.locator('.street-fulladdr')).toHaveCount(0);
+
+  // No detail read yet (c3: the endpoint omits `detail`): the basic card, no skeleton left, no timeline.
+  await backX(page).click();
+  await page.locator('.street-row-btn[data-id="c3"]').click();
+  await expect(title(page)).toHaveText('Overflowing Dumpster');
+  await expect.poll(() => caseCalls(calls, 'c3')).toBe(1);
+  await expect(card.locator('.street-detail-skel')).toHaveCount(0, { timeout: 5000 });
+  await expect(card.locator('.street-tl, .street-answers, .street-fulladdr')).toHaveCount(0);
+
+  // Reopening a case reads the cache: no second request, no skeleton flash.
+  await backX(page).click();
+  await page.locator('.street-row-btn[data-id="c1"]').click();
+  await expect(card.locator('.street-tl')).toBeVisible();
+  await expect(card.locator('.street-detail-skel')).toHaveCount(0);
+  expect(caseCalls(calls, 'c1')).toBe(1);
+});
+
+test('case overlay detail: a failed request leaves the basic card — key facts and the city\'s note, no error, no skeleton', async ({ page }) => {
+  const calls = await point(page, { caseStatus: () => 500 });
+  await page.locator('.street-row-btn[data-id="c2"]').click();
+  const card = page.locator('.street-detail');
+  await expect(card).toBeFocused();
+  await expect(title(page)).toHaveText('Street Light Out');
+  await expect.poll(() => caseCalls(calls, 'c2')).toBe(1);
+  await expect(card.locator('.street-detail-skel')).toHaveCount(0);
+  await expect(card.locator('.street-fact-when')).toContainText('closed after 8 days');
+  await expect(card.locator('.street-note')).toHaveText('Bulb replaced.');
+  await expect(card.locator('.street-tl, .street-answers, .street-fulladdr')).toHaveCount(0);
+  await expect(page.locator('.street-sheet .notice-error')).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Share' })).toBeVisible();
+});
+
+test('case overlay ×: does what Back to list did — from a row it pops the entry and refocuses the row, the list header (title, summary, Share) comes back; from a pin it closes the card and keeps focus in the sheet', async ({ page }) => {
+  await point(page);
+  await page.locator('.street-row-btn[data-id="c2"]').click();
+  await expect(page).toHaveURL(/[?&]case=c2/);
+  await backX(page).click();
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(page.locator('.street-row-btn[data-id="c2"]')).toBeFocused();
+  await expect(page.locator('.map-pin--selected')).toHaveCount(0);
+  await expect(sheet(page)).not.toHaveAttribute('data-overlay', 'true');
+  await expect(title(page)).toHaveText('481 Angell St');
+  await expect(page.locator('.street-head-actions').getByRole('button', { name: 'Share' })).toBeVisible();
+  await page.goForward(); // the entry the row pushed is still there going forward
+  await expect(page).toHaveURL(/[?&]case=c2/);
+  await expect(title(page)).toHaveText('Street Light Out');
+  // From a pin.
+  await page.goto(POINT);
+  await waitForMap(page);
+  await grab(page).press('ArrowDown');
+  await setView(page, NEAR[1].lat!, NEAR[1].lng!, 17);
+  await page.waitForTimeout(400);
+  await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
+  await expect(title(page)).toHaveText('Street Light Out');
+  await backX(page).click();
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(page.locator('.street-detail')).toHaveCount(0);
+  await expect(page.locator('.street-sheet :focus')).toHaveCount(1);
+});
+
+test('pins say more than open/closed: each type group\'s glyph in white in the pin head (ten groups, open and closed alike); the halo only on new pins — open and reported in the last 48 h — and none under reduced motion', async ({ page }) => {
+  // One case per group around a quiet spot, 50 m apart: z17 draws them as pins. Open for the first five, closed after.
+  const spot = { lat: 41.835, lng: -71.41 };
+  const groups: [number, string][] = [[0, 'streets'], [1, 'lights'], [2, 'trash'], [4, 'property'], [5, 'traffic'], [6, 'trees'], [7, 'nuisance'], [8, 'water'], [9, 'animals'], [10, 'other']];
+  const glyphCases: Case[] = groups.map(([t], i) => ({
+    id: `g${i}`, t, status: i < 5 ? 'Submitted' : 'Closed', createdDaysAgo: i < 5 ? 3 : 6, closedDaysAgo: i < 5 ? null : 2,
+    lat: Math.round((spot.lat + (i % 5) * 0.00045) * 1e5) / 1e5, lng: Math.round((spot.lng + Math.floor(i / 5) * 0.0006) * 1e5) / 1e5, street: `${i + 1} Hope St`,
+  }));
+  await setup(page, { items: [...DEFAULT_ITEMS, ...glyphCases] });
+  await page.goto('/street?c=41.8359,-71.4097&z=17');
+  await waitForMap(page);
+  await expect(page.locator('.map-case[data-id="g0"]')).toHaveCount(1);
+  for (const [i, [, g]] of groups.entries()) {
+    const svg = page.locator(`.map-case[data-id="g${i}"] svg`);
+    await expect(svg, g).toHaveAttribute('data-group', g);
+    const want = GROUP_GLYPHS[g as keyof typeof GROUP_GLYPHS];
+    const ds = await svg.locator('.map-pin-glyph path').evaluateAll((els) => els.map((e) => e.getAttribute('d')));
+    expect(ds, g).toEqual([want.d, want.dots, want.solid].filter(Boolean));
+    expect(await svg.locator('.map-pin-glyph').evaluate((el) => getComputedStyle(el).stroke), g).toBe('rgb(255, 255, 255)');
+    await expect(page.locator(`.map-case[data-id="g${i}"]`)).toHaveClass(i < 5 ? /^(?!.*map-pin--closed)/ : /map-pin--closed/);
+  }
+  // Same footprint as before: 26×32 open, 22×27 closed.
+  expect([(await box(page, '.map-case[data-id="g0"]')).width, (await box(page, '.map-case[data-id="g0"]')).height]).toEqual([26, 32]);
+  expect([(await box(page, '.map-case[data-id="g5"]')).width, (await box(page, '.map-case[data-id="g5"]')).height]).toEqual([22, 27]);
+  // None of these is new (3+ days old): no halo, although open and at z17 (the old rule pulsed every open pin from z16).
+  await expect(page.locator('.map-pin--halo')).toHaveCount(0);
+
+  // Around 481 Angell St at z16: c3 (today, open) pulses; c1 (open, 3 days) and c2 (closed) do not.
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(page.locator('.map-case')).toHaveCount(3);
+  await expect(page.locator('.map-pin--halo')).toHaveCount(1);
+  await expect(page.locator('.map-case[data-id="c3"]')).toHaveClass(/map-pin--halo/);
+  await expect(page.locator('.map-case[data-id="c3"]')).toHaveClass(/map-case--new/);
+  await expect(page.locator('.map-case[data-id="c3"] .map-pin-halo')).toBeVisible();
+  await expect(page.locator('.map-case[data-id="c1"] .map-pin-halo')).toHaveCount(0);
+  await expect(page.locator('.map-case[data-id="c2"] .map-pin-halo')).toHaveCount(0);
+  // Selecting the new pin keeps its emphasis (scale + ring) on top of the halo.
+  await page.locator('.street-row-btn[data-id="c3"]').click();
+  await expect(page.locator('.map-case[data-id="c3"]')).toHaveClass(/map-pin--selected/);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(page.locator('.map-case')).toHaveCount(3);
+  await expect(page.locator('.map-pin--halo')).toHaveCount(0);
+});
+
+test('legend: the Open and Closed chips lead with a dot in the pin colours (decorative); the chip names are unchanged', async ({ page }) => {
+  await point(page);
+  const open = chip(page, /^Open, 2$/), closed = chip(page, /^Closed, 1$/);
+  const dots = page.locator('.street-chip-dot');
+  await expect(dots).toHaveCount(2);
+  await expect(open.locator('.street-chip-dot--open')).toHaveAttribute('aria-hidden', 'true');
+  await expect(closed.locator('.street-chip-dot--closed')).toHaveAttribute('aria-hidden', 'true');
+  const fillOf = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).fill);
+  const bgOf = (sel: string) => page.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(await bgOf('.street-chip-dot--open')).toBe(await fillOf('.mapview .map-case:not(.map-pin--closed) svg > path:nth-of-type(2)'));
+  expect(await bgOf('.street-chip-dot--closed')).toBe(await fillOf('.mapview .map-pin--closed svg > path:nth-of-type(2)'));
+  // The dot comes first in the chip, before the label.
+  expect(await open.evaluate((el) => (el.firstElementChild as HTMLElement).className)).toContain('street-chip-dot');
+});
+
+test('map key: a 44 px button under the rail opens a dialog drawn with the map\'s own markers — every entry\'s classes match the map\'s, the open pin is the same markup; Escape, ×, the button and an outside tap close it and focus returns to the button', async ({ page }) => {
+  await point(page);
+  const btn = page.getByRole('button', { name: 'Map key', exact: true });
+  const b = (await btn.boundingBox())!, rail = await box(page, '.street-rail');
+  expect(b.width).toBeGreaterThanOrEqual(44);
+  expect(b.height).toBeGreaterThanOrEqual(44);
+  expect(b.y).toBeGreaterThanOrEqual(rail.y + rail.height); // not in the rail
+  await expect(btn).toHaveAttribute('aria-expanded', 'false');
+  await btn.click();
+  const dlg = page.getByRole('dialog', { name: 'Map key' });
+  await expect(dlg).toBeVisible();
+  await expect(dlg).toBeFocused();
+  await expect(btn).toHaveAttribute('aria-expanded', 'true');
+  const items = dlg.locator('.street-key-item');
+  expect(await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key))).toEqual(['open', 'closed', 'cluster', 'type', 'new', 'home', 'ring']);
+  await expect(items.locator('.street-key-text')).toHaveText([
+    'Orange pin: still open', 'Gray pin: closed', 'Number: several requests here — the ring shows open (orange) and closed (gray)',
+    'Icon in the pin: the type of request', 'Pulsing ring: open, reported in the last 48 hours', '× pin: the address you looked up', 'Dashed circle: the area the weekly email covers',
+  ]);
+  for (const el of await dlg.locator('.street-key-sw').all()) await expect(el).toHaveAttribute('aria-hidden', 'true');
+  // Each swatch carries the classes the map's own marker has (the map's element adds Leaflet's and state classes).
+  const classesOf = (l: ReturnType<Page['locator']>) => l.first().evaluate((el) => (el.getAttribute('class') ?? '').split(/\s+/).filter((c) => c.startsWith('map-')).sort());
+  const pairs: [string, string][] = [
+    ['[data-key="open"] .street-key-swatch', '.mapview .map-case[data-id="c1"]'],
+    ['[data-key="closed"] .street-key-swatch', '.mapview .map-case[data-id="c2"]'],
+    ['[data-key="new"] .street-key-swatch', '.mapview .map-case[data-id="c3"]'],
+    ['[data-key="home"] .street-key-swatch', '.mapview .map-home'],
+  ];
+  for (const [k, m] of pairs) expect(await classesOf(dlg.locator(k)), k).toEqual(await classesOf(page.locator(m)));
+  expect(await classesOf(dlg.locator('[data-key="ring"] circle'))).toEqual(['map-ring']);
+  expect(await page.locator('.mapview path.map-ring').getAttribute('class')).toContain('map-ring');
+  // Same markup: the key's open streets pin IS the map's pin for c1 (a pothole, open, not new).
+  expect(await dlg.locator('[data-key="open"] .street-key-swatch').innerHTML()).toBe(await page.locator('.mapview .map-case[data-id="c1"]').innerHTML());
+  expect(await dlg.locator('[data-key="new"] .map-pin-halo').evaluate((el) => getComputedStyle(el).display)).toBe('block');
+  // …and the same styles: MapView.css draws both.
+  const stroke = (l: ReturnType<Page['locator']>) => l.evaluate((el) => { const s = getComputedStyle(el); return `${s.stroke}|${s.strokeDasharray}|${s.fill}`; });
+  expect(await stroke(dlg.locator('[data-key="ring"] circle'))).toBe(await stroke(page.locator('.mapview path.map-ring')));
+  // Escape → closed, focus on the button.
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  await expect(btn).toBeFocused();
+  await expect(btn).toHaveAttribute('aria-expanded', 'false');
+  // The dialog's own ×.
+  await btn.click();
+  await dlg.getByRole('button', { name: 'Close the map key' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(btn).toBeFocused();
+  // The button again (the open dialog covers its corner, so from the keyboard: Shift+Tab back to it, Enter).
+  await btn.click();
+  await expect(dlg).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(btn).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dlg).toHaveCount(0);
+  await expect(btn).toHaveAttribute('aria-expanded', 'false');
+  // An outside tap on plain text (the sheet's title).
+  await btn.click();
+  await expect(dlg).toBeFocused();
+  const tt = await box(page, '.street-title');
+  await page.mouse.click(tt.x + 8, tt.y + tt.height / 2);
+  await expect(dlg).toHaveCount(0);
+  await expect(btn).toBeFocused();
+  // Clusters: the key's disc is the map's disc (landing).
+  await setView(page, 41.83, -71.42, 12);
+  await expect(page.locator('.mapview .map-cluster').first()).toBeVisible();
+  await btn.click();
+  expect(await dlg.locator('[data-key="cluster"] .street-key-swatch').evaluate((el) => [(el.getAttribute('class') ?? '').split(' ').filter((c) => c.startsWith('map-cluster')).length, !!el.querySelector('.map-cluster-ring > .map-cluster-disc')])).toEqual([2, true]);
+  expect(await page.locator('.mapview .map-cluster').first().evaluate((el) => !!el.querySelector('.map-cluster-ring > .map-cluster-disc'))).toBe(true);
+  await expect(dlg.locator('[data-key="cluster"] .map-cluster-disc')).toHaveText('8');
+  // Not drawn at FULL (the sheet covers its spot); an open key closes; back at HALF the button is there, closed.
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await grab(page).press('ArrowUp');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'full');
+  await expect(btn).toHaveCount(0);
+  await expect(dlg).toHaveCount(0);
+  await grab(page).press('ArrowDown');
+  await expect(btn).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('map key under reduced motion: no "pulsing ring" line (the map draws no halos then)', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await point(page);
+  await page.getByRole('button', { name: 'Map key', exact: true }).click();
+  const dlg = page.getByRole('dialog', { name: 'Map key' });
+  await expect(dlg.locator('[data-key="open"]')).toBeVisible();
+  await expect(dlg.locator('[data-key="new"]')).toBeHidden();
+});
+
+test('map key over the case overlay (390×664, HALF): it covers the sheet header, so Tab past its × closes it with focus where Tab sent it — never on a control under the key; Shift+Tab out past the button closes it too', async ({ page }) => {
+  await point(page, { details: { c2: detailFor(NEAR[1]) } });
+  await page.locator('.street-row-btn[data-id="c2"]').click();
+  await expect(sheet(page)).toHaveAttribute('data-overlay', 'true');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  const btn = page.getByRole('button', { name: 'Map key', exact: true });
+  const dlg = page.getByRole('dialog', { name: 'Map key' });
+  await btn.click();
+  await expect(dlg).toBeFocused();
+  // Precondition: the open key sits over the overlay's × (Back to list).
+  const pop = await box(page, '.street-key-pop'), x = (await backX(page).boundingBox())!;
+  expect(pop.x <= x.x && pop.x + pop.width >= x.x + x.width && pop.y <= x.y && pop.y + pop.height >= x.y + x.height).toBe(true);
+  await page.keyboard.press('Tab');
+  await expect(dlg.getByRole('button', { name: 'Close the map key' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dlg).toHaveCount(0);
+  await expect(btn).toHaveAttribute('aria-expanded', 'false');
+  await expect(grab(page)).toBeFocused(); // not pulled back to the button
+  await page.keyboard.press('Tab');
+  await expect(backX(page)).toBeFocused();
+  const onTop = (l: ReturnType<Page['locator']>) => l.evaluate((el) => { const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!hit && el.contains(hit); });
+  expect(await onTop(backX(page))).toBe(true);
+  // Shift+Tab: the dialog → the button keeps it open; one more → the rail before it, and it closes.
+  await btn.click();
+  await expect(dlg).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(btn).toBeFocused();
+  await expect(dlg).toBeVisible();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dlg).toHaveCount(0);
+  expect(await page.evaluate(() => !!document.activeElement?.closest('.street-controls'))).toBe(true);
 });
 
 test('clusters and stacks: six cases at one spot are one disc at every zoom; at z18 the disc lists them', async ({ page }) => {
@@ -667,7 +1021,7 @@ test('follow, signed out from a typed search: the returnTo keeps the `+` URL and
   await page.evaluate((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
   await page.goto(href);
   await expect(page).toHaveURL(here);
-  await expect(page.locator('.street-detail')).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
   await expect(title(page)).toHaveText('Pothole');
 });
 
@@ -689,9 +1043,9 @@ test('follow, signed in: Follow → PUT /api/me/city/:id and a pressed "Followin
   await expect(toggle).toHaveText('Follow this request');
   await expect.poll(() => forCase('c1')).toEqual(['PUT', 'DELETE']);
   // c2 was followed before the page loaded (users.cityFollowing): pressed on open; the pressed toggle itself unfollows.
-  await card.getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await page.locator('.street-row-btn[data-id="c2"]').click();
-  await expect(card).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -712,9 +1066,9 @@ test('follow, signed in: a failed PUT reverts the toggle and says so', async ({ 
   await expect(card.getByRole('button', { name: 'Unfollow' })).toHaveCount(0);
   expect(calls.filter((c) => c.url.includes('/api/me/city/')).map((c) => c.method)).toEqual(['PUT']);
   // Another case: the error line does not follow it.
-  await card.getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await page.locator('.street-row-btn[data-id="c3"]').click();
-  await expect(card).toContainText('Overflowing Dumpster');
+  await expect(title(page)).toHaveText('Overflowing Dumpster');
   await expect(card.locator('.street-follow-error')).toHaveCount(0);
 });
 
@@ -781,7 +1135,7 @@ test('follow, when no mail would come: email updates off or an unverified addres
   await expect(toggle).toHaveText(/Following$/);
   await expect(card.locator('.street-follow-hint')).toContainText('Verify your email to hear about changes.');
   // Not following: no hint at all.
-  await card.getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await page.locator('.street-row-btn[data-id="c3"]').click();
   await expect(toggle).toHaveText('Follow this request');
   await expect(card.locator('.street-follow-hint')).toHaveCount(0);
@@ -828,12 +1182,12 @@ test('history: Back to list from a deep-linked case never leaves the app, even a
   await setup(page);
   await page.goto(`${POINT}&case=c2`);
   await waitForMap(page);
-  await expect(page.locator('.street-detail')).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await userPan(page, 120, 0);
   await page.waitForTimeout(500);
   await chip(page, /^Closed, /).click();
   await expect(page).toHaveURL(/[?&]s=open/);
-  await page.locator('.street-detail').getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await expect(page).toHaveURL(/\/street\?lat=41\.82820&lng=-71\.40050&q=481/);
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(rows(page).first()).toBeVisible();
@@ -845,13 +1199,13 @@ test('history: Back to list from a deep-linked case never leaves the app, even a
   // Deep link with case=c1, then a neighbouring pin (c2): Back to list shows the list, not c1's card again.
   await page.goto(`${POINT}&case=c1`);
   await waitForMap(page);
-  await expect(page.locator('.street-detail')).toContainText('Pothole');
+  await expect(title(page)).toHaveText('Pothole');
   await setView(page, NEAR[1].lat!, NEAR[1].lng!, 17);
   await page.waitForTimeout(400);
   await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
-  await expect(page.locator('.street-detail')).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await expect(page).toHaveURL(/[?&]case=c2/);
-  await page.locator('.street-detail').getByRole('button', { name: 'Back to list' }).click();
+  await backX(page).click();
   await expect(page).not.toHaveURL(/[?&]case=/);
   await expect(page.locator('.street-detail')).toHaveCount(0);
   await expect(rows(page)).toHaveCount(3);
@@ -864,14 +1218,14 @@ test('history: Back to list from a deep-linked case never leaves the app, even a
   await expect(rows(page)).toHaveCount(3);
   await page.goForward();
   await expect(page).toHaveURL(/[?&]case=c3/);
-  await expect(page.locator('.street-detail')).toContainText('Overflowing Dumpster');
+  await expect(title(page)).toHaveText('Overflowing Dumpster');
 });
 
 test('a shared c/z view with case= keeps the sender\'s framing; a point with case= stays at z16', async ({ page }) => {
   await setup(page);
   await page.goto('/street?c=41.8450,-71.4450&z=14&case=c2');
   await waitForMap(page);
-  await expect(page.locator('.street-detail')).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await page.waitForTimeout(700);
   expect(await zoomOf(page)).toBe(14);
   const c = await mapEval<{ lat: number; lng: number }>(page, 'm => { const c = m.getCenter(); return { lat: c.lat, lng: c.lng }; }');
@@ -880,7 +1234,7 @@ test('a shared c/z view with case= keeps the sender\'s framing; a point with cas
   await expect(page).toHaveURL(/[?&]c=41\.8450,-71\.4450&z=14/);
   await page.goto(`${POINT}&case=c2`);
   await waitForMap(page);
-  await expect(page.locator('.street-detail')).toContainText('Street Light Out');
+  await expect(title(page)).toHaveText('Street Light Out');
   await page.waitForTimeout(700);
   expect(await zoomOf(page)).toBe(16);
   await expect(page.locator('.map-pin--selected')).toHaveCount(1);
@@ -981,6 +1335,32 @@ test.describe('desktop', () => {
     await rows(page).first().hover();
     await expect(page.locator('.map-pin--hover')).toHaveCount(1);
     await page.screenshot({ path: 'tests/__screenshots__/street-desktop.png' });
+  });
+  test('case overlay in the panel: the panel header is the case (type, pill, ×) with the same card; the map key sits in the map\'s top-right corner', async ({ page }) => {
+    await setup(page, { details: { c2: detailFor(NEAR[1]) } });
+    await page.goto(`${POINT}&case=c2`);
+    await waitForMap(page);
+    const panel = page.locator('.street-panel');
+    await expect(panel).toHaveAttribute('data-overlay', 'true');
+    await expect(panel.locator('.street-title')).toHaveText('Street Light Out');
+    await expect(panel.locator('.street-badge .my-status')).toHaveText('Closed');
+    await expect(panel.locator('.street-detail')).toHaveAccessibleDescription('Closed');
+    await expect(panel.locator('.street-detail .street-fact-place')).toHaveText('22 Thayer St');
+    await expect(panel.locator('.street-tl-step')).toHaveCount(4);
+    await expect(page.locator('.street-detail').getByText('Street Light Out')).toHaveCount(0);
+    const key = page.getByRole('button', { name: 'Map key', exact: true });
+    await expect(key).toHaveText('Map key');
+    const k = (await key.boundingBox())!, map = (await page.locator('.mapview').boundingBox())!;
+    expect(k.x + k.width).toBeLessThanOrEqual(map.x + map.width);
+    expect(k.x + k.width).toBeGreaterThan(map.x + map.width - 40);
+    expect(k.y).toBeLessThan(map.y + 30);
+    await key.click();
+    await expect(page.getByRole('dialog', { name: 'Map key' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(key).toBeFocused();
+    await backX(page).click();
+    await expect(page).not.toHaveURL(/[?&]case=/);
+    await expect(panel).not.toHaveAttribute('data-overlay', 'true');
   });
   test('the map stays on Providence: zoom out stops where the whole city fits the map beside the panel, and the − button greys out there', async ({ page }) => {
     await landing(page);

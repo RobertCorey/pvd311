@@ -3,10 +3,10 @@
 // decoded and cached here for 5 minutes per window so filter taps, pans and tab returns never refetch.
 // The decoder and wire types live in lib/streetMap.ts (pure, unit-tested) and are re-exported from here.
 import { apiFetch, parseError, withTimeout } from './client';
-import { decodeCase, decodeFeed, metersBetween, type MapCase, type MapFeed, type StreetCaseWire, type StreetMap } from '../lib/streetMap';
+import { decodeCase, decodeCaseDetail, decodeFeed, metersBetween, type CaseDetail, type MapCase, type MapFeed, type StreetCaseWire, type StreetMap } from '../lib/streetMap';
 
 export { CLOSED_STATUSES, decodeCase, decodeFeed } from '../lib/streetMap';
-export type { MapCase, MapFeed, MapItem, StreetCaseWire, StreetMap } from '../lib/streetMap';
+export type { CaseDetail, MapCase, MapFeed, MapItem, StreetCaseWire, StreetMap } from '../lib/streetMap';
 
 /** The windows the page fetches; "This week" (7) is cut client-side from the 30-day set. */
 export type MapDays = 30 | 90;
@@ -32,8 +32,8 @@ export function getStreetMap(days: MapDays = 30): Promise<StreetMap> {
 /** The cached set for a window, fresh or stale, without fetching (e.g. the 90-day count on "Look back 90 days"). */
 export function peekStreetMap(days: MapDays): StreetMap | null { return mapCache.get(days)?.data ?? null; }
 
-/** Tests / sign-out: forget every cached window. */
-export function resetStreetMapCache(): void { mapCache.clear(); mapInflight.clear(); }
+/** Tests / sign-out: forget every cached window (and every case read by itself). */
+export function resetStreetMapCache(): void { mapCache.clear(); mapInflight.clear(); caseCache.clear(); }
 
 async function fetchStreetMap(days: MapDays): Promise<StreetMap> {
   const t = withTimeout(20_000);
@@ -46,9 +46,36 @@ async function fetchStreetMap(days: MapDays): Promise<StreetMap> {
   } finally { t.done(); }
 }
 
-/** One case by GUID (GET /api/street/case/:guid) for a `?case=` deep link older than the loaded window — the follow
- *  mail's "See it on the map", a /my row. null when the city's record is gone (404); rejects on any other failure. */
+/** One case read by itself: the row plus the city form's `detail` (null until the sync has read it). */
+export interface StreetCaseFull { c: MapCase; detail: CaseDetail | null }
+
+/** GET /api/street/case/:guid, once per id for 5 minutes: the pin overlay (every case it opens) and the stale deep-link
+ *  lookup share it, so a deep link costs one request. `value` is set once it settles so the overlay can render a cached
+ *  answer in the same frame; a failure is dropped from the cache (the next open asks again). */
+const caseCache = new Map<string, { at: number; p: Promise<StreetCaseFull | null>; value?: StreetCaseFull | null }>();
+
+export function getStreetCaseFull(id: string): Promise<StreetCaseFull | null> {
+  const hit = caseCache.get(id);
+  if (hit && Date.now() - hit.at < MAP_TTL_MS) return hit.p;
+  const entry: { at: number; p: Promise<StreetCaseFull | null>; value?: StreetCaseFull | null } = { at: Date.now(), p: fetchStreetCase(id) };
+  entry.p.then((v) => { entry.value = v; }, () => { if (caseCache.get(id) === entry) caseCache.delete(id); });
+  caseCache.set(id, entry);
+  return entry.p;
+}
+
+/** The settled answer for `id`, without fetching: undefined while unknown or in flight, null for a gone case. */
+export function peekStreetCase(id: string): StreetCaseFull | null | undefined {
+  const hit = caseCache.get(id);
+  return hit && Date.now() - hit.at < MAP_TTL_MS ? hit.value : undefined;
+}
+
+/** One case by GUID for a `?case=` deep link older than the loaded window — the follow mail's "See it on the map", a
+ *  /my row. null when the city's record is gone (404); rejects on any other failure. */
 export async function getStreetCase(id: string): Promise<MapCase | null> {
+  return (await getStreetCaseFull(id))?.c ?? null;
+}
+
+async function fetchStreetCase(id: string): Promise<StreetCaseFull | null> {
   const t = withTimeout(15_000);
   try {
     const resp = await apiFetch(`/api/street/case/${encodeURIComponent(id)}`, { signal: t.signal });
@@ -56,7 +83,7 @@ export async function getStreetCase(id: string): Promise<MapCase | null> {
     if (!resp.ok) throw await parseError(resp);
     const w = (await resp.json()) as Partial<StreetCaseWire>;
     if (!w || typeof w.id !== 'string') throw new Error('street_case_bad_body');
-    return decodeCase(w);
+    return { c: decodeCase(w), detail: decodeCaseDetail(w.detail) };
   } finally { t.done(); }
 }
 

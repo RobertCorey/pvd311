@@ -25,20 +25,44 @@
 .street-note { display: block; margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; font-weight: 400; white-space: pre-wrap; color: var(--ink); }
 
 /* Status pill — Account.css owns .my-status; these scoped copies keep rows and the card right wherever they render. */
-.street-row .my-status, .street-detail .my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
-.street-row .my-status--resolved, .street-detail .my-status--resolved,
-.street-row .my-status--received, .street-detail .my-status--received { border-color: var(--ink); color: var(--ink); }
-.street-row .my-status--cityCancelled, .street-detail .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
+.street-row .my-status, .street-detail .my-status, .street-badge .my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.street-row .my-status--resolved, .street-detail .my-status--resolved, .street-badge .my-status--resolved,
+.street-row .my-status--received, .street-detail .my-status--received, .street-badge .my-status--received { border-color: var(--ink); color: var(--ink); }
+.street-row .my-status--cityCancelled, .street-detail .my-status--cityCancelled, .street-badge .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
 /* "New" since your last visit (the landing's Latest, screens/Street.tsx): sits before the type; ember as text — the one
    pill that is not ink, because it marks the payoff of coming back (ember-text on surface ≥ 4.5:1). */
 .street-row .my-status--new { margin-right: 6px; vertical-align: 2px; font-family: var(--font-body); border-color: var(--ember); color: var(--ember-text); }
 
-/* ── Case card ─────────────────────────────────────────────────────────────────────────────────── */
+/* ── Case card (the body of the case overlay; the type, pill and × are the sheet header's) ────────── */
 .street-detail { display: grid; gap: .6rem; }
-.street-detail-head { display: grid; grid-template-columns: auto 1fr auto; gap: .6rem; align-items: start; }
-.street-detail-titles { display: grid; gap: .15rem; min-width: 0; }
-.street-detail-title { margin: 0; font-family: var(--font-display); font-size: 1.15rem; line-height: 1.25; overflow-wrap: anywhere; }
+/* Key facts — street, hood · distance, reported · how long: three short lines beside the type icon, above the fold at HALF. */
+.street-detail-head { display: grid; grid-template-columns: auto 1fr; gap: .6rem; align-items: start; }
+.street-facts { margin: 0; display: grid; gap: .1rem; min-width: 0; line-height: 1.35; }
+.street-fact-place { font-family: var(--font-display); font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
+.street-fact-when { font-size: .85rem; color: var(--ink); overflow-wrap: anywhere; }
 .street-detail .street-note { margin: 0; }
+/* What GET /api/street/case/:id adds. The skeleton is three static ink-soft bars (no spinner), the height of a short timeline. */
+.street-detail-skel { display: grid; gap: 8px; padding: 2px 0; }
+.street-detail-skel > span { display: block; height: 12px; border-radius: 6px; background: var(--ink-soft); }
+.street-detail-skel > span:nth-child(1) { width: 45%; }
+.street-detail-skel > span:nth-child(2) { width: 80%; }
+.street-detail-skel > span:nth-child(3) { width: 65%; }
+.street-detail .street-h { margin: 2px 0 6px; }
+.street-fulladdr { margin: 0; font-size: .9rem; line-height: 1.4; overflow-wrap: anywhere; }
+.street-fact-k { display: block; font-size: .78rem; color: var(--muted); }
+/* Timeline: a 2 px rail with a ring per step (the close a filled one); label, date, and "N days after it was reported". */
+.street-tl { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: grid; gap: 6px; }
+.street-tl-step { position: relative; display: flex; flex-wrap: wrap; column-gap: 8px; font-size: .9rem; line-height: 1.35; }
+.street-tl-step::before { content: ''; position: absolute; left: -20px; top: .3em; width: 10px; height: 10px; box-sizing: border-box; border-radius: 999px; background: var(--surface); border: 2px solid var(--ink); }
+.street-tl-step[data-step="resolved"]::before { background: var(--ink); }
+.street-tl-label { font-weight: 600; }
+.street-tl-date { color: var(--muted); font-variant-numeric: tabular-nums; }
+.street-tl-days { flex-basis: 100%; font-size: .85rem; color: var(--muted); }
+/* "What was reported": the city-question answers as label over value (plain text, kept as typed). */
+.street-answers { margin: 0; display: grid; gap: 8px; }
+.street-answers > div { display: grid; }
+.street-answers dt { font-size: .78rem; color: var(--muted); }
+.street-answers dd { margin: 0; font-size: .92rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .street-detail-approx { margin: 0; }
 .street-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .street-detail-actions .btn { width: auto; text-decoration: none; }
@@ -128,3 +152,38 @@
 .watch-groups .watch-groups-hint, .watch-groups .watch-error { margin: 0; }
 .street-digest-on .watch-groups { margin-top: -4px; }
 @media (min-width: 720px) { .watch-groups .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; } }
+
+/* ── Map key (MapKey) ──────────────────────────────────────────────────────────────────────────── */
+/* A 44 px button over the map (Street.css places .street-key); its dialog opens over the button, anchored to the same
+   corner, so its × sits where the button was. Above the sheet (z 3) only while open. */
+.street-key { position: absolute; z-index: 2; }
+.street-key.is-open { z-index: 4; }
+.street-key-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 44px; height: 44px; margin: 0; padding: 0;
+  background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: 999px; box-shadow: var(--shadow);
+  font-family: var(--font-display); font-weight: 700; font-size: .9rem; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.street-key-btn:hover { background: var(--ink-soft); }
+.street-key-btn svg { width: 22px; height: 22px; flex: none; }
+.street-key-btn--text { width: auto; padding: 0 14px 0 10px; }
+.street-key-pop {
+  position: absolute; top: 0; right: 0; width: min(310px, calc(100vw - 24px)); max-height: var(--key-max, 70vh); overflow-y: auto; overscroll-behavior: contain;
+  padding: 2px 12px 10px; background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: 16px; box-shadow: var(--shadow);
+}
+.street-key-pop:focus { outline: none; }
+.street-key-pop:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }
+.street-key-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-right: -10px; }
+.street-key-title { margin: 0; font-size: 1rem; font-weight: 800; line-height: 1.25; }
+.street-key-x { font-size: 1.6rem; line-height: 1; }
+.street-key-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.street-key-item { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 40px; font-size: .84rem; line-height: 1.3; }
+.street-key-sw { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.street-key-swatch { position: relative; display: inline-block; flex: none; }
+.street-key-ring { display: block; overflow: visible; }
+/* The map draws no halos under reduced motion, so the key does not promise one. */
+@media (prefers-reduced-motion: reduce) { .street-key-item[data-key="new"] { display: none; } }
+
+/* Filter rail: the Open / Closed chips lead with a dot in the pin colours (decorative — the chip names say it). */
+.street-chip-dot { flex: none; width: 10px; height: 10px; box-sizing: border-box; border-radius: 999px; border: 1.5px solid var(--ink); }
+.street-chip-dot--open { background: var(--ember); }
+.street-chip-dot--closed { background: var(--muted); opacity: .85; }

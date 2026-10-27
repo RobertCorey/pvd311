@@ -52,8 +52,14 @@
 .street-search-row .btn { min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; width: auto; }
 .street-search-row .street-locate { grid-column: 1 / -1; justify-self: start; }
 
-/* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles. */
+/* The map key (components/MapKey): on phones a round button at the top right of the band, under the rail (110 + 8),
+   clear of the rail's chips; its dialog may run down over the sheet to the stage's bottom less 12 px. Not drawn at FULL. */
+.street-stage > .street-key { top: 118px; right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - 118px - 12px); }
+
+/* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles; it stops
+   short of the map key's button at the right. */
 .street-msg { margin: 0; padding: 6px 10px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); font-size: 0.82rem; color: var(--ink); justify-self: start; }
+.street-controls .street-msg { margin-right: 52px; }
 
 /* ── Sheet body sections ───────────────────────────────────────────────────────────────────────── */
 .street-h { font-family: var(--font-display); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 14px 0 8px; }
@@ -148,11 +154,14 @@
 /* ── Desktop (≥720 px): map in its frame on the left, the panel on the right, the page footer stays ─ */
 @media (min-width: 720px) {
   body.is-street .app { max-width: 1280px; padding: 0 24px env(safe-area-inset-bottom); }
-  .street-stage { position: static; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 16px; height: calc(100dvh - 66px - 24px); min-height: 560px; margin: 0 0 24px; }
+  .street-stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 16px; height: calc(100dvh - 66px - 24px); min-height: 560px; margin: 0 0 24px; }
   .street-stage > .mapview { grid-column: 1; grid-row: 1; height: 100%; min-height: 0; }
   .street-stage > .street-panel { grid-column: 2; grid-row: 1; }
   .street-stage > .street-vh { position: absolute; }
+  /* The map key sits in the map's top-right corner (Leaflet's zoom is top-left, the attribution bottom-right). */
+  .street-stage > .street-key { top: 10px; right: calc(440px + 16px + 10px); --key-max: calc(100dvh - 66px - 24px - 40px); }
 }
 @media (min-width: 720px) and (max-width: 1023px) {
   .street-stage { grid-template-columns: minmax(0, 1fr) 360px; }
+  .street-stage > .street-key { right: calc(360px + 16px + 10px); }
 }

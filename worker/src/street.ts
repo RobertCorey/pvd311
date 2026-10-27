@@ -16,7 +16,9 @@
  *   GET /api/street/city[?days=7]  citywide: counts, busiest case types, newest 20 — kept for old links; the page
  *     now derives the citywide numbers from /api/street/map (Rob, 2026-10-25: "ideally we want to show something")
  *   GET /api/street/case/:guid  one case by GUID, public — the page's fallback for a `?case=` deep link (the follow
- *     mail's "See it on the map", a /my row) whose case is older than the loaded window. 404 when gone or a draft.
+ *     mail's "See it on the map", a /my row) whose case is older than the loaded window, and the pin overlay's
+ *     `detail` (address, timeline, the fixed-choice city-question answers — publicAnswer — status history). 404 when gone
+ *     or a draft.
  *
  *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
  *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
@@ -26,6 +28,7 @@
 import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
 import { CITY_GUID_RE, followedCaseView, type FollowedCase } from './cityfollow.js';
+import type { AnswerKind, CityCaseDetail } from './citycases.js';
 import { geocodeStreetCached } from './cityfeed.js';
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
@@ -260,8 +263,85 @@ export async function handleStreetMap(url: URL, store: Store): Promise<Response>
 
 // ── GET /api/street/case/:guid ────────────────────────────────────────────────────────────
 
-/** One case as the /my list shows it (cityfollow.followedCaseView without `followedAt`): a deep link's fallback. */
-export type StreetCaseView = Omit<FollowedCase, 'followedAt'>;
+/** One case as the /my list shows it (cityfollow.followedCaseView without `followedAt`): a deep link's fallback, plus
+ *  `detail` for the pin overlay once a detail form has been read (omitted before that). */
+export type StreetCaseView = Omit<FollowedCase, 'followedAt'> & { detail?: StreetCaseDetail };
+
+/** The city's record behind a pin (Rob, 2026-10-27: "when you click on a pin it should show an overlay with all the
+ *  case details"). Plain strings — the app escapes. */
+export interface StreetCaseDetail {
+  /** The city's full address ("10 Example St, Providence, RI, 02908, USA"). */
+  address: string | null;
+  /** ISO. reported = createdAt; the rest are the form's dates, resolved falling back to the close we watched (closedAt). */
+  timeline: { reported: string | null; received: string | null; routed: string | null; workCompleted: string | null; resolved: string | null };
+  /** The city-question answers that have a form label, in the record's order, a "Yes" radio as "Yes"; isPrivateCityField ones left out. */
+  answers: { label: string; value: string }[];
+  /** Each status the sync saw and when (statusSeen; a status entered twice keeps the later time), oldest first, Draft left out. */
+  statusHistory: { status: string; at: string }[];
+}
+
+const PRIVATE_LABEL_RE = /\b(?:licen[cs]e|plates?|registration|vin|vehicle details?|owners?|landlords?|tenants?|complainants?|contacts?|phones?|e-?mails?|names?)\b|\btags?\s*(?:number|no\b|#)/i;
+const PRIVATE_ID_RE = /licen[cs]e|plate|tagn(?:umber|o)|registration|vehicledetail|owner|landlord|tenant|complainant|contact|phone|email|name|(?:^|_)vin(?:_|number|$)/i;
+
+/**
+ * True for a city-question answer the overlay must not republish: a licence plate, tag or registration number (the
+ * abandoned-vehicle "Vehicle Details" box is where the plate goes) or anything naming or reaching a person — owner,
+ * landlord, tenant, complainant, contact, a name, a phone number, an email. citycases.ts still stores the whole public
+ * form (Rob, 2026-10-17); this only decides what we show. Matched on the label's words and on the field id, whose words
+ * run together (cop_nameandnumberoflandlord). Errs towards hiding: the scooter form's "Device Owner" goes too. Pure.
+ */
+export function isPrivateCityField(id: string, label: string): boolean {
+  return PRIVATE_LABEL_RE.test(label) || PRIVATE_ID_RE.test(id.replace(/^(?:cop|adx)_/i, ''));
+}
+
+/** Typed boxes read by hand and safe to show (2026-10-27: equipment and counts, never a person or a vehicle). Add a
+ *  field here only after reading what residents actually type into it. */
+export const PUBLIC_TEXT_FIELDS: ReadonlySet<string> = new Set(['cop_polenumberrequested', 'cop_numbermissed', 'cop_neededparts']);
+
+/**
+ * Whether the public overlay may show this answer (Rob, 2026-10-27: keep plates and names hidden). An allowlist, because
+ * a keyword list cannot see what someone typed into an innocently named box: shown are a city dropdown's choice, a "Yes"
+ * radio, and the hand-read PUBLIC_TEXT_FIELDS — and never a field isPrivateCityField flags, whatever its kind. A read
+ * from before kinds were stored (DETAIL_VERSION < 3) shows only its "Yes" radios and the hand-read boxes until the sync
+ * re-reads it.
+ */
+export function publicAnswer(id: string, label: string, value: string | true, kind: AnswerKind | undefined): boolean {
+  if (isPrivateCityField(id, label)) return false;
+  const k = kind ?? (value === true ? 'yes' : undefined);
+  return k === 'choice' || k === 'yes' || PUBLIC_TEXT_FIELDS.has(id);
+}
+
+const isoOf = (v: unknown): string | null => { const t = parse(v); return t == null ? null : new Date(t).toISOString(); };
+
+/** cityCases/{guid} doc → StreetCaseDetail, or null when no detail form has been read for it yet. Pure. */
+export function streetCaseDetail(doc: Row): StreetCaseDetail | null {
+  if (!doc.detail || typeof doc.detail !== 'object') return null;
+  const d = doc.detail as Partial<CityCaseDetail>;
+  const labels = (d.labels ?? {}) as Record<string, unknown>;
+  const kinds = (d.kinds ?? {}) as Record<string, AnswerKind | undefined>;
+  const answers: StreetCaseDetail['answers'] = [];
+  for (const [id, v] of Object.entries(d.answers ?? {})) {
+    const label = typeof labels[id] === 'string' ? (labels[id] as string).trim() : '';
+    const value = v === true ? 'Yes' : typeof v === 'string' ? v.trim() : '';
+    if (label && value && publicAnswer(id, label, v, kinds[id])) answers.push({ label, value });
+  }
+  // statusSeen keys are the status with every non-alphanumeric run as "_" (citycases.statusKey): map them back.
+  const status = String(doc.status ?? '');
+  const names = new Map([...KNOWN_STATUSES, status].map((s) => [s.replace(/[^A-Za-z0-9]+/g, '_'), s]));
+  const statusHistory = Object.entries((doc.statusSeen ?? {}) as Record<string, unknown>)
+    .map(([k, v]) => ({ status: names.get(k) ?? k.replace(/_/g, ' '), at: isoOf(v) }))
+    .filter((x): x is { status: string; at: string } => x.at != null && !/^draft$/i.test(x.status))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  const closed = CLOSED.has(status) ? closedAt(doc as unknown as CaseLike) : null;
+  return {
+    address: (typeof d.address === 'string' && d.address.trim()) || null,
+    timeline: {
+      reported: isoOf(doc.createdAt), received: isoOf(d.receivedOn), routed: isoOf(d.routedOn), workCompleted: isoOf(d.workCompletedOn),
+      resolved: isoOf(d.resolutionDate) ?? (closed != null ? new Date(closed).toISOString() : null),
+    },
+    answers, statusHistory,
+  };
+}
 
 /** 400 `invalid_id` off the GUID shape; 404 `not_found` when there is no doc or it is a draft (the feed skips drafts
  *  too); otherwise the StreetCaseView, cacheable 5 min like the feed. One doc read, no window load. */
@@ -270,7 +350,8 @@ export async function handleStreetCase(guid: string, store: Store): Promise<Resp
   const doc = await store.getCityCase(guid);
   if (!doc || /^draft$/i.test(String(doc.status ?? ''))) return json({ error: 'not_found' }, 404, { 'cache-control': 'public, max-age=60' });
   const { followedAt: _followedAt, ...view } = followedCaseView({ ...doc, id: guid });
-  return json(view satisfies StreetCaseView, 200, { 'cache-control': 'public, max-age=300' });
+  const detail = streetCaseDetail(doc);
+  return json({ ...view, ...(detail ? { detail } : {}) } satisfies StreetCaseView, 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── Loading (one Firestore read per window per 5 minutes per isolate) ─────────────────────

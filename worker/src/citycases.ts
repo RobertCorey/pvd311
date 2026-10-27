@@ -86,12 +86,16 @@ export interface CityCaseDetail {
   answers: Record<string, string | true>;
   /** The form's own label for each answered field ("Type of Animal"). */
   labels: Record<string, string>;
+  /** How each answer was given (DETAIL_VERSION 3): 'choice' a city dropdown, 'yes' a yes/no radio — fixed values nobody
+   *  types into — or 'text' a typed box or a lookup (where plates, names and numbers end up). Absent on older reads. */
+  kinds?: Record<string, AnswerKind>;
 }
 
 /** Index entry: s = last known status, ds = the value of s when the detail was last read, c = created ISO, dc = last detail read ISO, dv = DETAIL_VERSION of that read, g = 1 once the street was geocoded (lat/lng on the doc, null when the geocoder had nothing), f = 1 while the doc has followers (set/cleared by the daily follow-up near and past the 60-day prune, so a followed long-running case keeps its daily re-read and its closing mail). */
 interface IdxEntry { s: string; ds?: string; c: string | null; dc?: string; dv?: number; g?: 1; f?: 1 }
-/** Bump when parseDetailHtml stores more, so already-read cases are read again (2: plates/landlords + labels). */
-const DETAIL_VERSION = 2;
+/** Bump when parseDetailHtml stores more, so already-read cases are read again (2: plates/landlords + labels; 3: kinds,
+ *  so the public case overlay can show only fixed-choice answers — street.ts publicAnswer). */
+const DETAIL_VERSION = 3;
 type Index = Record<string, IdxEntry>;
 
 // ── Parsing (pure) ───────────────────────────────────────────────────────────────────────
@@ -137,8 +141,11 @@ function attr(tag: string, name: string): string | null {
 const isCityField = (id: string) => /^(cop_|adx_|createdon$)/.test(id) && !/_datepicker_description$/.test(id);
 
 /** The detail form's HTML → fields. Read from the server-rendered form; no DOM needed. */
+export type AnswerKind = 'choice' | 'yes' | 'text';
+
 export function parseDetailHtml(html: string): CityCaseDetail {
   const raw: Record<string, string | true> = {};
+  const kind: Record<string, AnswerKind> = {};
   for (const m of html.matchAll(/<input\b[^>]*>/gi)) {
     const tag = m[0];
     const id = attr(tag, 'id'); const type = (attr(tag, 'type') ?? 'text').toLowerCase();
@@ -146,23 +153,23 @@ export function parseDetailHtml(html: string): CityCaseDetail {
     if (type === 'radio') {
       // Every unanswered yes/no shows its "No" pre-checked, so only a checked "Yes" carries information.
       const base = id.replace(/_[01]$/, '');
-      if (id.endsWith('_1') && /\schecked(="[^"]*")?/i.test(tag) && isCityField(base)) raw[base] = true;
+      if (id.endsWith('_1') && /\schecked(="[^"]*")?/i.test(tag) && isCityField(base)) { raw[base] = true; kind[base] = 'yes'; }
       continue;
     }
     const v = (attr(tag, 'value') ?? '').trim();
-    if (v && isCityField(id)) raw[id] = v;
+    if (v && isCityField(id)) { raw[id] = v; kind[id] = 'text'; }
   }
   for (const m of html.matchAll(/<select\b([^>]*)>([\s\S]*?)<\/select>/gi)) {
     const id = attr(m[1], 'id');
     if (!id || !isCityField(id)) continue;
     const opt = m[2].match(/<option\b[^>]*\sselected(?:="[^"]*")?[^>]*>([^<]*)<\/option>/i);
     const val = opt ? attr(opt[0], 'value') : null;
-    if (opt && val) raw[id] = decodeEntities(opt[1]).trim();
+    if (opt && val) { raw[id] = decodeEntities(opt[1]).trim(); kind[id] = 'choice'; }
   }
   for (const m of html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/gi)) {
     const id = attr(m[1], 'id');
     const v = decodeEntities(m[2]).trim();
-    if (id && v && isCityField(id)) raw[id] = v;
+    if (id && v && isCityField(id)) { raw[id] = v; kind[id] = 'text'; }
   }
   const status = html.match(/<span\b[^>]*\bid="statuscode"[^>]*>([^<]*)<\/span>/i);
 
@@ -178,10 +185,12 @@ export function parseDetailHtml(html: string): CityCaseDetail {
     resolution: take('adx_resolution'),
     answers: {},
     labels: {},
+    kinds: {},
   };
   take('createdon'); take('cop_casetype_name'); // already on the row
   for (const [k, v] of Object.entries(raw)) {
     out.answers[k] = v;
+    out.kinds![k] = kind[k] ?? 'text';
     const lab = html.match(new RegExp(`<label\\b[^>]*\\bid="${k}_label"[^>]*>([^<]*)</label>`, 'i'));
     if (lab && decodeEntities(lab[1]).trim()) out.labels[k] = decodeEntities(lab[1]).trim();
   }
@@ -252,11 +261,15 @@ async function readDetail(http: CityHttp, id: string): Promise<CityCaseDetail> {
 const statusKey = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '_') || 'unknown';
 const isDraft = (s: string) => /^draft$/i.test(s);
 
-/** Which cases need a detail read this run: never read, the list status moved since the last read, or read by an older parser. Oldest first. */
+/** Which cases need a detail read this run: never read, the list status moved since the last read, or read by an older
+ *  parser. Never-read and moved cases first (their followers' mail and the overlay wait on them), then the re-reads a
+ *  DETAIL_VERSION bump queues for every stored case — so a bump fills the spare slots for a day or two instead of
+ *  starving new cases. Oldest first within each. */
 export function pickDetailReads(index: Index, limit: number): string[] {
+  const urgent = (e: IdxEntry) => e.ds === undefined || e.ds !== e.s;
   return Object.entries(index)
-    .filter(([, e]) => e.ds === undefined || e.ds !== e.s || (e.ds !== undefined && (e.dv ?? 1) < DETAIL_VERSION))
-    .sort(([, a], [, b]) => (a.c ?? '').localeCompare(b.c ?? ''))
+    .filter(([, e]) => urgent(e) || (e.dv ?? 1) < DETAIL_VERSION)
+    .sort(([, a], [, b]) => Number(urgent(b)) - Number(urgent(a)) || (a.c ?? '').localeCompare(b.c ?? ''))
     .slice(0, limit).map(([id]) => id);
 }
 

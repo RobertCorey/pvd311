@@ -29,6 +29,7 @@ describe('parseDetailHtml', () => {
   it('keeps the licence plate with its form label, and skips the pre-checked "No" radios and empty dropdowns', () => {
     expect(d.answers).toEqual({ cop_vehicledetails: 'TEST123' });
     expect(d.labels).toEqual({ cop_vehicledetails: 'Vehicle Details' });
+    expect(d.kinds).toEqual({ cop_vehicledetails: 'text' });
   });
   it('reads a dropdown answer, a Yes radio and the resolution message', () => {
     const html = `<span id="statuscode" class="status">Resolved</span>
@@ -40,17 +41,25 @@ describe('parseDetailHtml', () => {
     expect(x.status).toBe('Resolved');
     expect(x.resolution).toBe('Reported to HHS');
     expect(x.answers).toEqual({ cop_typeofanimal: 'Raccoon', cop_presscharges: true, cop_nameandnumberoflandlord: 'Jane 401-555-0100' });
+    // How each was given: a dropdown's fixed choice, a yes/no radio, a typed box (the overlay's allowlist reads this).
+    expect(x.kinds).toEqual({ cop_typeofanimal: 'choice', cop_presscharges: 'yes', cop_nameandnumberoflandlord: 'text' });
+  });
+  it('a textarea answer is typed text too', () => {
+    expect(parseDetailHtml('<textarea id="cop_neededparts">2 bulbs</textarea>').kinds).toEqual({ cop_neededparts: 'text' });
   });
 });
 
 describe('pickDetailReads', () => {
-  it('picks never-read cases and cases whose status moved, oldest first', () => {
-    expect(pickDetailReads({
-      a: { s: 'Assigned', ds: 'Assigned', c: '2026-10-10', dv: 2 },
+  it('picks never-read cases and cases whose status moved first, then older-parser re-reads; oldest first within each', () => {
+    const idx = {
+      a: { s: 'Assigned', ds: 'Assigned', c: '2026-10-10', dv: 3 },
       d: { s: 'Assigned', ds: 'Assigned', c: '2026-10-09' }, // read by the v1 parser
+      e: { s: 'Assigned', ds: 'Assigned', c: '2026-10-08', dv: 2 }, // read before kinds were stored
       b: { s: 'Resolved', ds: 'Assigned', c: '2026-10-12' },
       c: { s: 'Submitted', c: '2026-10-11' },
-    }, 5)).toEqual(['d', 'c', 'b']);
+    };
+    expect(pickDetailReads(idx, 5)).toEqual(['c', 'b', 'e', 'd']);
+    expect(pickDetailReads(idx, 2)).toEqual(['c', 'b']); // a version bump never crowds out a new or moved case
   });
 });
 

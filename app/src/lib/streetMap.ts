@@ -59,10 +59,12 @@ export function decodeFeed(feed: MapFeed): StreetMap {
   return { days: feed.days, at: feed.at, total: feed.total, located: feed.located, truncated: !!feed.truncated, cases };
 }
 
-/** GET /api/street/case/:guid — one case as an object (worker/src/street.ts StreetCaseView; the /my list's row shape). */
+/** GET /api/street/case/:guid — one case as an object (worker/src/street.ts StreetCaseView; the /my list's row shape),
+ *  plus the optional `detail` the pin overlay reads (decodeCaseDetail). */
 export interface StreetCaseWire {
   id: string; caseType: string; category: string; street: string; status: string; open?: boolean;
   createdAt: string | null; closedAt: string | null; resolution: string | null; lat: number | null; lng: number | null; updatedAt?: string | null;
+  detail?: unknown;
 }
 
 /** A single-case response → MapCase, with the same defaults as decodeFeed (`open` from the status, '' for blanks). */
@@ -76,6 +78,102 @@ export function decodeCase(w: Partial<StreetCaseWire>): MapCase {
     street: typeof w.street === 'string' ? w.street : '', resolution: typeof w.resolution === 'string' && w.resolution ? w.resolution : null,
     lat: located ? (w.lat as number) : null, lng: located ? (w.lng as number) : null,
   };
+}
+
+/* ── Case detail (the pin overlay, 2026-10-27) ─────────────────────────────────────────────────── */
+
+/** ISO dates from the city's own form: `reported` = createdAt; the rest = receivedOn / routedOn / workCompletedOn /
+ *  resolutionDate (the worker falls back to the close it watched for `resolved`). */
+export interface CaseTimeline { reported: string | null; received: string | null; routed: string | null; workCompleted: string | null; resolved: string | null }
+/** `detail` of GET /api/street/case/:guid (worker/src/street.ts streetCaseDetail) — omitted until the sync has read the
+ *  case's detail form. Every value is a plain string; the page renders them as text, never as HTML. */
+export interface CaseDetail {
+  /** The city's full address ("10 Example St, Providence, RI, 02908, USA"). */
+  address: string | null;
+  timeline: CaseTimeline;
+  /** The city-question answers in the form's order (plates and names already left out by the worker). */
+  answers: { label: string; value: string }[];
+  /** Each status the sync saw and when, oldest first (decoded, not shown yet). */
+  statusHistory: { status: string; at: string }[];
+}
+export type TimelineStep = keyof CaseTimeline;
+export const TIMELINE_STEPS: readonly TimelineStep[] = ['reported', 'received', 'routed', 'workCompleted', 'resolved'];
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const isoStr = (v: unknown): string | null => { const s = str(v); return s && Number.isFinite(Date.parse(s)) ? s : null; };
+
+/** The wire's `detail` → CaseDetail, or null when it is absent or not an object. Defensive like decodeCase: a bad date
+ *  is null, an answer without a label or a value is dropped (never shown as "label: "), unknown keys are ignored. */
+export function decodeCaseDetail(w: unknown): CaseDetail | null {
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return null;
+  const d = w as Record<string, unknown>;
+  const tl = (d.timeline && typeof d.timeline === 'object' ? d.timeline : {}) as Record<string, unknown>;
+  const timeline = Object.fromEntries(TIMELINE_STEPS.map((k) => [k, isoStr(tl[k])])) as unknown as CaseTimeline;
+  const answers = (Array.isArray(d.answers) ? d.answers : []).flatMap((a) => {
+    const x = (a && typeof a === 'object' ? a : {}) as Record<string, unknown>;
+    const label = str(x.label), value = str(x.value);
+    return label && value ? [{ label, value }] : [];
+  });
+  const statusHistory = (Array.isArray(d.statusHistory) ? d.statusHistory : []).flatMap((h) => {
+    const x = (h && typeof h === 'object' ? h : {}) as Record<string, unknown>;
+    const status = str(x.status), at = isoStr(x.at);
+    return status && at ? [{ status, at }] : [];
+  });
+  return { address: str(d.address), timeline, answers, statusHistory };
+}
+
+/** The steps the overlay's timeline lists, in lifecycle order — only those with a date. `resolved` only for a case
+ *  that is closed now (a reopened case keeps its old resolution date on the form), with `days` = calendar days after
+ *  it was reported (nyDaysBetween). `reported` falls back to the case's createdAt. */
+export function caseTimeline(c: MapCase, detail: CaseDetail): { step: TimelineStep; at: string; days?: number }[] {
+  const at: CaseTimeline = { ...detail.timeline, reported: detail.timeline.reported ?? c.createdAt };
+  const created = parseMs(at.reported);
+  const out: { step: TimelineStep; at: string; days?: number }[] = [];
+  for (const step of TIMELINE_STEPS) {
+    const iso = at[step];
+    if (!iso || parseMs(iso) == null || (step === 'resolved' && c.open)) continue;
+    if (step === 'resolved' && created != null) out.push({ step, at: iso, days: nyDaysBetween(created, parseMs(iso) as number) });
+    else out.push({ step, at: iso });
+  }
+  return out;
+}
+
+/** The city's full address when it says more than the street the card already shows — a different first line (a house
+ *  number the street field lacks, another spelling). '…, USA' is dropped. null when it adds nothing or is missing. */
+export function fullAddressLine(street: string, address: string | null | undefined): string | null {
+  const a = (address ?? '').trim().replace(/,?\s*USA$/i, '').trim();
+  if (!a) return null;
+  return streetKey(a) === streetKey(street) ? null : a;
+}
+
+/** Open: calendar days since it was reported; closed: calendar days from report to close (nyDaysBetween). null
+ *  without the dates. */
+export function caseAge(c: MapCase, nowMs: number): { open: boolean; days: number } | null {
+  const created = parseMs(c.createdAt);
+  if (created == null) return null;
+  if (c.open) return { open: true, days: nyDaysBetween(created, nowMs) };
+  const closed = parseMs(c.closedAt);
+  return closed == null ? null : { open: false, days: nyDaysBetween(created, closed) };
+}
+
+/** An instant's year / month / day in Providence's time (the card prints its dates in America/New_York). */
+const NY_DATE = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric' });
+/** Calendar days from `a` to `b` (ms) on Providence's calendar, never negative: 8:30 PM Oct 16 → 10 AM Oct 17 is 1,
+ *  9 AM → 11 PM the same date is 0. Elapsed 24-hour periods would print "closed the same day" next to two different
+ *  dates (2026-10-27 review); this way "same day" / "N days" always match the dates the card shows. */
+export function nyDaysBetween(a: number, b: number): number {
+  const day = (ms: number) => {
+    const p = Object.fromEntries(NY_DATE.formatToParts(ms).map((x) => [x.type, x.value]));
+    return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)) / DAY_MS;
+  };
+  return Math.max(0, day(b) - day(a));
+}
+
+/** A pin's halo (Rob, 2026-10-27: pins should say more than open/closed): open and reported in the last 48 hours. */
+export const NEW_CASE_MS = 48 * 60 * 60_000;
+export function isNewCase(c: Pick<MapCase, 'open' | 'createdAt'>, nowMs: number): boolean {
+  const t = parseMs(c.createdAt);
+  return c.open && t != null && nowMs - t <= NEW_CASE_MS;
 }
 
 /* ── Geometry ──────────────────────────────────────────────────────────────────────────────────── */

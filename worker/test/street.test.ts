@@ -8,7 +8,7 @@ vi.mock('../src/push.js', async (orig) => ({
 }));
 
 import { pushAll } from '../src/push.js';
-import { nearbyCases, handleStreet, handleStreetCase, handleStreetCity, handleStreetMap, cityOverview, mapFeed, snapDays, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl, LOAD_LIMIT, KNOWN_STATUSES, type MapItem } from '../src/street.js';
+import { nearbyCases, handleStreet, handleStreetCase, handleStreetCity, handleStreetMap, cityOverview, mapFeed, snapDays, resetStreetCache, streetDigestEmail, runStreetDigest, streetUrl, isPrivateCityField, publicAnswer, PUBLIC_TEXT_FIELDS, streetCaseDetail, LOAD_LIMIT, KNOWN_STATUSES, type MapItem } from '../src/street.js';
 import type { Env, Mailer, PushSub, Store, UserDoc } from '../src/contracts.js';
 
 // Angell St / Thayer St corner (41.8282, -71.4005) as "home"; cases are placed by hand around it.
@@ -304,8 +304,51 @@ describe('GET /api/street/case/:guid', () => {
     expect(await r.json()).toEqual({
       id: GUID, caseType: 'Sidewalk', category: 'sidewalk', street: '5 Elm St', status: 'Resolved', open: false,
       createdAt: '2026-06-01T12:00:00.000Z', closedAt: '2026-10-19T00:00:00.000Z', resolution: 'Repaired.', lat: 41.83, lng: -71.41, updatedAt: '2026-10-20T09:00:00.000Z',
+      detail: { address: null, timeline: { reported: '2026-06-01T12:00:00.000Z', received: null, routed: null, workCompleted: null, resolved: '2026-10-19T00:00:00.000Z' }, answers: [], statusHistory: [] },
     });
     expect((s.getCityCase as any).mock.calls).toEqual([[GUID]]);
+  });
+
+  it('adds the pin overlay detail: address, timeline, labelled answers minus private ones, status history oldest first', async () => {
+    const s = store({
+      caseType: 'Substandard Housing', category: 'substandard_housing', street: '10 Example St', status: 'Resolved',
+      createdAt: '2026-10-16T12:58:01Z', firstSeenAt: '2026-10-16T13:00:00Z', statusAt: '2026-10-22T15:00:00Z', lat: 41.8, lng: -71.4,
+      // Firestore hands map keys back in its own order; the history is sorted by time, not by key.
+      statusSeen: { Resolved: '2026-10-22T15:00:00Z', Draft: '2026-10-16T12:59:00Z', Submitted: '2026-10-16T13:00:00Z', In_Progress: '2026-10-18T09:30:00Z', Assigned: '2026-10-17T10:00:00Z' },
+      detail: {
+        status: 'Resolved', address: ' 10 Example St, Providence, RI, 02908, USA ',
+        receivedOn: '2026-10-16T12:58:18.0000000Z', routedOn: '2026-10-16T12:58:33.0000000Z', workCompletedOn: '2026-10-21T16:00:00.0000000Z',
+        resolutionDate: '2026-10-22T14:45:00.0000000Z', resolution: 'Inspected; notice issued.',
+        answers: { cop_typeofproperty: "Residential (someone else's property)", cop_nameandnumberoflandlord: 'Jane Doe 401-555-0100', cop_ispropertyabandoned: true, cop_typeofviolation: 'No heat', cop_unlabelled: 'x' },
+        labels: { cop_typeofproperty: 'Type of Property', cop_nameandnumberoflandlord: 'Name and Number of Landlord', cop_ispropertyabandoned: 'Is Property Abandoned', cop_typeofviolation: 'Type of Violation' },
+        kinds: { cop_typeofproperty: 'choice', cop_nameandnumberoflandlord: 'text', cop_ispropertyabandoned: 'yes', cop_typeofviolation: 'choice', cop_unlabelled: 'text' },
+      },
+    });
+    const j = await (await handleStreetCase(GUID, s)).json() as Record<string, unknown>;
+    expect(j).toMatchObject({ id: GUID, status: 'Resolved', open: false, closedAt: '2026-10-22T14:45:00.000Z', resolution: 'Inspected; notice issued.' });
+    expect(j.detail).toEqual({
+      address: '10 Example St, Providence, RI, 02908, USA',
+      timeline: { reported: '2026-10-16T12:58:01.000Z', received: '2026-10-16T12:58:18.000Z', routed: '2026-10-16T12:58:33.000Z', workCompleted: '2026-10-21T16:00:00.000Z', resolved: '2026-10-22T14:45:00.000Z' },
+      answers: [
+        { label: 'Type of Property', value: "Residential (someone else's property)" },
+        { label: 'Is Property Abandoned', value: 'Yes' },
+        { label: 'Type of Violation', value: 'No heat' },
+      ],
+      statusHistory: [
+        { status: 'Submitted', at: '2026-10-16T13:00:00.000Z' },
+        { status: 'Assigned', at: '2026-10-17T10:00:00.000Z' },
+        { status: 'In Progress', at: '2026-10-18T09:30:00.000Z' },
+        { status: 'Resolved', at: '2026-10-22T15:00:00.000Z' },
+      ],
+    });
+    expect(JSON.stringify(j)).not.toMatch(/Jane|555-0100/);
+  });
+
+  it('omits detail when no detail form has been read yet', async () => {
+    const j = await (await handleStreetCase(GUID, store({ caseType: 'Pothole', street: '1 Main St', status: 'Submitted', createdAt: '2026-10-26T12:00:00Z', statusSeen: { Submitted: '2026-10-26T12:10:00Z' } }))).json() as Record<string, unknown>;
+    expect(j).toMatchObject({ id: GUID, status: 'Submitted', open: true });
+    expect('detail' in j).toBe(false);
+    expect(streetCaseDetail({ status: 'Submitted', detail: null })).toBeNull();
   });
 
   it('404 for a vanished or draft case, 400 off the GUID shape (no read)', async () => {
@@ -315,6 +358,92 @@ describe('GET /api/street/case/:guid', () => {
     expect((await handleStreetCase('c1', s)).status).toBe(400);
     expect((await handleStreetCase('../users/x', s)).status).toBe(400);
     expect((s.getCityCase as any).mock.calls).toHaveLength(0);
+  });
+});
+
+describe('streetCaseDetail', () => {
+  const doc = (o: Record<string, unknown> = {}, d: Record<string, unknown> = {}) => ({
+    id: 'g', caseType: 'Abandoned Vehicle to Report', status: 'Assigned', createdAt: '2026-10-20T12:00:00Z', firstSeenAt: '2026-10-20T12:10:00Z',
+    ...o, detail: { status: null, address: null, receivedOn: null, routedOn: null, workCompletedOn: null, resolutionDate: null, resolution: null, answers: {}, labels: {}, ...d },
+  });
+
+  it('turns a "Yes" radio into "Yes", skips unlabelled fields, and leaves out plates, landlord names, phone and email', () => {
+    const got = streetCaseDetail(doc({}, {
+      answers: {
+        cop_vehicledetails: 'Silver Civic RI ABC-123', cop_licenseplate: 'ABC123', cop_hatespeech: true, cop_surfacetype: ' Brick ',
+        cop_nameandnumberoflandlord: 'Jane 401-555-0100', cop_contactphone: '401-555-0100', cop_email: 'a@b.test', cop_nolabel: 'kept out', cop_blank: '  ',
+      },
+      labels: {
+        cop_vehicledetails: 'Vehicle Details', cop_licenseplate: 'License Plate', cop_hatespeech: 'Hate Speech', cop_surfacetype: 'Surface Type',
+        cop_nameandnumberoflandlord: 'Name and Number of Landlord', cop_contactphone: 'Best number to reach you', cop_email: 'E-mail', cop_blank: 'Location',
+      },
+    }))!;
+    // A read from before kinds were stored: only the "Yes" radio — the typed "Brick" waits for the re-read.
+    expect(got.answers).toEqual([{ label: 'Hate Speech', value: 'Yes' }]);
+  });
+
+  it('publicAnswer is an allowlist: a dropdown choice, a Yes radio, or a hand-read box — never a typed box, a lookup, or a private field', () => {
+    const kinds = {
+      cop_surfacetype: 'choice', cop_hatespeech: 'yes', cop_polenumberrequested: 'text', cop_numbermissed: 'text', cop_neededparts: 'text',
+      cop_additionaldetails: 'text', cop_deviceowner_name: 'text', cop_licenseplate: 'choice', cop_vehicledetails: 'text',
+    } as const;
+    const got = streetCaseDetail(doc({}, {
+      answers: {
+        cop_surfacetype: 'Brick', cop_hatespeech: true, cop_polenumberrequested: 'P-1142', cop_numbermissed: '2', cop_neededparts: '2 bulbs',
+        cop_additionaldetails: 'silver civic ABC123, owner Jane', cop_deviceowner_name: 'Bird', cop_licenseplate: 'RI', cop_vehicledetails: 'ABC123',
+      },
+      labels: {
+        cop_surfacetype: 'Surface Type', cop_hatespeech: 'Hate Speech', cop_polenumberrequested: 'Pole Number Requested', cop_numbermissed: 'Number missed',
+        cop_neededparts: 'Needed parts', cop_additionaldetails: 'Additional details', cop_deviceowner_name: 'Company', cop_licenseplate: 'Plate state', cop_vehicledetails: 'Vehicle Details',
+      },
+      kinds,
+    }))!;
+    expect(got.answers).toEqual([
+      { label: 'Surface Type', value: 'Brick' }, { label: 'Hate Speech', value: 'Yes' }, { label: 'Pole Number Requested', value: 'P-1142' },
+      { label: 'Number missed', value: '2' }, { label: 'Needed parts', value: '2 bulbs' },
+    ]);
+    expect(JSON.stringify(got)).not.toMatch(/ABC123|Jane|Bird|"RI"/);
+    expect(publicAnswer('cop_x', 'Anything', 'typed', undefined)).toBe(false); // an older read's typed answer
+    expect(publicAnswer('cop_x', 'Anything', true, undefined)).toBe(true);
+    expect([...PUBLIC_TEXT_FIELDS].every((id) => !isPrivateCityField(id, ''))).toBe(true);
+  });
+
+  it('isPrivateCityField: plates, tags, registrations and anything naming or reaching a person; not the ordinary questions', () => {
+    const hidden: [string, string][] = [
+      ['cop_vehicledetails', 'Vehicle Details'], ['cop_licenseplate', 'License Plate'], ['cop_x1', 'Licence plate'], ['cop_x2', 'Plate #'],
+      ['cop_tagnumber', 'Tag'], ['cop_x3', 'Tag #'], ['cop_x4', 'Tag Number'], ['cop_x5', 'Registration'], ['cop_vin', 'VIN'],
+      ['cop_nameandnumberoflandlord', 'Name and Number of Landlord'], ['cop_x6', "Tenant's name"], ['cop_x7', 'Complainant'],
+      ['cop_areyouthepropertyowner', 'Are you the Property Owner'], ['cop_x8', 'Contact'], ['cop_x9', 'Phone Number'],
+      ['cop_x10', 'Email address'], ['cop_x11', 'E-mail'], ['cop_ownerdetails', 'Details'], ['cop_reporteremail', 'Where'],
+    ];
+    const shown: [string, string][] = [
+      ['cop_typeofanimal', 'Type of Animal'], ['cop_servicerequestnumber', 'Service request number'], ['cop_polenumberrequested', 'Pole Number Requested'],
+      ['cop_hatespeech', 'Hate Speech'], ['cop_presscharges', 'Would you like to press charges?'], ['cop_propertyoccupiedby', 'Property occupied by'],
+      ['cop_typeofproperty', 'Type of Property'], ['cop_streetlightrepair', 'Street Light Repair'], ['cop_gangtag', 'Gang tag'],
+      ['cop_paving', 'Paving'], ['cop_maintenance', 'Maintenance'],
+    ];
+    for (const [id, label] of hidden) expect(isPrivateCityField(id, label), `${id} / ${label}`).toBe(true);
+    for (const [id, label] of shown) expect(isPrivateCityField(id, label), `${id} / ${label}`).toBe(false);
+  });
+
+  it('resolved falls back to the close we watched (closedAt) when the form has no resolution date; open cases have none', () => {
+    const watched = streetCaseDetail(doc({ status: 'Resolved', statusSeen: { Assigned: '2026-10-20T12:10:00Z', Resolved: '2026-10-24T08:00:00Z' } }))!;
+    expect(watched.timeline).toEqual({ reported: '2026-10-20T12:00:00.000Z', received: null, routed: null, workCompleted: null, resolved: '2026-10-24T08:00:00.000Z' });
+    expect(streetCaseDetail(doc({ status: 'Assigned', statusSeen: { Assigned: '2026-10-20T12:10:00Z' } }))!.timeline.resolved).toBeNull();
+    // The form's date wins over the watched close.
+    expect(streetCaseDetail(doc({ status: 'Closed', statusSeen: { Closed: '2026-10-25T08:00:00Z' } }, { resolutionDate: '2026-10-23T17:00:00.0000000Z' }))!.timeline.resolved).toBe('2026-10-23T17:00:00.000Z');
+  });
+
+  it('statusHistory: oldest first, statusSeen keys back to the city strings, unparseable times and Draft dropped', () => {
+    const got = streetCaseDetail(doc({ status: 'Department Responded', statusSeen: {
+      Department_Responded: '2026-10-23T10:00:00Z', Assigned: '2026-10-21T09:00:00Z', Draft: '2026-10-20T11:59:00Z', Submitted: '2026-10-20T12:10:00Z', Weird_State: 'not a date',
+    } }))!;
+    expect(got.statusHistory).toEqual([
+      { status: 'Submitted', at: '2026-10-20T12:10:00.000Z' },
+      { status: 'Assigned', at: '2026-10-21T09:00:00.000Z' },
+      { status: 'Department Responded', at: '2026-10-23T10:00:00.000Z' },
+    ]);
+    expect(streetCaseDetail(doc())!.statusHistory).toEqual([]);
   });
 });
 

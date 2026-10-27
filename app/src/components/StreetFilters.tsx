@@ -7,7 +7,8 @@ import CategoryIcon from './CategoryIcon';
 import './StreetParts.css';
 
 /** The /street filter rail (spec: .claude/street-map-spec.md "filters"): Clear · Open n · Closed n · window select ·
- *  All n · ten group chips. Every count is the caller's faceted "what you'd get" number for the visible band (own
+ *  All n · ten group chips. Open and Closed lead with a dot in the pin colours (ember / muted) so the rail doubles as the
+ *  legend for the pins (decorative: the chip names already say open / closed). Every count is the caller's faceted "what you'd get" number for the visible band (own
  *  dimension released); the rail itself is pure — it only reports the next Filters. On phones it scrolls horizontally
  *  under the search pill; inside `.street-panel` (desktop) it wraps instead. */
 
@@ -75,10 +76,12 @@ export default function StreetFilters({ filters, counts, loading, disabled = fal
       )}
 
       <button type="button" className="chip street-chip street-chip-status" aria-pressed={openOn} aria-label={name(t('street.open'), counts?.open)} aria-disabled={dis} onClick={() => toggleStatus('open')}>
+        <span className="street-chip-dot street-chip-dot--open" aria-hidden="true" />
         <span className="street-chip-label">{t('street.open')}</span>
         <span className="street-chip-n">{show(counts?.open)}</span>
       </button>
       <button type="button" className="chip street-chip street-chip-status" aria-pressed={closedOn} aria-label={name(t('street.closed'), counts?.closed)} aria-disabled={dis} onClick={() => toggleStatus('closed')}>
+        <span className="street-chip-dot street-chip-dot--closed" aria-hidden="true" />
         <span className="street-chip-label">{t('street.closed')}</span>
         <span className="street-chip-n">{show(counts?.closed)}</span>
       </button>
