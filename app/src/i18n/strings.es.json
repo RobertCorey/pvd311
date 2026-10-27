@@ -1333,6 +1333,7 @@
   "street.key.open": "Pin naranja: sigue abierta",
   "street.key.closed": "Pin gris: cerrada",
   "street.key.cluster": "Número: varias solicitudes aquí; el anillo muestra abiertas (naranja) y cerradas (gris)",
+  "street.key.stack": "Pines unidos por líneas finas: varias solicitudes en el mismo punto",
   "street.key.type": "Ícono en el pin: el tipo de solicitud",
   "street.key.new": "Anillo que late: abierta, reportada en las últimas 48 horas",
   "street.key.home": "Pin con ×: la dirección que buscaste",

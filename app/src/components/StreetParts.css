@@ -256,6 +256,8 @@
 .street-key-sw { display: flex; align-items: center; justify-content: center; gap: 4px; }
 .street-key-swatch { position: relative; display: inline-block; flex: none; }
 .street-key-ring { display: block; overflow: visible; }
+/* The fanned pair is drawn at the map's own spacing (68 px); shrink it into the 58 px swatch column. */
+.street-key-swatch.map-fan { scale: .82; }
 /* The map draws no halos under reduced motion, so the key does not promise one. */
 @media (prefers-reduced-motion: reduce) { .street-key-item[data-key="new"] { display: none; } }
 

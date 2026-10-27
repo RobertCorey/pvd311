@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState, type FocusEvent, type ReactNode } from 'react';
 import { useT } from '../i18n';
 import { track } from '../lib/analytics';
-import { caseMarker, clusterMarker, homeMarker, type MarkerParts } from '../lib/mapMarkers';
+import { caseMarker, clusterMarker, fanMarker, homeMarker, type MarkerParts } from '../lib/mapMarkers';
 import './StreetParts.css';
 
 /** "Map key" (Rob, 2026-10-27: "figure out a way to document the legend"): a 44 px button over the map that opens a
- *  small non-modal dialog explaining every mark the map draws — open pin, closed pin, number circle, the type icon in a
- *  pin, the pulsing ring (new), the × pin, the dashed circle. Each swatch is drawn by lib/mapMarkers.ts, the same code
+ *  small non-modal dialog explaining every mark the map draws — open pin, closed pin, number circle, pins fanned out on
+ *  legs (a stack at street zoom), the type icon in a pin, the pulsing ring (new), the × pin, the dashed circle. Each swatch is drawn by lib/mapMarkers.ts, the same code
  *  MapView draws the map with, inside a `.map-pins` box so MapView.css styles both — the key can never drift from the
  *  map. Escape, the dialog's ×, the button again or a tap outside closes it; focus returns to the button (after an
  *  outside tap only when focus was still in the dialog). Tabbing out of it (to anything but the button) closes it too,
@@ -87,6 +87,7 @@ export default function MapKey({ withText = false, hidden = false }: MapKeyProps
     { key: 'open', swatch: <Swatch m={caseMarker('streets', true)} /> },
     { key: 'closed', swatch: <Swatch m={caseMarker('streets', false)} /> },
     { key: 'cluster', swatch: <Swatch m={clusterMarker(8, 5 / 8)} box={40} /> },
+    { key: 'stack', swatch: <Swatch m={fanMarker()} /> },
     { key: 'type', swatch: <><Swatch m={caseMarker('trash', true)} /><Swatch m={caseMarker('lights', false)} /></> },
     { key: 'new', swatch: <Swatch m={caseMarker('streets', true, true)} extra="map-pin--halo" /> },
     { key: 'home', swatch: <Swatch m={homeMarker()} /> },

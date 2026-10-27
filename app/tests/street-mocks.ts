@@ -45,6 +45,20 @@ export const STACK_CASES: Case[] = Array.from({ length: 6 }, (_, i) => ({
   id: `s${i + 1}`, t: i % 3 === 0 ? 0 : i % 3 === 1 ? 3 : 1, status: i < 4 ? 'Submitted' : 'Closed', createdDaysAgo: i + 1, closedDaysAgo: i < 4 ? null : 1,
   lat: STACK.lat, lng: STACK.lng, street: 'Hope St',
 }));
+/** Two requests at one address (an open pothole, a tree closed yesterday): the smallest stack. Not in DEFAULT_ITEMS — the
+ *  fan tests add it — so the landing's counts stay put. */
+export const PAIR = { lat: 41.852, lng: -71.428 };
+export const PAIR_CASES: Case[] = [
+  { id: 'p1', t: 0, status: 'Submitted', createdDaysAgo: 3, lat: PAIR.lat, lng: PAIR.lng, street: '40 Douglas Ave' },
+  { id: 'p2', t: 6, status: 'Resolved', createdDaysAgo: 6, closedDaysAgo: 1, lat: PAIR.lat, lng: PAIR.lng, street: '40 Douglas Ave', res: 'Removed.' },
+];
+/** Thirteen at one spot — one more than a stack fans out (lib/streetMap SPIDER_MAX): it stays a disc whose tap lists them.
+ *  Not in DEFAULT_ITEMS either. */
+export const BIG_STACK = { lat: 41.8075, lng: -71.388 };
+export const BIG_STACK_CASES: Case[] = Array.from({ length: 13 }, (_, i) => ({
+  id: `b${i + 1}`, t: i % 2 ? 3 : 0, status: i < 7 ? 'Assigned' : 'Closed', createdDaysAgo: i + 1, closedDaysAgo: i < 7 ? null : 0,
+  lat: BIG_STACK.lat, lng: BIG_STACK.lng, street: 'Allens Ave',
+}));
 
 /** Deterministic filler: clusters of cases in six neighborhoods, away from the test point and the stack, so the city
  *  reads 1,234 requests (738 open · 496 closed, 126 unplaced) and a z16 view around 481 Angell St stays empty. */

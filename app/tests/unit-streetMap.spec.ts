@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, DAY_MS, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
-  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, stackKey, streetKey, summaryOf, topTypes,
+  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, SPIDER_MAX, spiderOffsets, stackKey, streetKey, summaryOf, topTypes,
   writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, neighborhoodAt, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
@@ -215,6 +215,65 @@ test.describe('clusterGrid', () => {
     expect(alone.clusters[0]).toMatchObject({ n: 2, stack: true });
     const mixed = clusterGrid([...stack, pt('n', 41.8283, -71.4006)], projAt(12), 12);
     expect(mixed.clusters[0]).toMatchObject({ n: 3, stack: false });
+  });
+});
+
+test.describe('spiderOffsets', () => {
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  test('2–12 at one spot: one anchor per member, ≥ 26 px apart and ≥ 22 px off the spot; two side by side; one circle with neighbours ≥ 30 px apart — the slots above the dot on it, those below 20 px further down (their heads on it); nothing outside 2–12', () => {
+    expect(SPIDER_MAX).toBe(12);
+    for (let n = 2; n <= SPIDER_MAX; n++) {
+      const o = spiderOffsets(n);
+      expect(o).toHaveLength(n);
+      for (const [i, a] of o.entries()) {
+        expect(Math.hypot(a.x, a.y), `n=${n} #${i}`).toBeGreaterThanOrEqual(22 - 1e-9);
+        for (const b of o.slice(i + 1)) expect(dist(a, b), `n=${n}`).toBeGreaterThanOrEqual(26);
+      }
+      expect(spiderOffsets(n)).toEqual(o); // deterministic: the same slots on every redraw
+    }
+    const [l, r] = spiderOffsets(2);
+    expect([l.x, l.y, r.x, r.y].map((v) => Math.round(v * 1e6) / 1e6 + 0)).toEqual([-22, 0, 22, 0]);
+    for (let n = 3; n <= SPIDER_MAX; n++) {
+      const o = spiderOffsets(n);
+      const radii = o.map((p) => Math.hypot(p.x, p.y > 1e-9 ? p.y - 20 : p.y));
+      expect(Math.max(...radii) - Math.min(...radii), `n=${n} one circle`).toBeLessThan(1e-9);
+      expect(radii[0]).toBeCloseTo(Math.max(22, 30 / (2 * Math.sin(Math.PI / n))), 9);
+      for (let i = 0; i < n; i++) expect(dist(o[i], o[(i + 1) % n]), `n=${n} neighbours`).toBeGreaterThanOrEqual(30 - 1e-9);
+      // symmetric about the vertical through the spot
+      const xs = o.map((p) => Math.round(p.x * 1e6)).sort((a, b) => a - b);
+      expect(xs.map((x) => x + 0)).toEqual([...xs].reverse().map((x) => -x + 0));
+      expect(Math.max(...o.map((p) => Math.hypot(p.x, p.y)))).toBeLessThan(80); // twelve: within ~80 px of the spot
+    }
+    for (const n of [-1, 0, 1, 13, 40, 2.5, NaN]) expect(spiderOffsets(n)).toEqual([]);
+  });
+
+  test('every leg shows: the legs run under the pins, so none passes within 12 px of another member\'s head (centred 20 px above its tip, r ≈ 11 with its outline) — on the plain circle a 4-stack\'s upper legs and a 5-stack\'s side legs ran under the lower pins\' heads', () => {
+    const fromSegment = (p: { x: number; y: number }, b: { x: number; y: number }) => {
+      const t = Math.max(0, Math.min(1, (p.x * b.x + p.y * b.y) / (b.x * b.x + b.y * b.y)));
+      return Math.hypot(p.x - t * b.x, p.y - t * b.y);
+    };
+    for (let n = 2; n <= SPIDER_MAX; n++) {
+      const o = spiderOffsets(n);
+      for (const [i, tip] of o.entries()) {
+        for (const [j, other] of o.entries()) {
+          if (j === i) continue;
+          const head = { x: other.x, y: other.y - 20 };
+          expect(fromSegment(head, tip), `n=${n}: the leg to #${i} (${tip.x.toFixed(1)}, ${tip.y.toFixed(1)}) by #${j}'s head`).toBeGreaterThanOrEqual(12);
+        }
+      }
+    }
+  });
+
+  test('a pin hangs above its anchor, so no slot puts one over the centre dot: the head (r ≈ 10, 21 px above the tip) and the taper to the tip stay clear of the dot (r 3.5)', () => {
+    const coversSpot = (p: { x: number; y: number }) => {
+      const up = p.y; // the spot is this many px above the pin's tip
+      if (up <= 0) return false;
+      return Math.hypot(p.x, up - 21) < 10 + 3.5 || (up < 21 && Math.abs(p.x) < (10 * up) / 21 + 3.5);
+    };
+    for (let n = 2; n <= SPIDER_MAX; n++) {
+      for (const p of spiderOffsets(n)) expect(coversSpot(p), `n=${n} (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`).toBe(false);
+    }
   });
 });
 

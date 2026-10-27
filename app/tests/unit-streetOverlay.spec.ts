@@ -164,13 +164,13 @@ test('i18n: the overlay\'s and the map key\'s strings are translated, with the s
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
   const keys = Object.keys(en).filter((k) => k.startsWith('street.case.') || k.startsWith('street.key'));
-  expect(keys.length).toBe(27);
+  expect(keys.length).toBe(28);
   const holes = (s: string) => (s.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
   for (const k of keys) {
     expect(es[k], k).toBeTruthy();
     expect(es[k], k).not.toBe(en[k]);
     expect(holes(es[k]), k).toEqual(holes(en[k]));
   }
-  for (const k of ['open', 'closed', 'cluster', 'type', 'new', 'home', 'ring']) expect(en[`street.key.${k}`], k).toBeTruthy();
+  for (const k of ['open', 'closed', 'cluster', 'stack', 'type', 'new', 'home', 'ring']) expect(en[`street.key.${k}`], k).toBeTruthy();
   for (const k of ['reported', 'received', 'routed', 'workCompleted', 'resolved']) expect(en[`street.case.step.${k}`], k).toBeTruthy();
 });

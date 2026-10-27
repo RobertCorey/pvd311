@@ -1267,6 +1267,7 @@
   "street.key.open": "Orange pin: still open",
   "street.key.closed": "Gray pin: closed",
   "street.key.cluster": "Number: several requests here — the ring shows open (orange) and closed (gray)",
+  "street.key.stack": "Pins joined by thin lines: several requests at the same spot",
   "street.key.type": "Icon in the pin: the type of request",
   "street.key.new": "Pulsing ring: open, reported in the last 48 hours",
   "street.key.home": "× pin: the address you looked up",

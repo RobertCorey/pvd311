@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
-import { API, DEFAULT_ITEMS, NEAR, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, detailFor, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
+import { API, BIG_STACK, BIG_STACK_CASES, DEFAULT_ITEMS, NEAR, PAIR, PAIR_CASES, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, detailFor, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
 import { GROUP_GLYPHS } from '../src/lib/mapMarkers';
 import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
 
@@ -728,9 +728,10 @@ test('map key: a 44 px button under the rail opens a dialog drawn with the map\'
   await expect(dlg).toBeFocused();
   await expect(btn).toHaveAttribute('aria-expanded', 'true');
   const items = dlg.locator('.street-key-item');
-  expect(await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key))).toEqual(['open', 'closed', 'cluster', 'type', 'new', 'home', 'ring']);
+  expect(await items.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key))).toEqual(['open', 'closed', 'cluster', 'stack', 'type', 'new', 'home', 'ring']);
   await expect(items.locator('.street-key-text')).toHaveText([
     'Orange pin: still open', 'Gray pin: closed', 'Number: several requests here — the ring shows open (orange) and closed (gray)',
+    'Pins joined by thin lines: several requests at the same spot',
     'Icon in the pin: the type of request', 'Pulsing ring: open, reported in the last 48 hours', '× pin: the address you looked up', 'Dashed circle: the area the weekly email covers',
   ]);
   for (const el of await dlg.locator('.street-key-sw').all()) await expect(el).toHaveAttribute('aria-hidden', 'true');
@@ -783,6 +784,15 @@ test('map key: a 44 px button under the rail opens a dialog drawn with the map\'
   expect(await dlg.locator('[data-key="cluster"] .street-key-swatch').evaluate((el) => [(el.getAttribute('class') ?? '').split(' ').filter((c) => c.startsWith('map-cluster')).length, !!el.querySelector('.map-cluster-ring > .map-cluster-disc')])).toEqual([2, true]);
   expect(await page.locator('.mapview .map-cluster').first().evaluate((el) => !!el.querySelector('.map-cluster-ring > .map-cluster-disc'))).toBe(true);
   await expect(dlg.locator('[data-key="cluster"] .map-cluster-disc')).toHaveText('8');
+  // Fanned stacks: the key's legs and dot are the map's (classes and styles, a 6-stack at z18); its pins are case pins.
+  await setView(page, STACK.lat, STACK.lng, 18);
+  await expect(page.locator('.mapview path.map-leg')).toHaveCount(6);
+  for (const [k, m] of [['[data-key="stack"] .map-leg', '.mapview path.map-leg'], ['[data-key="stack"] .map-spot', '.mapview path.map-spot']]) {
+    expect(await classesOf(dlg.locator(k)), k).toEqual(await classesOf(page.locator(m)));
+    expect(await stroke(dlg.locator(k).first()), k).toBe(await stroke(page.locator(m).first()));
+  }
+  await expect(dlg.locator('[data-key="stack"] .map-pin.map-case')).toHaveCount(2);
+  expect(await dlg.locator('[data-key="stack"] .map-case:not(.map-pin--closed)').innerHTML()).toBe(await page.locator('.mapview .map-case[data-id="s4"]').innerHTML()); // s4: an open pothole, not new
   // Not drawn at FULL (the sheet covers its spot); an open key closes; back at HALF the button is there, closed.
   await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
   await grab(page).press('ArrowUp');
@@ -835,25 +845,243 @@ test('map key over the case overlay (390×664, HALF): it covers the sheet header
   expect(await page.evaluate(() => !!document.activeElement?.closest('.street-controls'))).toBe(true);
 });
 
-test('clusters and stacks: six cases at one spot are one disc at every zoom; at z18 the disc lists them', async ({ page }) => {
-  await landing(page);
+/** Each drawn case pin's tip (its anchor) in page px, read off its box: open pins are 26×32 anchored at (13, 31), closed
+ *  ones 22×27 at (11, 26) (lib/mapMarkers caseMarker). */
+const pinTips = (page: Page) => page.locator('.mapview .map-case').evaluateAll((els) => els.map((el) => {
+  const r = el.getBoundingClientRect(), closed = el.classList.contains('map-pin--closed');
+  return { id: (el as HTMLElement).dataset.id ?? '', x: r.x + (closed ? 11 : 13), y: r.y + (closed ? 26 : 31) };
+}));
+/** A coordinate in page px. */
+async function pagePoint(page: Page, lat: number, lng: number) {
+  const p = await mapEval<{ x: number; y: number }>(page, `m => { const q = m.latLngToContainerPoint([${lat}, ${lng}]); return { x: q.x, y: q.y }; }`);
+  const box = (await page.locator('.mapview').boundingBox())!;
+  return { x: box.x + p.x, y: box.y + p.y };
+}
+const legs = (page: Page) => page.locator('.mapview path.map-leg');
+const spot = (page: Page) => page.locator('.mapview path.map-spot');
+
+test('clusters and stacks: six cases at one spot are one disc below street zoom and a tap flies in to their own pins; thirteen at one spot stay one disc at z18, and its tap lists them', async ({ page }) => {
+  await landing(page, { items: [...DEFAULT_ITEMS, ...BIG_STACK_CASES] });
   const six = page.locator('.map-cluster', { hasText: /^6$/ });
   await expect(six).toHaveCount(1);
-  const z0 = await zoomOf(page);
   await six.click();
-  await expect.poll(() => zoomOf(page)).toBeGreaterThan(z0);
-  await setView(page, STACK.lat, STACK.lng, 18);
+  await expect.poll(() => zoomOf(page)).toBe(18);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  await expect(legs(page)).toHaveCount(6);
+  await expect(six).toHaveCount(0);
+  // Thirteen is one more than fans out: the disc at every zoom, and at z18 its tap lists them.
+  await setView(page, BIG_STACK.lat, BIG_STACK.lng, 18);
   await page.waitForTimeout(400);
-  await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
-  await expect(page.locator('.map-case')).toHaveCount(0);
-  await page.locator('.map-cluster', { hasText: /^6$/ }).click();
-  await expect(page.locator('.street-body .street-h').first()).toHaveText('6 requests at this spot');
-  await expect(title(page)).toHaveText('6 requests at this spot');
-  await expect(rows(page)).toHaveCount(6);
+  const big = page.locator('.map-cluster', { hasText: /^13$/ });
+  await expect(big).toHaveCount(1);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(0);
+  await expect(legs(page)).toHaveCount(0);
+  await big.click();
+  await expect(page.locator('.street-body .street-h').first()).toHaveText('13 requests at this spot');
+  await expect(title(page)).toHaveText('13 requests at this spot');
+  await expect(rows(page)).toHaveCount(13);
   await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
   await page.getByRole('button', { name: 'Show everything in view' }).click();
   await expect(page.locator('.street-body .street-h').first()).toHaveText('In view');
-  await expect(rows(page)).toHaveCount(6);
+  await expect(rows(page)).toHaveCount(13);
+});
+
+test('fanned stacks (Rob: "impossible to zoom in far enough to get individual pins"): from z17 the 2-stack and the 6-stack are their own case pins on thin legs around a dot on the true spot — no disc, no pin on the spot, none overlapping; a pan keeps the nodes; z16 folds them back into a disc with nothing left over', async ({ page }) => {
+  await landing(page, { items: [...DEFAULT_ITEMS, ...PAIR_CASES] });
+  await page.waitForTimeout(700); // the PEEK sheet settles and the landing refits the city before we move the map
+  const near = (a: number, b: number) => Math.abs(a - b) <= 2;
+  for (const [at, cases] of [[PAIR, PAIR_CASES], [STACK, STACK_CASES]] as const) {
+    const n = cases.length, ids = cases.map((c) => c.id).sort();
+    for (const z of [17, 18, 19]) {
+      await setView(page, at.lat, at.lng, z);
+      await page.waitForTimeout(250);
+      await expect(page.locator('.mapview .map-case'), `${n} at z${z}`).toHaveCount(n);
+      await expect(page.locator('.mapview .map-cluster')).toHaveCount(0);
+      await expect(legs(page)).toHaveCount(n);
+      await expect(spot(page)).toHaveCount(1);
+      const tips = await pinTips(page), c = await pagePoint(page, at.lat, at.lng);
+      expect(tips.map((t) => t.id).sort()).toEqual(ids);
+      for (const [i, a] of tips.entries()) {
+        expect(Math.hypot(a.x - c.x, a.y - c.y), `${a.id} is off the spot`).toBeGreaterThanOrEqual(20);
+        for (const b of tips.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.y - b.y), `${a.id}–${b.id} at z${z}`).toBeGreaterThanOrEqual(26);
+      }
+      // The dot marks the true spot; each leg runs from it to one pin's tip.
+      const d = (await spot(page).boundingBox())!;
+      expect([d.x + d.width / 2, d.y + d.height / 2].map((v, k) => near(v, k ? c.y : c.x))).toEqual([true, true]);
+      const ends = await legs(page).evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }));
+      for (const tip of tips) {
+        expect(ends.some((e) => near(e.l, Math.min(tip.x, c.x)) && near(e.r, Math.max(tip.x, c.x)) && near(e.t, Math.min(tip.y, c.y)) && near(e.b, Math.max(tip.y, c.y))), `a leg to ${tip.id}`).toBe(true);
+      }
+      if (n === 2) expect(Math.abs(tips[0].y - tips[1].y)).toBeLessThanOrEqual(5); // a pair sits side by side
+    }
+  }
+  // The same pins as singles: type glyph, open / closed, data-id (the pair: an open pothole, a closed tree).
+  await setView(page, PAIR.lat, PAIR.lng, 18);
+  await expect(page.locator('.map-case[data-id="p1"] svg')).toHaveAttribute('data-group', 'streets');
+  await expect(page.locator('.map-case[data-id="p1"]')).not.toHaveClass(/map-pin--closed/);
+  await expect(page.locator('.map-case[data-id="p2"] svg')).toHaveAttribute('data-group', 'trees');
+  await expect(page.locator('.map-case[data-id="p2"]')).toHaveClass(/map-pin--closed/);
+  // A pan keeps the very nodes (the keys are the cases, not the view).
+  await setView(page, STACK.lat, STACK.lng, 18);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  await page.waitForTimeout(400);
+  await page.locator('.mapview .map-case').evaluateAll((els) => els.forEach((el) => el.setAttribute('data-mark', '1')));
+  await userPan(page, 30, 20);
+  await page.waitForTimeout(400);
+  await expect(page.locator('.mapview .map-case[data-mark="1"]')).toHaveCount(6);
+  await expect(legs(page)).toHaveCount(6);
+  // z16: one disc again — no pins, legs or dot left; back at z17, exactly one fan (nothing leaked from the last).
+  await setView(page, STACK.lat, STACK.lng, 16);
+  await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(0);
+  await expect(legs(page)).toHaveCount(0);
+  await expect(spot(page)).toHaveCount(0);
+  await setView(page, STACK.lat, STACK.lng, 17);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  await expect(legs(page)).toHaveCount(6);
+  await expect(spot(page)).toHaveCount(1);
+  await expect(page.locator('.map-cluster')).toHaveCount(0);
+  // Revealed by a user zoom, they drop in like any pin — never under reduced motion.
+  await expect(page.locator('.mapview .map-case.map-pin--drop')).toHaveCount(6);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/street');
+  await waitForMap(page);
+  await setView(page, STACK.lat, STACK.lng, 16);
+  await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
+  await setView(page, STACK.lat, STACK.lng, 17);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  await expect(page.locator('.mapview .map-pin--drop')).toHaveCount(0);
+});
+
+/** Start a zoom on the map (`start`, a function of it) and watch every frame until zoomend: how many frames the map pane
+ *  animated, and in those the legs drawn (not hidden) that do not end at a pin's tip and the dots drawn at another size
+ *  than their own (7 px across). Pin tips as in pinTips. */
+const zoomFrames = (page: Page, start: string) => page.evaluate(`(async () => {
+  const m = window.__streetMap, pane = m.getPane('mapPane'), near = (a, b) => Math.abs(a - b) <= 2;
+  let done = false, frames = 0; const off = [];
+  m.once('zoomend', () => { done = true; });
+  (${start})(m);
+  for (const t0 = performance.now(); !done && performance.now() - t0 < 2000;) {
+    await new Promise((r) => requestAnimationFrame(r));
+    if (!pane.classList.contains('leaflet-zoom-anim')) continue;
+    frames++;
+    const tips = [...document.querySelectorAll('.mapview .map-case')].map((el) => {
+      const r = el.getBoundingClientRect(), closed = el.classList.contains('map-pin--closed');
+      return { x: r.x + (closed ? 11 : 13), y: r.y + (closed ? 26 : 31) };
+    });
+    for (const el of document.querySelectorAll('.mapview path.map-leg, .mapview path.map-spot')) {
+      if (getComputedStyle(el).visibility === 'hidden') continue;
+      const r = el.getBoundingClientRect();
+      if (el.classList.contains('map-spot')) { if (!near(r.width, 7)) off.push('dot ' + r.width.toFixed(1) + ' px'); continue; }
+      const corners = [[r.left, r.top], [r.right, r.top], [r.left, r.bottom], [r.right, r.bottom]];
+      if (!tips.some((t) => corners.some(([x, y]) => near(x, t.x) && near(y, t.y)))) off.push('leg ' + [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
+    }
+  }
+  return { frames, off, done };
+})()`) as Promise<{ frames: number; off: string[]; done: boolean }>;
+
+test('an animated zoom keeps a fan together: while the map animates no leg is drawn past its pin or short of it and the dot keeps its size (one level out, one in, the Zoom-out pill\'s two, a pinch let go mid-level); once it settles each leg ends at its pin\'s tip', async ({ page }) => {
+  await landing(page);
+  await page.waitForTimeout(700); // the landing's PEEK refit is done
+  const legsAtTips = async () => {
+    const tips = await pinTips(page), c = await pagePoint(page, STACK.lat, STACK.lng);
+    const near = (a: number, b: number) => Math.abs(a - b) <= 2;
+    const ends = await legs(page).evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, shown: getComputedStyle(el).visibility !== 'hidden' }; }));
+    expect(ends.every((e) => e.shown)).toBe(true);
+    for (const tip of tips) {
+      expect(ends.some((e) => near(e.l, Math.min(tip.x, c.x)) && near(e.r, Math.max(tip.x, c.x)) && near(e.t, Math.min(tip.y, c.y)) && near(e.b, Math.max(tip.y, c.y))), `a leg to ${tip.id}`).toBe(true);
+    }
+  };
+  const runs: [number, string, number][] = [
+    [18, 'm => m.setZoom(17)', 17],
+    [17, 'm => m.setZoom(18)', 18],
+    [19, 'm => m.setZoom(17)', 17],
+    // a pinch: Leaflet's touch zoom moves the map to a fractional zoom, then on release animates to the snapped one
+    [18, 'm => { const c = m.getCenter(); m._moveStart(true, false); m._move(c, 17.4, { pinch: true, round: false }); m._animateZoom(c, 17, true, 1); }', 17],
+  ];
+  for (const [from, start, to] of runs) {
+    await setView(page, STACK.lat, STACK.lng, from);
+    await expect(legs(page)).toHaveCount(6);
+    await page.waitForTimeout(300);
+    const r = await zoomFrames(page, start);
+    expect(r.done, `${start} ended`).toBe(true);
+    expect(r.frames, `${start} animated`).toBeGreaterThanOrEqual(3);
+    expect(r.off, `${start}: z${from} → ${to}`).toEqual([]);
+    await expect.poll(() => zoomOf(page)).toBe(to);
+    await page.waitForTimeout(300);
+    await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+    await legsAtTips();
+  }
+});
+
+test('a fanned pin is a case pin: a tap at PEEK opens that case\'s overlay, the pin selected and on top, kept in the band above the HALF sheet', async ({ page }) => {
+  await landing(page, { details: { s3: detailFor(STACK_CASES[2]) } });
+  await page.waitForTimeout(700); // the landing's PEEK refit is done
+  await setView(page, STACK.lat, STACK.lng, 18);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  await page.waitForTimeout(500); // the drop-in is over
+  const tip = (await pinTips(page)).find((t) => t.id === 's3')!;
+  await page.mouse.click(tip.x, tip.y - 14);
+  await expect(page).toHaveURL(/[?&]case=s3/);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(sheet(page)).toHaveAttribute('data-overlay', 'true');
+  await expect(title(page)).toHaveText('Street Light Out');
+  const pin = page.locator('.mapview .map-case[data-id="s3"]');
+  await expect(pin).toHaveClass(/map-pin--selected/);
+  await expect(page.locator('.map-pin--selected')).toHaveCount(1);
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6); // still fanned
+  const z = (l: ReturnType<Page['locator']>) => l.evaluate((el) => Number(getComputedStyle(el).zIndex));
+  for (const id of ['s1', 's2', 's4', 's5', 's6']) expect(await z(pin)).toBeGreaterThan(await z(page.locator(`.mapview .map-case[data-id="${id}"]`)));
+  await page.waitForTimeout(600); // the pan into the band settles
+  const b = (await pin.boundingBox())!, sh = await box(page, '.street-sheet'), rail = await box(page, FILTER_ROW);
+  expect(b.y + b.height).toBeLessThanOrEqual(sh.y + 1);
+  expect(b.y).toBeGreaterThanOrEqual(rail.y + rail.height - 1);
+});
+
+test('selection pans to the fanned pin, not the shared spot: a row tap with its pin under the rail, and a row tap while the stack is still a disc (z16 → 17, the pin centred in the band), both end with that pin in the band', async ({ page }) => {
+  await landing(page, { details: { s3: detailFor(STACK_CASES[2]) } });
+  await page.waitForTimeout(700); // the landing's PEEK refit is done
+  await setView(page, STACK.lat, STACK.lng, 18);
+  await grab(page).click();
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+  /** Pan so the shared spot sits `y` page px down (panBy moves the view, so the map content moves the other way). */
+  const spotAt = async (y: number) => {
+    const c = await pagePoint(page, STACK.lat, STACK.lng);
+    await mapEval<void>(page, `m => { m.panBy([0, ${c.y - y}], { animate: false }); }`);
+    await page.waitForTimeout(400);
+  };
+  const inBand = async () => {
+    const b = (await page.locator('.map-pin--selected').boundingBox())!, sh = await box(page, '.street-sheet'), r = await box(page, FILTER_ROW);
+    expect(b.y + b.height).toBeLessThanOrEqual(sh.y + 1);
+    expect(b.y).toBeGreaterThanOrEqual(r.y + r.height - 1);
+  };
+  // The shared spot 20 px under the rail: s3's slot (up and left) is then under the rail itself.
+  const rail = await box(page, FILTER_ROW);
+  await spotAt(rail.y + rail.height + 20);
+  expect((await pinTips(page)).find((t) => t.id === 's3')!.y).toBeLessThan(rail.y + rail.height);
+  await page.locator('.street-row-btn[data-id="s3"]').click();
+  await expect(page).toHaveURL(/[?&]case=s3/);
+  await expect(page.locator('.mapview .map-case[data-id="s3"]')).toHaveClass(/map-pin--selected/);
+  await page.waitForTimeout(700);
+  await inBand();
+  // Back to the list; at z16 the stack is a disc again. A row tap goes to z17 centred on where s3 is drawn there.
+  await backX(page).click();
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await setView(page, STACK.lat, STACK.lng, 16);
+  const sh0 = await box(page, '.street-sheet');
+  await spotAt((rail.y + rail.height + sh0.y) / 2);
+  await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
+  await page.locator('.street-row-btn[data-id="s3"]').click();
+  await expect.poll(() => zoomOf(page)).toBe(17);
+  await expect(page.locator('.mapview .map-case[data-id="s3"]')).toHaveClass(/map-pin--selected/);
+  await expect(legs(page)).toHaveCount(6);
+  await page.waitForTimeout(700);
+  await inBand();
+  const sh = await box(page, '.street-sheet'), mid = (rail.y + rail.height + sh.y) / 2;
+  const tip = (await pinTips(page)).find((t) => t.id === 's3')!, c = await pagePoint(page, STACK.lat, STACK.lng);
+  expect(Math.abs(tip.y - mid), 's3 is the centred one').toBeLessThanOrEqual(4);
+  expect(Math.abs(c.y - mid)).toBeGreaterThan(15); // …not the shared spot
 });
 
 test('the in-view list follows the map: an empty corner → zeros, plain empty copy, Zoom out and See the whole city', async ({ page }) => {
@@ -1553,6 +1781,17 @@ test.describe('desktop', () => {
     await rows(page).first().hover();
     await expect(page.locator('.map-pin--hover')).toHaveCount(1);
     await page.screenshot({ path: 'tests/__screenshots__/street-desktop.png' });
+  });
+  test('a fanned stack beside the panel: each in-view row hovers its own fanned pin', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/street?c=${STACK.lat},${STACK.lng}&z=18`);
+    await waitForMap(page);
+    await expect(page.locator('.mapview .map-case')).toHaveCount(6);
+    await expect(legs(page)).toHaveCount(6);
+    await expect(rows(page)).toHaveCount(6);
+    await page.locator('.street-row-btn[data-id="s2"]').hover();
+    await expect(page.locator('.map-pin--hover')).toHaveCount(1);
+    await expect(page.locator('.mapview .map-case[data-id="s2"]')).toHaveClass(/map-pin--hover/);
   });
   test('filters in the panel: three labelled rows — Show, When, Type — label left, control right, lined up; Clear under them only off the defaults; the narrow panel puts the labels above, and no segment overflows (4-digit city counts, Spanish)', async ({ page }) => {
     await point(page);

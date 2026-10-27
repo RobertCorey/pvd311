@@ -450,6 +450,31 @@ export function clusterGrid(points: ClusterPoint[], project: (lat: number, lng: 
   }
 }
 
+/* ── Fanned stacks (Rob, 2026-10-27: "impossible to zoom in far enough to get individual pins") ──────────────── */
+
+/** A stack of up to this many is drawn as its own pins from street zoom (MapView SPIDER_ZOOM); a bigger one stays a
+ *  disc whose tap lists its cases. */
+export const SPIDER_MAX = 12;
+/** Px between neighbouring pin anchors; the circle's smallest radius; how far a case pin's head stands above its tip
+ *  (lib/mapMarkers caseMarker: the open pin's head is centred 20 px up, r ≈ 11 with its paper outline). */
+const SPIDER_GAP = 30, SPIDER_MIN_R = 22, PIN_HEAD_RISE = 20;
+
+/** Screen-pixel offsets (y down) from a stack's shared point to each member's pin anchor, in member order: one circle
+ *  whose radius keeps SPIDER_GAP between neighbours (never under SPIDER_MIN_R, so two sit side by side), turned so its
+ *  widest gap is straight down — a pin hangs above its anchor, so none then covers the centre dot. A slot below the dot
+ *  drops a further PIN_HEAD_RISE so its head, not its tip, sits on the circle: the legs run under the pins, and a lower
+ *  head left at the dot's height hid the legs to the side pins (a 4- or 5-stack's lost theirs end to end) — now every
+ *  leg clears every other member's head. [] outside 2–SPIDER_MAX. Pixels, not degrees: the caller converts at the zoom
+ *  it draws (MapView: map.project / unproject). */
+export function spiderOffsets(n: number): { x: number; y: number }[] {
+  if (!Number.isInteger(n) || n < 2 || n > SPIDER_MAX) return [];
+  const r = Math.max(SPIDER_MIN_R, SPIDER_GAP / (2 * Math.sin(Math.PI / n)));
+  return Array.from({ length: n }, (_, i) => {
+    const a = Math.PI / 2 + Math.PI / n + (i * 2 * Math.PI) / n, y = r * Math.sin(a);
+    return { x: r * Math.cos(a), y: y > 1e-6 ? y + PIN_HEAD_RISE : y }; // 1e-6: a side slot's sin(π) is not "below"
+  });
+}
+
 /* ── URL state ─────────────────────────────────────────────────────────────────────────────────── */
 
 export interface StreetUrlState {

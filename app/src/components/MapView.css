@@ -83,6 +83,15 @@
 .map-pins .map-cluster--l .map-cluster-disc { font-size: 0.9rem; }
 .mapview .map-cluster--selected .map-cluster-disc { border-width: 3px; }
 
+/* Fanned stacks (z ≥ 17, up to 12 at one spot): a thin muted leg from the shared point to each pin's tip and a small ink
+   dot on the point itself — the case's true location. Leaflet paths on the map, an inline SVG in the map key
+   (lib/mapMarkers LEG_CLASS / SPOT_CLASS); pointer-transparent, under the pins. */
+.map-pins .map-leg { stroke: var(--muted); stroke-width: 1.5; stroke-opacity: 1; stroke-linecap: round; fill: none; }
+.map-pins .map-spot { stroke: var(--bg); stroke-width: 1.5; stroke-opacity: 1; fill: var(--ink); fill-opacity: 1; }
+/* An animated zoom scales the whole SVG while each pin glides to its new slot: the legs would stretch past the pins or
+   fall short of them, and the dot swell or shrink, so they sit it out — MapView re-draws them on zoomend. */
+.leaflet-zoom-anim .map-leg, .leaflet-zoom-anim .map-spot { visibility: hidden; }
+
 /* The digest's 300 m coverage around the spot you picked, and the chosen neighborhood's outline. Pointer-transparent. */
 .map-pins .map-ring { stroke: var(--ember); stroke-width: 1.5; stroke-dasharray: 6 6; stroke-opacity: 1; fill: var(--ember); fill-opacity: 0.06; }
 .mapview .map-hood { stroke: var(--ink); stroke-width: 2; stroke-opacity: 1; fill: var(--ember); fill-opacity: 0.08; }

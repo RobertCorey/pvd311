@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './MapView.css';
-import { clusterGrid, type Bounds, type Cluster, type ClusterPoint } from '../lib/streetMap';
-import { caseMarker, casePinKey, clusterHtml, clusterMarker, clusterSize, homeMarker, type MarkerParts } from '../lib/mapMarkers';
+import { clusterGrid, SPIDER_MAX, spiderOffsets, stackKey, type Bounds, type Cluster, type ClusterPoint } from '../lib/streetMap';
+import { caseMarker, casePinKey, clusterHtml, clusterMarker, clusterSize, homeMarker, LEG_CLASS, SPOT_CLASS, SPOT_R, type MarkerParts } from '../lib/mapMarkers';
 import { CITY_MARGIN_DEG, PVD_BOUNDS } from '../lib/geo';
 
 /** A located city case to draw. Pass the whole filtered set: MapView keeps the ones inside `getBounds().pad(0.25)`.
@@ -31,7 +31,8 @@ export interface MapViewProps {
   selectedId?: string | null;
   hoverId?: string | null;
   onSelect?: (id: string) => void;
-  /** A same-coordinate stack tapped at zoom ≥ 17 (below that it flies in like any cluster). */
+  /** A same-coordinate stack too big to fan out (more than SPIDER_MAX) tapped at zoom ≥ 17; below that, or a smaller
+   *  stack still drawn as a disc, it flies in like any cluster. */
   onStackTap?: (ids: string[]) => void;
   /** A cluster was tapped; MapView has already started `flyToBounds(bounds)` with the insets as padding (maxZoom 18). */
   onClusterTap?: (bounds: Bounds) => void;
@@ -108,9 +109,14 @@ const DRAW_PAD = 0.25;
 const HALO_MAX = 60;
 const DROP_STEP_MS = 30;
 const DROP_MAX_INDEX = 20;
-/** A selected case hidden in a cluster → setView here; a stack lists its cases from here; cluster flights stop here. */
+/** A selected case hidden in a cluster → setView here; a stack too big to fan lists its cases from here; cluster
+ *  flights stop here. */
 const SELECT_ZOOM = 17;
 const STACK_LIST_ZOOM = 17;
+/** From here, while clusterGrid only stacks (no grid), a stack of up to SPIDER_MAX is drawn as its own pins fanned
+ *  around the shared point on legs (Rob, 2026-10-27: "impossible to zoom in far enough to get individual pins" — a "2"
+ *  disc never split). Offsets are screen px (lib/streetMap spiderOffsets), re-slotted on every zoom. */
+const SPIDER_ZOOM = 17;
 const CLUSTER_MAX_ZOOM = 18;
 const SELECTED_Z = 1000;
 /** A selected open pin stands 32 px above its anchor, ×1.2 when selected: panInside pads the top by this so the head
@@ -252,7 +258,9 @@ const hideFromAt = (el: HTMLElement | undefined) => {
   el.setAttribute('tabindex', '-1');
 };
 
-type Keyed = { layer: L.Marker | L.Circle | L.Polygon; sig: string; cluster?: Cluster; icon?: string; hood?: unknown };
+type Keyed = { layer: L.Marker | L.Path; sig: string; cluster?: Cluster; icon?: string; hood?: unknown };
+/** A stack drawn fanned out: its shared point and its members in slot order (spiderOffsets' order). */
+interface Fan { lat: number; lng: number; ids: string[] }
 
 /** Everything that outlives a render: the layer group, the keyed markers, gesture tracking and the debounced redraw.
  *  Created once per map in the init effect; reads the latest props through `propsRef`. */
@@ -260,7 +268,13 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   const group = L.layerGroup().addTo(map);
   const entries = new Map<string, Keyed>();
   let byId = new Map<string, MapPoint>();
-  let singles = new Set<string>();
+  /** Where each case drawn as its own pin sits — its coordinate, or its slot in a fan. The selection pans read this. */
+  let drawnAt = new Map<string, L.LatLng>();
+  /** The fans drawn now, by cluster key: refan() re-slots them for a new zoom ahead of the debounced redraw. */
+  let fans = new Map<string, Fan>();
+  /** A selection whose pin was not drawn when it was made (in a disc, or before the feed came): once it is drawn in a
+   *  fan, that pin — not the shared point the move centred — is brought into the band. A user move cancels it. */
+  let revealFan: string | null = null;
   let hysteresis: { zoom: number; clustered: boolean } | null = null;
   const reduced = prefersReducedMotion();
 
@@ -316,18 +330,59 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   /** `data-id` on the marker element (not in the shared icon) so a test or a debugger can find a case's pin. */
   const tagPin = (el: HTMLElement | undefined, id: string) => { hideFromAt(el); if (el) el.dataset.id = id; };
 
-  function makePin(p: MapPoint, i: number): Keyed {
-    const m = L.marker([p.lat, p.lng], { icon: caseIcon(p.group, p.open, p.isNew), keyboard: false, interactive: true });
+  /** A case pin at `at`: its own coordinate, or its slot in a fan — the same pin, tap and states either way. */
+  function makePin(p: MapPoint, i: number, at: L.LatLng): Keyed {
+    const m = L.marker(at, { icon: caseIcon(p.group, p.open, p.isNew), keyboard: false, interactive: true });
     m.on('click', () => propsRef.current.onSelect?.(p.id));
     group.addLayer(m);
     tagPin(m.getElement(), p.id);
     drop(m.getElement(), i);
-    return { layer: m, sig: `${p.lat},${p.lng}`, icon: casePinKey(p.group ?? 'other', p.open, !!p.isNew) };
+    return { layer: m, sig: `${at.lat},${at.lng}`, icon: casePinKey(p.group ?? 'other', p.open, !!p.isNew) };
   }
+
+  /** A fan's pin anchors at `zoom`: the shared point plus spiderOffsets in screen px, back to LatLngs. */
+  const fanSpots = (f: Fan, zoom: number): L.LatLng[] => {
+    const o = map.project([f.lat, f.lng], zoom);
+    return spiderOffsets(f.ids.length).map((d) => map.unproject(o.add([d.x, d.y]), zoom));
+  };
+
+  /** Where `p` will be drawn at `zoom` if its stack fans out there; null for a lone case or a stack too big to fan.
+   *  The members are the points at its 5-dp spot in the points' order — the order clusterGrid lists them in. */
+  const fanSpotOf = (p: MapPoint, zoom: number): L.LatLng | null => {
+    if (zoom < SPIDER_ZOOM) return null;
+    const k = stackKey(p.lat, p.lng);
+    const members = [...byId.values()].filter((q) => stackKey(q.lat, q.lng) === k);
+    if (members.length < 2 || members.length > SPIDER_MAX) return null;
+    return fanSpots({ lat: members[0].lat, lng: members[0].lng, ids: members.map((q) => q.id) }, zoom)[members.indexOf(p)] ?? null;
+  };
+
+  /** Re-slot the drawn fans for `zoom`: on zoomanim (`pinsOnly`, the target zoom — the pins animate to slots that keep
+   *  their pixel spacing) and on zoomend (the legs too, and a zoom without animation). The debounced redraw then settles
+   *  who is in which fan. Not the legs on zoomanim: the map's zoom changes only after it (after a pinch it is fractional,
+   *  the SVG frame still the pre-pinch one), so a leg set then is drawn in the old frame, which the transition scales —
+   *  overshooting its pin or falling short until zoomend. Legs and dot sit the transition out (MapView.css). */
+  function refan(zoom: number, pinsOnly = false) {
+    for (const f of fans.values()) {
+      const spots = fanSpots(f, zoom);
+      f.ids.forEach((id, i) => {
+        const at = spots[i], sig = `${at.lat},${at.lng}`;
+        const pin = entries.get(`c:${id}`), leg = pinsOnly ? undefined : entries.get(`l:${id}`);
+        if (pin && pin.sig !== sig) { (pin.layer as L.Marker).setLatLng(at); pin.sig = sig; }
+        if (leg && leg.sig !== sig) { (leg.layer as L.Polyline).setLatLngs([[f.lat, f.lng], at]); leg.sig = sig; }
+        if (drawnAt.has(id)) drawnAt.set(id, at);
+      });
+    }
+  }
+
+  const animating = () => {
+    const m = map as unknown as MapInternals;
+    return !!(m._animatingZoom || m._panAnim?._inProgress || m._flyToFrame);
+  };
 
   function onClusterClick(key: string) {
     const c = entries.get(key)?.cluster; if (!c) return;
-    if (c.stack && map.getZoom() >= STACK_LIST_ZOOM) { propsRef.current.onStackTap?.(c.ids); return; }
+    // Only a stack too big to fan lists; a smaller one still a disc here (z17 while the grid runs) flies in to 18 and fans.
+    if (c.stack && map.getZoom() >= STACK_LIST_ZOOM && c.n > SPIDER_MAX) { propsRef.current.onStackTap?.(c.ids); return; }
     const pts = c.ids.map((id) => byId.get(id)).filter((p): p is MapPoint => !!p).map((p) => L.latLng(p.lat, p.lng));
     const b = pts.length ? L.latLngBounds(pts) : L.latLngBounds([[c.lat, c.lng], [c.lat, c.lng]]);
     const ins = insets();
@@ -369,10 +424,13 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     const size = map.getSize();
     let created = 0;
 
-    // Case pins + clusters
+    // Case pins + clusters. A case pin is keyed by its case (`c:`) wherever it is drawn — its own coordinate or its slot
+    // in a fan — so a stack fanning out or folding back, or a pan, reuses or drops exactly the right nodes; a fan adds
+    // a leg per member (`l:`) and the centre dot (`d:`), which go with it.
     const pts = props.points;
     byId = new Map();
-    const nextSingles = new Set<string>();
+    const nextDrawn = new Map<string, L.LatLng>();
+    const nextFans = new Map<string, Fan>();
     if (pts && pts.length && size.x > 0 && size.y > 0) {
       const zoom = map.getZoom();
       const draw = map.getBounds().pad(DRAW_PAD);
@@ -381,30 +439,61 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
       const forcePins = hysteresis != null && hysteresis.zoom === zoom && !hysteresis.clustered;
       const res = clusterGrid(inView, (lat, lng) => map.project([lat, lng], zoom), zoom, { forcePins });
       hysteresis = { zoom, clustered: res.clustered };
+      const fanning = zoom >= SPIDER_ZOOM && !res.clustered;
 
       let halos = 0;
-      for (const id of res.singles) {
-        const p = byId.get(id); if (!p) continue;
-        const key = `c:${id}`; want.add(key); nextSingles.add(id);
+      const pinAt = (p: MapPoint, at: L.LatLng) => {
+        const key = `c:${p.id}`; want.add(key); nextDrawn.set(p.id, at);
         const halo = !reduced && p.open && !!p.isNew && halos < HALO_MAX; if (halo) halos++;
         let e = entries.get(key);
-        if (!e) { e = makePin(p, created++); entries.set(key, e); }
+        if (!e) { e = makePin(p, created++, at); entries.set(key, e); }
         else {
           const m = e.layer as L.Marker;
           const icon = casePinKey(p.group ?? 'other', p.open, !!p.isNew);
-          if (e.icon !== icon) { m.setIcon(caseIcon(p.group, p.open, p.isNew)); e.icon = icon; tagPin(m.getElement(), id); }
-          const sig = `${p.lat},${p.lng}`; if (e.sig !== sig) { m.setLatLng([p.lat, p.lng]); e.sig = sig; }
+          if (e.icon !== icon) { m.setIcon(caseIcon(p.group, p.open, p.isNew)); e.icon = icon; tagPin(m.getElement(), p.id); }
+          const sig = `${at.lat},${at.lng}`; if (e.sig !== sig) { m.setLatLng(at); e.sig = sig; }
         }
-        applyPinState(e, id, halo);
-      }
+        applyPinState(e, p.id, halo);
+      };
+      /** A stack fanned out: per member a leg from the shared point and its pin at its slot, then the centre dot. */
+      const fanOut = (c: Cluster) => {
+        const f: Fan = { lat: c.lat, lng: c.lng, ids: c.ids };
+        nextFans.set(c.key, f);
+        const spots = fanSpots(f, zoom);
+        let newLeg = false;
+        c.ids.forEach((id, i) => {
+          const p = byId.get(id); if (!p) return;
+          const at = spots[i], sig = `${at.lat},${at.lng}`, key = `l:${id}`;
+          want.add(key);
+          const e = entries.get(key);
+          if (!e) {
+            const leg = L.polyline([[c.lat, c.lng], at], { className: LEG_CLASS, interactive: false });
+            group.addLayer(leg); entries.set(key, { layer: leg, sig }); newLeg = true;
+          } else if (e.sig !== sig) { (e.layer as L.Polyline).setLatLngs([[c.lat, c.lng], at]); e.sig = sig; }
+          pinAt(p, at);
+        });
+        const key = `d:${c.key}`, sig = `${c.lat},${c.lng}`; want.add(key);
+        const e = entries.get(key);
+        if (!e) {
+          const dot = L.circleMarker([c.lat, c.lng], { radius: SPOT_R, className: SPOT_CLASS, interactive: false });
+          group.addLayer(dot); entries.set(key, { layer: dot, sig });
+        } else {
+          if (e.sig !== sig) { (e.layer as L.CircleMarker).setLatLng([c.lat, c.lng]); e.sig = sig; }
+          if (newLeg) (e.layer as L.CircleMarker).bringToFront(); // the dot stays over the legs' ends
+        }
+      };
+
+      for (const id of res.singles) { const p = byId.get(id); if (p) pinAt(p, L.latLng(p.lat, p.lng)); }
       for (const c of res.clusters) {
+        if (fanning && c.stack && c.n <= SPIDER_MAX) { fanOut(c); continue; }
         const key = `k:${c.key}`; want.add(key);
         let e = entries.get(key);
         if (!e) { e = makeCluster(key, c, created++); entries.set(key, e); } else updateCluster(e, c);
         applyClusterState(e);
       }
     } else if (pts) for (const p of pts) byId.set(p.id, p);
-    singles = nextSingles;
+    drawnAt = nextDrawn;
+    fans = nextFans;
 
     // Home pin + ring
     const home = props.home;
@@ -447,6 +536,21 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     }
 
     for (const [key, e] of entries) if (!want.has(key)) { group.removeLayer(e.layer); entries.delete(key); }
+
+    // A selection made while its pin was hidden: drawn on its own coordinate, the move that revealed it centred it
+    // already; drawn in a fan, bring that pin — not the shared point — into the band if the move left it outside
+    // (once, never mid-flight; a move to its predicted slot needs no second one).
+    if (revealFan && drawnAt.has(revealFan) && !animating()) {
+      const id = revealFan; revealFan = null;
+      if (id === (props.selectedId ?? null) && entries.has(`l:${id}`) && !showsInBand(drawnAt.get(id)!)) bringSelectedIntoBand();
+    }
+  }
+
+  /** A pin anchored at `at` shows whole in the band between the insets: its head below the top inset, its tip above the
+   *  bottom one, inside the map's width. */
+  function showsInBand(at: L.LatLng): boolean {
+    const p = map.latLngToContainerPoint(at), size = map.getSize(), ins = insets();
+    return p.y - PIN_HEAD_PX >= ins.top && p.y <= size.y - ins.bottom && p.x >= 0 && p.x <= size.x;
   }
 
   function scheduleView() {
@@ -462,6 +566,7 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   /** Selection changed: classes + zIndex everywhere, then bring the case into the band — panInside when its pin is
    *  drawn, setView(…, 17) centred in the band when it is hidden in a cluster (or off the drawn scope). */
   function selectionChanged() {
+    revealFan = propsRef.current.selectedId ?? null;
     for (const [key, e] of entries) {
       if (key.startsWith('c:')) applyPinState(e, key.slice(2), (e.layer as L.Marker).getElement()?.classList.contains('map-pin--halo') ?? false);
       else if (key.startsWith('k:')) applyClusterState(e);
@@ -469,15 +574,18 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
     bringSelectedIntoBand();
   }
 
-  /** Pan the selected pin into the band between the insets (also re-run when the sheet rises under a selection). */
+  /** Pan the selected pin into the band between the insets (also re-run when the sheet rises under a selection) — the
+   *  pin where it is drawn: its coordinate, or its slot in a fan. Hidden in a disc → setView 17 centred on where it
+   *  will be drawn there (its fan slot when its stack will fan out; redraw corrects with revealFan if not). */
   function bringSelectedIntoBand() {
-    if (propsRef.current.panToSelection === false) return;
+    if (propsRef.current.panToSelection === false) { revealFan = null; return; }
     const sel = propsRef.current.selectedId; if (!sel) return;
     const p = byId.get(sel); if (!p) return;
     const ins = insets();
     if (map.getSize().y - ins.top - ins.bottom < MIN_BAND_PX) return; // FULL: the list is the view, the map is a sliver
-    if (singles.has(sel)) run(() => map.panInside([p.lat, p.lng], { paddingTopLeft: [0, ins.top + 16 + PIN_HEAD_PX], paddingBottomRight: [0, ins.bottom + 16], animate: !reduced }));
-    else run(() => map.setView(centerFor(p, SELECT_ZOOM), SELECT_ZOOM, { animate: !reduced }));
+    const at = drawnAt.get(sel);
+    if (at) { revealFan = null; run(() => map.panInside(at, { paddingTopLeft: [0, ins.top + 16 + PIN_HEAD_PX], paddingBottomRight: [0, ins.bottom + 16], animate: !reduced })); }
+    else run(() => map.setView(centerFor(fanSpotOf(p, SELECT_ZOOM) ?? p, SELECT_ZOOM), SELECT_ZOOM, { animate: !reduced }));
   }
 
   function hoverChanged() {
@@ -514,15 +622,18 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   }
 
   map.on('movestart', () => { moved = true; });
-  map.on('dragstart', () => { gesture = true; });
-  map.on('zoomstart', () => { if (!programmatic) gesture = true; });
+  map.on('dragstart', () => { gesture = true; revealFan = null; });
+  map.on('zoomstart', () => { if (!programmatic) { gesture = true; revealFan = null; } });
+  // Registered before any marker exists, so it runs ahead of the markers' own zoomanim handlers.
+  map.on('zoomanim', (e: L.ZoomAnimEvent) => refan(e.zoom, true));
+  map.on('zoomend', () => refan(map.getZoom()));
   map.on('moveend', () => { programmatic = false; });
   map.on('moveend zoomend resize', scheduleView);
   map.on('click', () => propsRef.current.onBackgroundTap?.());
 
   function dispose() {
     window.clearTimeout(viewTimer); window.clearTimeout(programmaticTimer);
-    group.clearLayers(); entries.clear();
+    group.clearLayers(); entries.clear(); fans.clear(); drawnAt.clear();
   }
 
   return { redraw, scheduleView, selectionChanged, bringSelectedIntoBand, hoverChanged, fit, setView, run, dispose };

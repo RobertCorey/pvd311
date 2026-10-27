@@ -2,6 +2,7 @@
  *  Pure strings, no Leaflet and no React: MapView wraps them in cached L.divIcons, and the map key (components/MapKey)
  *  draws its swatches from the very same functions — so the legend can never drift from the map. Light mode only. */
 import { GROUP_ORDER, type GroupKey } from '@shared/categories';
+import { spiderOffsets } from './streetMap';
 
 /** One marker as the map draws it: the divIcon's className, its inner HTML and its box in CSS px. */
 export interface MarkerParts { className: string; html: string; size: [number, number]; anchor: [number, number] }
@@ -103,4 +104,34 @@ export const clusterSize = (n: number): 's' | 'm' | 'l' => (n < 10 ? 's' : n < 1
 export const CLUSTER_BOX = 52;
 export function clusterMarker(n: number, openShare: number): MarkerParts {
   return { className: `map-cluster map-cluster--${clusterSize(n)}`, html: clusterHtml(n, openShare), size: [CLUSTER_BOX, CLUSTER_BOX], anchor: [CLUSTER_BOX / 2, CLUSTER_BOX / 2] };
+}
+
+/* ── Fanned stacks (Rob, 2026-10-27: "impossible to zoom in far enough to get individual pins") ───────────────────
+ * From z17 a stack of up to 12 (lib/streetMap SPIDER_MAX) is drawn as its own case pins around the shared point
+ * (spiderOffsets), each on a thin leg from a small ink dot that marks the true spot. MapView draws the legs and the dot
+ * as Leaflet paths with these classes, the map key draws them in an inline SVG — MapView.css styles both. */
+export const LEG_CLASS = 'map-leg';
+export const SPOT_CLASS = 'map-spot';
+export const SPOT_R = 3.5;
+
+/** The map key's swatch for a fanned stack: a pair — an open and a closed pin at spiderOffsets(2), side by side — on
+ *  legs from the dot. The pins are the case pins' own markup, placed by their anchors; the box is 68×36 CSS px. */
+export function fanMarker(): MarkerParts {
+  const [l, r] = spiderOffsets(2);
+  const open = caseMarker('streets', true), closed = caseMarker('streets', false);
+  const cx = Math.round(open.anchor[0] - l.x), cy = open.anchor[1];
+  const tip = (o: { x: number; y: number }) => `${Math.round(cx + o.x)} ${Math.round(cy + o.y)}`;
+  const at = (m: MarkerParts, o: { x: number; y: number }) => `left:${Math.round(cx + o.x - m.anchor[0])}px;top:${Math.round(cy + o.y - m.anchor[1])}px`;
+  const w = Math.round(cx + r.x - closed.anchor[0] + closed.size[0]), h = Math.ceil(cy + SPOT_R + 1.5);
+  return {
+    className: 'map-fan',
+    html:
+      `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;left:0;top:0;overflow:visible">` +
+      `<path class="${LEG_CLASS}" d="M${cx} ${cy}L${tip(l)}"/><path class="${LEG_CLASS}" d="M${cx} ${cy}L${tip(r)}"/>` +
+      `<circle class="${SPOT_CLASS}" cx="${cx}" cy="${cy}" r="${SPOT_R}"/></svg>` +
+      `<span class="${open.className}" style="position:absolute;${at(open, l)}">${open.html}</span>` +
+      `<span class="${closed.className}" style="position:absolute;${at(closed, r)}">${closed.html}</span>`,
+    size: [w, h],
+    anchor: [cx, cy],
+  };
 }
