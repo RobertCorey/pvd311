@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { weekSummary, medianDays, handleWeek, weekDigestEmail, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, WEEK_OUTCOMES, type WeekSummary, type WeekWindow } from '../src/week.js';
+import { weekSummary, medianDays, handleWeek, weekDigestEmail, weekDigestPush, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, readerHoods, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, PLACES_MAX, WEEK_OUTCOMES, YOUR_HOODS_N, type WeekSummary, type WeekWindow } from '../src/week.js';
 import { resetStreetCache, LOAD_LIMIT } from '../src/street.js';
 import { hoodOf, hoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES } from '../../shared/neighborhoods.js';
 import { weekPostMarkdown, OUTCOME_LABELS_EN, GROUP_LABELS_EN } from '../../shared/weekPost.js';
 import en from '../../app/src/i18n/strings.en.json';
 import { inferKind, toText } from '../src/emaillog.js';
+import { MAX_PLAINTEXT } from '../src/push.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
 // Sunday 2026-10-25 12:00 UTC (08:00 EDT): "this week" = Oct 18 12:00Z → now, "last week" = Oct 11 → Oct 18.
@@ -539,6 +540,139 @@ describe('the Monday mail', () => {
   });
 });
 
+describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10-27)', () => {
+  // Points verified against the rings (see the hoodOf test): India Point Park, City Hall, Warwick (outside every ring).
+  const FOX_POINT = { lat: 41.8170, lng: -71.3930 };
+  const DOWNTOWN = { lat: 41.8240, lng: -71.4128 };
+  const WARWICK = { lat: 41.70, lng: -71.40 };
+  const place = (id: string, p: { lat: number | null; lng: number | null }) => ({ id, label: id, address: `${id} St`, lat: p.lat, lng: p.lng });
+  // College Hill: 3 requests, closes of 4 and 2 days → median 3. Elmhurst: 2 closes of 5 and 8 days → 6.5.
+  // Downtown: 1 open request, no median. Fox Point: nothing. The city: [4, 2, 5, 8] → 4.5.
+  const rows = () => [
+    row('ch-open'),
+    closedRow('ch-4d', 5, 1),
+    closedRow('ch-2d', 3, 1),
+    closedRow('elm-5d', 6, 1, { ...ELMHURST }),
+    closedRow('elm-8d', 9, 1, { ...ELMHURST }),
+    row('dt-open', { ...DOWNTOWN }),
+  ];
+  const summary = () => weekSummary(rows(), { now: NOW });
+  const BASE = 'https://fixmypvd.org/';
+
+  it('readerHoods: placed addresses in saved order, once each, the first 5 placed only, a place outside every ring left out', () => {
+    expect(readerHoods([
+      place('unplaced', { lat: null, lng: null }),
+      place('home', FOX_POINT), place('work', COLLEGE_HILL), place('gym', { lat: 41.8263, lng: -71.4031 }), // College Hill again
+      place('warwick', WARWICK), place('mom', ELMHURST),
+      place('sixth', DOWNTOWN),                                       // the 6th placed address: past PLACES_MAX
+    ])).toEqual(['Fox Point', 'College Hill', 'Elmhurst']);
+    expect(PLACES_MAX).toBe(5);
+    expect(readerHoods([place('away', WARWICK)])).toEqual([]);
+    expect(readerHoods([])).toEqual([]);
+    expect(readerHoods(undefined)).toEqual([]);
+    expect(readerHoods([null, place('home', FOX_POINT)] as never)).toEqual(['Fox Point']);   // a damaged doc never throws the run
+    expect(readerHoods({} as never)).toEqual([]);
+    expect(readerHoods([place('x', COLLEGE_HILL)], () => 'Testville')).toEqual(['Testville']);
+  });
+
+  it('a reader without hoods gets exactly the mail everyone got before — byte for byte', () => {
+    const GOLDEN = `<h2 style="margin:0 0 .2em">This week in Providence</h2><p style="color:#666;margin:0 0 1em">Oct 18 – Oct 25, from Providence 311's public list.</p>`
+      + `<p style="font-size:1.1em;margin:0"><b>5</b> requests (+1 vs last week) · <b>2</b> closed (-1 vs last week)</p>`
+      + `<h3 style="margin:1.2em 0 .3em">Most reported</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>Pothole</b> · 3 (last week 4)</li><li style="margin:0 0 8px"><b>Street Light Out</b> · 2 (last week 0)</li></ul>`
+      + `<h3 style="margin:1.2em 0 .3em">Busiest neighborhoods</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>College Hill</b> · 3 requests, 1 closed</li><li style="margin:0 0 8px"><b>Elmhurst</b> · 2 requests, 1 closed</li></ul>`
+      + `<h3 style="margin:1.2em 0 .3em">Closed this week, in the city's words</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>Pothole</b> · 12 Angell St, College Hill · Resolved (closed Sat, Oct 24)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Filled &amp; compacted.</div></li><li style="margin:0 0 8px"><b>Street Light Out</b> · 1 Eaton St, Elmhurst · Resolved (closed Fri, Oct 23)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Bulb replaced</div></li></ul>`
+      + `<p style="margin:1.2em 0 0"><a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a></p>`
+      + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD — turn it off on <a href="https://fixmypvd.org/week">the week page</a> or under <a href="https://fixmypvd.org/account">Account</a>. FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
+    const s = weekSummary([
+      row('p1', { createdAt: daysAgo(1), firstSeenAt: daysAgo(1) }),
+      row('p2', { createdAt: daysAgo(2), firstSeenAt: daysAgo(2) }),
+      row('sl', { caseType: 'Street Light Out', category: 'street_light', ...ELMHURST }),
+      closedRow('fixed', 5, 1, { street: '12 Angell St', detail: { resolutionDate: daysAgo(1), resolution: 'Filled & compacted.' } }),
+      closedRow('bulb', 6, 2, { caseType: 'Street Light Out', category: 'street_light', street: '1 Eaton St', ...ELMHURST, detail: { resolutionDate: daysAgo(2), resolution: 'Bulb replaced' } }),
+      row('prev-1', { createdAt: daysAgo(9), firstSeenAt: daysAgo(9) }),
+      closedRow('prev-closed', 12, 9), closedRow('prev-closed-2', 12, 10), closedRow('prev-closed-3', 12, 11),
+    ], { now: NOW });
+    // The HTML as weekDigestEmail built it before this change (captured from the previous code), and the push body.
+    expect(weekDigestEmail(s, { base: BASE }).html).toBe(GOLDEN);
+    expect(weekDigestEmail(s, { base: BASE, hoods: [] }).html).toBe(GOLDEN);
+    expect(weekDigestPush(s, { base: BASE }).body).toBe('5 requests · 2 closed');
+    expect(weekDigestPush(s, { base: BASE, hoods: [] })).toEqual(weekDigestPush(s, { base: BASE }));
+  });
+
+  it('two hoods, one quiet: a line each in saved order, linked to /street?n=<slug>, right under the headline; the comparison for the one with a median', () => {
+    const s = summary();
+    expect(s.medianCloseDays).toBe(4.5);
+    const m = weekDigestEmail(s, { base: BASE, hoods: ['Fox Point', 'College Hill'] });
+    expect(m.subject).toBe(weekDigestEmail(s, { base: BASE }).subject);
+    expect(m.html).toContain('<h3 style="margin:1.2em 0 .3em">Your neighborhoods</h3><ul style="padding-left:1.2em;margin:0">'
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point"><b>Fox Point</b></a>: nothing this week</li>'
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill"><b>College Hill</b></a>: 3 requests, 2 closed · median 3 days</li></ul>'
+      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4.5.</p>`);
+    // Right after the headline stats, before every shared section; no UTM (the mail's other links carry none).
+    const at = (t: string) => m.html.indexOf(t);
+    expect(at('closed (')).toBeLessThan(at('Your neighborhoods'));
+    expect(at('Your neighborhoods')).toBeLessThan(at('Most reported'));
+    expect(m.html).not.toContain('utm_');
+    // The rest of the mail is the shared one, untouched.
+    expect(m.html.replace(/<h3 style="margin:1.2em 0 .3em">Your neighborhoods<\/h3>.*?the city's was 4\.5\.<\/p>/, '')).toBe(weekDigestEmail(s, { base: BASE }).html);
+    // The plain-text part (emaillog toText, what the mailer sends as text) reads line by line.
+    expect(toText(m.html)).toContain('vs last week)\nYour neighborhoods\nFox Point: nothing this week\nCollege Hill: 3 requests, 2 closed · median 3 days\n'
+      + "Closed requests in College Hill took a median 3 days — the city's was 4.5.\nMost reported\n");
+  });
+
+  it('the comparison is the first listed hood WITH a median (not the first hood), only when the city has one, and none when no listed hood has one', () => {
+    const s = summary();
+    const m = weekDigestEmail(s, { base: BASE, hoods: ['Downtown', 'Elmhurst', 'College Hill'] });
+    expect(m.html).toContain('<b>Downtown</b></a>: 1 request, 0 closed</li>');          // no dated close: no median written
+    expect(m.html).toContain('<b>Elmhurst</b></a>: 2 requests, 2 closed · median 6.5 days</li>');
+    expect(m.html).toContain("Closed requests in Elmhurst took a median 6.5 days — the city's was 4.5.");
+    expect(m.html).not.toContain('Closed requests in College Hill');
+    expect(m.html.match(/Closed requests in/g)).toHaveLength(1);
+    expect(weekDigestEmail(s, { base: BASE, hoods: ['Downtown', 'Fox Point'] }).html).not.toContain('Closed requests in');
+    expect(weekDigestEmail({ ...s, medianCloseDays: null }, { base: BASE, hoods: ['College Hill'] }).html).not.toContain('Closed requests in');
+    // One hood: the heading is singular; a 1-day median says "1 day".
+    const one = weekDigestEmail(weekSummary([closedRow('a', 2, 1)], { now: NOW }), { base: BASE, hoods: ['College Hill'] }).html;
+    expect(one).toContain('>Your neighborhood</h3>');
+    expect(one).toContain('<b>College Hill</b></a>: 1 request, 1 closed · median 1 day</li>');
+    expect(one).toContain("took a median 1 day — the city's was 1.");
+  });
+
+  it('at most 3 hoods, the first 3 in saved order', () => {
+    expect(YOUR_HOODS_N).toBe(3);
+    const m = weekDigestEmail(summary(), { base: BASE, hoods: ['Fox Point', 'Downtown', 'Elmhurst', 'College Hill', 'Wayland'] });
+    const yours = m.html.slice(m.html.indexOf('Your neighborhoods'), m.html.indexOf('Most reported'));
+    expect([...yours.matchAll(/<b>([^<]+)<\/b><\/a>/g)].map((x) => x[1])).toEqual(['Fox Point', 'Downtown', 'Elmhurst']);
+    expect(yours).not.toContain('College Hill');
+    expect(yours).toContain('Closed requests in Elmhurst');
+  });
+
+  it('hood names are HTML-escaped in the line, the link and the comparison; the slug is URL-encoded', () => {
+    const odd = 'Fox & <Point> "Q"';
+    const s = weekSummary([closedRow('a', 3, 1)], { now: NOW, hoodOf: () => odd });
+    const m = weekDigestEmail(s, { base: BASE, hoods: [odd] });
+    expect(m.html).toContain('<a href="https://fixmypvd.org/street?n=fox-%26-%3Cpoint%3E-%22q%22"><b>Fox &amp; &lt;Point&gt; &quot;Q&quot;</b></a>: 1 request, 1 closed · median 2 days</li>');
+    expect(m.html).toContain("Closed requests in Fox &amp; &lt;Point&gt; &quot;Q&quot; took a median 2 days — the city's was 2.");
+    expect(m.html).not.toContain('<Point>');
+    expect(toText(m.html)).toContain('Fox & <Point> "Q": 1 request, 1 closed · median 2 days\n');
+  });
+
+  it('push: the first listed hood with activity rides along briefly; quiet hoods, hoods past the 3rd, or none → the body as before', () => {
+    const s = summary();
+    const plain = weekDigestPush(s, { base: BASE });
+    expect(plain).toEqual({ title: 'This week in Providence', body: '6 requests · 4 closed', url: 'https://fixmypvd.org/week?until=2026-10-25', tag: 'week' });
+    expect(weekDigestPush(s, { base: BASE, hoods: ['Fox Point', 'College Hill'] })).toEqual({ ...plain, body: '6 requests · 4 closed · College Hill: 3 requests, median 3 d' });
+    expect(weekDigestPush(s, { base: BASE, hoods: ['Downtown', 'Elmhurst'] }).body).toBe('6 requests · 4 closed · Downtown: 1 request');
+    expect(weekDigestPush(s, { base: BASE, hoods: ['Fox Point'] })).toEqual(plain);
+    expect(weekDigestPush(s, { base: BASE, hoods: ['Fox Point', 'Wayland', 'Hope', 'College Hill'] })).toEqual(plain); // the mail's 3 only
+    // The longest name with four-digit counts: still one short line, far inside one push record.
+    const big: WeekSummary = { ...s, total: 9999, closed: 9999, neighborhoods: [{ name: 'Upper South Providence', slug: 'upper-south-providence', n: 9999, open: 0, closed: 9999, medianCloseDays: 12.5 }] };
+    const p = weekDigestPush(big, { base: BASE, hoods: ['Upper South Providence'] });
+    expect(p.body).toBe('9999 requests · 9999 closed · Upper South Providence: 9999 requests, median 12.5 d');
+    expect(p.body.length).toBeLessThanOrEqual(90);
+    expect(new TextEncoder().encode(JSON.stringify(p)).length).toBeLessThan(MAX_PLAINTEXT);
+  });
+});
+
 describe('runWeekDigest', () => {
   const env = { APP_BASE_URL: 'https://fixmypvd.org' } as Env;
   const user = (o: Partial<UserDoc> = {}): UserDoc => ({
@@ -637,5 +771,33 @@ describe('runWeekDigest', () => {
     const unverified = deps([user({ emailVerified: false }), user({ uid: 'u4', email: null })], [row('a')]);
     expect(await runWeekDigest(env, unverified.store, unverified.mailer, { now: NOW })).toEqual({ users: 2, mailed: 0, pushed: 0, adminMailed: true });
     expect(unverified.alerts).toHaveLength(1);
+  });
+
+  it('"Your neighborhoods" per reader, from the user docs the run already read: two places in two hoods (one quiet) get the block; a place outside every ring, or none, get the shared mail byte for byte', async () => {
+    const place = (id: string, lat: number | null, lng: number | null) => ({ id, label: id, address: `${id} St`, lat, lng });
+    const users = [
+      user({ uid: 'two', email: 'two@example.com', addresses: [place('unplaced', null, null), place('home', 41.8170, -71.3930), place('work', COLLEGE_HILL.lat, COLLEGE_HILL.lng)] }),
+      user({ uid: 'away', email: 'away@example.com', addresses: [place('cottage', 41.70, -71.40)] }),   // Warwick
+      user({ uid: 'none', email: 'none@example.com' }),
+    ];
+    // College Hill: 2 requests, a 3-day close; Elmhurst: a 5-day close; the city's median 4. Fox Point: nothing.
+    const rows = [row('a'), closedRow('b', 4, 1), closedRow('c', 6, 1, { ...ELMHURST })];
+    const d = deps(users, rows);
+    const getUser = vi.fn(async () => null);
+    (d.store as unknown as Record<string, unknown>).getUser = getUser;
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 3, mailed: 3, pushed: 0, adminMailed: true });
+    const shared = weekDigestEmail(weekSummary(rows, { now: NOW, until: '2026-10-24' }), { base: 'https://fixmypvd.org' });
+    const to = Object.fromEntries(d.sent.map((m) => [m.to, m]));
+    expect(to['none@example.com'].html).toBe(shared.html);
+    expect(to['away@example.com'].html).toBe(shared.html);
+    expect(to['two@example.com'].subject).toBe(shared.subject);
+    expect(to['two@example.com'].html).toContain('<h3 style="margin:1.2em 0 .3em">Your neighborhoods</h3><ul style="padding-left:1.2em;margin:0">'
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point"><b>Fox Point</b></a>: nothing this week</li>'
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill"><b>College Hill</b></a>: 2 requests, 1 closed · median 3 days</li></ul>'
+      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4.</p>`);
+    // No read per recipient: the one users query and the one cases read, nothing else.
+    expect(getUser).not.toHaveBeenCalled();
+    expect((d.store.listWeekDigestUsers as any).mock.calls).toHaveLength(1);
+    expect((d.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
   });
 });

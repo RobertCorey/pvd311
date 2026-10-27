@@ -514,6 +514,19 @@ describe('triggers', () => {
       expect((s.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
     });
 
+    it('runWeekDigest: a phone whose account has a saved place in a hood with activity hears about that hood; one without, the body as before', async () => {
+      const s = memStore({ rows: rows(), users: {
+        home: user('home', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(1)], addresses: [{ id: 'a1', label: 'Home', address: 'Home St', ...HOME }] }),
+        bare: user('bare', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(2)] }),
+      } });
+      const posts = stubPushService();
+      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: NOW })).toMatchObject({ pushed: 2 });
+      expect(Object.fromEntries(posts.map((p) => [p.endpoint, p.payload.body]))).toEqual({
+        'https://push.test/1': '2 requests · 1 closed · College Hill: 2 requests, median 1 d',
+        'https://push.test/2': '2 requests · 1 closed',
+      });
+    });
+
     it('runWeekDigest: a quiet week pushes nothing; weekDigestPush pluralises', async () => {
       const s = memStore({ rows: [], users: { both: user('both', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(1)] }) } });
       stubPushService();

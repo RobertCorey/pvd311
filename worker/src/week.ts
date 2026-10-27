@@ -14,7 +14,9 @@
  *   /week (app)                   the page anyone can open and share — reads this one endpoint; Share copies the dated url
  *   prefs.weekDigest              "Email me this every Monday": runWeekDigest from runDaily on Mondays, after the
  *                                 per-address street digest, for the Mon–Sun calendar week that just ended (its dated
- *                                 link reproduces it exactly); kind 'week_digest' in the email log; no mail on an empty week
+ *                                 link reproduces it exactly); kind 'week_digest' in the email log; no mail on an empty week.
+ *                                 Per reader (2026-10-27): "Your neighborhoods" — the hoods of their saved places (the
+ *                                 app's placedAddresses), from the user docs the run already holds; none → the shared mail
  *   Rob's post                    the same Monday run mails Rob the week as the ready r/providence Markdown post —
  *                                 shared/weekPost.ts, the bytes /week's "Copy as post" copies — via mailer.alert (kind
  *                                 'admin_digest'), whether or not anyone opted in; nothing on an empty week (2026-10-26)
@@ -30,7 +32,7 @@
  * closed from cityinsights' CLOSED set; outcomes from its classifyResolution / outcomeOf; neighborhoods by
  * point-in-polygon over the shared rings, each with its own median days to close (/week's "Your neighborhood" line).
  */
-import type { Env, Mailer, Store } from './contracts.js';
+import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, median, outcomeOf, type CaseLike, type Outcome } from './cityinsights.js';
 import { loadCases, LOAD_LIMIT } from './street.js';
 import { etDate, etMidnight } from './quota.js';
@@ -54,6 +56,10 @@ export const TOP_TYPES_N = 6;
 export const NOTABLE_N = 12;
 /** Resolution Message cut for `notable` (the live average is ~36 chars). */
 export const NOTABLE_RES_MAX = 240;
+/** "Your neighborhoods" in the Monday mail: at most this many of the reader's hoods (2026-10-27). */
+export const YOUR_HOODS_N = 3;
+/** Saved places a reader's hoods come from — the app's api/me PLACES_MAX (placedAddresses: the first 5 with coordinates). */
+export const PLACES_MAX = 5;
 const SUMMARY_TTL_MS = 5 * 60_000;
 const TZ = 'America/New_York';
 
@@ -317,10 +323,36 @@ export function deltaText(n: number, prev: number): string {
   return `${n > prev ? '+' : '-'}${Math.abs(n - prev)} vs last week`;
 }
 
+/** "4.5 days" / "1 day" — a 1-dp median as the mail writes it. */
+const daysText = (d: number) => `${d} ${d === 1 ? 'day' : 'days'}`;
+
+/** The reader's neighborhoods (2026-10-27): their saved addresses with coordinates, in the account's order, at most
+ *  PLACES_MAX (the app's api/me placedAddresses — the places /week tags "Yours"), each through hoodOf; once each, a
+ *  place outside every ring left out. Pure — the user doc is the one runWeekDigest already read; a malformed list or
+ *  entry counts as no place rather than throwing the whole Monday run. */
+export function readerHoods(addresses: readonly SavedAddress[] | null | undefined, hoodOf: HoodOf = sharedHoodOf): string[] {
+  const out: string[] = [];
+  for (const a of (Array.isArray(addresses) ? addresses : []).filter((a) => a?.lat != null && a?.lng != null).slice(0, PLACES_MAX)) {
+    const h = hoodOf(a.lat!, a.lng!);
+    if (h && !out.includes(h)) out.push(h);
+  }
+  return out;
+}
+
+/** The reader's first YOUR_HOODS_N hoods with this week's numbers — the summary's row, or a quiet one (n 0). */
+function yourHoods(s: WeekSummary, hoods: readonly string[] | undefined): WeekHood[] {
+  const byName = new Map(s.neighborhoods.map((h) => [h.name, h]));
+  return (hoods ?? []).slice(0, YOUR_HOODS_N)
+    .map((name) => byName.get(name) ?? { name, slug: hoodSlug(name), n: 0, open: 0, closed: 0, medianCloseDays: null });
+}
+
 /** Subject + HTML for the Monday mail — the week page's headline numbers, in the street digest's plain style.
  *  "See the whole week" is the DATED url (/week?until=<untilDate>), so the mail still means this week next month;
- *  the opt-out line points at the live page. */
-export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject: string; html: string } {
+ *  the opt-out line points at the live page. `hoods` (readerHoods) adds "Your neighborhoods" under the headline: one
+ *  line per hood (≤ 3, saved order) linked to its /street page, then the first of them with a median against the
+ *  city's — the mail's take on /week's "Yours" rows and compare line (the page orders busiest first, the mail keeps the
+ *  reader's saved order, so the two can compare different hoods). Without hoods the mail is exactly the shared one. */
+export function weekDigestEmail(s: WeekSummary, o: { base: string; hoods?: readonly string[] }): { subject: string; html: string } {
   const base = o.base.replace(/\/+$/, '');
   const weekUrl = `${base}/week`;
   const datedUrl = s.untilDate ? `${weekUrl}?until=${s.untilDate}` : weekUrl;
@@ -328,6 +360,14 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
   const li = (inner: string) => `<li style="margin:0 0 8px">${inner}</li>`;
   const section = (title: string, items: string[]) => (items.length
     ? `<h3 style="margin:1.2em 0 .3em">${esc(title)}</h3><ul style="padding-left:1.2em;margin:0">${items.join('')}</ul>` : '');
+  // "Fox Point: 30 requests, 12 closed · median 4.5 days" (the median left out without a dated close) / "Elmhurst: nothing this week".
+  const mine = yourHoods(s, o.hoods);
+  const mineItems = mine.map((h) => li(`<a href="${esc(`${base}/street?n=${encodeURIComponent(h.slug)}`)}"><b>${esc(h.name)}</b></a>: `
+    + (h.n === 0 ? 'nothing this week'
+      : `${h.n} ${h.n === 1 ? 'request' : 'requests'}, ${h.closed} closed${h.medianCloseDays != null ? ` · median ${daysText(h.medianCloseDays)}` : ''}`)));
+  const compare = s.medianCloseDays != null ? mine.find((h) => h.medianCloseDays != null) : undefined;
+  const mineHtml = section(mine.length === 1 ? 'Your neighborhood' : 'Your neighborhoods', mineItems)
+    + (compare ? `<p style="margin:.4em 0 0">Closed requests in ${esc(compare.name)} took a median ${daysText(compare.medianCloseDays!)} — the city's was ${s.medianCloseDays}.</p>` : '');
   const types = s.topTypes.slice(0, 3).map((t) => li(`<b>${esc(t.caseType)}</b> · ${t.n} (last week ${t.prevN})`));
   const hoods = s.neighborhoods.slice(0, 3).map((h) => li(`<b>${esc(h.name)}</b> · ${h.n} ${h.n === 1 ? 'request' : 'requests'}, ${h.closed} closed`));
   const notable = s.notable.slice(0, 3).map((c) => {
@@ -340,6 +380,7 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
     + `<p style="color:#666;margin:0 0 1em">${esc(monthDay(s.since))} – ${esc(monthDay(s.until))}, from Providence 311's public list.</p>`
     + `<p style="font-size:1.1em;margin:0"><b>${s.total}</b> ${s.total === 1 ? 'request' : 'requests'} (${deltaText(s.total, s.prev.total)}) · `
     + `<b>${s.closed}</b> closed (${deltaText(s.closed, s.prev.closed)})</p>`
+    + mineHtml
     + section('Most reported', types)
     + section('Busiest neighborhoods', hoods)
     + section("Closed this week, in the city's words", notable)
@@ -349,9 +390,13 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string }): { subject:
   return { subject, html };
 }
 
-/** The Monday push (push.ts) for the same week: "<total> requests · <closed> closed", opening the dated page. */
-export function weekDigestPush(s: WeekSummary, o: { base: string }): PushPayload {
-  return { title: 'This week in Providence', body: `${s.total} request${s.total === 1 ? '' : 's'} · ${s.closed} closed`, url: `${o.base.replace(/\/+$/, '')}/week?until=${s.untilDate}`, tag: 'week' };
+/** The Monday push (push.ts) for the same week: "<total> requests · <closed> closed", opening the dated page; with
+ *  `hoods`, the first of the mail's "Your neighborhoods" with activity rides along — " · Fox Point: 30 requests, median
+ *  4.5 d" (the median left out without one): ≤ ~55 characters more with the longest hood name and four-digit counts. */
+export function weekDigestPush(s: WeekSummary, o: { base: string; hoods?: readonly string[] }): PushPayload {
+  const h = yourHoods(s, o.hoods).find((x) => x.n > 0);
+  const mine = h ? ` · ${h.name}: ${h.n} request${h.n === 1 ? '' : 's'}${h.medianCloseDays != null ? `, median ${h.medianCloseDays} d` : ''}` : '';
+  return { title: 'This week in Providence', body: `${s.total} request${s.total === 1 ? '' : 's'} · ${s.closed} closed${mine}`, url: `${o.base.replace(/\/+$/, '')}/week?until=${s.untilDate}`, tag: 'week' };
 }
 
 /** Rob's post (admin mail, Mondays): the week as the r/providence Markdown post — shared/weekPost.ts, byte for byte
@@ -390,9 +435,14 @@ export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts
   const summary = weekSummary(await loadCases(store, LOAD_DAYS + 1, now), { now, until });
   const total = summary.total;
   if (total > 0) {
+    // "Your neighborhoods": each reader's hoods from the user docs read above (≤ 5 points each, no further read); a reader
+    // without a placed address in a ring gets the shared mail and push, built once — exactly what everyone got before.
+    const hoods = new Map<UserDoc, string[]>(optedIn.map((u) => [u, readerHoods(u.addresses)]));
     if (eligible.length) {
-      const m = weekDigestEmail(summary, { base });
+      const shared = weekDigestEmail(summary, { base });
       for (const u of eligible) {
+        const mine = hoods.get(u)!;
+        const m = mine.length ? weekDigestEmail(summary, { base, hoods: mine }) : shared;
         await mailer.sendTo(u.email!, m.subject, m.html, { kind: 'week_digest' });
         mailed++;
       }
@@ -401,8 +451,7 @@ export async function runWeekDigest(env: Env, store: Store, mailer: Mailer, opts
     if (phones.length) {
       try {
         const keys = await ensureVapid(store);
-        const p = weekDigestPush(summary, { base });
-        for (const u of phones) pushed += await pushAll(store, u, p, keys);
+        for (const u of phones) pushed += await pushAll(store, u, weekDigestPush(summary, { base, hoods: hoods.get(u) }), keys);
       } catch (e) { console.error('[week] digest push failed:', e instanceof Error ? e.message : e); }
       await logPushes(store, 'week_digest', { users: phones.length, sent: pushed });
     }
