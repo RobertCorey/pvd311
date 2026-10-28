@@ -232,6 +232,8 @@ function upgradeBasemap(map: L.Map, coarse: L.GridLayer, pass: FullPass, alive: 
   coarse.once('load', () => settle(performance.now() + UPGRADE_MAX_MS));
 }
 
+/** How long a move MapView makes itself may take to start before a zoomstart counts as the user's again. */
+const PROGRAMMATIC_GRACE_MS = 600;
 const VIEW_DEBOUNCE_MS = 150;
 const DRAW_PAD = 0.25;
 /** Halos mark NEW cases only (open, reported in the last 48 h — Rob, 2026-10-27: pins should say more than open/closed),
@@ -414,6 +416,7 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   let programmatic = false;
   let moved = false;
   let programmaticTimer = 0;
+  let starting = 0;
   let viewTimer = 0;
   let fitCount = 0;
 
@@ -422,8 +425,15 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
   const run = (fn: () => void) => {
     programmatic = true; moved = false;
     window.clearTimeout(programmaticTimer);
-    fn();
-    programmaticTimer = window.setTimeout(() => { if (!moved) programmatic = false; }, 80);
+    // Inside fn, Leaflet's setView first stops whatever is still animating, and that stopped move fires its moveend
+    // synchronously: without this guard it cleared `programmatic` an instant before fn's own zoomstart, which then
+    // counted as the user's (live 2026-10-28: on desktop the city-limit correction pan was still running when a ?n=
+    // link's fit started, and the fit cleared n= as if the user had panned away).
+    starting++;
+    try { fn(); } finally { starting--; }
+    // Released by the move's own moveend; this timer only covers a move that never starts (a no-op). Leaflet starts an
+    // animated zoom on the next animation frame, which a busy phone can push past the old 80 ms window.
+    programmaticTimer = window.setTimeout(() => { if (!moved) programmatic = false; }, PROGRAMMATIC_GRACE_MS);
   };
 
   const insets = () => propsRef.current.insets ?? { top: 0, bottom: 0 };
@@ -753,11 +763,11 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
 
   map.on('movestart', () => { moved = true; });
   map.on('dragstart', () => { gesture = true; revealFan = null; });
-  map.on('zoomstart', () => { if (!programmatic) { gesture = true; revealFan = null; } });
+  map.on('zoomstart', () => { if (!programmatic && !starting) { gesture = true; revealFan = null; } });
   // Registered before any marker exists, so it runs ahead of the markers' own zoomanim handlers.
   map.on('zoomanim', (e: L.ZoomAnimEvent) => refan(e.zoom, true));
   map.on('zoomend', () => refan(map.getZoom()));
-  map.on('moveend', () => { programmatic = false; });
+  map.on('moveend', () => { if (!starting) programmatic = false; }); // a move run() stopped is not the end of run()'s own
   map.on('moveend zoomend resize', scheduleView);
   map.on('click', () => propsRef.current.onBackgroundTap?.());
 

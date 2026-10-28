@@ -1839,19 +1839,21 @@ test('the in-view list follows the map: an empty corner → zeros, plain empty c
   await expect(page).not.toHaveURL(/[?&][cz]=/);
 });
 
-test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, fits it above the half sheet, titles the sheet, and counts and lists only the cases inside it; a pan clears it; the title follows the map centre', async ({ page }) => {
+test('neighborhoods: a ?n= link (/week\'s neighborhood rows) opens at PEEK, draws the outline and fits it between the filter rows and the sheet, keeps n= (its own fit is not a pan), titles the sheet, and counts and lists only the cases inside it; a pan clears it; the title follows the map centre', async ({ page }) => {
   await setup(page);
   await page.goto('/street?n=fox-point');
   await waitForMap(page);
   await expect(page.locator('.map-hood')).toHaveCount(1);
   await expect(title(page)).toHaveText('Fox Point');
-  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
-  await expect.poll(() => zoomOf(page)).toBeGreaterThanOrEqual(12); // fitted into the HALF band under the two filter rows
-  // The whole outline sits between the filter rows and the HALF sheet (Rob, 2026-10-28).
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek'); // HALF would leave a ~95 px strip under the filter rows
+  await expect.poll(() => zoomOf(page)).toBeGreaterThanOrEqual(13); // was 12 at HALF
+  // The whole outline sits between the filter rows and the PEEK sheet, and is not a sliver.
   await expect.poll(async () => {
     const [hood, stage, sh] = await Promise.all(['.map-hood', '.street-stage', '.street-sheet'].map((sel) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().toJSON())));
-    return hood.top >= stage.top + 162 - 1 && hood.bottom <= sh.top + 1;
+    return hood.top >= stage.top + 162 - 1 && hood.bottom <= sh.top + 1 && hood.height >= 100; // HALF made it ~70 px
   }).toBe(true);
+  await page.waitForTimeout(1200);
+  await expect(page).toHaveURL(/[?&]n=fox-point/); // the link's own fit never counts as a pan
   // "N in Fox Point": the count and the list are the cases inside the outline, not the box the map shows.
   await expect(sub(page)).toHaveText(/^\d+ in Fox Point · \d+ open · \d+ closed$/);
   await expect(page.locator('.street-body .street-h').first()).toHaveText('Fox Point');
@@ -1866,7 +1868,7 @@ test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, 
   await waitForMap(page);
   await expect(title(page)).toHaveText('Elmhurst');
   await expect(page.locator('.map-hood')).toHaveCount(1);
-  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
   await userPan(page, 240, 0);
   await expect(page).not.toHaveURL(/[?&]n=/);
   await expect(page.locator('.map-hood')).toHaveCount(0);
@@ -2409,6 +2411,17 @@ test('the map stays on Providence: a saved place outside the city is refused lik
 
 test.describe('desktop', () => {
   test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
+  test('a ?n= neighborhood link keeps n= and its outline once fitted — the fit is not taken for a pan (live 2026-10-28)', async ({ page }) => {
+    await setup(page);
+    await page.goto('/street?n=fox-point');
+    await waitForMap(page);
+    await expect(page.locator('.map-hood')).toHaveCount(1);
+    await page.waitForTimeout(1500);
+    await expect(page).toHaveURL(/[?&]n=fox-point/);
+    await expect(page.locator('.map-hood')).toHaveCount(1);
+    await expect(title(page)).toHaveText('Fox Point');
+  });
+
   test('panel beside the map, no sheet, zoom control, row hover highlights its pin', async ({ page }) => {
     await landing(page);
     await expect(page.locator('.street-panel')).toBeVisible();

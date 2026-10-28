@@ -149,7 +149,9 @@ export default function Street() {
   const [sheetH, setSheetH] = useState(SHEET_PEEK_MIN);
   const [stageH, setStageH] = useState(0);
   const [peekH, setPeekH] = useState(SHEET_PEEK_MIN); // the last measured PEEK height (the sheet's header), for fits while the sheet is raised
-  const [detent, setDetentState] = useState<Detent>(() => (url.lat != null || url.caseId || url.hood ? 'half' : 'peek'));
+  // A neighborhood link opens at PEEK: under the two filter rows a HALF sheet leaves the map a ~95 px strip and the
+  // outline would be fitted tiny; the header already says "23 in Fox Point · 14 open · 9 closed".
+  const [detent, setDetentState] = useState<Detent>(() => (url.lat != null || url.caseId ? 'half' : 'peek'));
   const [fit, setFit] = useState<MapFit | null>(null);
   const fitSeq = useRef(0);
   const awaitingFitRef = useRef(false);
@@ -274,7 +276,7 @@ export default function Street() {
       setFit({ bounds: at(url.center), paddingTop: 0, paddingBottom: 0, maxZoom: url.zoom, key: `cz#${++fitSeq.current}` });
       return;
     }
-    if (target.startsWith('hood:') && nb && url.hood) { const r = ringBounds(nb[url.hood]); doFit([[r.south, r.west], [r.north, r.east]], 'half', target); }
+    if (target.startsWith('hood:') && nb && url.hood) { const r = ringBounds(nb[url.hood]); doFit([[r.south, r.west], [r.north, r.east]], 'peek', target); }
     else if (target.startsWith('pt:') && point) doFit(at(point), 'half', target, 16);
     else if (target === 'case') { /* the case effect fits when the feed arrives */ }
     else if (prev == null || prev.startsWith('pt:')) doFit(CITY_LL, 'peek', target); // first paint, or the × cleared the address; a pan that left a hood never recentres
