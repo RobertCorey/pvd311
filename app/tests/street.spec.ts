@@ -60,6 +60,9 @@ async function point(page: Page, o: Parameters<typeof setup>[1] = {}, url = POIN
   await page.goto(url);
   await waitForMap(page);
   await expect(rows(page).first()).toBeVisible();
+  // An address view fits to z16 — but on a slow runner the map has no height at first and MapView holds that fit until
+  // it has one: wait for it to land, or it lands after the test has moved the map (CI 2026-10-28: a pin tap missed).
+  if (/[?&]lat=/.test(url) && !/[?&](z|case)=/.test(url)) await expect.poll(() => zoomOf(page)).toBe(16);
   return calls;
 }
 /** Click a drawn case pin by its coordinates (pins are aria-hidden; the list is the accessible surface). */
