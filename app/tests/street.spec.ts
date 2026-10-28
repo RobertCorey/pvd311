@@ -1417,6 +1417,8 @@ test('fanned stacks (Rob: "impossible to zoom in far enough to get individual pi
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/street');
   await waitForMap(page);
+  await expect(page.locator('.map-cluster').first()).toBeVisible();
+  await page.waitForTimeout(700); // the landing's PEEK refit is done before we move the map
   await setView(page, STACK.lat, STACK.lng, 16);
   await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
   await setView(page, STACK.lat, STACK.lng, 17);
@@ -1545,7 +1547,12 @@ test('selection never moves the map (the case page covers it): a row tap with it
   await spotAt((rail.y + rail.height + sh0.y) / 2);
   await expect(page.locator('.map-cluster', { hasText: /^6$/ })).toHaveCount(1);
   const before2 = await viewOf(page);
-  await page.locator('.street-row-btn[data-id="s3"]').click();
+  // The in-view list re-renders for a moment after the pan; a tap on the row it is replacing is lost — tap until it opens.
+  await expect(async () => {
+    if (await casePage(page).count()) return; // opened by the previous attempt (slow to show under load)
+    await page.locator('.street-row-btn[data-id="s3"]').click({ timeout: 2000 });
+    await expect(casePage(page)).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 12000 });
   await expect(casePage(page)).toBeFocused();
   await expect(page.locator('.map-cluster--selected')).toHaveCount(1);
   await page.waitForTimeout(700);
@@ -2255,8 +2262,10 @@ test('the map stays on Providence: zoom out stops where the whole city fits; a j
   expect(v.e).toBeCloseTo(-71.36, 3);
   // The south limit is the margin line (41.762) dropped by the sheet's height + a pin head: that line sits exactly
   // a pin head above the sheet, and the city's southern line clears it.
+  // Polled: the sheet may still be settling (its height transition) and the limit follows it a frame later.
+  const southGap = async () => Math.abs(await pageY(page, 41.762, -71.42) - ((await sheet(page).boundingBox())!.y - 38));
+  await expect.poll(southGap).toBeLessThanOrEqual(2);
   const sheetTop = (await sheet(page).boundingBox())!.y;
-  expect(Math.abs(await pageY(page, 41.762, -71.42) - (sheetTop - 38))).toBeLessThanOrEqual(2);
   expect(await pageY(page, 41.772, -71.42)).toBeLessThan(sheetTop - 16);
 
   // Woonsocket (north-west): west edge at minLng − 0.01°, the northern line clear of the search rail.
@@ -2264,7 +2273,7 @@ test('the map stays on Providence: zoom out stops where the whole city fits; a j
   v = await edges(page);
   expect(v.w).toBeCloseTo(-71.483, 3);
   const railBottom = await page.locator(FILTER_ROW).evaluate((el) => el.getBoundingClientRect().bottom);
-  expect(Math.abs(await pageY(page, 41.881, -71.48) - (railBottom + 38))).toBeLessThanOrEqual(2); // margin line + rail + pin head
+  await expect.poll(async () => Math.abs(await pageY(page, 41.881, -71.48) - (railBottom + 38))).toBeLessThanOrEqual(2); // margin line + rail + pin head
   expect(await pageY(page, 41.871, -71.42)).toBeGreaterThan(railBottom);
 
   // A user pan 5000 px east from the middle of the city is pulled back to the same line — also after a cluster flight

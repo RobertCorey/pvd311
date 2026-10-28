@@ -269,10 +269,12 @@ export default function Street() {
     // Only while the map still shows that fit — read live, not from the debounced view: moving the map rewrites the
     // summary, which resizes the header and lands here within the debounce (and a cluster flight is not a gesture).
     const m = map as (L.Map & { _flyToFrame?: number | null; _animatingZoom?: boolean; _panAnim?: { _inProgress?: boolean } }) | null;
-    const f = fittedRef.current;
-    if (!m || !f || m._flyToFrame || m._animatingZoom || m._panAnim?._inProgress) return;
-    const c = m.getCenter();
-    const untouched = Math.round(m.getZoom()) === Math.round(f.zoom) && metersBetween(c.lat, c.lng, f.center.lat, f.center.lng) <= 30;
+    if (!m || m._flyToFrame || m._animatingZoom || m._panAnim?._inProgress) return;
+    // The city fit was asked for but has not reported its view yet (awaitingFitRef — a slow phone measures the sheet
+    // inside that window): it is the fit to redo, as is, or the city's south edge stays under the sheet.
+    const pending = awaitingFitRef.current && lastTargetRef.current === 'city';
+    const f = fittedRef.current, c = m.getCenter();
+    const untouched = pending || (!!f && Math.round(m.getZoom()) === Math.round(f.zoom) && metersBetween(c.lat, c.lng, f.center.lat, f.center.lng) <= 30);
     if (!desktop && lastTargetRef.current === 'city' && !moved && untouched && detent === 'peek' && !url.caseId) doFit(CITY_LL, 'peek', 'city');
   }, [peekH]); // eslint-disable-line react-hooks/exhaustive-deps
 
