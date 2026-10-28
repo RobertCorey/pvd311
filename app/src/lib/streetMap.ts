@@ -156,6 +156,15 @@ export function caseAge(c: MapCase, nowMs: number): { open: boolean; days: numbe
   return closed == null ? null : { open: false, days: nyDaysBetween(created, closed) };
 }
 
+/** "Oct 24" (the year too when it is not `nowMs`'s), in Providence's time; '' when it will not parse. The case page's
+ *  dates and the phone's pin preview. */
+export function caseDay(iso: string | null | undefined, nowMs: number, locale: string): string {
+  const ms = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(ms)) return '';
+  const sameYear = new Date(ms).getUTCFullYear() === new Date(nowMs).getUTCFullYear();
+  return new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric', timeZone: 'America/New_York' });
+}
+
 /** An instant's year / month / day in Providence's time (the card prints its dates in America/New_York). */
 const NY_DATE = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric' });
 /** Calendar days from `a` to `b` (ms) on Providence's calendar, never negative: 8:30 PM Oct 16 → 10 AM Oct 17 is 1,

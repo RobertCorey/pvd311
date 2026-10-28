@@ -37,6 +37,11 @@ const casePage = (page: Page) => page.locator('.case-page');
 const caseDialog = (page: Page, name: string) => page.getByRole('dialog', { name, exact: true });
 /** Its top bar's "‹ Back to map". */
 const backMap = (page: Page) => page.getByRole('button', { name: 'Back to map' });
+/** The phone's pin preview (components/StreetPreview, 2026-10-28): a region "Selected request" docked over the PEEK
+ *  sheet; its face is one button that opens the case page, beside it the ×. */
+const preview = (page: Page) => page.getByRole('region', { name: 'Selected request', exact: true });
+const cardFace = (page: Page) => page.locator('.street-preview-open');
+const cardX = (page: Page) => page.getByRole('button', { name: 'Close preview', exact: true });
 /** The main map's own pins (the case page draws its mini-map's pin with the same classes). */
 const mainPins = (page: Page) => page.locator('.street-stage .mapview .map-case');
 const selPin = (page: Page) => page.locator('.street-stage .map-pin--selected');
@@ -776,7 +781,7 @@ test('selection via row: the case page opens as a modal dialog named by the case
   await expect(page.locator('.street-row-btn[data-id="c1"]')).toBeFocused();
 });
 
-test('selection via pin and deep link: a pin tap at PEEK opens the case page without raising the sheet or moving the map, and closing it gives focus to the map; ?case= opens it on load; an unknown case says so', async ({ page }) => {
+test('selection via pin and deep link: a pin tap at PEEK shows its preview card (no case page, no case=) without moving the map; the card opens the page, closing it finds the card again; × gives focus to the map; ?case= opens the page on load; an unknown case says so', async ({ page }) => {
   await point(page);
   await grab(page).press('ArrowDown');
   await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
@@ -784,18 +789,33 @@ test('selection via pin and deep link: a pin tap at PEEK opens the case page wit
   await page.waitForTimeout(400);
   const before = await viewOf(page);
   await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  // Phone (2026-10-28): the card first — focused, never the aria-hidden marker; the case page waits for its tap.
+  const card = preview(page);
+  await expect(card).toBeFocused();
+  await expect(card.locator('.street-type')).toHaveText('Pothole');
+  await expect(casePage(page)).toHaveCount(0);
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await expect(selPin(page)).toHaveCount(1);
+  await page.waitForTimeout(600);
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  expectSameView(await viewOf(page), before);
+  await cardFace(page).click();
   const dlg = caseDialog(page, 'Pothole');
-  // Focus lands in the dialog, never on the aria-hidden marker.
   await expect(dlg).toBeFocused();
   await expect(page).toHaveURL(/[?&]case=c1/);
   await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
   await expect(selPin(page)).toHaveCount(1);
-  await page.waitForTimeout(600);
   expectSameView(await viewOf(page), before);
-  // Closed: the map is where it was; focus goes to the map (pins are aria-hidden; the map is their focusable owner).
+  // Closed: the map is where it was and the card still shows, focus on its face; × closes the card and focus goes to
+  // the map (pins are aria-hidden; the map is their focusable owner).
   await backMap(page).click();
   await expect(dlg).toHaveCount(0);
+  await expect(cardFace(page)).toBeFocused();
+  await expect(selPin(page)).toHaveCount(1);
+  await cardX(page).click();
+  await expect(card).toHaveCount(0);
   await expect(page.locator('.street-stage .mapview')).toBeFocused();
+  await expect(selPin(page)).toHaveCount(0);
   await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
   expectSameView(await viewOf(page), before);
 
@@ -856,6 +876,213 @@ test('deep link to a case older than the window (the follow mail, a /my row): fe
   await expect(selPin(page)).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]case=old2/);
   expect(lookups()).toEqual(['old1', 'old2']);
+});
+
+// ── The phone's pin preview (components/StreetPreview; Rob, 2026-10-28, "idk you pick": Zillow's small card first) ──
+//    Under 720 px a pin tap shows a compact card docked over the PEEK sheet instead of the case page; its face opens the
+//    page. Not in the URL. Desktop keeps the page on a pin click (the desktop describe).
+
+test('pin preview: a pin tap at HALF lowers the sheet to PEEK and shows the card — icon, type, status, street · neighborhood, "Reported … · open N days" — one 44 px face and a 44 px ×, the pin selected and clear of it, the attribution under it; the browser\'s Back from the page it opens finds the card; raising the sheet closes it', async ({ page }) => {
+  await point(page, { details: { c1: detailFor(NEAR[0]) } });
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  const before = await viewOf(page);
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  const card = preview(page);
+  await expect(card).toBeFocused();
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await expect(casePage(page)).toHaveCount(0);
+  await expect(card.locator('.street-icon svg')).toHaveCount(1);
+  await expect(card.locator('.street-type')).toHaveText('Pothole');
+  await expect(card.locator('.my-status')).toHaveText('Assigned');
+  await expect(card.locator('.street-addr')).toHaveText('10 Angell St · College Hill');
+  await expect(card.locator('.street-when')).toHaveText(/^Reported [A-Z][a-z]{2} \d{1,2} · open 3 days$/);
+  // The whole face is one button, named by what it shows + "See details"; the × is the card's only other control.
+  await expect(card.getByRole('button')).toHaveCount(2);
+  const face = card.getByRole('button', { name: /^Pothole.*See details$/ });
+  const fb = (await face.boundingBox())!, xb = (await cardX(page).boundingBox())!;
+  expect(fb.height).toBeGreaterThanOrEqual(44);
+  expect(fb.width).toBeGreaterThan(300);
+  expect(xb.width).toBeGreaterThanOrEqual(44);
+  expect(xb.height).toBeGreaterThanOrEqual(44);
+  // Docked over the sheet with the OSM attribution between them; inside the screen's width.
+  await page.waitForTimeout(400); // the sheet's 220 ms slide down to PEEK
+  const cb = (await card.boundingBox())!, sh = (await sheet(page).boundingBox())!, attr = (await page.locator('.street-stage .leaflet-control-attribution').boundingBox())!;
+  expect(attr.y).toBeGreaterThanOrEqual(cb.y + cb.height);
+  expect(attr.y + attr.height).toBeLessThanOrEqual(sh.y);
+  expect(cb.x).toBeGreaterThanOrEqual(12);
+  expect(cb.x + cb.width).toBeLessThanOrEqual(page.viewportSize()!.width - 12);
+  // Its pin: the selected one, whole above the card; every pin still aria-hidden.
+  await expect(selPin(page)).toHaveAttribute('data-id', 'c1');
+  const pb = (await selPin(page).boundingBox())!;
+  expect(pb.y + pb.height).toBeLessThan(cb.y);
+  expect(await mainPins(page).evaluateAll((els) => els.length > 0 && els.every((e) => e.getAttribute('aria-hidden') === 'true'))).toBe(true);
+  // Not in the URL; the map did not move (the pin was clear of the card).
+  await page.waitForTimeout(400);
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  expectSameView(await viewOf(page), before);
+  // The face opens the case page (case=, a history entry); the browser's Back closes it, the card still there, focus on its face.
+  await face.click();
+  await expect(caseDialog(page, 'Pothole')).toBeFocused();
+  await expect(page).toHaveURL(/[?&]case=c1/);
+  await page.goBack();
+  await expect(casePage(page)).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(card).toHaveAttribute('data-id', 'c1');
+  await expect(face).toBeFocused();
+  expectSameView(await viewOf(page), before);
+  // Raising the sheet (the list) closes the card.
+  await grab(page).click();
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
+  await expect(card).toHaveCount(0);
+  await expect(selPin(page)).toHaveCount(0);
+});
+
+test('pin preview: another pin swaps the card (focus follows); ×, a tap on the map and Escape close it with focus on the map; a small pan keeps it, a pan that takes its pin out of view closes it; never a case=', async ({ page }) => {
+  await point(page);
+  await grab(page).press('ArrowDown');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await setView(page, PT.lat, PT.lng, 17);
+  await page.waitForTimeout(400);
+  const card = preview(page), map = page.locator('.street-stage .mapview');
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  await expect(card).toBeFocused();
+  await expect(card).toHaveAttribute('data-id', 'c1');
+  // Another pin: one card, now that case's, focused again; its pin the selected one.
+  await clickPin(page, NEAR[2].lat!, NEAR[2].lng!);
+  await expect(card).toHaveAttribute('data-id', 'c3');
+  await expect(card.locator('.street-type')).toHaveText('Overflowing Dumpster');
+  await expect(card).toBeFocused();
+  await expect(page.locator('.street-preview')).toHaveCount(1);
+  await expect(selPin(page)).toHaveCount(1);
+  await expect(selPin(page)).toHaveAttribute('data-id', 'c3');
+  // ×: closed, nothing selected, focus on the map.
+  await cardX(page).click();
+  await expect(card).toHaveCount(0);
+  await expect(map).toBeFocused();
+  await expect(selPin(page)).toHaveCount(0);
+  // A tap on the map itself (no pin there).
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  await expect(card).toBeVisible();
+  const mb = (await map.boundingBox())!;
+  await page.mouse.click(mb.x + 40, mb.y + 240);
+  await expect(card).toHaveCount(0);
+  await expect(selPin(page)).toHaveCount(0);
+  // Escape.
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  await expect(card).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(map).toBeFocused();
+  // A small pan keeps it; one that takes the pin out of the band between the rail and the sheet closes it.
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  await expect(card).toBeVisible();
+  await userPan(page, 0, -30);
+  await page.waitForTimeout(500);
+  await expect(card).toBeVisible();
+  await expect(selPin(page)).toHaveCount(1);
+  await userPan(page, 0, 300);
+  await expect(card).toHaveCount(0);
+  await expect(selPin(page)).toHaveCount(0);
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  await expect(casePage(page)).toHaveCount(0);
+});
+
+test('pin preview: the card never covers its pin — one tapped just above the sheet moves up just clear of the card and no further; its page opens and closes over that view', async ({ page }) => {
+  await point(page, { details: { c2: detailFor(NEAR[1]) } });
+  await grab(page).press('ArrowDown');
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  await setView(page, PT.lat, PT.lng, 17);
+  await page.waitForTimeout(400);
+  const pin = page.locator('.street-stage .map-case[data-id="c2"]');
+  const p0 = (await pin.boundingBox())!, sh = (await sheet(page).boundingBox())!;
+  expect(p0.y + p0.height).toBeLessThan(sh.y); // above the sheet: a pin you can tap
+  const before = await viewOf(page);
+  await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
+  const card = preview(page);
+  await expect(card).toBeFocused();
+  await expect(card.locator('.street-type')).toHaveText('Street Light Out');
+  await page.waitForTimeout(500); // the card's 160 ms rise, the map's 250 ms nudge
+  const cb = (await card.boundingBox())!;
+  expect(p0.y + p0.height).toBeGreaterThan(cb.y); // where it was, the card would have covered it
+  // Moved up: its tip and selection ring 8 px over the card's top (the pin's box ends 1 px under the tip, the ring 5 px),
+  // no more — and only up.
+  const gap = async () => { const b = (await pin.boundingBox())!; return cb.y - (b.y + b.height); };
+  expect(await gap()).toBeGreaterThanOrEqual(12);
+  expect(await gap()).toBeLessThanOrEqual(15);
+  const after = await viewOf(page);
+  expect(after.z).toBe(before.z);
+  expect(after.lat).toBeLessThan(before.lat);
+  expect(Math.abs(after.lng - before.lng)).toBeLessThan(1e-5); // under a pixel (Leaflet's pan re-derives the centre)
+  await expect(page).not.toHaveURL(/[?&]case=/);
+  // Its page opens over that view and closes back to it, the card still clear of the pin.
+  await cardFace(page).click();
+  await expect(caseDialog(page, 'Street Light Out')).toBeFocused();
+  await backMap(page).click();
+  await expect(casePage(page)).toHaveCount(0);
+  await expect(card).toBeVisible();
+  expectSameView(await viewOf(page), after);
+  expect(await gap()).toBeGreaterThanOrEqual(12);
+});
+
+test('pin preview: at the landing, a lone pin in the city\'s south end moves up clear of the card — the city\'s pan limit makes room for the card and does not pull the pin back under it', async ({ page }) => {
+  // Washington Park, 0.013° north of the city's south line: at the landing's z11 its pin sits where the card docks.
+  const SOUTH: Case = { id: 'w1', t: 0, status: 'Submitted', createdDaysAgo: 0, lat: 41.785, lng: -71.41, street: '50 Broad St' };
+  await landing(page, { items: [...NEAR, SOUTH] });
+  await page.waitForTimeout(700); // the landing's PEEK refit is done
+  await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
+  const z = await zoomOf(page);
+  const pin = page.locator('.street-stage .map-case[data-id="w1"]');
+  const p0 = (await pin.boundingBox())!;
+  await clickPin(page, SOUTH.lat!, SOUTH.lng!);
+  const card = preview(page);
+  await expect(card).toHaveAttribute('data-id', 'w1');
+  await page.waitForTimeout(1000); // the card's rise, the 250 ms nudge, then the limit's check a frame after it
+  const cb = (await card.boundingBox())!;
+  expect(p0.y + p0.height).toBeGreaterThan(cb.y); // where it was, the card would have covered it
+  const pb = (await pin.boundingBox())!;
+  expect(pb.y + pb.height).toBeLessThan(cb.y);
+  expect(pb.y).toBeGreaterThanOrEqual((await page.locator('.street-stage').boundingBox())!.y + RAIL_BOTTOM); // and whole under the filter rows
+  expect(await zoomOf(page)).toBe(z);
+  await expect(selPin(page)).toHaveAttribute('data-id', 'w1');
+});
+
+test('pin preview: Back to another view leaves the card behind — search an address, tap a pin, the browser\'s Back to the city: no card, nothing selected', async ({ page }) => {
+  await landing(page);
+  await page.locator('.street-pill-input').fill('481 angell');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page).toHaveURL(/\/street\?lat=41\.82820&lng=-71\.40050/);
+  await expect.poll(() => zoomOf(page)).toBe(16);
+  await expect(page.locator('.street-stage .map-case[data-id="c1"]')).toBeVisible();
+  await page.waitForTimeout(400); // the fit's flight is over: the pin is where clickPin reads it
+  await clickPin(page, NEAR[0].lat!, NEAR[0].lng!);
+  const card = preview(page);
+  await expect(card).toHaveAttribute('data-id', 'c1');
+  await page.goBack();
+  await expect(page).toHaveURL(/\/street$/);
+  await expect.poll(() => zoomOf(page)).toBeLessThanOrEqual(13);
+  await expect(card).toHaveCount(0);
+  await expect(selPin(page)).toHaveCount(0);
+  await expect(page.locator('.street-stage .map-cluster--selected')).toHaveCount(0);
+  // Forward to the address: no card there either (it was never in the URL).
+  await page.goForward();
+  await expect(page.locator('.map-home')).toHaveCount(1);
+  await page.waitForTimeout(400);
+  await expect(card).toHaveCount(0);
+});
+
+test('pin preview in Spanish: the region, the lines (a closed request: "cerrada en 8 días") and the ×', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
+  await point(page);
+  await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
+  const card = page.getByRole('region', { name: 'Solicitud seleccionada', exact: true });
+  await expect(card).toBeFocused();
+  await expect(card.locator('.street-type')).toHaveText('Street Light Out');
+  await expect(card.locator('.my-status')).toHaveText('Cerrada');
+  await expect(card.locator('.street-addr')).toHaveText('22 Thayer St · College Hill');
+  await expect(card.locator('.street-when')).toHaveText(/^Reportada el \d{1,2} \S+ · cerrada en 8 días$/);
+  await expect(card.getByRole('button', { name: /Ver detalles$/ })).toBeVisible();
+  await card.getByRole('button', { name: 'Cerrar la vista previa', exact: true }).click();
+  await expect(card).toHaveCount(0);
 });
 
 // ── The case page (Rob, 2026-10-27, with a Zillow listing opened over its map: "when you click on a pin you should get like
@@ -1490,7 +1717,7 @@ test('an animated zoom keeps a fan together: while the map animates no leg is dr
   }
 });
 
-test('a fanned pin is a case pin: a tap at PEEK opens that case\'s page; behind it the pin is selected and on top, the stack still fanned, the sheet at PEEK and the map where it was', async ({ page }) => {
+test('a fanned pin is a case pin: a tap at PEEK shows that case\'s card; behind it the pin is selected and on top, the stack still fanned, the sheet at PEEK and the map where it was; the card opens its page', async ({ page }) => {
   await landing(page, { details: { s3: detailFor(STACK_CASES[2]) } });
   await page.waitForTimeout(700); // the landing's PEEK refit is done
   await setView(page, STACK.lat, STACK.lng, 18);
@@ -1499,8 +1726,11 @@ test('a fanned pin is a case pin: a tap at PEEK opens that case\'s page; behind 
   const before = await viewOf(page);
   const tip = (await pinTips(page)).find((t) => t.id === 's3')!;
   await page.mouse.click(tip.x, tip.y - 14);
-  await expect(page).toHaveURL(/[?&]case=s3/);
-  await expect(caseDialog(page, 'Street Light Out')).toBeFocused();
+  const card = preview(page);
+  await expect(card).toBeFocused();
+  await expect(card).toHaveAttribute('data-id', 's3');
+  await expect(card.locator('.street-type')).toHaveText('Street Light Out');
+  await expect(casePage(page)).toHaveCount(0);
   await expect(sheet(page)).toHaveAttribute('data-detent', 'peek');
   const pin = page.locator('.street-stage .map-case[data-id="s3"]');
   await expect(pin).toHaveClass(/map-pin--selected/);
@@ -1508,11 +1738,18 @@ test('a fanned pin is a case pin: a tap at PEEK opens that case\'s page; behind 
   await expect(mainPins(page)).toHaveCount(6); // still fanned
   const z = (l: ReturnType<Page['locator']>) => l.evaluate((el) => Number(getComputedStyle(el).zIndex));
   for (const id of ['s1', 's2', 's4', 's5', 's6']) expect(await z(pin)).toBeGreaterThan(await z(page.locator(`.street-stage .map-case[data-id="${id}"]`)));
+  const pb = (await pin.boundingBox())!;
+  expect(pb.y + pb.height).toBeLessThan((await card.boundingBox())!.y);
   await page.waitForTimeout(600);
+  await expect(page).not.toHaveURL(/[?&]case=/);
   expectSameView(await viewOf(page), before);
+  await cardFace(page).click();
+  await expect(page).toHaveURL(/[?&]case=s3/);
+  await expect(caseDialog(page, 'Street Light Out')).toBeFocused();
+  await expect(pin).toHaveClass(/map-pin--selected/);
   await backMap(page).click();
   await expect(casePage(page)).toHaveCount(0);
-  await expect(page.locator('.street-stage .mapview')).toBeFocused();
+  await expect(cardFace(page)).toBeFocused();
   await expect(mainPins(page)).toHaveCount(6);
   expectSameView(await viewOf(page), before);
 });
@@ -2335,6 +2572,7 @@ test.describe('desktop', () => {
     await page.mouse.click(tip.x, tip.y - 14);
     await expect(page).toHaveURL(/[?&]case=s4/);
     await expect(caseDialog(page, 'Pothole')).toBeFocused();
+    await expect(page.locator('.street-preview')).toHaveCount(0);
     await expect(page.locator('.street-stage .map-case[data-id="s4"]')).toHaveClass(/map-pin--selected/);
     await backMap(page).click();
     await expect(casePage(page)).toHaveCount(0);
@@ -2495,6 +2733,7 @@ test.describe('desktop', () => {
     await page.waitForTimeout(400);
     await clickPin(page, NEAR[1].lat!, NEAR[1].lng!);
     await expect(dlg).toBeFocused();
+    await expect(page.locator('.street-preview')).toHaveCount(0); // no preview card at ≥ 720 px: the page, straight away
     await backMap(page).click();
     await expect(page.locator('.street-stage .mapview')).toBeFocused();
     // The map key: the map's top-right corner.
@@ -2560,6 +2799,106 @@ test('the self-hosted basemap renders vector tiles and credits Protomaps; a miss
   await page.goto(POINT);
   await expect(page.locator('.mapview img.leaflet-tile').first()).toBeAttached({ timeout: 20_000 });
   await expect(page.locator('.mapview .leaflet-control-attribution')).not.toContainText('Protomaps');
+  await expect(page.locator('.street-stage .mapview')).toHaveAttribute('data-basemap', 'raster');
+});
+
+/* ── The basemap's two passes (MapView BASEMAP_COARSE / upgradeBasemap, 2026-10-28) ─────────────────────────────────────
+ * A cheap pass first (data a zoom coarser, 1× canvases), the full-detail layer once the page has settled: the coarse
+ * layer has drawn the view and nothing has loaded and no long task has run for 3 s, then the next idle moment (≤ 2 s).
+ * `data-basemap` on the map says which is showing. */
+const hasBasemap = () => existsSync(new URL('../public/map/basemap.json', import.meta.url));
+const mainMap = (page: Page) => page.locator('.street-stage .mapview');
+const tileLayers = (page: Page) => mainMap(page).locator('.leaflet-tile-pane > .leaflet-layer');
+/** A drawn tile's canvas buffer width: 256 × the pass's pixel ratio (the iPhone 13 profile is 3×). */
+const tileWidth = (page: Page) => mainMap(page).locator('canvas.leaflet-tile-loaded').first().evaluate((c) => (c as HTMLCanvasElement).width);
+async function coarsePass(page: Page) {
+  await setup(page, { basemap: true });
+  await page.goto(POINT);
+  await waitForMap(page);
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'coarse', { timeout: 20_000 });
+  await expect(mainMap(page).locator('canvas.leaflet-tile-loaded').first()).toBeAttached({ timeout: 20_000 });
+}
+
+test('the basemap draws a coarse pass first; once the page is idle the full-detail layer replaces it — one layer left, the view unmoved', async ({ page }) => {
+  test.skip(!hasBasemap(), 'no basemap extract in this build');
+  await coarsePass(page);
+  const shown = Date.now();
+  expect(await tileWidth(page)).toBe(256);
+  await expect(tileLayers(page)).toHaveCount(1);
+  await expect(mainPins(page).first()).toBeVisible();
+  const view = await viewOf(page);
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'full', { timeout: 15_000 });
+  expect(Date.now() - shown).toBeGreaterThan(2_000);
+  await expect(tileLayers(page)).toHaveCount(1);
+  expect(await tileWidth(page)).toBe(768);
+  expectSameView(await viewOf(page), view);
+});
+
+test('the full-detail pass never starts while the map moves: due mid-move, it waits for the moveend', async ({ page }) => {
+  test.skip(!hasBasemap(), 'no basemap extract in this build');
+  test.setTimeout(30_000);
+  await coarsePass(page);
+  await mapEval(page, "m => { m.fire('movestart'); }");
+  await page.waitForTimeout(6_500); // past the 3 s quiet wait and the ≤ 2 s idle wait
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'coarse');
+  await expect(tileLayers(page)).toHaveCount(1);
+  await mapEval(page, "m => { m.fire('moveend'); }");
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'full', { timeout: 10_000 });
+  await expect(tileLayers(page)).toHaveCount(1);
+});
+
+test('a map unmounted before its full-detail pass gets no layer after map.remove() and reads no more of the archive', async ({ page }) => {
+  test.skip(!hasBasemap(), 'no basemap extract in this build');
+  test.setTimeout(30_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await coarsePass(page);
+  await page.evaluate(() => { const w = window as unknown as { __streetMap?: unknown; __oldMap?: unknown }; w.__oldMap = w.__streetMap; });
+  await page.getByRole('link', { name: 'Mine', exact: true }).click();
+  await expect(page).toHaveURL(/\/my$/);
+  await expect(page.locator('.mapview')).toHaveCount(0);
+  // Requests the coarse layer had in flight may still finish; count only from a beat later.
+  await page.waitForTimeout(1_000);
+  let reads = 0;
+  page.on('request', (r) => { if (/\/map\/pvd-\d+\.pmtiles$/.test(r.url())) reads++; });
+  await page.waitForTimeout(6_000); // past the moment the full pass was due
+  expect(await page.evaluate(() => Object.keys((window as unknown as { __oldMap: { _layers: object } }).__oldMap._layers).length)).toBe(0);
+  expect(reads).toBe(0);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/** The most colours any drawn tile of the main map has (sampled): bare background — what protomaps paints for a tile
+ *  whose read failed — is one. */
+const tileColours = (page: Page) => mainMap(page).locator('canvas.leaflet-tile-loaded').evaluateAll((cs) => Math.max(0, ...cs.map((c) => {
+  const cv = c as HTMLCanvasElement;
+  if (!cv.width || !cv.height) return 0;
+  const d = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data, seen = new Set<number>();
+  for (let i = 0; i < d.length; i += 4 * 37) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+  return seen.size;
+})));
+
+test('the full-detail pass needs the network, not just navigator.onLine: archive reads failing when it is due keep the coarse layer drawn (never a blank map); once they work, the next move brings full detail, drawn', async ({ page }) => {
+  test.skip(!hasBasemap(), 'no basemap extract in this build');
+  test.setTimeout(45_000);
+  await coarsePass(page);
+  // A weak signal or a captive portal: every read of the archive fails while navigator.onLine stays true.
+  let blocked = 0;
+  const archive = /\/map\/pvd-\d+\.pmtiles$/;
+  await page.route(archive, (r) => { blocked++; return r.abort('failed'); });
+  await expect.poll(() => blocked, { timeout: 20_000 }).toBeGreaterThan(0); // the full pass came due and tried
+  await page.waitForTimeout(1_500);
+  expect(await page.evaluate(() => navigator.onLine)).toBe(true);
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'coarse');
+  await expect(tileLayers(page)).toHaveCount(1);
+  expect(await tileWidth(page)).toBe(256);
+  expect(await tileColours(page)).toBeGreaterThan(10);
+  // The reads work again: the next moveend retries, and the full layer draws real tiles.
+  await page.unroute(archive);
+  await mapEval(page, 'm => { m.panBy([0, 2], { animate: false }); }');
+  await expect(mainMap(page)).toHaveAttribute('data-basemap', 'full', { timeout: 15_000 });
+  await expect(tileLayers(page)).toHaveCount(1);
+  expect(await tileWidth(page)).toBe(768);
+  expect(await tileColours(page)).toBeGreaterThan(10);
 });
 
 /* ── Coming back: "since you last looked" + the home-screen nudge (lib/streetVisit.ts) ──────────────────────────────── */

@@ -5,6 +5,7 @@ import './MapView.css';
 import { clusterGrid, SPIDER_MAX, spiderOffsets, stackKey, type Bounds, type Cluster, type ClusterPoint } from '../lib/streetMap';
 import { caseMarker, casePinKey, clusterHtml, clusterMarker, clusterSize, homeMarker, LEG_CLASS, SPOT_CLASS, SPOT_R, type MarkerParts } from '../lib/mapMarkers';
 import { CITY_MARGIN_DEG, PVD_BOUNDS } from '../lib/geo';
+import type { LeafletLayerOptions, SourceOptions } from 'protomaps-leaflet';
 
 /** A located city case to draw. Pass the whole filtered set: MapView keeps the ones inside `getBounds().pad(0.25)`.
  *  `group` picks the white type glyph in the pin's head; `isNew` (open, reported in the last 48 h) earns the halo. */
@@ -83,7 +84,40 @@ const VECTOR_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyri
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-/** Add the vector basemap, or the raster fallback when it cannot be had. Resolves once a layer is on the map. */
+/** Speed (Rob, 2026-10-28, "lazy load in details?": /street scored 65–75 on Lighthouse mobile with the main thread
+ *  blocked 0.6–1.7 s, most of it protomaps painting the first screen of tiles): the basemap draws in two passes. The
+ *  first is cheap — data one zoom coarser (levelDiff 2: a quarter of the tiles to decode and lay out, the finer roads,
+ *  outlines and labels left for later) on canvases at most 1× (a third of the pixels at Lighthouse's 1.75×, a ninth on
+ *  an iPhone's 3×) — and the full-detail layer (the library's defaults) replaces it once the page has settled. That
+ *  makes the first seconds lighter, not the whole load: the full pass is the old single pass, at full pixel ratio,
+ *  painted a few seconds later on top of the coarse one, so the main thread does more in all. Local, /street, 412 px at
+ *  1.75× and 4× CPU, median of 5, long tasks blocking over a fixed 20 s from navigation (both passes inside it): 2.7 s
+ *  before → 3.0 s with the two passes; in the first 4 s, 2.1 → 1.8 s (2026-10-28). Lighthouse, which stops measuring
+ *  once the page goes quiet and so never sees the full pass, reads 72 → 85 (blocking 690 → 230 ms, median of 3). */
+const BASEMAP_COARSE = { levelDiff: 2, devicePixelRatio: Math.min(1, window.devicePixelRatio || 1) };
+/** The full pass waits until the page has settled: the coarse layer has drawn the view (its first 'load') and for
+ *  QUIET_MS nothing has loaded (resource timing: the feed, tiles, images) and no long task (> 50 ms) has run (Chrome's
+ *  'longtask' entries; Safari and Firefox have none, so there the network alone). That is the page's own start-up over,
+ *  so the full paint does not compete with it: with a fixed 2.5 s wait, a slow feed response put both in the same
+ *  seconds, and those Lighthouse runs scored 63–70, below the one-pass map. (It also puts the full paint past the point
+ *  where Lighthouse stops measuring, ~1 s of network and CPU quiet — hence the gap between its score and the fixed
+ *  window above.) Never later than UPGRADE_MAX_MS after the coarse draw. Then the next idle moment
+ *  (requestIdleCallback, at most UPGRADE_IDLE_MS; a timeout where there is none). */
+const QUIET_MS = 3000;
+const UPGRADE_MAX_MS = 10_000;
+const UPGRADE_IDLE_MS = 2000;
+/** Leaflet fades a loaded tile in over 200 ms and prunes 250 ms after 'load': the coarse layer stays under the full one
+ *  until then. */
+const TILE_FADE_MS = 250;
+/** A full pass that could not read its tiles tries again after this long at the latest (sooner on 'online' or a moveend). */
+const RETRY_MS = 15_000;
+
+/** `data-basemap` on the map's container: which basemap is showing — a debugging aid, and the suite reads it. */
+type BasemapKind = 'coarse' | 'full' | 'raster';
+const markBasemap = (map: L.Map, kind: BasemapKind) => { map.getContainer().dataset.basemap = kind; };
+
+/** Add the vector basemap (its coarse pass, then the full one — upgradeBasemap), or the raster fallback when it cannot
+ *  be had. Resolves once a layer is on the map. */
 async function addBasemap(map: L.Map, alive: () => boolean): Promise<'vector' | 'raster'> {
   try {
     const m = await fetch(BASEMAP_MANIFEST, { cache: 'no-cache' });
@@ -93,16 +127,109 @@ async function addBasemap(map: L.Map, alive: () => boolean): Promise<'vector' | 
     // The SPA rewrite answers a missing archive with index.html (200), so check the PMTiles magic, not the status.
     const head = await fetch(url, { headers: { Range: 'bytes=0-6' } });
     if (!head.ok || !(await head.text()).startsWith('PMTiles')) throw new Error('not a PMTiles archive');
-    const { leafletLayer } = await import('protomaps-leaflet');
+    const [{ leafletLayer }, { PMTiles }] = await Promise.all([import('protomaps-leaflet'), import('pmtiles')]);
     if (!alive()) return 'vector';
-    leafletLayer({ url, flavor: 'light', lang: 'en', maxDataZoom: BASEMAP_MAX_DATA_ZOOM, maxZoom: MAX_ZOOM, attribution: VECTOR_ATTRIBUTION }).addTo(map);
+    // One archive for both passes. A layer given the URL makes its own, which fetches the header and root directory
+    // again — and pmtiles 3.2 keeps a failed header fetch for good, so one miss at the full pass's start (a weak signal,
+    // a captive portal) painted every full-detail tile blank for the rest of the visit, over the drawn coarse ones.
+    // Shared, the full pass reads only tiles. `failed` counts tile reads that failed — not aborted ones (protomaps
+    // aborts the reads of a zoom the map has left).
+    const archive = new PMTiles(url);
+    let failed = 0;
+    const getZxy = archive.getZxy.bind(archive);
+    archive.getZxy = (z, x, y, signal) => getZxy(z, x, y, signal).catch((e: unknown) => {
+      if ((e as { name?: string } | null)?.name !== 'AbortError') failed++;
+      throw e;
+    });
+    // levelDiff is read by the layer's sources (SourceOptions), not declared on LeafletLayerOptions.
+    const vector = (pass: Partial<typeof BASEMAP_COARSE>) => {
+      const o: LeafletLayerOptions & SourceOptions = { url: archive, flavor: 'light', lang: 'en', maxDataZoom: BASEMAP_MAX_DATA_ZOOM, maxZoom: MAX_ZOOM, attribution: VECTOR_ATTRIBUTION, ...pass };
+      return leafletLayer(o) as unknown as L.GridLayer;
+    };
+    const coarse = vector(BASEMAP_COARSE).addTo(map);
+    markBasemap(map, 'coarse');
+    upgradeBasemap(map, coarse, {
+      full: () => vector({}),
+      // The tile under the view's centre as the full pass will read it: data one zoom coarser than the display
+      // (levelDiff 1, the default), never deeper than the extract.
+      probe: () => {
+        const z = Math.min(BASEMAP_MAX_DATA_ZOOM, Math.max(0, Math.round(map.getZoom()) - 1));
+        const t = map.project(map.getCenter(), z).divideBy(256).floor();
+        return archive.getZxy(z, t.x, t.y);
+      },
+      failures: () => failed,
+    }, alive);
     return 'vector';
   } catch (e) {
     if (!alive()) return 'raster';
     console.warn('[map] vector basemap unavailable, using OSM raster:', e instanceof Error ? e.message : e);
     L.tileLayer(TILE_URL, { maxZoom: MAX_ZOOM, attribution: TILE_ATTRIBUTION }).addTo(map);
+    markBasemap(map, 'raster');
     return 'raster';
   }
+}
+
+/** What upgradeBasemap needs from addBasemap: the full layer to add, a read of the view centre's tile (`probe`) and the
+ *  count of failed tile reads so far. */
+interface FullPass { full(): L.GridLayer; probe(): Promise<unknown>; failures(): number }
+
+/** The full-detail pass. Never started while the map moves — each tile paint is a long task, and a pan or a pinch
+ *  would stutter through them — but a move after it starts is fine. The full layer goes on top and fades its tiles in
+ *  over the coarse ones (an unpainted tile is hidden, so the coarse one shows through); the coarse layer comes off once
+ *  the full one has drawn the view and its fade has run: nothing ever shows blank and the view never moves. A tile
+ *  read that fails is painted as bare background (protomaps), opaque over the coarse tile under it, so the pass needs
+ *  the network, not just navigator.onLine (which a weak signal or a captive portal leaves true): it first reads the
+ *  view centre's tile, and a full layer that had a read fail while it drew comes off again, the coarse one still
+ *  under it. Either way it tries again on the next 'online', the next moveend or after RETRY_MS, whichever is first.
+ *  Every step checks `alive`: an unmounted map gets no layer (map.remove() took the coarse one and its listeners). */
+function upgradeBasemap(map: L.Map, coarse: L.GridLayer, pass: FullPass, alive: () => boolean) {
+  let moving = false;
+  const moveStart = () => { moving = true; };
+  const moveEnd = () => { moving = false; };
+  map.on('movestart', moveStart).on('moveend', moveEnd);
+  const whenIdle = (fn: () => void) => {
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: UPGRADE_IDLE_MS });
+    else window.setTimeout(fn, 0);
+  };
+  const retry = () => {
+    let timer = 0;
+    const again = () => {
+      window.clearTimeout(timer); window.removeEventListener('online', again); map.off('moveend', again);
+      whenIdle(swap);
+    };
+    timer = window.setTimeout(again, RETRY_MS);
+    window.addEventListener('online', again);
+    map.on('moveend', again); // after moveEnd (registered first): the flag is clear
+  };
+  const swap = async () => {
+    if (!alive()) return;
+    if (moving) { map.once('moveend', () => whenIdle(swap)); return; } // moveEnd (registered first) has cleared the flag
+    if (!navigator.onLine) { window.addEventListener('online', () => whenIdle(swap), { once: true }); return; }
+    try { await pass.probe(); } catch { if (alive()) retry(); return; }
+    if (!alive()) return;
+    if (moving) { map.once('moveend', () => whenIdle(swap)); return; } // the map started moving while the probe read
+    const failed = pass.failures();
+    const full = pass.full().addTo(map);
+    full.once('load', () => window.setTimeout(() => {
+      if (!alive()) return;
+      if (pass.failures() > failed) { full.remove(); retry(); return; }
+      map.off('movestart', moveStart).off('moveend', moveEnd);
+      coarse.remove();
+      markBasemap(map, 'full');
+    }, TILE_FADE_MS));
+  };
+  // The end of the page's last network response or long task (a resource entry's duration runs to its responseEnd).
+  let lastBusy = performance.now();
+  const busy = new PerformanceObserver((list) => { for (const e of list.getEntries()) lastBusy = Math.max(lastBusy, e.startTime + e.duration); });
+  for (const type of ['resource', 'longtask']) if (PerformanceObserver.supportedEntryTypes?.includes(type)) busy.observe({ type, buffered: true });
+  map.once('unload', () => busy.disconnect()); // map.remove() before the pass was due
+  const settle = (deadline: number) => {
+    const wait = Math.min(lastBusy + QUIET_MS, deadline) - performance.now();
+    if (wait > 0 && alive()) { window.setTimeout(() => settle(deadline), wait); return; }
+    busy.disconnect();
+    whenIdle(swap);
+  };
+  coarse.once('load', () => settle(performance.now() + UPGRADE_MAX_MS));
 }
 
 const VIEW_DEBOUNCE_MS = 150;

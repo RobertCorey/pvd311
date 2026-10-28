@@ -31,7 +31,11 @@
     <div id="root"></div>
     <!-- Sentry error monitoring (loader, no PII). Not loaded on localhost: the Playwright suite runs the
          production build under `vite preview` on localhost:4173, and its errors reached the production
-         project as real issues (JAVASCRIPT-9, 2026-10-16). A build-mode flag can't tell preview from prod. -->
+         project as real issues (JAVASCRIPT-9, 2026-10-16). A build-mode flag can't tell preview from prod.
+         Lazy (2026-10-28, page speed): the 3 KB loader buffers errors and unhandled rejections and fetches the
+         SDK bundle only on the first one (or a Sentry.capture* call), then runs sentryOnLoad's init and replays
+         the buffer. It used to be data-lazy="no", which fetched and ran the whole SDK on every page. Turning on
+         Performance or Replay in the project's Loader Script settings makes the loader eager again. -->
     <script>
       (function () {
         var h = location.hostname;
@@ -41,7 +45,6 @@
         s.src = 'https://js.sentry-cdn.com/04195069c1daa8e3d2057b6405e37a21.min.js';
         s.crossOrigin = 'anonymous';
         s.async = true;
-        s.setAttribute('data-lazy', 'no');
         document.body.appendChild(s);
       })();
     </script>

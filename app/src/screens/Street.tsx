@@ -24,6 +24,7 @@ import StreetSheet, { SHEET_FULL_INSET, SHEET_PEEK_MIN, type Detent, type Detent
 import StreetFilters from '../components/StreetFilters';
 import StreetRow from '../components/StreetRow';
 import StreetCasePage, { type NearbyRow } from '../components/StreetCasePage';
+import StreetPreview from '../components/StreetPreview';
 import MapKey from '../components/MapKey';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
 import PushCard from '../components/PushCard';
@@ -43,10 +44,12 @@ import './Street.css';
  *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
  *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone".
  *  A selected case opens the case page over everything (components/StreetCasePage; Rob, 2026-10-27, with a Zillow
- *  listing as the model): a pin, a fanned pin, a list row or a ?case= deep link opens it; the map does not move for it
- *  (the pin stays selected behind it) and the sheet/panel keep their list, so closing it returns to exactly the view
- *  and the list from before. case= stays the state: every open is a history entry, so Back closes it. Pins carry their
- *  type's glyph and only new cases pulse; the "Map key" button explains every mark. */
+ *  listing as the model): a list row, a ?case= deep link or, at ≥ 720 px, a pin or a fanned pin opens it; the map does
+ *  not move for it (the pin stays selected behind it) and the sheet/panel keep their list, so closing it returns to
+ *  exactly the view and the list from before. case= stays the state: every open is a history entry, so Back closes it.
+ *  On a phone a pin shows Zillow's small card first (components/StreetPreview; Rob, 2026-10-28, "idk you pick"): docked
+ *  over the PEEK sheet, its tap opens the case page, and Back from that page finds the card again. The card is not in
+ *  the URL. Pins carry their type's glyph and only new cases pulse; the "Map key" button explains every mark. */
 
 /** The phone's floating controls end here, from the stage's top: 10 + 48 search pill + 8 + 44 Show row + 8 + 44
  *  When / Type row (Street.css .street-controls; StreetParts.css .street-filters). Fits, the in-view band and the
@@ -54,6 +57,12 @@ import './Street.css';
  *  sheet's FULL stops that much lower, the map key sits that much lower (Street.css .street-stage--range). */
 const RAIL_BOTTOM = 162;
 const RANGE_ROW = 52;
+/** A pin the phone's preview card would cover is nudged up until its tip — and the 5 px of selection ring under it —
+ *  clears the card's top by PREVIEW_GAP. */
+const PREVIEW_GAP = 8;
+const PIN_RING_PX = 5;
+/** The card's dock over the sheet (Street.css .street-preview: `bottom` = the sheet's height + 30 px). */
+const PREVIEW_DOCK = 30;
 const RING_M = 300;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
@@ -183,7 +192,6 @@ export default function Street() {
   // The sheet top for the current detent: the in-view band and panInside use it so a pin tapped at PEEK is panned
   // clear of the HALF sheet in the same commit that raises it (the mirrored --sheet-h would still read PEEK).
   const sheetTop = sheetHeightAt(detent);
-  const insets = useMemo(() => (desktop ? { top: 0, bottom: 0 } : { top: railBottom, bottom: sheetTop }), [desktop, railBottom, sheetTop]);
   const peekTop = sheetHeightAt('peek');
   const cityFit = useMemo(() => (desktop ? undefined : { top: railBottom, bottom: peekTop }), [desktop, railBottom, peekTop]);
 
@@ -205,6 +213,11 @@ export default function Street() {
   useEffect(() => { if (url.range !== parsed.range) setUrl({ range: url.range }, true); }, [url, parsed, setUrl]);
 
   const [stackIds, setStackIds] = useState<string[] | null>(null);
+  /** The phone's pin preview (components/StreetPreview): the case whose card shows — never in the URL. `previewTap`
+   *  counts pin taps (focus and the nudge run once per tap, also on a tap of the pin already shown). */
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewTap, setPreviewTap] = useState(0);
+  const previewRef = useRef<HTMLElement>(null);
   const czTimer = useRef(0);
   const onViewChange = useCallback((v: MapViewChange) => {
     viewRef.current = v; setView(v);
@@ -246,6 +259,9 @@ export default function Street() {
     if (target.startsWith('hood:') && !nb) return; // the rings are still loading; this effect re-runs when they land
     const prev = lastTargetRef.current;
     lastTargetRef.current = target;
+    // The card is not in the URL: a view this effect fits — Back or Forward to another address, neighborhood or the
+    // city — leaves it behind with the view it was opened on. Not a pan off a neighborhood (no refit: the card stays).
+    if (target.startsWith('hood:') || target.startsWith('pt:') || (target === 'city' && prev?.startsWith('pt:'))) setPreviewId(null);
     if (prev == null && url.center && url.zoom != null) {
       // A shared view wins once; paddings 0 so the centre is exact. 'cz' (not 'case') so a case= in the same URL is
       // selected without re-fitting to it — the sender's framing is kept.
@@ -294,7 +310,7 @@ export default function Street() {
     urlRef.current = url; pointRef.current = point; locationRef.current = location;
     caseAtRef.current = selectedCase && selectedCase.lat != null && selectedCase.lng != null ? { lat: selectedCase.lat, lng: selectedCase.lng } : null;
   });
-  const selectViaRef = useRef<'pin' | 'row' | 'nearby' | null>(null);
+  const selectViaRef = useRef<'pin' | 'row' | 'nearby' | 'card' | null>(null);
   const handledCaseRef = useRef<string | null>(null);
   const [goneId, setGoneId] = useState<string | null>(null);
   // The map never pans for a selection (MapView panToSelection={false}): the case page covers it, and closing the page
@@ -341,11 +357,12 @@ export default function Street() {
     if (goneId && data && data.cases.some((c) => c.id === goneId)) { setGoneId(null); setUrl({ caseId: goneId }, true); }
   }, [goneId, data, setUrl]);
 
-  /** Open the case page (a pin, a fanned pin, a row) or swap it to a nearby case. The map, the detent and the list stay
-   *  as they are. Every open is a history entry, so Back — ours, the browser's or Android's — closes the page, and Back
-   *  from a nearby case returns to the one before it (StreetHistoryState). */
-  const openerRef = useRef<{ via: 'pin' | 'row'; id: string } | null>(null);
-  const openCase = (id: string, via: 'pin' | 'row' | 'nearby') => {
+  /** Open the case page (a pin or a fanned pin at ≥ 720 px, a row, the phone's preview card) or swap it to a nearby
+   *  case. The map, the detent and the list stay as they are. Every open is a history entry, so Back — ours, the
+   *  browser's or Android's — closes the page, and Back from a nearby case returns to the one before it
+   *  (StreetHistoryState). */
+  const openerRef = useRef<{ via: 'pin' | 'row' | 'card'; id: string } | null>(null);
+  const openCase = (id: string, via: 'pin' | 'row' | 'nearby' | 'card') => {
     if (via === 'pin') track('street_pin', { kind: 'pin' });
     const cur = urlRef.current;
     if (cur.caseId === id) return;
@@ -379,9 +396,10 @@ export default function Street() {
   }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!url.caseId) setHolding(false); }, [url.caseId]);
   const caseOpen = !!selectedCase && !holding;
-  // Closed (by any of the above or the browser's Back): focus goes back to what opened the page — the row, or the map
-  // for a pin (pins are aria-hidden; the map's container is their focusable owner) — and, for a deep link, to the
-  // sheet's grabber (phone) or the map (desktop). Not when focus has already gone somewhere on purpose.
+  // Closed (by any of the above or the browser's Back): focus goes back to what opened the page — the row, the preview
+  // card's face (still there), or the map for a pin (pins are aria-hidden; the map's container is their focusable
+  // owner) — and, for a deep link, to the sheet's grabber (phone) or the map (desktop). Not when focus has already gone
+  // somewhere on purpose.
   const wasOpenRef = useRef(false);
   useEffect(() => {
     if (caseOpen) { wasOpenRef.current = true; return; }
@@ -392,8 +410,9 @@ export default function Street() {
     if (a && a !== document.body && a.isConnected) return;
     const stage = stageRef.current;
     const row = o?.via === 'row' ? stage?.querySelector<HTMLElement>(`.street-row-btn[data-id="${CSS.escape(o.id)}"]`) : null;
+    const card = o?.via === 'card' ? previewRef.current?.querySelector<HTMLElement>('.street-preview-open') : null;
     const grab = !o && !desktop ? stage?.querySelector<HTMLElement>('.street-grab') : null;
-    (row ?? grab ?? map?.getContainer())?.focus({ preventScroll: true });
+    (row ?? card ?? grab ?? map?.getContainer())?.focus({ preventScroll: true });
   }, [caseOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── The selected case's detail: GET /api/street/case/:id once per id (api/street caches it; the stale deep-link
@@ -415,9 +434,9 @@ export default function Street() {
     return hit !== undefined ? { id, state: 'ok', detail: hit?.detail ?? null } : { id, state: 'loading', detail: null };
   };
 
-  const onBackgroundTap = () => { setStackIds(null); };
-  const onStackTap = (ids: string[]) => { track('street_pin', { kind: 'stack' }); setStackIds(ids); setDetentState((d) => (d === 'peek' ? 'half' : d)); };
-  const onClusterTap = () => { track('street_pin', { kind: 'cluster' }); };
+  const onBackgroundTap = () => { setStackIds(null); setPreviewId(null); };
+  const onStackTap = (ids: string[]) => { track('street_pin', { kind: 'stack' }); setPreviewId(null); setStackIds(ids); setDetentState((d) => (d === 'peek' ? 'half' : d)); };
+  const onClusterTap = () => { track('street_pin', { kind: 'cluster' }); setPreviewId(null); };
 
   /* ── Derived sets ─────────────────────────────────────────────────────────────────────────────── */
   const zoom = view?.zoom ?? 12;
@@ -463,6 +482,76 @@ export default function Street() {
     setWidened(true);
     doFit(at(point), 'half', `pt15:${pointKey}`, 15);
   }, [point, data, feedState, widened, url.zoom, moved, view, bandBounds, inView.length, filters.g, filters.s, pointKey, doFit]);
+
+  /* ── The phone's pin preview (components/StreetPreview) ───────────────────────────────────────── */
+  // A pin tap at ≥ 720 px opens the case page as before. Under 720 px it shows the card, which needs the PEEK sheet: at
+  // HALF the band above the sheet is about as tall as the card, so the tap lowers the sheet (Zillow's list does the
+  // same), and raising it again closes the card. The card also goes when its case leaves the filters or the window,
+  // and at ≥ 720 px (no card there).
+  const previewCase = useMemo(
+    () => (previewId && !desktop && detent === 'peek' ? filtered.find((c) => c.id === previewId && c.lat != null && c.lng != null) ?? null : null),
+    [previewId, desktop, detent, filtered],
+  );
+  useEffect(() => { if (previewId && !previewCase) setPreviewId(null); }, [previewId, previewCase]);
+  // While the card shows, the map's pan limit (MapView keepInCity) reaches below the sheet by the card too, so a pin in
+  // the city's south half at the landing zoom can move up clear of it (keepPinClear) instead of being pulled back under
+  // it. The in-view band and the list still end at the sheet (bandBounds reads sheetTop).
+  const [previewH, setPreviewH] = useState(0);
+  useLayoutEffect(() => { if (previewCase && previewRef.current) setPreviewH(previewRef.current.offsetHeight); }, [previewCase]);
+  const cardBottom = previewCase ? PREVIEW_DOCK + previewH : 0;
+  const insets = useMemo(() => (desktop ? { top: 0, bottom: 0 } : { top: railBottom, bottom: sheetTop + cardBottom }), [desktop, railBottom, sheetTop, cardBottom]);
+  const onPin = (id: string) => {
+    if (desktop) { openCase(id, 'pin'); return; }
+    track('street_pin', { kind: 'pin' });
+    setStackIds(null);
+    if (detent !== 'peek') setDetent('peek', 'auto');
+    setPreviewId(id); setPreviewTap((n) => n + 1);
+  };
+  /** The × and Escape: the card goes and focus goes to the map, the pins' focusable owner (they are aria-hidden). */
+  const closePreview = () => { setPreviewId(null); map?.getContainer().focus({ preventScroll: true }); };
+  /** A pin the card would cover moves up just clear of it: the pin's tip and selection ring PREVIEW_GAP above the
+   *  card's top, the smallest move that shows both. The card's top is read off its `bottom` (Street.css: the sheet's
+   *  height + the attribution's strip), which the sheet has already set for PEEK even while its height animates there. */
+  const keepPinClear = () => {
+    const card = previewRef.current, stage = stageRef.current;
+    if (!previewCase || !card || !stage || !map) return;
+    const pin = stage.querySelector<HTMLElement>(`.mapview .map-case[data-id="${CSS.escape(previewCase.id)}"]`);
+    if (!pin) return;
+    const cardTop = stage.clientHeight - parseFloat(getComputedStyle(card).bottom) - card.offsetHeight;
+    const tip = pin.getBoundingClientRect().bottom - stage.getBoundingClientRect().top + PIN_RING_PX;
+    const over = Math.round(tip + PREVIEW_GAP - cardTop);
+    if (over > 0) map.panBy([0, over], { animate: !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches });
+  };
+  // Every pin tap: focus moves to the card (a region named "Selected request"), and the pin is kept clear of it.
+  useEffect(() => {
+    if (!previewTap || !previewCase) return;
+    previewRef.current?.focus({ preventScroll: true });
+    keepPinClear();
+  }, [previewTap]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The PEEK sheet grew under the card (its subtitle wrapped, the places row came): the card rose with it. Never under
+  // the case page, which the map must not move behind.
+  useEffect(() => { if (!caseOpen) keepPinClear(); }, [peekH]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Panned or pinched far — the case left the band between the rail and the sheet: the card goes with it. (Under the
+  // card is still in the band: a small pan never closes it.)
+  useEffect(() => {
+    if (!previewCase || !view?.userGesture || !map) return;
+    const p = map.latLngToContainerPoint([previewCase.lat!, previewCase.lng!]), size = map.getSize();
+    if (p.y < railBottom || p.y > size.y - sheetTop || p.x < 0 || p.x > size.x) setPreviewId(null);
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Escape closes it — from the card, the map or nowhere; not another control's Escape (the map key, the Type dialog,
+  // the search box), and not while the case page (its own Escape) is over it.
+  useEffect(() => {
+    if (!previewCase || caseOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const a = document.activeElement;
+      if (a && a !== document.body && a !== map?.getContainer() && !previewRef.current?.contains(a)) return;
+      e.preventDefault();
+      closePreview();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [previewCase, caseOpen, map]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Title + live summary ─────────────────────────────────────────────────────────────────────── */
   const [centerHood, setCenterHood] = useState<string | null>(null);
@@ -520,12 +609,12 @@ export default function Street() {
   function go(address: string, la: number, ln: number) {
     // Search and locate check this already; a saved place (Account accepts any address) must too — the map cannot go there.
     if (!inProvidence(la, ln)) { setMsg(t('street.outside')); return; }
-    setMsg(null); setStackIds(null); setGoSeq((s) => s + 1);
+    setMsg(null); setStackIds(null); setPreviewId(null); setGoSeq((s) => s + 1);
     setUrl({ lat: la, lng: ln, q: address, caseId: null, hood: null, center: null, zoom: null }, false);
     setDetent('half', 'auto');
   }
   function clearAddress() {
-    setText(''); setMsg(null);
+    setText(''); setMsg(null); setPreviewId(null);
     if (pointRef.current) setUrl({ lat: null, lng: null, q: '', center: null, zoom: null }, false);
   }
   async function search(e: FormEvent) {
@@ -558,7 +647,7 @@ export default function Street() {
     track('street_filter', { g: f.g.join('+'), s: f.s ?? '', d: f.range ? 'range' : f.d });
   };
   const seeCity = () => {
-    setStackIds(null);
+    setStackIds(null); setPreviewId(null);
     setUrl({ hood: null, center: null, zoom: null, caseId: null }, true);
     lastTargetRef.current = 'city';
     // The whole city fits the PEEK band (MapView's zoom-out floor is derived from it), so lower the sheet with the fit.
@@ -983,6 +1072,10 @@ export default function Street() {
         <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
         {!desktop && controls}
         {!desktop && <MapKey hidden={detent === 'full'} />}
+        {previewCase && (
+          <StreetPreview ref={previewRef} c={previewCase} hood={hoodOf(previewCase)} nowMs={nowMs}
+            onOpen={() => openCase(previewCase.id, 'card')} onClose={closePreview} />
+        )}
         {/* The sheet/panel keep the list while the case page is open; "Link copied" is the page's own line then. */}
         <StreetSheet
           detent={detent} onDetent={setDetent} title={title} subtitle={(!caseOpen && flash) || subtitle} note={sinceNote}
@@ -997,8 +1090,8 @@ export default function Street() {
         <MapView
           key={desktop ? 'desk' : 'phone'}
           ariaLabel={t('street.map.label')} frameless={!desktop} zoomControl={desktop}
-          points={points} selectedId={url.caseId} hoverId={hover} panToSelection={false}
-          onSelect={(id) => openCase(id, 'pin')} onStackTap={onStackTap} onClusterTap={onClusterTap} onBackgroundTap={onBackgroundTap} onViewChange={onViewChange}
+          points={points} selectedId={url.caseId ?? previewCase?.id ?? null} hoverId={hover} panToSelection={false}
+          onSelect={onPin} onStackTap={onStackTap} onClusterTap={onClusterTap} onBackgroundTap={onBackgroundTap} onViewChange={onViewChange}
           home={point} ring={point ? RING_M : null} hood={hoodRings} fit={fit} insets={insets} cityFit={cityFit}
           onReady={(m) => { setMap(m); m.getContainer().setAttribute('aria-describedby', 'street-map-hint'); }}
           testHook={TEST_HOOK}

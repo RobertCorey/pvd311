@@ -25,11 +25,11 @@
 .street-note { display: block; margin: .35rem 0 0; padding: .4rem .6rem; border-left: 3px solid var(--line); font-size: .9rem; font-weight: 400; white-space: pre-wrap; color: var(--ink); }
 
 /* Status pill — Account.css owns .my-status; these scoped copies keep rows and the case page right wherever they render. */
-.street-row .my-status, .case-pill .my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.street-row .my-status, .case-pill .my-status, .street-preview .my-status { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .02em; border: 1.5px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
 .case-pill .my-status { padding: .2rem .7rem; font-size: .8rem; }
-.street-row .my-status--resolved, .case-pill .my-status--resolved,
-.street-row .my-status--received, .case-pill .my-status--received { border-color: var(--ink); color: var(--ink); }
-.street-row .my-status--cityCancelled, .case-pill .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
+.street-row .my-status--resolved, .case-pill .my-status--resolved, .street-preview .my-status--resolved,
+.street-row .my-status--received, .case-pill .my-status--received, .street-preview .my-status--received { border-color: var(--ink); color: var(--ink); }
+.street-row .my-status--cityCancelled, .case-pill .my-status--cityCancelled, .street-preview .my-status--cityCancelled { border-color: var(--line); color: var(--muted); }
 /* "New" since your last visit (the landing's Latest, screens/Street.tsx): sits before the type; ember as text — the one
    pill that is not ink, because it marks the payoff of coming back (ember-text on surface ≥ 4.5:1). */
 .street-row .my-status--new { margin-right: 6px; vertical-align: 2px; font-family: var(--font-body); border-color: var(--ember); color: var(--ember-text); }
@@ -244,6 +244,33 @@
 .watch-groups .watch-groups-hint, .watch-groups .watch-error { margin: 0; }
 .street-digest-on .watch-groups { margin-top: -4px; }
 @media (min-width: 720px) { .watch-groups .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; } }
+
+/* ── Pin preview (StreetPreview), phones ───────────────────────────────────────────────────────── */
+/* A row's card on the map: the face is the button (ink border — it floats over tiles, not on the sheet's surface), the
+   × in the top-right corner over the face's reserved right padding, the chevron under it. One line per fact, cut with
+   an ellipsis: the card keeps one height whatever the case says. Street.css places it. */
+.street-preview { position: absolute; z-index: 2; border-radius: var(--radius-lg); animation: street-preview-in 160ms var(--ease-out); }
+@keyframes street-preview-in { from { transform: translateY(8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .street-preview { animation: none; } }
+.street-preview:focus { outline: none; }
+.street-preview:focus-visible { outline: 3px solid var(--ember); outline-offset: 2px; }
+.street-preview-open {
+  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center;
+  width: 100%; min-height: 64px; margin: 0; padding: 10px 40px 10px 10px; text-align: left;
+  font: inherit; line-height: 1.3; color: var(--ink);
+  background: var(--surface); border: 2px solid var(--ink); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.street-preview-open:active { background: var(--ink-soft); }
+.street-preview-main { display: grid; gap: 1px; min-width: 0; }
+.street-preview-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.street-preview .street-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.street-preview .my-status { flex: 0 0 auto; }
+.street-preview .street-addr, .street-preview .street-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.street-preview-go { position: absolute; right: 14px; bottom: 8px; font-size: 1.6rem; line-height: 1; color: var(--ink); }
+/* A 44 px target inside the face's 2 px border, its hover fill following the card's corner (.street-ico is Street.css). */
+.street-preview .street-preview-x { position: absolute; top: 2px; right: 2px; border-radius: 0 16px 0 12px; font-size: 1.4rem; line-height: 1; color: var(--muted); }
+.street-preview .street-preview-x:hover { color: var(--ink); }
 
 /* ── Map key (MapKey) ──────────────────────────────────────────────────────────────────────────── */
 /* A 44 px button over the map (Street.css places .street-key); its dialog opens over the button, anchored to the same

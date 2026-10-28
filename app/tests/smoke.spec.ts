@@ -69,7 +69,9 @@ test('Sentry is not loaded on localhost', async ({ page }) => {
   expect(await page.evaluate(() => 'sentryOnLoad' in window)).toBe(false);
 });
 
-test('Sentry loader is still requested on a non-local host', async ({ page }) => {
+// Lazy (2026-10-28, page speed): no data-lazy="no" on the loader, so it fetches the SDK bundle (browser.sentry-cdn.com)
+// only on the first error; sentryOnLoad still runs Sentry.init then.
+test('Sentry loader is still requested on a non-local host, lazy', async ({ page }) => {
   const hits: string[] = [];
   await page.route(/sentry-cdn\.com|sentry\.io/, (r) => { hits.push(r.request().url()); return r.abort(); });
   // Serve the built index.html as if from a production-like hostname.
@@ -82,4 +84,6 @@ test('Sentry loader is still requested on a non-local host', async ({ page }) =>
   await expect.poll(() => hits.length).toBeGreaterThan(0);
   expect(hits[0]).toContain('js.sentry-cdn.com/04195069c1daa8e3d2057b6405e37a21.min.js');
   expect(await page.evaluate(() => typeof (window as unknown as { sentryOnLoad?: unknown }).sentryOnLoad)).toBe('function');
+  expect(await page.locator('script[src*="js.sentry-cdn.com"]').getAttribute('data-lazy')).toBeNull();
+  expect(hits.filter((u) => u.includes('browser.sentry-cdn.com'))).toEqual([]);
 });

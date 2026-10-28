@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GROUP_ORDER } from '@shared/categories';
-import { caseAge, caseTimeline, decodeCase, decodeCaseDetail, fullAddressLine, isNewCase, metersBetween, NEARBY_M, NEARBY_MAX, nearbyCases, NEW_CASE_MS, nyDaysBetween, type CaseDetail, type MapCase } from '../src/lib/streetMap';
+import { caseAge, caseDay, caseTimeline, decodeCase, decodeCaseDetail, fullAddressLine, isNewCase, metersBetween, NEARBY_M, NEARBY_MAX, nearbyCases, NEW_CASE_MS, nyDaysBetween, type CaseDetail, type MapCase } from '../src/lib/streetMap';
 import { caseMarker, casePinHtml, casePinKey, clusterMarker, glyphSvg, GROUP_GLYPHS, homeMarker, pinGroup } from '../src/lib/mapMarkers';
 
 // Pure-module unit tests for the case page, the pin glyphs and the map key (2026-10-27): no browser, no page fixture.
@@ -114,6 +114,13 @@ test.describe('caseAge + isNewCase', () => {
     expect(isNewCase(mkCase({ createdAt: isoAgo(0), open: false }), NOW)).toBe(false);
     expect(isNewCase(mkCase({ createdAt: null }), NOW)).toBe(false);
   });
+  test('caseDay (the case page\'s dates, the pin preview\'s "Reported …"): Providence\'s date, the year only when it is not this one, \'\' when it will not parse', () => {
+    expect(caseDay('2026-10-24T15:00:00.000Z', NOW, 'en-US')).toBe('Oct 24');
+    expect(caseDay('2026-10-27T03:30:00.000Z', NOW, 'en-US')).toBe('Oct 26'); // 11:30 PM in Providence
+    expect(caseDay('2025-12-31T15:00:00.000Z', NOW, 'en-US')).toBe('Dec 31, 2025');
+    expect(caseDay('2026-10-24T15:00:00.000Z', NOW, 'es')).toMatch(/^24 oct/);
+    for (const bad of [null, undefined, '', 'nope']) expect(caseDay(bad, NOW, 'en-US')).toBe('');
+  });
 });
 
 test.describe('nearbyCases (the case page\'s Nearby)', () => {
@@ -204,4 +211,21 @@ test('i18n: the case page\'s and the map key\'s strings are translated, with the
   expect(es['street.follow.short']).toBe('Seguir');
   // Gone with the in-sheet case card.
   for (const k of ['street.detail.back', 'street.case.address', 'street.case.reportedOn', 'street.case.openDays', 'street.follow.on', 'street.follow.off']) { expect(en[k], k).toBeUndefined(); expect(es[k], k).toBeUndefined(); }
+});
+
+test('i18n: the phone\'s pin preview (components/StreetPreview) is translated, with the same placeholders, singulars included', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
+  const en = read('strings.en.json'), es = read('strings.es.json');
+  const keys = Object.keys(en).filter((k) => k.startsWith('street.preview.')).sort();
+  expect(keys).toEqual(['close', 'closed', 'closed.one', 'closed.same', 'details', 'label', 'open', 'open.one', 'open.today', 'reported'].map((k) => `street.preview.${k}`));
+  const holes = (s: string) => (s.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
+  for (const k of keys) {
+    expect(es[k], k).toBeTruthy();
+    expect(es[k], k).not.toBe(en[k]);
+    expect(holes(es[k]), k).toEqual(holes(en[k]));
+  }
+  // A request is "solicitud" (feminine): the region and the age lines agree with it.
+  expect(es['street.preview.label']).toBe('Solicitud seleccionada');
+  expect(es['street.preview.closed']).toBe('cerrada en {n} días');
 });

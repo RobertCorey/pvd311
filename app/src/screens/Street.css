@@ -61,6 +61,11 @@
 .street-stage--range { --rail-bottom: 214px; }
 .street-stage > .street-key { top: calc(var(--rail-bottom) + 8px); right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - var(--rail-bottom) - 8px - 12px); }
 
+/* The pin preview (components/StreetPreview, phones): docked at the bottom of the map, 12 px in from each side, above
+   the sheet and the OSM attribution under it (6 px over the sheet, 17 px tall, + 7 px room). Street.tsx keepPinClear
+   reads this `bottom` back to find the card's top. */
+.street-stage > .street-preview { left: 12px; right: 12px; bottom: calc(var(--sheet-h, 104px) + 30px); }
+
 /* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles; it stops
    short of the map key's button at the right. */
 .street-msg { margin: 0; padding: 6px 10px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--radius); font-size: 0.82rem; color: var(--ink); justify-self: start; }

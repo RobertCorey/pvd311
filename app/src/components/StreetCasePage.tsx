@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Reac
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { caseAge, caseTimeline, fullAddressLine, NEARBY_M, type CaseDetail, type MapCase } from '../lib/streetMap';
+import { caseAge, caseDay, caseTimeline, fullAddressLine, NEARBY_M, type CaseDetail, type MapCase } from '../lib/streetMap';
 import CategoryIcon from './CategoryIcon';
 import MapView, { type MapPoint } from './MapView';
 import StreetRow, { StatusPill, statusText } from './StreetRow';
@@ -55,7 +55,6 @@ export interface StreetCasePageProps {
   digest?: ReactNode;
 }
 
-const TZ = 'America/New_York';
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const BackIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 const ShareIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="M8 7l4-4 4 4" /><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" /></svg>;
@@ -104,12 +103,7 @@ export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, day
   }, []);
 
   /** "Oct 24" (the year too when it is not this one), in Providence's time. '' when it will not parse. */
-  const day = (iso: string | null) => {
-    const ms = iso ? Date.parse(iso) : NaN;
-    if (!Number.isFinite(ms)) return '';
-    const sameYear = new Date(ms).getUTCFullYear() === new Date(nowMs).getUTCFullYear();
-    return new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric', timeZone: TZ });
-  };
+  const day = (iso: string | null) => caseDay(iso, nowMs, locale);
 
   const located = c.lat != null && c.lng != null;
   const points = useMemo<MapPoint[]>(() => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open, group: c.group }] : []), [c]);
