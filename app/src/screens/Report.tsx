@@ -420,10 +420,14 @@ export default function Report() {
 
   // ---------- Queued (offline) ----------
   if (queued) {
+    // Back online on this screen, the flush effect above sends the saved report from here: say so on this screen too
+    // (the line used to render only on the form, so the screen kept saying "Saved on your phone" after it was sent).
+    const allSent = outboxNotice != null && pending === 0;
     return (
       <section className="section queued" aria-live="polite">
         <div className="notice notice-ok"><strong>{t('report.queued.title')}</strong></div>
-        <p>{t('report.queued.body', { name: BRAND.name })}</p>
+        {outboxNotice && <div className="notice notice-ok" role="status">{outboxNotice}</div>}
+        {!allSent && <p>{t('report.queued.body', { name: BRAND.name })}</p>}
         <button type="button" className="btn btn-primary" onClick={() => window.location.assign('/')}>{t('report.queued.another')}</button>
       </section>
     );

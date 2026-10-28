@@ -293,11 +293,14 @@ test('offline: submit queues to outbox, shows saved screen; back online it flush
   await page.getByRole('button', { name: 'Send to Providence 311' }).click();
   // 15 s like the flush below: under the full suite's load (8 workers, the map specs) the offline save can take > 5 s.
   await expect(page.locator('.queued')).toContainText('Saved on your phone', { timeout: 15_000 });
-  await context.setOffline(false);
+  // Back online on the confirmation screen: that screen's flush sends the report and says so there (it used to say
+  // nothing, and a reload raced it — the request came from the old page and the new one had nothing left to report).
   const flushed = page.waitForRequest(`${API}/api/report`);
-  await page.goto('/');
+  await context.setOffline(false);
   await flushed;
-  await expect(page.locator('.notice-ok')).toContainText('Sent a saved report', { timeout: 15_000 });
+  await expect(page.locator('.queued [role="status"]')).toContainText('Sent a saved report', { timeout: 15_000 });
+  await expect(page.locator('.queued')).not.toContainText('sign in to send it');
+  await page.goto('/');
   await expect(page.locator('.outbox-card')).toHaveCount(0);
 });
 
