@@ -2,8 +2,8 @@
  * me.ts — account endpoints (/api/me/*) + owner-only report actions. Every handler here runs AFTER
  * auth.ts verified a Firebase ID token; the public tracking reads in api.ts need none.
  *
- *   GET    /api/me                      profile + prefs + saved addresses + following + reporter quota (upserts users/{uid})
- *   PATCH  /api/me                      { displayName?, prefs? }   prefs: emailUpdates · streetDigest · weekDigest (the Monday "This week in Providence" mail, week.ts) · streetWatch (a push when a new case is seen near a saved address, streetwatch.ts) · watchGroups (string[] of picker groups the watch AND the street digest are narrowed to; [] = everything; watchgroups.ts)
+ *   GET    /api/me                      profile + prefs + saved addresses (each with its effective Monday-digest flag) + following + reporter quota (upserts users/{uid})
+ *   PATCH  /api/me                      { displayName?, prefs? }   prefs: emailUpdates · weekDigest (the Monday "This week in Providence" mail, week.ts)
  *   GET    /api/me/reports              reports owned by this account (newest first)
  *   GET    /api/me/following            followed reports
  *   PUT    /api/me/following/:id        follow   (204)
@@ -13,7 +13,7 @@
  *   DELETE /api/me/city/:guid           unfollow             (204)
  *   POST   /api/me/push                 { endpoint, keys: { p256dh, auth }, ua? } → 204: this phone hears pushes (push.ts; upsert by endpoint, ≤ 5 per account, oldest dropped)
  *   DELETE /api/me/push                 { endpoint } → 204 (idempotent)
- *   PUT    /api/me/addresses            { id?, label, address, lat?, lng? } → { addresses }
+ *   PUT    /api/me/addresses            { id?, label, address, lat?, lng?, digest? } → { addresses }   digest: this address in the Monday street digest (street.ts)
  *   DELETE /api/me/addresses/:id        → { addresses }
  *   PATCH  /api/reports/:id             { description } owner-only, while still pending
  *   POST   /api/reports/:id/cancel      owner-only, while still pending → status 'rejected' ("Cancelled by reporter"); refunds its quota slot
@@ -23,7 +23,7 @@ import type { AuthUser } from './auth.js';
 import { quotaFor, refundQuota, type QuotaView } from './quota.js';
 import { CITY_GUID_RE, MAX_CASE_FOLLOWERS, MAX_CITY_FOLLOWING, followedCaseView } from './cityfollow.js';
 import { claimPushEndpoint, parsePushSub, upsertPushSub } from './push.js';
-import { parseWatchGroups, watchGroupsOf } from './watchgroups.js';
+import { addressDigest } from './street.js';
 
 export interface MeDeps { store: Store; project: (r: ReportDoc, viewer?: Viewer) => Record<string, unknown>; admin?: boolean }
 export interface Viewer { uid: string; following: Set<string> }
@@ -60,7 +60,8 @@ export async function ensureUser(store: Store, u: AuthUser): Promise<UserDoc> {
 function projectMe(u: UserDoc, admin: boolean, quota: QuotaView) {
   return {
     admin, uid: u.uid, email: u.email, emailVerified: !!u.emailVerified, displayName: u.displayName ?? null, provider: u.provider,
-    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, streetDigest: u.prefs?.streetDigest === true, weekDigest: u.prefs?.weekDigest === true, streetWatch: u.prefs?.streetWatch === true, watchGroups: watchGroupsOf(u) }, addresses: u.addresses ?? [], following: u.following ?? [],
+    prefs: { emailUpdates: u.prefs?.emailUpdates !== false, weekDigest: u.prefs?.weekDigest === true },
+    addresses: (u.addresses ?? []).map((a) => ({ ...a, digest: addressDigest(a, u) })), following: u.following ?? [],
     cityFollowing: (u.cityFollowing ?? []).slice(0, MAX_CITY_FOLLOWING), createdAt: u.createdAt,
     push: { endpoints: (u.push ?? []).map((s) => s.endpoint) }, // the app matches its own PushSubscription.endpoint to show on/off
     quota,
@@ -78,26 +79,16 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   if (path === '/api/me') {
     if (m === 'GET') return json(projectMe(user, !!deps.admin, await meQuota(store, user)));
     if (m === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown; streetDigest?: unknown; weekDigest?: unknown; streetWatch?: unknown; watchGroups?: unknown } } | null;
+      const body = (await request.json().catch(() => null)) as { displayName?: unknown; prefs?: { emailUpdates?: unknown; weekDigest?: unknown } } | null;
       if (!body) return json({ error: 'invalid_body' }, 400);
       const patch: Record<string, unknown> = {};
       if ('displayName' in body) {
         if (body.displayName !== null && typeof body.displayName !== 'string') return json({ error: 'invalid_name', field: 'displayName' }, 400);
         patch.displayName = body.displayName ? String(body.displayName).trim().slice(0, 80) || null : null;
       }
+      // Any other key (streetDigest — now per address, PUT /api/me/addresses — or a stale client's streetWatch / watchGroups) is ignored.
       if (body.prefs && typeof body.prefs === 'object' && 'emailUpdates' in body.prefs) patch['prefs.emailUpdates'] = body.prefs.emailUpdates === true;
-      if (body.prefs && typeof body.prefs === 'object' && 'streetDigest' in body.prefs) patch['prefs.streetDigest'] = body.prefs.streetDigest === true;
       if (body.prefs && typeof body.prefs === 'object' && 'weekDigest' in body.prefs) patch['prefs.weekDigest'] = body.prefs.weekDigest === true;
-      // Push only, so the pref alone sends nothing: runStreetWatch also needs a subscription on the account (the app hides the
-      // switch until push is on for this phone). Accepted regardless, so a phone that later turns push off keeps the setting.
-      if (body.prefs && typeof body.prefs === 'object' && 'streetWatch' in body.prefs) patch['prefs.streetWatch'] = body.prefs.streetWatch === true;
-      // "Only tell me about…" (watchgroups.ts): the picker groups the watch and the street digest are narrowed to. null or [] = everything;
-      // unknown keys are dropped, duplicates collapse, the order is GROUP_ORDER; anything that is not an array is a 400 and nothing is written.
-      if (body.prefs && typeof body.prefs === 'object' && 'watchGroups' in body.prefs) {
-        const groups = parseWatchGroups(body.prefs.watchGroups);
-        if (!groups) return json({ error: 'invalid_groups', field: 'watchGroups' }, 400);
-        patch['prefs.watchGroups'] = groups;
-      }
       if (Object.keys(patch).length) await store.patchUser(user.uid, patch);
       const fresh = (await store.getUser(user.uid)) ?? user;
       return json(projectMe(fresh, !!deps.admin, await meQuota(store, fresh)));
@@ -181,7 +172,7 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
   }
 
   if (path === '/api/me/addresses' && m === 'PUT') {
-    const body = (await request.json().catch(() => null)) as Partial<SavedAddress> | null;
+    const body = (await request.json().catch(() => null)) as (Omit<Partial<SavedAddress>, 'digest'> & { digest?: unknown }) | null;
     const address = typeof body?.address === 'string' ? body.address.trim() : '';
     if (address.length < 3 || address.length > 300) return json({ error: 'invalid_address', field: 'address' }, 400);
     const label = (typeof body?.label === 'string' ? body.label.trim() : '').slice(0, 40) || address.split(',')[0].slice(0, 40);
@@ -189,21 +180,34 @@ export async function handleMe(request: Request, url: URL, env: Env, deps: MeDep
     const lng = typeof body?.lng === 'number' && Number.isFinite(body.lng) ? body.lng : null;
     if ((lat == null) !== (lng == null)) return json({ error: 'lat_lng_pair', field: 'lat' }, 400);
     const id = typeof body?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(body.id) ? body.id : crypto.randomUUID().slice(0, 8);
-    const addresses = (user.addresses ?? []).filter((a) => a.id !== id);
-    if (addresses.length >= MAX_ADDRESSES) return json({ error: 'too_many', field: 'addresses' }, 400);
-    addresses.unshift({ id, label, address, lat, lng });
-    await store.patchUser(user.uid, { addresses });
-    return json({ addresses });
+    const prev = user.addresses ?? [];
+    const old = prev.find((a) => a.id === id);
+    if (!old && prev.length >= MAX_ADDRESSES) return json({ error: 'too_many', field: 'addresses' }, 400);
+    // A new place starts outside the Monday digest (saving a place to report from no longer subscribes it); an edit keeps
+    // its flag unless the body sets one. An edit stays where it is in the list (a digest switch must not reorder it); a new one goes first.
+    const digest = body && 'digest' in body ? body.digest === true : old ? addressDigest(old, user) : false;
+    const entry: SavedAddress = { id, label, address, lat, lng, digest };
+    return json({ addresses: await saveAddresses(store, user, old ? prev.map((a) => (a.id === id ? entry : a)) : [entry, ...prev]) });
   }
 
   const am = /^\/api\/me\/addresses\/([A-Za-z0-9_-]{1,40})$/.exec(path);
   if (am && m === 'DELETE') {
-    const addresses = (user.addresses ?? []).filter((a) => a.id !== am[1]);
-    await store.patchUser(user.uid, { addresses });
-    return json({ addresses });
+    return json({ addresses: await saveAddresses(store, user, (user.addresses ?? []).filter((a) => a.id !== am[1])) });
   }
 
   return json({ error: 'not_found' }, 404);
+}
+
+/**
+ * Write the saved addresses with every Monday-digest flag explicit — each address's addressDigest as it reads before
+ * the write, which is the migration: an account from before per-address flags had one prefs.streetDigest covering every
+ * address it had, and the first write pins that onto each of them — plus prefs.streetDigest = "some address is on". That
+ * pref is no longer a setting (PATCH ignores it): it is the index runStreetDigest's equality query reads. Returns the list.
+ */
+async function saveAddresses(store: Store, user: UserDoc, list: SavedAddress[]): Promise<SavedAddress[]> {
+  const addresses = list.map((a) => ({ ...a, digest: addressDigest(a, user) }));
+  await store.patchUser(user.uid, { addresses, 'prefs.streetDigest': addresses.some((a) => a.digest) });
+  return addresses;
 }
 
 /** Take this account off a case it no longer lists (trimmed past MAX_CITY_FOLLOWING), so it gets no mail for it. Best effort. */

@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { API, BIG_STACK, BIG_STACK_CASES, DEFAULT_ITEMS, NEAR, PAIR, PAIR_CASES, POINT, PT, SESSION, STACK, STACK_CASES, UNPLACED, detailFor, filler, mapEval, setView, setup, userPan, waitForMap, zoomOf, type Case } from './street-mocks';
 import { GROUP_GLYPHS } from '../src/lib/mapMarkers';
 import { addDays, nyYmd } from '../src/lib/streetMap';
-import { ENDPOINT, IPHONE, pushApi, stubPush } from './push-mocks';
+import { IPHONE, stubPush } from './push-mocks';
 
 // /street — the map-first "My street" page (.claude/street-map-spec.md): one mocked GET /api/street/map, everything else
 // (bbox, counts, clusters, hoods, URL) computed in the browser. Mobile project = iPhone 13 (390×664); one desktop describe.
@@ -1955,227 +1955,61 @@ test('your places this week: no card when no saved address has coordinates (the 
   await expect(card.locator('.street-place-n')).toHaveText(['1 nueva · 1 cerrada', 'nada nuevo']);
 });
 
-test('digest, signed out: the sign-in link returns to this exact URL (point view and case page)', async ({ page }) => {
+// ── The address view's one subscription control (components/StreetDigestCard): a switch + "Manage" ──
+const digestSwitch = (page: Page) => page.getByRole('switch', { name: 'Email me Mondays about this street' });
+const HOME = { id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng };
+const puts = (calls: { method: string; body: unknown }[]) => calls.filter((c) => c.method === 'PUT').map((c) => c.body);
+
+test('digest, signed out: the address view offers sign-in back to this exact URL; the case page has no digest control', async ({ page }) => {
   await point(page);
   const link = page.locator('.street-digest a.btn');
   await expect(link).toHaveText('Sign in to get the weekly email');
   expect(decodeURIComponent((await link.getAttribute('href'))!)).toBe(`/account?returnTo=${POINT}`);
+  await expect(digestSwitch(page)).toHaveCount(0);
   await page.goto(`${POINT}&case=c1`);
   await waitForMap(page);
-  const link2 = page.locator('.case-page .street-digest a.btn');
-  expect(decodeURIComponent((await link2.getAttribute('href'))!)).toBe(`/account?returnTo=${POINT}&case=c1`);
+  await expect(caseDialog(page, 'Pothole')).toBeVisible();
+  await expect(casePage(page).locator('.street-digest')).toHaveCount(0);
 });
 
-test('digest, signed in: one tap saves the address and turns it on; Turn off; already on', async ({ page }) => {
+test('digest, signed in: one switch and "Manage" (→ Account → Updates); on saves this point as a street with its Monday email on, off turns it off and keeps it saved — never a prefs PATCH', async ({ page }) => {
   const calls = await point(page, { signedIn: true });
-  await page.getByRole('button', { name: 'Email me about this street' }).click();
-  await expect(page.locator('.street-digest-on .notice-ok')).toContainText('On — Mondays, for 481 Angell St');
-  expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ label: '481 Angell St', address: '481 Angell St', lat: 41.8282, lng: -71.4005 });
-  expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ prefs: { streetDigest: true } });
-  await page.getByRole('button', { name: 'Turn off' }).click();
-  await expect(page.getByRole('button', { name: 'Email me about this street' })).toBeVisible();
-  expect(calls.filter((c) => c.method === 'PATCH').pop()!.body).toEqual({ prefs: { streetDigest: false } });
+  const card = page.locator('.street-digest');
+  const sw = digestSwitch(page);
+  await expect(sw).toBeEnabled();
+  await expect(sw).not.toBeChecked();
+  await expect(card.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/account/updates');
+  expect((await card.locator('.switch-row').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // The one control: no button, no phone row, no type chips.
+  await expect(card.getByRole('switch')).toHaveCount(1);
+  await expect(card.getByRole('button')).toHaveCount(0);
+  await expect(page.locator('.push-card, .watch-row, .watch-groups')).toHaveCount(0);
+  await sw.click();
+  await expect(sw).toBeChecked();
+  await expect.poll(() => puts(calls)).toEqual([{ label: '481 Angell St', address: '481 Angell St', lat: 41.8282, lng: -71.4005, digest: true }]);
+  await sw.click();
+  await expect(sw).not.toBeChecked();
+  await expect.poll(() => puts(calls)).toHaveLength(2);
+  expect(puts(calls)[1]).toEqual({ id: 'n1', label: '481 Angell St', address: '481 Angell St', lat: 41.8282, lng: -71.4005, digest: false });
+  expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]);
 });
 
-test('digest from the case page: one tap saves that case\'s street and coordinates', async ({ page }) => {
-  const calls = await point(page, { signedIn: true });
-  await page.locator('.street-row-btn[data-id="c1"]').click();
-  await casePage(page).getByRole('button', { name: 'Email me about this street' }).click();
-  await expect(page.locator('.case-page .street-digest-on .notice-ok')).toContainText('for 10 Angell St');
-  expect(calls.filter((c) => c.method === 'PUT').pop()!.body).toEqual({ label: '10 Angell St', address: '10 Angell St', lat: NEAR[0].lat, lng: NEAR[0].lng });
+test('digest, signed in with this street saved: the switch reads its own flag; a tap sends that saved address back whole with the flag flipped', async ({ page }) => {
+  const calls = await point(page, { signedIn: true, me: { addresses: [{ ...HOME, digest: true }] } });
+  await expect(digestSwitch(page)).toBeChecked();
+  await digestSwitch(page).click();
+  await expect(digestSwitch(page)).not.toBeChecked();
+  await expect.poll(() => puts(calls)).toEqual([{ ...HOME, digest: false }]);
+  await digestSwitch(page).click();
+  await expect(digestSwitch(page)).toBeChecked();
+  await expect.poll(() => puts(calls)).toEqual([{ ...HOME, digest: false }, { ...HOME, digest: true }]);
 });
 
-test('case page keys after the digest card swaps its button (focus falls to <body>): Escape still closes the page, Tab and Shift+Tab land inside it', async ({ page }) => {
-  await point(page, { signedIn: true });
-  await page.locator('.street-row-btn[data-id="c1"]').click();
-  const dlg = casePage(page);
-  await expect(dlg).toBeFocused();
-  const onBody = () => page.evaluate(() => document.activeElement === document.body);
-  // Email me, by keyboard: the button gives way to the on-state, and focus goes with it.
-  await dlg.getByRole('button', { name: 'Email me about this street' }).focus();
-  await page.keyboard.press('Enter');
-  await expect(dlg.locator('.street-digest-on .notice-ok')).toContainText('for 10 Angell St');
-  expect(await onBody()).toBe(true);
-  // Tab from there starts at the dialog's first control, Shift+Tab at its last.
-  await page.keyboard.press('Tab');
-  await expect(backMap(page)).toBeFocused();
-  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
-  await page.keyboard.press('Shift+Tab');
-  await expect(dlg.locator('.case-report a')).toBeFocused();
-  // Turn off: the same the other way — and Escape still closes the page, focus back on the row.
-  await dlg.getByRole('button', { name: 'Turn off' }).focus();
-  await page.keyboard.press('Enter');
-  await expect(dlg.getByRole('button', { name: 'Email me about this street' })).toBeVisible();
-  expect(await onBody()).toBe(true);
-  await page.keyboard.press('Escape');
-  await expect(dlg).toHaveCount(0);
-  await expect(page.locator('.street-row-btn[data-id="c1"]')).toBeFocused();
-});
-
-test('digest, signed in with this address saved and on: shows the on state without asking again', async ({ page }) => {
-  await point(page, { signedIn: true, me: { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] } });
-  await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
-});
-
-// ── Street watch (StreetWatchRow): the push-only "tell me right away" checkbox under the phone row in the digest on-state ──
-/** Digest on for Home = 481 Angell St (the point itself), so the on-state — phone row + watch row — renders at once. */
-const WATCH_ME = { prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] };
-const WATCH_NAME = 'Tell me right away when something new is reported near my places';
-const watchRow = (page: Page) => page.locator('.street-digest .watch-row');
-const watchBox = (page: Page) => watchRow(page).getByRole('checkbox', { name: WATCH_NAME });
-
-test('street watch: disabled with the "turn on notifications first" hint while push is off; Turn on arms it; check → PATCH streetWatch true + the on-copy; uncheck → false; push off disarms it', async ({ page }) => {
-  const calls = await setup(page, { signedIn: true, me: WATCH_ME });
-  await pushApi(page);
-  await stubPush(page); // Android, no subscription yet: the phone row reads "off"
-  await page.goto(POINT);
-  await waitForMap(page);
-  const push = page.locator('.street-digest .push-card');
-  await expect(push).toHaveAttribute('data-state', 'off');
-  const row = watchRow(page), box = watchBox(page);
-  await expect(row).toHaveAttribute('data-state', 'needs-push');
-  await expect(box).toBeDisabled();
-  await expect(box).not.toBeChecked();
-  await expect(row.locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
-  // The row sits right under the phone row, inside the on-state.
-  const order = await page.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
-  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row', 'watch-groups']);
-  // Push comes on → the checkbox arms itself with the body copy; the label is the 44 px target.
-  await push.getByRole('button', { name: 'Turn on' }).click();
-  await expect(push).toHaveAttribute('data-state', 'on');
-  await expect(row).toHaveAttribute('data-state', 'off');
-  await expect(box).toBeEnabled();
-  await expect(row.locator('.watch-hint')).toHaveText('A notification on this phone when the city logs a new request within a few blocks of a saved address — usually within half an hour. No email.');
-  expect((await row.locator('.watch-toggle').boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  expect(calls.filter((c) => c.method === 'PATCH')).toEqual([]); // turning push on is not a pref
-  await box.check();
-  await expect(box).toBeChecked();
-  await expect(row).toHaveAttribute('data-state', 'on');
-  await expect(row.locator('.watch-hint')).toHaveText('On — new requests near your places reach this phone right away.');
-  expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ prefs: { streetWatch: true } }]);
-  await box.uncheck();
-  await expect(box).not.toBeChecked();
-  await expect(row).toHaveAttribute('data-state', 'off');
-  expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ prefs: { streetWatch: true } }, { prefs: { streetWatch: false } }]);
-  // Push off again → disarmed (unchecked, so there is nothing left to turn off here).
-  await push.getByRole('button', { name: 'Turn off on this phone' }).click();
-  await expect(push).toHaveAttribute('data-state', 'off');
-  await expect(row).toHaveAttribute('data-state', 'needs-push');
-  await expect(box).toBeDisabled();
-  expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
-});
-
-test('street watch, already on for the account: checked at once when this phone is subscribed; checked but still enabled under the iPhone install hint (so it can be turned off here); no row in a browser that cannot push unless it is on', async ({ page }) => {
-  const ON = { ...WATCH_ME, prefs: { ...WATCH_ME.prefs, streetWatch: true }, push: { endpoints: [ENDPOINT] } };
-  await setup(page, { signedIn: true, me: ON });
-  await stubPush(page, { subscribed: true, permission: 'granted' });
-  await page.goto(POINT);
-  await waitForMap(page);
-  await expect(page.locator('.street-digest .push-card')).toHaveAttribute('data-state', 'on');
-  await expect(watchBox(page)).toBeChecked();
-  await expect(watchBox(page)).toBeEnabled();
-  await expect(watchRow(page)).toHaveAttribute('data-state', 'on');
-
-  // The suite's own iPhone UA in a Safari tab: the install hint above, the checkbox checked and enabled below.
-  await setup(page, { signedIn: true, me: ON });
-  await stubPush(page, { ua: IPHONE, pushManager: false });
-  await page.goto(POINT);
-  await waitForMap(page);
-  await expect(page.locator('.street-digest .push-card')).toHaveAttribute('data-state', 'ios-needs-install');
-  await expect(watchBox(page)).toBeChecked();
-  await expect(watchBox(page)).toBeEnabled();
-  await expect(watchRow(page)).toHaveAttribute('data-state', 'needs-push');
-  await expect(watchRow(page).locator('.watch-hint')).toHaveText('Turn on phone notifications first.');
-
-  // A browser with no push at all and the watch off: the phone row renders nothing, so neither does the watch row.
-  await setup(page, { signedIn: true, me: WATCH_ME });
-  await stubPush(page, { pushManager: false });
-  await page.goto(POINT);
-  await waitForMap(page);
-  await expect(page.locator('.street-digest-on .notice-ok')).toContainText('for Home');
-  await expect(page.locator('.street-digest .push-card')).toHaveCount(0);
-  await expect(watchRow(page)).toHaveCount(0);
-});
-
-// ── Only tell me about (WatchGroups): the group chips closing the digest on-state, under the watch row ──
-const groups = (page: Page) => page.locator('.street-digest .watch-groups');
-const gchip = (page: Page, name: string) => groups(page).getByRole('button', { name, exact: true });
-const prefPatches = (calls: { method: string; body: unknown }[]) => calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
-const GROUP_LABELS = ['All', 'Trash', 'Streets', 'Traffic', 'Trees', 'Property', 'Lights', 'Nuisance', 'Water', 'Animals', 'Other'];
-
-test('watch groups: All pressed with nothing saved, the rail closes the on-state; two taps in one tick → ONE PATCH watchGroups after the debounce, in GROUP_ORDER order; untap → the rest; All clears → []; All again sends nothing', async ({ page }) => {
-  const calls = await setup(page, { signedIn: true, me: { ...WATCH_ME, push: { endpoints: [ENDPOINT] } } });
-  await stubPush(page, { subscribed: true, permission: 'granted' });
-  await page.goto(POINT);
-  await waitForMap(page);
-  const g = groups(page);
-  await expect(g.locator('.watch-groups-title')).toHaveText('Only tell me about');
-  await expect(g.locator('.watch-groups-hint')).toHaveText('Applies to the weekly email and the instant notifications near your places.');
-  const order = await page.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]));
-  expect(order).toEqual(['notice', 'btn', 'push-card', 'watch-row', 'watch-groups']);
-  await expect(g.getByRole('button')).toHaveText(GROUP_LABELS);
-  await expect(g.getByRole('group', { name: 'Only tell me about' })).toHaveCount(1);
-  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
-  for (const name of GROUP_LABELS.slice(1)) await expect(gchip(page, name)).toHaveAttribute('aria-pressed', 'false');
-  await expect(g).toHaveAttribute('data-n', '0');
-  expect((await gchip(page, 'All').boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  expect((await gchip(page, 'Trash').boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  // Two taps in one tick, well inside the 400 ms: both pressed at once, All released, one PATCH carrying both (trash first).
-  await g.evaluate((el) => { (el.querySelector('[data-group="streets"]') as HTMLElement).click(); (el.querySelector('[data-group="trash"]') as HTMLElement).click(); });
-  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true');
-  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'true');
-  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
-  await expect(g).toHaveAttribute('data-n', '2');
-  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: ['trash', 'streets'] } }]);
-  await page.waitForTimeout(500);
-  expect(prefPatches(calls)).toHaveLength(1); // nothing else trickled out, and the chips kept the Worker's answer
-  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'true');
-  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'true');
-  // Untap Trash → the rest.
-  await gchip(page, 'Trash').click();
-  await expect(gchip(page, 'Trash')).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: ['trash', 'streets'] } }, { prefs: { watchGroups: ['streets'] } }]);
-  // All clears.
-  await gchip(page, 'All').click();
-  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
-  await expect(gchip(page, 'Streets')).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => prefPatches(calls)).toHaveLength(3);
-  expect(prefPatches(calls)[2]).toEqual({ prefs: { watchGroups: [] } });
-  // All when already All: nothing to send.
-  await gchip(page, 'All').click();
-  await page.waitForTimeout(600);
-  expect(prefPatches(calls)).toHaveLength(3);
-  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-});
-
-test('watch groups: a saved selection is pressed on load (All released; a key this app does not know is ignored); on the case page where the pressed Follow toggle owns the phone row the rail still closes the digest on-state, with no watch row above it', async ({ page }) => {
-  await setup(page, { signedIn: true, me: { ...WATCH_ME, prefs: { ...WATCH_ME.prefs, watchGroups: ['lights', 'bogus'] }, push: { endpoints: [ENDPOINT] } } });
-  await stubPush(page, { subscribed: true, permission: 'granted' });
-  await page.goto(POINT);
-  await waitForMap(page);
-  await expect(gchip(page, 'Lights')).toHaveAttribute('aria-pressed', 'true');
-  await expect(gchip(page, 'All')).toHaveAttribute('aria-pressed', 'false');
-  await expect(groups(page)).toHaveAttribute('data-n', '1');
-
-  // Case c1 (10 Angell St, ~40 m from Home, so the digest is on for its street), followed: the Follow toggle carries the
-  // phone row; the digest card has neither phone row nor watch row, but the digest is on, so the groups still apply.
-  const calls = await setup(page, { signedIn: true, me: { ...WATCH_ME, cityFollowing: ['c1'], prefs: { ...WATCH_ME.prefs, watchGroups: ['lights'] } } });
-  await pushApi(page);
-  await stubPush(page);
-  await page.goto(`${POINT}&case=c1`);
-  await waitForMap(page);
-  const detail = casePage(page);
-  await expect(detail.locator('.street-follow-btn')).toHaveAttribute('aria-pressed', 'true');
-  await expect(detail.locator('.street-digest .push-card')).toHaveCount(0);
-  await expect(detail.locator('.street-digest .watch-row')).toHaveCount(0);
-  expect(await detail.locator('.street-digest-on').evaluate((el) => Array.from(el.children).map((c) => c.className.split(' ')[0]))).toEqual(['notice', 'btn', 'watch-groups']);
-  const lights = detail.locator('.watch-groups [data-group="lights"]');
-  await expect(lights).toHaveAttribute('aria-pressed', 'true');
-  await lights.click();
-  await expect(lights).toHaveAttribute('aria-pressed', 'false');
-  await expect(detail.locator('.watch-groups .watch-chip-all')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => prefPatches(calls)).toEqual([{ prefs: { watchGroups: [] } }]);
+test('digest: a failed save puts the switch back and says so', async ({ page }) => {
+  await point(page, { signedIn: true, addressStatus: 500 });
+  await digestSwitch(page).click();
+  await expect(page.locator('.street-digest [role="alert"]')).toHaveText("Couldn't save that. Try again.");
+  await expect(digestSwitch(page)).not.toBeChecked();
 });
 
 test('follow, signed out: the top bar\'s Follow is a sign-in link (named for it) that returns to this exact URL; no toggle', async ({ page }) => {
@@ -2242,8 +2076,8 @@ test('follow, signed in: Follow → PUT /api/me/city/:id, the toggle pressed ("�
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => forCase('c2')).toEqual(['DELETE']);
-  // The digest card is there in the page.
-  await expect(card.locator('.street-digest')).toBeVisible();
+  // Subscriptions live in Account → Updates: no digest card and no phone row on the case page.
+  await expect(card.locator('.street-digest, .push-card')).toHaveCount(0);
 });
 
 test('follow, signed in: a failed PUT reverts the toggle and says so under the title', async ({ page }) => {
@@ -2311,7 +2145,7 @@ test('follow, account not loaded: the toggle reads off (aria-disabled) with "Loa
 });
 
 test('follow, when no mail would come: email updates off or an unverified address → "Following" without the promise, and a hint under the title that links to Account', async ({ page }) => {
-  await point(page, { signedIn: true, me: { cityFollowing: ['c1'], prefs: { emailUpdates: false, streetDigest: false } } });
+  await point(page, { signedIn: true, me: { cityFollowing: ['c1'], prefs: { emailUpdates: false } } });
   await page.locator('.street-row-btn[data-id="c1"]').click();
   const card = casePage(page);
   const toggle = card.locator('.street-follow-btn');
@@ -2319,7 +2153,7 @@ test('follow, when no mail would come: email updates off or an unverified addres
   await expect(toggle).toHaveText(/^✓?\s*Following$/);
   const hint = card.locator('.street-follow-hint');
   await expect(hint).toHaveText("Email updates are off for your account, so you won't hear about changes. Fix this in Account");
-  await expect(hint.getByRole('link', { name: 'Fix this in Account' })).toHaveAttribute('href', '/account');
+  await expect(hint.getByRole('link', { name: 'Fix this in Account' })).toHaveAttribute('href', '/account/updates');
   await expect(card.locator('.street-follow-note')).toHaveCount(0);
 
   await point(page, { signedIn: true, me: { cityFollowing: ['c1'], emailVerified: false } });

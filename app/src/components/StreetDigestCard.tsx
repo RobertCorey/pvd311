@@ -1,29 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
-import { getMe, saveAddress, updateMe, type Me } from '../api/me';
+import { saveAddress, setAddressDigest, type Me } from '../api/me';
 import { useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { metersBetween } from '../lib/streetMap';
-import PushCard, { type PushState } from './PushCard';
-import StreetWatchRow from './StreetWatchRow';
-import WatchGroups from './WatchGroups';
 import './StreetParts.css';
 
-/** "Hear about this street every week": the one-tap opt-in to the Monday street digest, bound to a point.
+/** "Email me Mondays about this street": the /street address view's one subscription control, bound to the point.
  *    signed out → a sign-in link that returns to `returnTo`
- *    signed in, off → ONE tap: PUT /api/me/addresses (unless a saved address is already this place) then
- *                     PATCH /api/me {prefs:{streetDigest:true}}; disabled until the account has loaded
- *    signed in, on  → "On — Mondays, for <label>", Turn off, the "Notify me on this phone" row (PushCard) and under it
- *                     the street-watch checkbox (StreetWatchRow), armed only while that row reports this phone as on,
- *                     then the "Only tell me about" group chips (WatchGroups) — the digest is on here, so they always
- *                     apply, with or without the two phone rows (`push`)
- *  "This place" = a saved address within SAME_PLACE_M of the point, or the same address line (case-insensitive).
- *  Lives on /street (the point view and the case card) and on the tracking page's "Near this request" section.
- *  The account is either the parent's (`account`: /street shares one GET /api/me with its Follow toggle and the
- *  "Your places" row) or the card's own, loaded here while signed in. */
+ *    signed in  → one switch (the saved address's `digest`) and "Manage" → Account → Updates, where every street is.
+ *                 On: PUT /api/me/addresses — the saved address with digest true, or a new one for this point.
+ *                 Off: the same PUT with digest false (the address stays saved). Disabled until the account has loaded.
+ *  "This place" = a saved address within SAME_PLACE_M of the point, or the same address line (case-insensitive). */
 
-/** A saved address this close to the point counts as the same place (the digest is already on for it). */
+/** A saved address this close to the point counts as the same place. */
 export const SAME_PLACE_M = 60;
 
 /** The saved address's short name for a full address line: the part before the first comma, at most 40 characters
@@ -33,81 +24,49 @@ export const addressLabel = (address: string): string => address.split(',')[0].t
 export interface StreetDigestCardProps {
   lat: number;
   lng: number;
-  /** The saved address's short name (≤ 40 chars; see addressLabel). Blank → t('street.digest.defaultLabel'). */
-  label: string;
-  /** The full address line: saved as the address, and matched against the account's saved ones. */
+  /** The address line: saved as the address (and its short label), and matched against the account's saved ones. */
   address: string;
-  /** Analytics only: where the card lives. */
-  from: 'point' | 'case' | 'track';
   /** Where the sign-in link returns to — the caller's exact URL (lib/auth takeReturnTo allowlist). */
   returnTo: string;
-  /** Whether the on-state carries the "Notify me on this phone" row (off when a pressed Follow toggle on the same
-   *  case card already shows it, so the card never has two). */
-  push?: boolean;
-  /** The parent's account state, when it already loads GET /api/me; the card reports PUT/PATCH results through
-   *  `onMe`. Omitted → the card loads the account itself while signed in. */
-  account?: { me: Me | null; onMe: (me: Me) => void };
+  /** The page's account (null while loading); the PUT's addresses go back through `onMe`. */
+  me: Me | null;
+  onMe: (me: Me) => void;
 }
 
-export default function StreetDigestCard({ lat, lng, label, address, from, returnTo, push = true, account }: StreetDigestCardProps) {
+export default function StreetDigestCard({ lat, lng, address, returnTo, me, onMe }: StreetDigestCardProps) {
   const t = useT();
   const session = useSession();
-  const [ownMe, setOwnMe] = useState<Me | null>(null);
-  const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
-  const [pushState, setPushState] = useState<PushState | undefined>(undefined);
-  const owned = account === undefined;
-  useEffect(() => {
-    if (!owned) return;
-    if (!session) { setOwnMe(null); return; }
-    let live = true;
-    getMe().then((m) => { if (live) setOwnMe(m); }).catch(() => { /* the button stays disabled until a reload */ });
-    return () => { live = false; };
-  }, [owned, session]);
-  const me = account ? account.me : ownMe;
-  const setMe = account ? account.onMe : setOwnMe;
+  const [pending, setPending] = useState<boolean | null>(null); // the optimistic value while the PUT is in flight
+  const [error, setError] = useState(false);
 
-  const name = (label.trim() || t('street.digest.defaultLabel')).slice(0, 40);
   const line = address.trim().toLowerCase();
   const saved = me?.addresses.find((a) => (a.lat != null && a.lng != null && metersBetween(a.lat, a.lng, lat, lng) < SAME_PLACE_M) || (line !== '' && a.address.trim().toLowerCase() === line)) ?? null;
-  const on = !!(me?.prefs.streetDigest && saved);
-  const pushFrom = from === 'case' ? 'case' : from === 'track' ? 'track' : 'street';
+  const checked = pending ?? saved?.digest === true;
 
-  async function enable() {
-    setState('saving');
+  async function toggle(on: boolean) {
+    if (!me || pending !== null) return;
+    setPending(on); setError(false);
     try {
-      let addresses = me?.addresses ?? [];
-      if (!saved) addresses = (await saveAddress({ label: name, address: address.trim() || name, lat, lng })).addresses;
-      const fresh = await updateMe({ prefs: { streetDigest: true } });
-      setMe({ ...fresh, addresses: fresh.addresses?.length ? fresh.addresses : addresses });
-      setState('idle');
-      track('street_digest_on', { from });
-    } catch { setState('error'); }
-  }
-  async function disable() {
-    setState('saving');
-    try { setMe(await updateMe({ prefs: { streetDigest: false } })); setState('idle'); track('street_digest_off', { from }); } catch { setState('error'); }
+      const name = (addressLabel(address) || t('street.digest.defaultLabel')).slice(0, 40);
+      const r = saved ? await setAddressDigest(saved, on) : await saveAddress({ label: name, address: address.trim() || name, lat, lng, digest: true });
+      onMe({ ...me, addresses: r.addresses });
+      track(on ? 'street_digest_on' : 'street_digest_off', { from: 'street' });
+    } catch { setError(true); } finally { setPending(null); }
   }
 
   return (
     <div className="card street-digest">
-      <h3>{t('street.digest.title')}</h3>
-      <p className="muted">{t('street.digest.body')}</p>
-      {!session && <Link to={`/account?returnTo=${encodeURIComponent(returnTo)}`} className="btn btn-secondary">{t('street.digest.signIn')}</Link>}
-      {session && !on && (
-        <button type="button" className="btn btn-primary" onClick={() => void enable()} disabled={state === 'saving' || !me}>
-          {state === 'saving' ? t('street.digest.saving') : t('street.digest.cta')}
-        </button>
-      )}
-      {session && on && (
-        <div className="street-digest-on">
-          <p className="notice notice-ok" role="status">{t('street.digest.on', { label: saved?.label ?? name })}</p>
-          <button type="button" className="btn btn-ghost" onClick={() => void disable()} disabled={state === 'saving'}>{t('street.digest.off')}</button>
-          {push && <PushCard me={me} from={pushFrom} onState={setPushState} />}
-          {push && <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from={pushFrom} />}
-          <WatchGroups me={me} onMe={setMe} from={pushFrom} />
+      {!session ? <Link to={`/account?returnTo=${encodeURIComponent(returnTo)}`} className="btn btn-secondary">{t('street.digest.signIn')}</Link> : (
+        <div className="street-digest-row">
+          <label className="switch-row">
+            <span>{t('street.digest.switch')}</span>
+            <input type="checkbox" role="switch" className="switch" checked={checked} disabled={!me} aria-busy={pending !== null || undefined}
+              onChange={(e) => void toggle(e.target.checked)} />
+          </label>
+          <Link to="/account/updates" className="street-digest-manage">{t('street.digest.manage')}</Link>
         </div>
       )}
-      {state === 'error' && <p className="hint" role="alert">{t('street.digest.error')}</p>}
+      {error && <p className="hint" role="alert">{t('street.digest.error')}</p>}
     </div>
   );
 }

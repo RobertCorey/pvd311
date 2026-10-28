@@ -333,7 +333,7 @@ describe('relay: city asks in, owner answers out', () => {
     expect((d.mailer.sendTo as any).mock.calls[0][1]).toBe("We couldn't send your answer (PVD2026-90113)");
     expect((d.mailer.sendTo as any).mock.calls[0][2]).toContain('already closed');
   });
-  it('a reply to other mail (status mail says "Reply to stop updates") or a bare "stop" is never an answer', async () => {
+  it('a reply to other mail (older status mail said "Reply to stop updates") or a bare "stop" is never an answer', async () => {
     const status = deps(asked());
     expect(await handleInbound(inbound(raw({ from: 'owner@example.com', subject: 'Re: The city assigned your request (PVD2026-90113)', text: 'thanks!' }), 'owner@example.com'), env, status)).toMatchObject({ kind: 'reply' });
     const stop = deps(asked());

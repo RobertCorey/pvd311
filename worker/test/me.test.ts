@@ -102,82 +102,116 @@ describe('PUT / DELETE /api/me/city/:guid', () => {
   });
 });
 
-describe('PATCH /api/me prefs.streetWatch (streetwatch.ts)', () => {
-  const patch = (s: ReturnType<typeof memStore>, token: string, body: unknown) =>
-    handleApi(new Request('https://api.test/api/me', { method: 'PATCH', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) }), env, { store: s.store }) as Promise<Response>;
+const send = (s: ReturnType<typeof memStore>, token: string, method: string, path: string, body?: unknown) =>
+  handleApi(new Request(`https://api.test${path}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), env, { store: s.store }) as Promise<Response>;
 
-  /** memStore merges shallowly; the route writes Firestore dotted paths ('prefs.streetWatch'), so nest them here as the Store would. */
-  const withDottedPatch = (s: ReturnType<typeof memStore>) => {
-    (s.store as unknown as { patchUser: Store['patchUser'] }).patchUser = async (uid, f) => {
-      const u: Record<string, unknown> = { ...(s.users.get(uid) ?? {}) };
-      for (const [k, v] of Object.entries(f)) {
-        const dot = k.indexOf('.');
-        if (dot < 0) { u[k] = v; continue; }
-        const [head, tail] = [k.slice(0, dot), k.slice(dot + 1)];
-        u[head] = { ...((u[head] ?? {}) as Record<string, unknown>), [tail]: v };
-      }
-      s.users.set(uid, u as unknown as UserDoc);
-    };
+/** memStore merges shallowly; the routes write Firestore dotted paths ('prefs.weekDigest'), so nest them here as the Store would. */
+const withDottedPatch = (s: ReturnType<typeof memStore>) => {
+  (s.store as unknown as { patchUser: Store['patchUser'] }).patchUser = async (uid, f) => {
+    const u: Record<string, unknown> = { ...(s.users.get(uid) ?? {}) };
+    for (const [k, v] of Object.entries(f)) {
+      const dot = k.indexOf('.');
+      if (dot < 0) { u[k] = v; continue; }
+      const [head, tail] = [k.slice(0, dot), k.slice(dot + 1)];
+      u[head] = { ...((u[head] ?? {}) as Record<string, unknown>), [tail]: v };
+    }
+    s.users.set(uid, u as unknown as UserDoc);
+  };
+  return s;
+};
+
+describe('PATCH /api/me prefs', () => {
+  it('GET answers emailUpdates + weekDigest only; the cut street watch\'s keys and the old account-wide streetDigest are ignored, not stored', async () => {
+    const s = withDottedPatch(memStore());
+    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, weekDigest: false });
+    const me = (await (await send(s, 'alice', 'PATCH', '/api/me', { prefs: { streetWatch: true, watchGroups: ['streets'], streetDigest: true, weekDigest: true } })).json()) as any;
+    expect(me.prefs).toEqual({ emailUpdates: true, weekDigest: true });
+    expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, weekDigest: true });
+  });
+
+  it('a stored stale street-watch pref is never returned', async () => {
+    const s = withDottedPatch(memStore());
+    await call(s, 'alice', '/api/me');
+    const u = s.users.get('uid_alice')!;
+    s.users.set('uid_alice', { ...u, prefs: { ...u.prefs, streetWatch: true, watchGroups: ['streets'] } as UserDoc['prefs'] });
+    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, weekDigest: false });
+  });
+});
+
+describe('the Monday street digest, per saved address (PUT / DELETE /api/me/addresses)', () => {
+  const HOME = { label: 'Home', address: '12 Angell St', lat: 41.8282, lng: -71.4005 };
+  const WORK = { label: 'Work', address: '1 Dorrance St', lat: 41.821, lng: -71.412 };
+  const put = async (s: ReturnType<typeof memStore>, body: unknown) => (await (await send(s, 'alice', 'PUT', '/api/me/addresses', body)).json()) as any;
+  const flags = (list: { id: string; digest?: boolean }[]) => list.map((a) => `${a.id}:${a.digest}`);
+  /** An account from before per-address flags: one prefs.streetDigest for all its places. */
+  const legacy = (s: ReturnType<typeof memStore>, streetDigest: boolean) => {
+    s.users.set('uid_alice', {
+      uid: 'uid_alice', email: 'alice@example.com', emailVerified: true, displayName: null, provider: 'google.com', createdAt: '2026-10-01T00:00:00Z', lastSeenAt: '2026-10-01T00:00:00Z',
+      prefs: { emailUpdates: true, streetDigest }, addresses: [{ id: 'home', ...HOME }, { id: 'work', ...WORK }], following: [],
+    });
     return s;
   };
 
-  it('is off by default, turns on and off as a boolean, and leaves the other prefs alone', async () => {
+  it('a new address starts off (saving a place does not subscribe it); digest:true turns one on, and prefs.streetDigest says "some address is on"', async () => {
     const s = withDottedPatch(memStore());
-    expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: false, watchGroups: [] });
-    let me = (await (await patch(s, 'alice', { prefs: { streetWatch: true } })).json()) as any;
-    expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true, watchGroups: [] });
-    expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, streetWatch: true }); // written as the dotted path 'prefs.streetWatch'
-    me = (await (await patch(s, 'alice', { prefs: { streetDigest: true } })).json()) as any;
-    expect(me.prefs).toMatchObject({ streetDigest: true, streetWatch: true });
-    me = (await (await patch(s, 'alice', { prefs: { streetWatch: 'yes' } })).json()) as any; // anything but true is off
-    expect(me.prefs.streetWatch).toBe(false);
+    let r = await put(s, { id: 'home', ...HOME });
+    expect(r.addresses).toEqual([{ id: 'home', ...HOME, digest: false }]);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(false);
+    r = await put(s, { id: 'work', ...WORK, digest: true });
+    expect(flags(r.addresses)).toEqual(['work:true', 'home:false']); // a new one goes first
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(true);
+    const me = (await (await call(s, 'alice', '/api/me')).json()) as any;
+    expect(me.addresses).toEqual([{ id: 'work', ...WORK, digest: true }, { id: 'home', ...HOME, digest: false }]);
+    expect(me.prefs).not.toHaveProperty('streetDigest');
   });
 
-  describe('prefs.watchGroups — "Only tell me about…" (watchgroups.ts)', () => {
-    const ALL = ['trash', 'streets', 'traffic', 'trees', 'property', 'lights', 'nuisance', 'water', 'animals', 'other'];
+  it('an edit stays in place and keeps its flag unless the body sets one; anything but true is off', async () => {
+    const s = withDottedPatch(memStore());
+    await put(s, { id: 'home', ...HOME, digest: true });
+    await put(s, { id: 'work', ...WORK });
+    let r = await put(s, { id: 'home', ...HOME, label: 'House' }); // no digest in the body: still on, still second
+    expect(r.addresses.map((a: any) => `${a.id}:${a.label}:${a.digest}`)).toEqual(['work:Work:false', 'home:House:true']);
+    r = await put(s, { id: 'home', ...HOME, digest: 'yes' });
+    expect(flags(r.addresses)).toEqual(['work:false', 'home:false']);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(false);
+  });
 
-    it('defaults to [] (everything), stores the known groups deduped in GROUP_ORDER as the dotted path prefs.watchGroups, and leaves the other prefs alone', async () => {
-      const s = withDottedPatch(memStore());
-      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual([]);
-      await patch(s, 'alice', { prefs: { streetWatch: true } });
-      let me = (await (await patch(s, 'alice', { prefs: { watchGroups: ['streets', 'trash', 'streets', 'bogus', 7, null] } })).json()) as any;
-      expect(me.prefs).toEqual({ emailUpdates: true, streetDigest: false, weekDigest: false, streetWatch: true, watchGroups: ['trash', 'streets'] }); // deduped, unknowns dropped, GROUP_ORDER
-      expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, streetWatch: true, watchGroups: ['trash', 'streets'] });
-      me = (await (await patch(s, 'alice', { prefs: { streetDigest: true } })).json()) as any; // another pref: the selection stays
-      expect(me.prefs).toMatchObject({ streetDigest: true, watchGroups: ['trash', 'streets'] });
-      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual(['trash', 'streets']);
-    });
+  it('migration: an old account-wide "on" means every address it had; the first write pins that on each, and a new address still starts off', async () => {
+    const s = withDottedPatch(legacy(memStore(), true));
+    expect(flags(((await (await call(s, 'alice', '/api/me')).json()) as any).addresses)).toEqual(['home:true', 'work:true']);
+    let r = await put(s, { id: 'park', label: 'Park', address: '1 Hope St' });
+    expect(flags(r.addresses)).toEqual(['park:false', 'home:true', 'work:true']);
+    expect(flags(s.users.get('uid_alice')!.addresses)).toEqual(['park:false', 'home:true', 'work:true']); // stored explicit, not just answered
+    r = await put(s, { id: 'home', ...HOME, digest: false });
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(true); // work is still on
+    r = await put(s, { id: 'work', ...WORK, digest: false });
+    expect(flags(r.addresses)).toEqual(['park:false', 'home:false', 'work:false']);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(false);
+  });
 
-    it('[] and null clear it back to everything; all ten (with repeats) store exactly the ten, never more', async () => {
-      const s = withDottedPatch(memStore());
-      await patch(s, 'alice', { prefs: { watchGroups: ['lights'] } });
-      expect(((await (await patch(s, 'alice', { prefs: { watchGroups: [] } })).json()) as any).prefs.watchGroups).toEqual([]);
-      await patch(s, 'alice', { prefs: { watchGroups: ['lights'] } });
-      expect(((await (await patch(s, 'alice', { prefs: { watchGroups: null } })).json()) as any).prefs.watchGroups).toEqual([]);
-      expect(s.users.get('uid_alice')!.prefs.watchGroups).toEqual([]);
-      const me = (await (await patch(s, 'alice', { prefs: { watchGroups: [...ALL, ...ALL, 'nope'].reverse() } })).json()) as any;
-      expect(me.prefs.watchGroups).toEqual(ALL);
-      expect(me.prefs.watchGroups).toHaveLength(10);
-    });
+  it('migration: an old "off" stays off for every address when another is turned on (the new flag does not leak through the account-wide value)', async () => {
+    const s = withDottedPatch(legacy(memStore(), false));
+    const r = await put(s, { id: 'park', label: 'Park', address: '1 Hope St', lat: 41.83, lng: -71.40, digest: true });
+    expect(flags(r.addresses)).toEqual(['park:true', 'home:false', 'work:false']);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(true);
+    expect(flags(((await (await call(s, 'alice', '/api/me')).json()) as any).addresses)).toEqual(['park:true', 'home:false', 'work:false']);
+  });
 
-    it('anything that is not an array is 400 invalid_groups and writes nothing — not even the other prefs in the same body', async () => {
-      const s = withDottedPatch(memStore());
-      await patch(s, 'alice', { prefs: { watchGroups: ['water'] } });
-      for (const bad of ['streets', 1, { streets: true }, true]) {
-        const r = await patch(s, 'alice', { prefs: { watchGroups: bad, streetWatch: true } });
-        expect(r.status).toBe(400);
-        expect(await r.json()).toEqual({ error: 'invalid_groups', field: 'watchGroups' });
-      }
-      expect(s.users.get('uid_alice')!.prefs).toEqual({ emailUpdates: true, watchGroups: ['water'] }); // streetWatch never landed
-    });
+  it('DELETE of the last address that was on clears prefs.streetDigest; the rest keep explicit flags', async () => {
+    const s = withDottedPatch(legacy(memStore(), true));
+    let r = (await (await send(s, 'alice', 'DELETE', '/api/me/addresses/home')).json()) as any;
+    expect(r.addresses).toEqual([{ id: 'work', ...WORK, digest: true }]);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(true);
+    r = (await (await send(s, 'alice', 'DELETE', '/api/me/addresses/work')).json()) as any;
+    expect(r.addresses).toEqual([]);
+    expect(s.users.get('uid_alice')!.prefs.streetDigest).toBe(false);
+  });
 
-    it('a corrupt stored value reads as everything', async () => {
-      const s = withDottedPatch(memStore());
-      await call(s, 'alice', '/api/me');
-      const u = s.users.get('uid_alice')!;
-      s.users.set('uid_alice', { ...u, prefs: { ...u.prefs, watchGroups: 'streets' as unknown as never } });
-      expect(((await (await call(s, 'alice', '/api/me')).json()) as any).prefs.watchGroups).toEqual([]);
-    });
+  it('still caps the list at 10 — an edit of a saved one is not a new one', async () => {
+    const s = withDottedPatch(memStore());
+    for (let i = 0; i < 10; i++) await put(s, { id: `a${i}`, label: `A${i}`, address: `${i} Hope St` });
+    expect((await send(s, 'alice', 'PUT', '/api/me/addresses', { id: 'a10', label: 'A10', address: '10 Hope St' })).status).toBe(400);
+    expect(flags((await put(s, { id: 'a3', label: 'A3', address: '3 Hope St', digest: true })).addresses)[6]).toBe('a3:true');
   });
 });
 

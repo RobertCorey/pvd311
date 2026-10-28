@@ -1,7 +1,7 @@
 /* The case page (components/StreetCasePage.tsx, 2026-10-27): a modal over /street, portalled to <body>. Phones: the
    whole screen, tab bar included. ≥ 720 px: a centred card over a dimmed backdrop. Ember & Harbor: ink on surface,
-   2 px ink frames, --ember only in the icons and the focus ring. The rows (StreetRow), the pill and the digest card
-   keep their StreetParts.css look. */
+   2 px ink frames, --ember only in the icons and the focus ring. The rows (StreetRow) and the pill keep their
+   StreetParts.css look. */
 
 body.has-case { overflow: hidden; }
 
@@ -86,7 +86,6 @@ body.has-case { overflow: hidden; }
 .case-section .street-h { margin: 0 0 8px; }
 .case-page .street-note { margin: 0; }
 .case-nearby-hint { margin: -4px 0 8px; }
-.case-page .street-digest { margin-top: 18px; }
 .case-report { margin: 18px 0 0; }
 .case-report .btn { width: auto; min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; text-decoration: none; }
 /* The detail skeleton: three static ink-soft bars (no spinner), the height of a short timeline. */

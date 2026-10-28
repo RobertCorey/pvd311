@@ -338,7 +338,7 @@ export default function Track() {
         </div>
       </div>
 
-      {/* The city's cases around this spot + the weekly digest for it: the moment right after filing is when the street matters most. */}
+      {/* How many of the city's cases are open around this spot, and the map: the moment right after filing is when the street matters most. */}
       {view.lat != null && view.lng != null && <TrackNear id={id!} view={view} />}
 
       {notFiled || cancelled ? (

@@ -1,11 +1,14 @@
 /**
- * notify.ts — who gets a reporter-facing status email for a report, and what the city-status email says.
+ * notify.ts — who gets a reporter-facing status email for a report, and what the city-status email (and its push to
+ * the owner's phones) says.
  *   reporterEmail (unless the owning account turned email updates off)
  *   + followerUids → users/{uid}.email when that account's prefs.emailUpdates is on
  * De-duplicated, lowercase. Never throws (a broken user doc just drops that recipient).
+ * Every resident mail's footer links to Account → Updates (updatesLine), the one place to change what we send.
  */
 import type { ReportDoc, Store, Mailer } from './contracts.js';
 import type { EmailKind } from './emaillog.js';
+import type { PushPayload } from './push.js';
 
 export async function recipientsFor(store: Store, report: ReportDoc, opts: { excludeOwner?: boolean } = {}): Promise<string[]> {
   const out = new Set<string>();
@@ -56,16 +59,32 @@ const STATUS_PHRASE: Record<string, string> = {
 };
 export const statusPhrase = (status: string): string => STATUS_PHRASE[status] ?? 'The city updated your request';
 
+/** Account → Updates in the app, where people change what they hear from us (Rob, 2026-10-28: settings live only there). */
+export const updatesUrl = (base: string): string => `${base.replace(/\/+$/, '')}/account/updates`;
+
+/** The sentence every resident mail's footer carries (report status, filed, city copy, city follow, both Monday digests). */
+export const updatesLine = (base: string): string => `Change or stop these emails under <a href="${esc(updatesUrl(base))}">Account → Updates</a>.`;
+
 /** Subject + HTML for the watcher's "city status changed" email. `resolution` = the city's Resolution Message, verbatim. */
-export function statusChangeEmail(o: { category: string; address: string; caseId: string; status: string; trackUrl: string; resolution: string | null }): { subject: string; html: string } {
+export function statusChangeEmail(o: { category: string; address: string; caseId: string; status: string; trackUrl: string; resolution: string | null; base: string }): { subject: string; html: string } {
   const phrase = statusPhrase(o.status);
   const note = o.resolution
     ? `<p style="margin-bottom:4px">The city's note:</p><blockquote style="margin:0 0 1em;padding:8px 12px;border-left:3px solid #ccc;white-space:pre-wrap">${esc(o.resolution)}</blockquote>`
     : '';
   const html = `<p>${esc(phrase)}: your ${esc(o.category.replace(/_/g, ' '))} report at ${esc(o.address)} (city case <b>${esc(o.caseId)}</b>).</p>`
     + `<p>City status: <b>${esc(o.status)}</b></p>${note}`
-    + `<p><a href="${esc(o.trackUrl)}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`;
+    + `<p><a href="${esc(o.trackUrl)}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(o.base)}</p>`;
   return { subject: `${phrase} (${o.caseId})`, html };
+}
+
+/**
+ * The same status move as a push (push.ts) to the report owner's phones: title = the mail's phrase ("The city closed
+ * your request"), body "<category> at <address> — <status>" plus " · " and the first 80 characters of the city's note
+ * when there is one, url = the tracking page, tag = the report, so a later move replaces the earlier notification.
+ */
+export function statusChangePush(o: { reportId: string; category: string; address: string; status: string; trackUrl: string; resolution: string | null }): PushPayload {
+  const note = o.resolution ? ` · ${o.resolution.replace(/\s+/g, ' ').trim().slice(0, 80)}` : '';
+  return { title: statusPhrase(o.status), body: `${o.category.replace(/_/g, ' ')} at ${o.address} — ${o.status}${note}`, url: o.trackUrl, tag: `report:${o.reportId}` };
 }
 
 function esc(s: string): string {

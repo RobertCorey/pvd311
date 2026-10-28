@@ -147,12 +147,12 @@ test('follows cases but has reported nothing → the followed list comes first; 
   expect(order2).toEqual(['account-reports', 'followed-cases']);
 });
 
-test('the followed hint only promises mail when it would come: email updates off → says so and links to Account', async ({ page }) => {
+test('the followed hint only promises mail when it would come: email updates off → says so and links to Account → Updates', async ({ page }) => {
   await setup(page, { account: [view('a1', 'received')], followed: [followed('g1', 'In Progress')], me: { prefs: { emailUpdates: false } } });
   await page.goto('/my');
   const hint = page.locator('main .followed-cases .hint');
   await expect(hint).toHaveText("The city's own requests you follow. Email updates are off for your account, so you won't hear about changes. Fix this in Account");
-  await expect(hint.getByRole('link', { name: 'Fix this in Account' })).toHaveAttribute('href', '/account');
+  await expect(hint.getByRole('link', { name: 'Fix this in Account' })).toHaveAttribute('href', '/account/updates');
   await setup(page, { account: [view('a1', 'received')], followed: [followed('g1', 'In Progress')], me: { emailVerified: false } });
   await page.goto('/my');
   await expect(hint).toContainText('Verify your email to hear about changes.');

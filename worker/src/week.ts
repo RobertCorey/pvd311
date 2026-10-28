@@ -40,6 +40,7 @@ import { hoodOf as sharedHoodOf, hoodSlug } from '../../shared/neighborhoods.js'
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload } from './push.js';
 import { weekPostMarkdown, weekPostRange } from '../../shared/weekPost.js';
+import { updatesLine } from './notify.js';
 
 export const WEEK_DAYS = 7;
 /** loadCases window for the current week: this week + last week; loadCases adds the 60-day close lookback itself.
@@ -385,7 +386,7 @@ export function weekDigestEmail(s: WeekSummary, o: { base: string; hoods?: reado
     + section('Busiest neighborhoods', hoods)
     + section("Closed this week, in the city's words", notable)
     + `<p style="margin:1.2em 0 0"><a href="${esc(datedUrl)}">See the whole week</a></p>`
-    + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD — turn it off on <a href="${esc(weekUrl)}">the week page</a> or under <a href="${esc(base)}/account">Account</a>. `
+    + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD. ${updatesLine(base)} `
     + `FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
 }

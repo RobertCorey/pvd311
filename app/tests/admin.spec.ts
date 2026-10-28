@@ -237,10 +237,10 @@ async function openEngagement(page: Page, body: unknown) {
   return main;
 }
 
-test('engagement: seven tiles with their counts, the two last-Monday cards, the overnight line, recent runs + mail', async ({ page }) => {
+test('engagement: five tiles with their counts, the two last-Monday cards, recent runs + mail', async ({ page }) => {
   const main = await openEngagement(page, engagement());
   const tiles = main.locator('.eng-tile');
-  await expect(tiles).toHaveCount(7);
+  await expect(tiles).toHaveCount(5);
   const tile = (label: string) => tiles.filter({ has: page.locator('.eng-tile-label', { hasText: label }) });
   await expect(tile('Accounts').locator('b')).toHaveText('14');
   await expect(tile('Push devices').locator('b')).toHaveText('7');
@@ -249,8 +249,6 @@ test('engagement: seven tiles with their counts, the two last-Monday cards, the 
   await expect(tile('Following a city case')).toContainText('9 cases followed');
   await expect(tile('Street digest').locator('b')).toHaveText('6');
   await expect(tile('Week digest').locator('b')).toHaveText('8');
-  await expect(tile('Street watch').locator('b')).toHaveText('3');
-  await expect(tile('Narrowed the types').locator('b')).toHaveText('2');
   await expect(main.locator('.eng-asof')).toContainText('counted across all 14 accounts');
   await expect(main.locator('.eng-empty')).toHaveCount(0);
   // Last Monday: the week card carries the week's size and whether the post reached Rob; the street card does not.
@@ -265,19 +263,14 @@ test('engagement: seven tiles with their counts, the two last-Monday cards, the 
   await expect(street).toContainText('4 of 6 opted in');
   await expect(street).toContainText('2 notifications');
   await expect(street.locator('.eng-post')).toHaveCount(0);
-  await expect(main.locator('.eng-overnight')).toHaveText('3 street-watch hits waiting for the 7 am catch-up');
   await expect(main.locator('.eng-vapid')).toContainText('Push signing key minted');
   // Recent runs: time · kind · a summary built from the event's data, not its message.
   const events = main.locator('.eng-events tbody tr');
-  await expect(events).toHaveCount(9);
-  await expect(events.nth(0).locator('.sys-kind')).toHaveText('watch.pushed');
-  await expect(events.nth(0).locator('.eng-summary')).toHaveText('2 pushes for 2 new cases near 2 accounts');
-  await expect(events.nth(1).locator('.eng-summary')).toHaveText('street_watch: 2 sent to 2 accounts');
-  await expect(events.nth(2).locator('.eng-summary')).toHaveText('2 pushes to 2 of 2 accounts with overnight cases');
-  await expect(events.nth(3).locator('.eng-summary')).toHaveText('street_watch: 2 sent to 2 accounts (morning catch-up)');
-  await expect(events.nth(4).locator('.eng-summary')).toHaveText('3 hits near 2 accounts held for the morning');
-  await expect(events.nth(5).locator('.eng-summary')).toHaveText('7 of 8 mailed · 4 pushed · 292 cases that week · post to you: Yes');
-  await expect(events.nth(7).locator('.eng-summary')).toHaveText('4 of 6 mailed · 2 pushed');
+  await expect(events).toHaveCount(5);
+  await expect(events.nth(0).locator('.sys-kind')).toHaveText('push.sent');
+  await expect(events.nth(0).locator('.eng-summary')).toHaveText('city_follow: 2 sent to 2 accounts');
+  await expect(events.nth(1).locator('.eng-summary')).toHaveText('7 of 8 mailed · 4 pushed · 292 cases that week · post to you: Yes');
+  await expect(events.nth(3).locator('.eng-summary')).toHaveText('4 of 6 mailed · 2 pushed');
   // Recent mail: the Email tab's row look (kind chip, masked recipient, delivery pill); a row opens the mail in Email.
   const mails = main.locator('.eng-mails tbody tr');
   await expect(mails).toHaveCount(13);
@@ -294,7 +287,7 @@ test('engagement: seven tiles with their counts, the two last-Monday cards, the 
 });
 
 test('engagement: a capped scan says so', async ({ page }) => {
-  const main = await openEngagement(page, engagement({ accounts: { ...engagement().accounts, total: 812, scanned: 500, truncated: true, queried: { streetDigest: 6, weekDigest: 11, streetWatch: 3 } } }));
+  const main = await openEngagement(page, engagement({ accounts: { ...engagement().accounts, total: 812, scanned: 500, truncated: true, queried: { streetDigest: 6, weekDigest: 11 } } }));
   await expect(main.locator('.eng-asof')).toContainText('counted across the first 500 of 812 accounts');
   await expect(main.locator('.eng-tile').first().locator('b')).toHaveText('812');
   // The equality-query cross-check shows only where it disagrees with the scan (week digest: 11 vs 8).
@@ -304,12 +297,11 @@ test('engagement: a capped scan says so', async ({ page }) => {
 
 test('engagement: empty state when nothing has gone out yet', async ({ page }) => {
   const main = await openEngagement(page, engagementEmpty());
-  await expect(main.locator('.eng-tile')).toHaveCount(7);
+  await expect(main.locator('.eng-tile')).toHaveCount(5);
   for (const b of await main.locator('.eng-tile b').all()) await expect(b).toHaveText('0');
   await expect(main.locator('.eng-empty')).toContainText('Nothing has gone out yet');
   await expect(main.locator('.eng-card-never')).toHaveCount(2);
   await expect(main.locator('.eng-card--week')).toContainText("Hasn't run yet");
-  await expect(main.locator('.eng-overnight')).toHaveText('nothing waiting for the 7 am catch-up');
   await expect(main.locator('.eng-vapid')).toContainText('No push signing key yet');
   await expect(main.locator('.eng-events')).toHaveCount(0);
   await expect(main.locator('.eng-mails')).toHaveCount(0);

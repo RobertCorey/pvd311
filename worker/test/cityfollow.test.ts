@@ -47,7 +47,7 @@ describe('caseUrl + cityFollowEmail', () => {
   });
   it('subject names the case and the new status; body says what the city did, quotes its note, dates the report, links the map', () => {
     const url = caseUrl('https://fixmypvd.org', GUID, 41.8282, -71.4005);
-    const m = cityFollowEmail({ caseType: 'Street Light Out', street: '70 Example St', from: 'In Progress', to: 'Resolved', resolution: 'Bulb <replaced>', createdAt: '2026-10-10T12:00:00.000Z', url });
+    const m = cityFollowEmail({ caseType: 'Street Light Out', street: '70 Example St', from: 'In Progress', to: 'Resolved', resolution: 'Bulb <replaced>', createdAt: '2026-10-10T12:00:00.000Z', url, base: 'https://fixmypvd.org' });
     expect(m.subject).toBe('City update: Street Light Out on 70 Example St — Resolved');
     expect(m.html).toContain('The city closed a request you follow: <b>Street Light Out</b> on 70 Example St.');
     expect(m.html).toContain('City status: <b>In Progress</b> → <b>Resolved</b>');
@@ -55,12 +55,12 @@ describe('caseUrl + cityFollowEmail', () => {
     expect(m.html).toContain('Bulb &lt;replaced&gt;');
     expect(m.html).toContain('Reported Oct 10, 2026.');
     expect(m.html).toContain(`<a href="${url.replace(/&/g, '&amp;')}">See it on the map</a>`);
-    expect(m.html).toContain('You follow this request on FixMyPVD — unfollow on its card.');
+    expect(m.html).toContain('You follow this request on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
     expect(m.html).toContain('not affiliated with the City of Providence');
     expect(m.html).not.toContain('your request');
   });
   it('without a note, a date, a known previous status or coordinates, the mail still reads', () => {
-    const m = cityFollowEmail({ caseType: 'Pothole', street: '', from: null, to: 'Assigned', resolution: null, createdAt: null, url: caseUrl('https://fixmypvd.org', GUID, null, null) });
+    const m = cityFollowEmail({ caseType: 'Pothole', street: '', from: null, to: 'Assigned', resolution: null, createdAt: null, url: caseUrl('https://fixmypvd.org', GUID, null, null), base: 'https://fixmypvd.org' });
     expect(m.subject).toBe('City update: Pothole — Assigned'); // a blank street is left out rather than "on "
     expect(m.html).toContain('The city assigned a request you follow: <b>Pothole</b>.');
     expect(m.html).toContain('City status: <b>Assigned</b>');

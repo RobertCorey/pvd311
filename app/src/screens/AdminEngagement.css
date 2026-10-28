@@ -17,16 +17,14 @@
 .admin-engagement .admin-section h2 { font-size: 1.05rem; margin: 16px 0 8px; }
 .admin-engagement .admin-section > .admin-meta { margin: 0 0 8px; }
 
-/* Last Monday: the two run cards side by side, the overnight line and the push key line under them. */
+/* Last Monday: the two run cards side by side, the push key line under them. */
 .eng-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .eng-card { display: grid; gap: 8px; padding: 12px 14px; align-content: start; }
 .eng-card-title { margin: 0; font-family: var(--font-display); font-size: 1rem; }
 .eng-card-never { margin: 0; }
 .eng-card .admin-dl { gap: 6px 12px; }
 .eng-post { font-weight: 600; }
-.eng-line { margin: 12px 0 0; line-height: 1.4; }
-.eng-overnight { font-family: var(--font-display); }
-.eng-vapid { margin: 4px 0 0; }
+.eng-vapid { margin: 12px 0 0; }
 
 /* Recent runs: time · kind · what happened */
 .eng-events th, .eng-events td { height: 34px; font-size: var(--admin-meta); }

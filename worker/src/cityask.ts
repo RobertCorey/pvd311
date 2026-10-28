@@ -10,9 +10,9 @@
  *                ask the resident for something?" — its words are never rewritten.
  *      update  — everything else (referrals, staff updates)
  * 2. An ask is recorded once on report.cityAsks (the same ask seen as an email AND a portal note within 6 h is one ask)
- *    and mailed to the reporter (owner) only — "reply to this email or answer on the tracking page", Reply-To = relay.
- *    Followers get the usual relayed copy. One reminder at 48 h. An ask found late (> 7 days) or on a closed case is
- *    recorded without mail.
+ *    and mailed to the reporter (owner) only — "reply to this email or answer on the tracking page", Reply-To = relay —
+ *    with one push to the owner account's phones beside the mail (push.ts). Followers get the usual relayed copy. One
+ *    reminder at 48 h (mail only). An ask found late (> 7 days) or on a closed case is recorded without mail or push.
  * 3. The answer — POST /api/reports/:id/answer (signed-in owner) or the owner's email reply (relay.ts: sender = the
  *    owner's address, DMARC pass) — is checked (moderation blocks spam/abuse only), then mailed to the city FROM the
  *    portal account's contact address (RELAY_ADDRESS) as "RE: <the city's subject>", which keeps the city CRM's token
@@ -27,6 +27,7 @@ import type { CityAsk, CityAskAnswer, CityMailKind } from '../../shared/types.js
 import { TERMINAL_PORTAL_STATUS, type Env, type Mailer, type ReportDoc, type Store } from './contracts.js';
 import { moderate } from './moderation.js';
 import { logEvent } from './health.js';
+import { logPushes, pushOwner, type PushPayload } from './push.js';
 
 export const ASK_ANSWERABLE_MS = 14 * 24 * 3_600_000;  // an ask stays answerable this long (and only while the case is open)
 export const ASK_NOTIFY_MAX_AGE_MS = 7 * 24 * 3_600_000; // an ask found later than this is recorded, not mailed
@@ -229,9 +230,16 @@ export function askEmail(o: { reminder: boolean; caseId: string; category: strin
   return { subject, html };
 }
 
+/** The new ask as a push (push.ts) to the owner's phones: the mail's headline, the report, the tracking page's answer
+ *  box. Tagged per report, apart from its status pushes (report:<id>), so neither replaces the other. */
+export function askPush(o: { reportId: string; caseId: string; category: string; address: string; trackUrl: string }): PushPayload {
+  return { title: 'The city needs more information', body: `Your ${o.category} report at ${o.address}${o.caseId ? ` (${o.caseId})` : ''} — answer on your tracking page`, url: `${o.trackUrl}#answer`, tag: `ask:${o.reportId}` };
+}
+
 /**
- * Record asks found in the report's stored city mail + portal notes; mail the owner about a new one; remind once at 48 h.
- * Idempotent. `settleMs` skips asks younger than that (the watcher leaves fresh mail to relay.ts). Never throws.
+ * Record asks found in the report's stored city mail + portal notes; mail the owner about a new one and push it to the
+ * owner account's phones; remind once at 48 h (mail only). Idempotent. `settleMs` skips asks younger than that (the
+ * watcher leaves fresh mail to relay.ts). Never throws.
  */
 export async function syncCityAsks(
   env: Env, deps: { store: Store; mailer: Mailer }, report: ReportDoc,
@@ -265,16 +273,21 @@ export async function syncCityAsks(
     const url = trackUrl(env, report.id);
     const to = await ownerEmail(deps.store, report);
 
-    // Mail the newest new ask only (a backfill that finds several mails once).
+    // Mail (and push) the newest new ask only (a backfill that finds several mails once).
     const newest = fresh.length ? fresh.reduce((a, b) => (a.at >= b.at ? a : b)) : null;
     for (const a of fresh) {
       out.opened++;
-      const mailIt = a === newest && !!to && askState(a, report, now).open && now - Date.parse(a.at) <= ASK_NOTIFY_MAX_AGE_MS;
+      const tell = a === newest && askState(a, report, now).open && now - Date.parse(a.at) <= ASK_NOTIFY_MAX_AGE_MS;
+      const mailIt = tell && !!to;
       if (mailIt) {
         const m = askEmail({ reminder: false, caseId, category: categoryWords(report), address: report.address, trackUrl: url, cityText: a.text });
         await deps.mailer.sendTo(to!, m.subject, m.html, { replyTo: env.RELAY_ADDRESS ?? 'cases@fixmypvd.org', kind: 'ask', reportId: report.id, caseId });
         a.notifiedAt = nowIso;
         out.notified++;
+      }
+      if (tell && report.ownerUid) {
+        const p = await pushOwner(deps.store, report.ownerUid, askPush({ reportId: report.id, caseId, category: categoryWords(report), address: report.address, trackUrl: url }));
+        await logPushes(deps.store, 'city_ask', p);
       }
       await logEvent(deps.store, {
         level: 'warn', kind: 'city.ask', reportId: report.id,
@@ -415,7 +428,7 @@ export async function answerCityAsk(
 }
 
 /** Is this reply part of the ask conversation? Our ask mail and its reminder, the city's own ask as relayed, and our
- *  answer receipts all say so in the subject. Replies to anything else (status mail says "Reply to stop updates") are not answers. */
+ *  answer receipts all say so in the subject. Replies to anything else (older status mail said "Reply to stop updates") are not answers. */
 export function isAnswerSubject(subject: string): boolean {
   return /needs more information|waiting for more information|your answer/i.test(subject);
 }

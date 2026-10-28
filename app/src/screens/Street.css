@@ -144,7 +144,7 @@
 /* Stack focus (same-spot cases). */
 .street-stack-clear { margin-top: 10px; width: auto; }
 
-/* The weekly digest card (.street-digest) is components/StreetDigestCard.tsx; its rules live in StreetParts.css. */
+/* The Monday email switch (.street-digest) is components/StreetDigestCard.tsx; its rules live in StreetParts.css. */
 .street-source { margin: 14px 0 0; }
 
 /* Tail: the footer's links live here on phones (the page footer is hidden under body.is-street). */

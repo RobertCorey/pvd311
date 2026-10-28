@@ -1,4 +1,4 @@
-/* StreetParts.css — shared by StreetRow, StreetFollow, StreetFilters, WatchGroups and MapKey (the /street map-first page, 2026-10-25).
+/* StreetParts.css — shared by StreetRow, StreetFollow, StreetFilters and MapKey (the /street map-first page, 2026-10-25).
    Rows, notes and pills keep the look they had in Street.css (those rules moved here; Street.css may drop them).
    Ember & Harbor: ink on surface everywhere, --ember only as a focus ring (global :focus-visible) and in icons. */
 
@@ -41,21 +41,6 @@
 .street-follow-check { flex: 0 0 auto; font-weight: 800; }
 .street-follow-error, .street-follow-hint, .street-follow-note { margin: 0; }
 .street-follow-signin { text-decoration: none; }
-
-/* ── Chip rail (WatchGroups' "Only tell me about") ─────────────────────────────────────────────── */
-/* 44 px row of 40 px chips: one horizontal scroller, hidden scrollbar, snap, right-edge fade. The 28 px end padding
-   lets the last chip scroll clear of the fade. */
-.street-rail {
-  position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 2px 28px 2px 0;
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity;
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
-}
-.street-rail::-webkit-scrollbar { display: none; }
-.street-rail > * { flex: 0 0 auto; scroll-snap-align: start; }
-.street-rail .chip { min-height: 40px; height: 40px; padding: 6px 12px; gap: 6px; font-size: .9rem; white-space: nowrap; border-color: var(--line); color: var(--ink); }
-.street-rail .chip[aria-pressed="true"] { border-color: var(--ink); background: var(--ink-soft); }
-.street-rail .chip:focus-visible { outline-offset: -2px; } /* the ring stays inside the 44 px row instead of being clipped */
 
 /* ── Filters (StreetFilters): Show · When · Type ───────────────────────────────────────────────── */
 /* Phone (the default): two 44 px rows under the search pill — Show across the full width, then When (as wide as its
@@ -193,19 +178,18 @@
   .street-panel .street-range { margin-left: 0; }
 }
 
-/* ── Weekly digest card (StreetDigestCard) ─────────────────────────────────────────────────────── */
-/* Bound to the point (or the selected case's street) on /street, and to the report's point on the tracking page. */
-.street-digest { margin-top: 14px; display: grid; gap: 8px; }
-.street-digest h3 { margin: 0; font-size: 1rem; }
+/* ── Email me Mondays about this street (StreetDigestCard) ─────────────────────────────────────── */
+/* The address view's one subscription control, at the end of the sheet: the switch row, then "Manage" (→ Account → Updates). */
+.street-digest { margin-top: 14px; display: grid; gap: 4px; }
 .street-digest p { margin: 0; }
 .street-digest .btn-secondary { text-decoration: none; }
-.street-digest-on { display: grid; gap: 8px; }
-.street-digest-on .notice-ok { margin: 0; }
-.street-digest-on .btn { width: auto; justify-self: start; }
+.street-digest-row { display: flex; align-items: center; gap: 12px; }
+.street-digest-row .switch-row { flex: 1 1 auto; min-width: 0; }
+.street-digest-manage { flex: 0 0 auto; display: inline-flex; align-items: center; min-height: var(--tap); font-weight: 600; }
 
 /* ── Notify me on this phone (PushCard) ────────────────────────────────────────────────────────── */
-/* One compact row on ink-soft: title + hint on the left, the control on the right (44 px). Lives inside the digest
-   card's on-state and under the Follow toggle's lines on /street, and in the Account → Updates card, so it is a row, not another card. */
+/* One compact row on ink-soft: title + hint on the left, the control on the right (44 px). Lives in Account → Updates
+   under "This phone", so it is a row, not another card. */
 .push-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-rows: auto; gap: 2px 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius); background: var(--ink-soft); color: var(--ink); }
 .push-card .push-title { grid-column: 1; margin: 0; display: flex; align-items: center; gap: 6px; font-family: var(--font-display); font-weight: 700; font-size: .95rem; line-height: 1.3; }
 .push-card .push-bell { flex: 0 0 auto; width: 18px; height: 18px; }
@@ -215,35 +199,7 @@
 .push-card .push-btn { grid-column: 2; grid-row: 1 / span 2; align-self: center; width: auto; min-height: var(--tap); padding: 10px 14px; font-size: .95rem; }
 .push-card .push-error { grid-column: 1 / -1; margin: 2px 0 0; }
 .push-card[data-state="ios-needs-install"], .push-card[data-state="blocked"] { grid-template-columns: minmax(0, 1fr); }
-.street-digest-on .push-card { margin-top: 2px; }
 @media (max-width: 380px) { .push-card { grid-template-columns: minmax(0, 1fr); } .push-card .push-btn { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 6px; } }
-
-/* ── Street watch (StreetWatchRow) ─────────────────────────────────────────────────────────────── */
-/* The push-only "tell me right away" checkbox, sitting under the PushCard: the same ink-soft row so the two read as
-   one "this phone" block; the label is the whole tap target (≥ 44 px). Disabled = push is not on for this phone. */
-.watch-row { display: grid; gap: 2px; padding: 6px 12px 10px; border-radius: var(--radius); background: var(--ink-soft); color: var(--ink); }
-.watch-row .watch-toggle { display: flex; align-items: center; gap: 10px; min-height: var(--tap); font-weight: 600; font-size: .95rem; line-height: 1.3; cursor: pointer; }
-.watch-row .watch-toggle input { flex: 0 0 auto; width: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--ink); }
-.watch-row .watch-toggle input:disabled { cursor: not-allowed; }
-/* Only a disabled box reads as out of reach: with the watch already on from another phone the box is enabled (so it
-   can be turned off here) and keeps the ordinary look even though the hint still says to turn notifications on. */
-.watch-row .watch-toggle:has(input:disabled) { color: var(--muted); cursor: not-allowed; }
-.watch-row .watch-hint, .watch-row .watch-error { margin: 0; }
-.street-digest-on .watch-row { margin-top: -4px; }
-
-/* ── Only tell me about (WatchGroups) ──────────────────────────────────────────────────────────── */
-/* The third ink-soft row of the notifications block, under the watch row: a title, the chip rail's scroller
-   (All + ten groups; snap, hidden scrollbar, right-edge fade) and the one-line hint. Chips are the full 44 px here —
-   nothing above constrains the row to 44 — and a pressed chip is ink on paper (the icons' dark-mode look), so a
-   multi-select reads at a glance on the tinted row. From 720 px (the street page's desktop breakpoint) the rail wraps. */
-.watch-groups { display: grid; gap: 4px; min-width: 0; padding: 8px 12px 10px; border-radius: var(--radius); background: var(--ink-soft); color: var(--ink); }
-.watch-groups-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: .95rem; line-height: 1.3; }
-.watch-groups .street-rail { min-height: 48px; min-width: 0; }
-.watch-groups .chip { min-height: var(--tap); height: var(--tap); background: var(--surface); }
-.watch-groups .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.watch-groups .watch-groups-hint, .watch-groups .watch-error { margin: 0; }
-.street-digest-on .watch-groups { margin-top: -4px; }
-@media (min-width: 720px) { .watch-groups .street-rail { flex-wrap: wrap; overflow: visible; padding-right: 0; scroll-snap-type: none; -webkit-mask-image: none; mask-image: none; } }
 
 /* ── Pin preview (StreetPreview), phones ───────────────────────────────────────────────────────── */
 /* A row's card on the map: the face is the button (ink border — it floats over tiles, not on the sheet's surface), the

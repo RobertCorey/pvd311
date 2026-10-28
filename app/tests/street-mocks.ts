@@ -189,6 +189,8 @@ export interface SetupOpts {
   followed?: unknown[];
   /** Status for PUT/DELETE /api/me/city/:guid (default 204) — e.g. () => 500 for the revert path. */
   followStatus?: (method: string, guid: string) => number;
+  /** Status for PUT /api/me/addresses (default 200) — e.g. 500 for the digest switch's failure path. */
+  addressStatus?: number;
   /** Respond to /api/street/map with this status (per call count) — e.g. () => 500 for the error state. */
   status?: (n: number, days: number) => number;
   /** Let the page load the real self-hosted basemap (vector tiles) instead of the stubbed raster fallback. */
@@ -231,7 +233,7 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
   await page.route('https://geocode.arcgis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100, attributes: { Match_addr: '481 Angell St, Providence, Rhode Island, 02906' } }] }) }));
   if (o.signedIn) {
     await page.addInitScript((s) => localStorage.setItem('fixmypvd.session', JSON.stringify(s)), SESSION);
-    let me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true, streetDigest: false }, addresses: [], following: [], cityFollowing: [], createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), ...(o.me ?? {}) } as Record<string, unknown>;
+    let me = { uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', prefs: { emailUpdates: true }, addresses: [], following: [], cityFollowing: [], createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), ...(o.me ?? {}) } as Record<string, unknown>;
     // Following a city case: GET /api/me/city (the list), PUT/DELETE /api/me/city/:guid (204, idempotent).
     await page.route((u) => u.href.startsWith(`${API}/api/me/city`), async (r) => {
       const req = r.request(); const m = req.method();
@@ -262,10 +264,14 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
       }
       await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) });
     });
+    // PUT /api/me/addresses: upsert by id (an edit keeps its place, a new one goes first as n<count>), the digest flag explicit.
     await page.route(`${API}/api/me/addresses`, async (r) => {
       const body = r.request().postDataJSON();
       calls.push({ method: 'PUT', url: r.request().url(), body });
-      me = { ...me, addresses: [{ id: 'a1', ...body }] };
+      if (o.addressStatus && o.addressStatus !== 200) return r.fulfill({ status: o.addressStatus, contentType: 'application/json', body: '{"error":"boom"}' });
+      const list = (me.addresses as { id: string }[]) ?? [];
+      const entry = { ...body, id: body.id ?? `n${list.length + 1}`, digest: body.digest === true };
+      me = { ...me, addresses: list.some((a) => a.id === entry.id) ? list.map((a) => (a.id === entry.id ? entry : a)) : [entry, ...list] };
       await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ addresses: me.addresses }) });
     });
   }

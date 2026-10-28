@@ -72,8 +72,6 @@ function makeStore(meta: Record<string, any> = {}, users: Record<string, UserDoc
     getCityCase: vi.fn(async (id: string) => (cases[id] ? { ...cases[id], id } : null)),
     getUser: vi.fn(async (uid: string) => users[uid] ?? null),
     addEvent: vi.fn(async () => {}),
-    listStreetWatchUsers: vi.fn(async () => Object.values(users).filter((u) => u.prefs?.streetWatch === true)),
-    findReportsByOwner: vi.fn(async () => []),
   } as unknown as Store;
   return { store, meta, cases };
 }
@@ -97,7 +95,7 @@ function stubCity(calls: { url: string; method: string; body?: string }[], detai
     if (url.includes('entity-grid-data')) return Response.json(GRID);
     if (url.includes('modal-form-template-path')) return new Response(detailFor(new URL(url).searchParams.get('id')));
     if (url.includes('geocode.arcgis.com')) return Response.json({ candidates: [{ location: { x: -71.4005, y: 41.8282 }, score: 100 }] });
-    if (url.startsWith('https://push.test/')) return new Response(null, { status: 201 }); // a phone's push service (streetwatch)
+    if (url.startsWith('https://push.test/')) return new Response(null, { status: 201 }); // a phone's push service
     return new Response('nope', { status: 404 });
   }));
 }
@@ -263,82 +261,25 @@ describe('syncCityCases', () => {
   });
 });
 
-describe('street watch (streetwatch.ts)', () => {
-  // A fresh meta object per store: makeStore writes the index into the object it is given.
+describe('no street watch (cut 2026-10-28)', () => {
   const cfg = () => ({ cityGridConfig: { url: 'https://city.test/_services/entity-grid-data.json/v', body: { base64SecureConfiguration: 'cfg' } } });
   // The fixture's three rows were created 23:20–23:52 UTC on 2026-10-14; the ArcGIS stub puts every street at Angell/Thayer.
   const NEWEST = 1792007521000;
   const push = { endpoint: 'https://push.test/1', p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg', ua: 'test', createdAt: '2026-10-01T00:00:00.000Z' };
-  const watcher = (uid: string, o: Partial<UserDoc> = {}) => follower(uid, [], { prefs: { emailUpdates: true, streetWatch: true }, addresses: [{ id: 'h', label: 'Home', address: '12 Angell St', lat: 41.8282, lng: -71.4005 }], push: [push], ...o });
   let calls: { url: string; method: string; body?: string }[];
   beforeEach(() => { calls = []; stubCity(calls); });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('a new located case near a watching account\'s address is one push to that phone, in the same sync; nothing for the same cases next run', async () => {
-    const { store } = makeStore(cfg(), {
-      w: watcher('w'),
-      nopush: watcher('nopush', { push: [] }),                                   // the pref without a subscription: nothing
-      far: watcher('far', { addresses: [{ id: 'f', label: 'Far', address: '1 Far Rd', lat: 41.84, lng: -71.41 }] }),
-    });
-    const r1 = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 3_600_000 }); // the three cases are 1 h – 1 h 31 min old
-    expect(r1).toMatchObject({ added: 3, watchPushed: 3 });
-    const pushes = calls.filter((c) => c.url.startsWith('https://push.test/'));
-    expect(pushes).toHaveLength(3);
-    expect(pushes.every((c) => c.url === 'https://push.test/1' && c.method === 'POST')).toBe(true);
-    expect((store.listStreetWatchUsers as any).mock.calls).toHaveLength(1);
-    const ev = (store.addEvent as any).mock.calls.map((c: any[]) => c[0]).find((e: any) => e.kind === 'watch.pushed');
-    expect(ev).toMatchObject({ data: { cases: 3, users: 3, hits: 3, pushed: 3, accounts: 1 } });
-
-    calls.length = 0; // keep the reference the fetch stub records into
-    const r2 = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 5_400_000 }); // nothing new: no users read, no push
-    expect(r2).toMatchObject({ added: 0, watchPushed: 0 });
+  it('new located cases next to a subscribed phone\'s saved address push nothing, read no account and log no watch event — even for an account that had the old pref on', async () => {
+    const legacy = follower('w', [], { prefs: { emailUpdates: true, streetWatch: true } as UserDoc['prefs'], addresses: [{ id: 'h', label: 'Home', address: '12 Angell St', lat: 41.8282, lng: -71.4005 }], push: [push] });
+    const { store, meta } = makeStore(cfg(), { w: legacy });
+    const r = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 3_600_000 });
+    expect(r).toMatchObject({ listed: 3, added: 3 });
+    expect(r).not.toHaveProperty('watchPushed');
     expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(0);
-    expect((store.listStreetWatchUsers as any).mock.calls).toHaveLength(1);
-  });
-
-  it('cases first seen more than two hours after the city created them push nothing (a backfill or an outage), and the account\'s own filing is skipped', async () => {
-    const late = makeStore(cfg(), { w: watcher('w') });
-    expect(await syncCityCases(env, late.store, { gapMs: 0, now: NEWEST + 3 * 3_600_000 })).toMatchObject({ added: 3, watchPushed: 0 });
-    expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(0);
-    expect(late.store.listStreetWatchUsers).not.toHaveBeenCalled();
-
-    calls.length = 0; // keep the reference the fetch stub records into
-    const own = makeStore(cfg(), { w: watcher('w') });
-    (own.store.findReportsByOwner as any).mockImplementation(async () => [{ id: 'mine', portalEntityId: 'ab400112-05c8-f111-a3d0-001dd804b975' }]); // GRID.Records[1]
-    expect(await syncCityCases(env, own.store, { gapMs: 0, now: NEWEST + 3_600_000 })).toMatchObject({ added: 3, watchPushed: 2 });
-    expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(2);
-  });
-
-  it('a filing listed as Draft mid-wizard pushes nothing (no users read); the run that first lists it Submitted pushes it once, from the cached geocode; the run after pushes nothing', async () => {
-    const statusAttrs = GRID.Records.map((rec: any) => rec.Attributes.find((x: any) => x.Name === 'statuscode'));
-    const orig = statusAttrs.map((a: any) => a.FormattedValue);
-    for (const a of statusAttrs) a.FormattedValue = 'Draft';
-    try {
-      const { store, cases, meta } = makeStore(cfg(), { w: watcher('w') });
-      const r1 = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 1_800_000 }); // three Drafts, all under 2 h old
-      expect(r1).toMatchObject({ added: 3, changed: 0, watchPushed: 0 });
-      expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(0);
-      expect(store.listStreetWatchUsers).not.toHaveBeenCalled();
-      expect(meta.cityCasesIdx.cases['fa4943b8-08c8-f111-a3d0-001dd8050b66']).toMatchObject({ s: 'Draft', g: 1 });
-
-      // The resident finishes the wizard: the same GUID is listed Submitted. A status change to the index, a new request to the street.
-      statusAttrs[0].FormattedValue = 'Submitted';
-      calls.length = 0;
-      const r2 = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 3_600_000 });
-      expect(r2).toMatchObject({ added: 0, changed: 1, watchPushed: 1 });
-      expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(1);
-      expect(calls.filter((c) => c.url.includes('geocode.arcgis.com'))).toHaveLength(0); // the Draft run geocoded the street
-      expect((store.listStreetWatchUsers as any).mock.calls).toHaveLength(1);
-      expect(cases['fa4943b8-08c8-f111-a3d0-001dd8050b66']).toMatchObject({ status: 'Submitted', lat: 41.8282, lng: -71.4005 });
-      const ev = (store.addEvent as any).mock.calls.map((c: any[]) => c[0]).find((e: any) => e.kind === 'watch.pushed');
-      expect(ev).toMatchObject({ data: { cases: 1, hits: 1, pushed: 1, accounts: 1 } });
-
-      calls.length = 0;
-      const r3 = await syncCityCases(env, store, { gapMs: 0, now: NEWEST + 5_400_000 }); // unchanged list: nothing
-      expect(r3).toMatchObject({ added: 0, changed: 0, watchPushed: 0 });
-      expect(calls.filter((c) => c.url.startsWith('https://push.test/'))).toHaveLength(0);
-      expect((store.listStreetWatchUsers as any).mock.calls).toHaveLength(1);
-    } finally { statusAttrs.forEach((a: any, i: number) => { a.FormattedValue = orig[i]; }); }
+    expect(store.getUser).not.toHaveBeenCalled();
+    expect((store.addEvent as any).mock.calls.map((c: any[]) => c[0].kind).filter((k: string) => k.startsWith('watch.'))).toEqual([]);
+    expect(meta.watchOvernight).toBeUndefined();
   });
 });
 

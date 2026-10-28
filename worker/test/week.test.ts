@@ -493,9 +493,9 @@ describe('the Monday mail', () => {
     expect(m.html).toContain('<b>Pothole</b> · 12 Angell St, College Hill · Resolved (closed');
     expect(m.html).toContain('Filled &amp; compacted.');
     expect(m.html).toContain('Bulb replaced');
-    // "See the whole week" is the dated link (stable next month); the opt-out line points at the live page.
+    // "See the whole week" is the dated link (stable next month); the opt-out line points at Account → Updates.
     expect(m.html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
-    expect(m.html).toContain('You asked for this every Monday on FixMyPVD — turn it off on <a href="https://fixmypvd.org/week">the week page</a> or under <a href="https://fixmypvd.org/account">Account</a>.');
+    expect(m.html).toContain('You asked for this every Monday on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
     expect(m.html).toContain('not affiliated with the City of Providence');
     expect(m.html).not.toContain('https://fixmypvd.org//');
     expect(inferKind(m.subject, ['r@example.com'], { NOTIFY_EMAIL: 'rob@fixmypvd.org' })).toBe('week_digest');
@@ -582,7 +582,7 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
       + `<h3 style="margin:1.2em 0 .3em">Busiest neighborhoods</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>College Hill</b> · 3 requests, 1 closed</li><li style="margin:0 0 8px"><b>Elmhurst</b> · 2 requests, 1 closed</li></ul>`
       + `<h3 style="margin:1.2em 0 .3em">Closed this week, in the city's words</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>Pothole</b> · 12 Angell St, College Hill · Resolved (closed Sat, Oct 24)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Filled &amp; compacted.</div></li><li style="margin:0 0 8px"><b>Street Light Out</b> · 1 Eaton St, Elmhurst · Resolved (closed Fri, Oct 23)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Bulb replaced</div></li></ul>`
       + `<p style="margin:1.2em 0 0"><a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a></p>`
-      + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD — turn it off on <a href="https://fixmypvd.org/week">the week page</a> or under <a href="https://fixmypvd.org/account">Account</a>. FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
+      + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>. FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
     const s = weekSummary([
       row('p1', { createdAt: daysAgo(1), firstSeenAt: daysAgo(1) }),
       row('p2', { createdAt: daysAgo(2), firstSeenAt: daysAgo(2) }),

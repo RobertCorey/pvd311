@@ -347,21 +347,6 @@ test('digest, signed in and already on: the on state without asking again', asyn
   await expect(page.getByRole('button', { name: 'Email me every Monday' })).toHaveCount(0);
 });
 
-test('Account → Updates has the Monday digest toggle: it PATCHes prefs.weekDigest and keeps the other prefs', async ({ page }) => {
-  const calls = await setupWeek(page, { signedIn: true, me: { prefs: { emailUpdates: false, weekDigest: false } } });
-  await page.goto('/account');
-  const box = page.getByRole('checkbox', { name: 'Email me "This week in Providence" every Monday' });
-  await expect(box).not.toBeChecked();
-  await box.check();
-  await expect(box).toBeChecked();
-  expect(calls.filter((c) => c.method === 'PATCH').pop()!.body).toEqual({ prefs: { weekDigest: true } });
-  // The optimistic update keeps the other preference as it was.
-  await expect(page.getByRole('checkbox', { name: 'Email me when the city updates my reports' })).not.toBeChecked();
-  await box.uncheck();
-  await expect(box).not.toBeChecked();
-  expect(calls.filter((c) => c.method === 'PATCH').pop()!.body).toEqual({ prefs: { weekDigest: false } });
-});
-
 test('a quiet week (total 0) → the quiet state, still the digest card and the source line', async ({ page }) => {
   await open(page, { body: QUIET });
   await expect(page.locator('.week-quiet')).toContainText("The city's list is quiet this week");

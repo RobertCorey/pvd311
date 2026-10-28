@@ -1,8 +1,8 @@
 import type { Page } from '@playwright/test';
 import { API } from './street-mocks';
 
-/** Browser + Worker stubs for "Notify me on this phone" (components/PushCard, lib/push.ts), shared by push.spec.ts
- *  and the tracking page's digest test. stubPush runs in addInitScript: navigator.userAgent, window.Notification,
+/** Browser + Worker stubs for "Notify me on this phone" (components/PushCard, lib/push.ts), shared by push.spec.ts,
+ *  account.spec.ts and the pages that must show no phone control. stubPush runs in addInitScript: navigator.userAgent, window.Notification,
  *  window.PushManager and navigator.serviceWorker.ready (a fake registration whose pushManager logs what the card
  *  asks of it), so every card state is reachable in headless Chromium — the suite's own device is an iPhone, which
  *  would otherwise always read "ios-needs-install". pushApi mocks GET /api/push/key and POST/DELETE /api/me/push. */

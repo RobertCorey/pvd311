@@ -102,6 +102,8 @@ describe('weekly digest', () => {
     uid: 'u1', email: 'me@example.com', emailVerified: true, displayName: null, provider: 'google', createdAt: daysAgo(30), lastSeenAt: daysAgo(1),
     prefs: { emailUpdates: true, streetDigest: true }, addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }], following: [], ...o,
   });
+  /** What a re-read of a user returns mid-run (a resident who changed something after the run read the list). */
+  const fresh = new Map<string, UserDoc>();
   function deps(users: UserDoc[], rows: Record<string, unknown>[]) {
     const sent: { to: string; subject: string; html: string; kind?: string }[] = [];
     const patched: Record<string, unknown>[] = [];
@@ -109,6 +111,7 @@ describe('weekly digest', () => {
       listStreetDigestUsers: vi.fn(async () => users),
       listCityCasesSince: vi.fn(async () => rows),
       patchUser: vi.fn(async (_uid: string, f: Record<string, unknown>) => { patched.push(f); }),
+      getUser: vi.fn(async (uid: string) => fresh.get(uid) ?? users.find((u) => u.uid === uid) ?? null),
       setMeta: vi.fn(async () => {}), addEvent: vi.fn(async () => {}),
     } as unknown as Store;
     const mailer = { sendTo: vi.fn(async (to: string, subject: string, html: string, o?: { kind?: string }) => { sent.push({ to, subject, html, kind: o?.kind }); }) } as unknown as Mailer;
@@ -128,9 +131,22 @@ describe('weekly digest', () => {
     expect(d.sent[0].html).toContain('Street Light Out');
     expect(d.sent[0].html).toContain('Bulb replaced');
     expect(d.sent[0].html).toContain(streetUrl('https://fixmypvd.org', { lat: HOME.lat, lng: HOME.lng, address: '12 Angell St' }).replace(/&/g, '&amp;'));
-    expect(d.sent[0].html).toContain('/account');
-    // The off switch lives on the street page's digest card (Account only manages addresses): the footer links the first section's URL for it.
-    expect(d.sent[0].html).toMatch(/turn it off with "Turn off" under <a href="https:\/\/fixmypvd\.org\/street\?lat=[^"]+">Hear about this street every week<\/a>/);
+    // Settings live only in Account → Updates (2026-10-28): the footer links there, not to the street page.
+    expect(d.sent[0].html).toContain('You asked for this weekly email on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
+    expect(d.sent[0].html).not.toMatch(/Turn off|Hear about this street/);
+  });
+
+  it('writes back only the coordinates it found, merged into a fresh read — a switch flipped during the run stays flipped', async () => {
+    fresh.clear();
+    const before = user({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: null, lng: null, digest: true }, { id: 'a2', label: 'Work', address: '5 Hope St', lat: null, lng: null, digest: true }] });
+    // Meanwhile the resident turned Work off in Account → Updates and added a third street.
+    fresh.set('u1', { ...before, addresses: [{ ...before.addresses[0] }, { ...before.addresses[1], digest: false }, { id: 'a3', label: 'Gym', address: '1 Main St', digest: false }] });
+    const d = deps([before], [row('p1')]);
+    await runStreetDigest(env, d.store, d.mailer, { now: NOW });
+    const written = (d.patched[0] as { addresses: Record<string, unknown>[] }).addresses;
+    expect(written.map((a) => [a.id, a.digest])).toEqual([['a1', true], ['a2', false], ['a3', false]]);
+    expect(written[0].lat).not.toBeNull();
+    fresh.clear();
   });
 
   it('geocodes a saved address that has no coordinates yet and stores them on the account', async () => {
@@ -143,61 +159,50 @@ describe('weekly digest', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  describe('"Only tell me about…" (prefs.watchGroups, watchgroups.ts)', () => {
+  describe('per saved address (addresses[].digest, 2026-10-28)', () => {
     const sub: PushSub = { endpoint: 'https://push.test/1', p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg', ua: 'test', createdAt: '2026-10-01T00:00:00.000Z' };
     const WORK = { lat: 41.8210, lng: -71.4120 }; // Dorrance St, ≈ 1.2 km from home — its own 300 m circle
-    // Near home: a pothole (streets), an older light fixed this week (lights — a close, not a new case), a trash case (trash). Near work: a pothole only.
-    const rows = () => [
-      row('p-home'),
-      row('l-home', { caseType: 'Street Light Out', category: 'street_light', createdAt: daysAgo(45), firstSeenAt: daysAgo(45), status: 'Resolved', detail: { resolutionDate: daysAgo(2), resolution: 'Bulb replaced' } }),
-      row('t-home', { caseType: 'Missed Trash Day Pick-up Issue', category: 'missed_trash' }),
-      row('p-work', { lat: WORK.lat, lng: WORK.lng, street: '1 Dorrance St' }),
-    ];
-    const two = (o: Partial<UserDoc> = {}) => user({
-      addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }, { id: 'a2', label: 'Work', address: '1 Dorrance St', lat: WORK.lat, lng: WORK.lng }],
-      push: [sub], ...o,
-    });
-    const picks = (watchGroups: string[]) => ({ emailUpdates: true, streetDigest: true, watchGroups: watchGroups as never });
+    const rows = () => [row('p-home'), row('p-work', { lat: WORK.lat, lng: WORK.lng, street: '1 Dorrance St' })];
+    const home = (digest?: boolean) => ({ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng, ...(digest === undefined ? {} : { digest }) });
+    const work = (digest?: boolean) => ({ id: 'a2', label: 'Work', address: '1 Dorrance St', lat: WORK.lat, lng: WORK.lng, ...(digest === undefined ? {} : { digest }) });
     beforeEach(() => { vi.mocked(pushAll).mockClear(); vi.mocked(pushAll).mockImplementation(async () => 1); });
 
-    it('sections list only the chosen groups; the subject and the push body count matching cases only; an address with nothing left is dropped', async () => {
-      const d = deps([two({ prefs: picks(['lights', 'trash']) })], rows());
+    it('mails and pushes only the addresses that are on, whatever the old account-wide pref says', async () => {
+      const d = deps([user({ addresses: [home(false), work(true)], push: [sub] })], rows());
       expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 1 });
-      expect(d.sent).toHaveLength(1);
-      expect(d.sent[0].subject).toBe('This week near Home: 1 new, 1 closed'); // Work had only a pothole → no section → "near Home", not "2 of your addresses"
-      expect(d.sent[0].html).toContain('Street Light Out');
-      expect(d.sent[0].html).toContain('Missed Trash Day Pick-up Issue');
-      expect(d.sent[0].html).not.toContain('Pothole');
-      expect(d.sent[0].html).not.toContain('Dorrance');
-      expect(d.sent[0].html).toContain('2 this week.');
-      expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => ({ uid: u.uid, ...p }))).toEqual([
-        { uid: 'u1', title: 'This week near Home', body: '1 new · 1 closed', url: streetUrl('https://fixmypvd.org', { lat: HOME.lat, lng: HOME.lng, address: '12 Angell St' }), tag: 'street:a1' },
-      ]);
+      expect(d.sent[0].subject).toBe('This week near Work: 1 new, 0 closed');
+      expect(d.sent[0].html).toContain('Dorrance');
+      expect(d.sent[0].html).not.toContain('10 Angell St');
+      expect(vi.mocked(pushAll).mock.calls.map(([, , p]) => p.tag)).toEqual(['street:a2']);
     });
 
-    it('an empty or absent selection is everything (both addresses, both pushes); a selection nothing matches sends no mail and no push', async () => {
-      const all = deps([two({ prefs: picks([]) }), two({ uid: 'u2', email: 'two@example.com', prefs: { emailUpdates: true, streetDigest: true } })], rows());
-      expect(await runStreetDigest(env, all.store, all.mailer, { now: NOW })).toEqual({ users: 2, mailed: 2, pushed: 4 });
-      for (const m of all.sent) {
-        expect(m.subject).toBe('This week near 2 of your addresses: 3 new, 1 closed');
-        expect(m.html).toContain('Dorrance');
-      }
-      expect(vi.mocked(pushAll).mock.calls.map(([, u, p]) => `${u.uid}:${p.tag}:${p.body}`)).toEqual(['u1:street:a1:2 new · 1 closed', 'u1:street:a2:1 new · 0 closed', 'u2:street:a1:2 new · 1 closed', 'u2:street:a2:1 new · 0 closed']);
-
-      vi.mocked(pushAll).mockClear();
-      const none = deps([two({ prefs: picks(['trees', 'water']) })], rows());
-      expect(await runStreetDigest(env, none.store, none.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
-      expect(none.sent).toHaveLength(0);
+    it('an account whose addresses are all off gets nothing — no rows read, no mail, no push', async () => {
+      const d = deps([user({ addresses: [home(false), work(false)], push: [sub] })], rows());
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+      expect(d.store.listCityCasesSince).not.toHaveBeenCalled();
       expect(pushAll).not.toHaveBeenCalled();
     });
 
-    it('an unmapped city type ("unsure") is group "other": only an ["other"] selection hears about it', async () => {
-      const odd = [row('odd', { caseType: 'Brand New City Type', category: 'unsure' })];
-      const yes = deps([two({ prefs: picks(['other']) })], odd);
-      expect(await runStreetDigest(env, yes.store, yes.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 1 });
-      expect(yes.sent[0].html).toContain('Brand New City Type');
-      const no = deps([two({ prefs: picks(['streets']) })], odd);
-      expect(await runStreetDigest(env, no.store, no.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+    it('migration: an address without a flag follows the old prefs.streetDigest — on means both, off means neither', async () => {
+      const on = deps([user({ addresses: [home(), work()] })], rows());
+      expect(await runStreetDigest(env, on.store, on.mailer, { now: NOW })).toMatchObject({ mailed: 1 });
+      expect(on.sent[0].subject).toBe('This week near 2 of your addresses: 2 new, 0 closed');
+      const off = deps([user({ prefs: { emailUpdates: true }, addresses: [home(), work(true)] })], rows());
+      await runStreetDigest(env, off.store, off.mailer, { now: NOW });
+      expect(off.sent[0].subject).toBe('This week near Work: 1 new, 0 closed');
+    });
+
+    it('only an address that is on gets geocoded; the stored list keeps the others (and every flag) as they were', async () => {
+      const fetch = vi.fn(async () => Response.json({ candidates: [{ location: { x: WORK.lng, y: WORK.lat }, score: 100 }] }));
+      vi.stubGlobal('fetch', fetch);
+      const d = deps([user({ addresses: [{ ...home(false), lat: null, lng: null }, { ...work(true), lat: null, lng: null }] })], rows());
+      (d.store as any).getMeta = vi.fn(async () => null);
+      (d.store as any).setMeta = vi.fn(async () => {});
+      try {
+        expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toMatchObject({ mailed: 1 });
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(d.patched[0]).toEqual({ addresses: [{ ...home(false), lat: null, lng: null }, work(true)] });
+      } finally { vi.unstubAllGlobals(); }
     });
   });
 

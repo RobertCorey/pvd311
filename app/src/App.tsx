@@ -40,6 +40,7 @@ export default function App() {
           <Route path="/street" element={<Street />} />
           <Route path="/week" element={<Week />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/account/updates" element={<Account />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/about" element={<About />} />
           <Route path="/privacy" element={<Privacy />} />

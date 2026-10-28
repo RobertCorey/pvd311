@@ -1,6 +1,6 @@
 /** Providence's 25 official neighborhoods, first-class in the UI ("Fox Point · 3 open").
  *  Point-in-polygon over simplified city GIS rings. The rings live once, in shared/neighborhoods.ts (the Worker's
- *  GET /api/week and street watch import them eagerly); the app loads that module lazily so the ~8 KB chunk never
+ *  GET /api/week imports them eagerly); the app loads that module lazily so the ~8 KB chunk never
  *  hits the main bundle. The /street map page (2026-10-25) also needs the table synchronously once loaded:
  *  `loadNeighborhoods()` hands it over, `hoodOfSync` classifies ~1,200 cases in one pass, `ringBounds` fits a hood,
  *  and the slug helpers back `?n=`.

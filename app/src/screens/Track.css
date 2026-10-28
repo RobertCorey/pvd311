@@ -123,22 +123,9 @@
 .track-hood { display: inline-block; margin-top: 6px; padding: 3px 9px; border-radius: 999px; border: 2px solid var(--ink); font-family: var(--font-display); font-weight: 800; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); }
 .track-map-coords { margin: 4px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* --- near this request (the city's cases within 300 m, last 30 days; components/TrackNear) --- */
-.track-near-card { display: grid; gap: 12px; }
-.track-near-summary, .track-near-none { margin: 0; font-size: 0.92rem; line-height: 1.45; color: var(--ink); text-wrap: pretty; }
-.track-near-none { color: var(--muted); }
-.track-near-card .street-list { gap: 8px; }
-.track-near-map { text-decoration: none; min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; }
-/* two row-shaped skeletons with a loaded row's geometry (36 px icon, two lines), so the list lands without a shift */
-.track-near-skel { display: grid; gap: 8px; }
-/* A skeleton row has the loaded row's geometry (12 px padding, 2 px border, a type line + two .85rem lines ≈ 88 px), so
-   the list landing moves the digest card below by a few px, not ~40 per row. */
-.track-near-skel-row { display: grid; grid-template-columns: 36px 1fr; gap: 10px; align-items: start; padding: 12px; border: 2px solid var(--line); border-radius: var(--radius-lg); }
-.track-near-skel-icon { display: block; width: 36px; height: 36px; border-radius: 10px; background: var(--ink-soft); animation: sk-pulse 1.4s ease-in-out infinite; }
-.track-near-skel-lines { display: grid; gap: 6px; }
-.track-near-skel-lines .sk-line { display: block; width: 80%; }
-.track-near-skel-lines .sk-line.sk-type { height: 18px; width: 55%; }
-.track-near-skel-lines .sk-line.sk-sm { width: 45%; }
+/* --- near this request (one line: the city's open cases within 300 m + the map link; components/TrackNear) --- */
+.track-near { font-size: 0.95rem; line-height: 1.45; color: var(--ink); }
+.track-near a { display: inline-block; padding: 12px 0; } /* a 44 px target on its own line */
 
 /* --- what to expect --- */
 .track-expect { margin: 8px 0 0; padding-inline-start: 20px; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }

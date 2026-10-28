@@ -1,7 +1,8 @@
 /**
- * push.ts — Web Push for "Notify me on this phone": the same moments that send email (a followed city case moving,
- * the Monday street + week digests) also reach the phone(s) a signed-in resident subscribed from the app. Email is
- * never replaced; a push that fails never breaks a sync or a digest (every send is caught and counted).
+ * push.ts — Web Push for "Notify me on this phone": the same moments that send email (your own report's city status
+ * moving, the city asking you a question, a followed city case moving, the Monday street + week digests) also reach
+ * the phone(s) a signed-in resident subscribed from the app. Email is never replaced; a push that fails never breaks a
+ * sync or a digest (every send is caught and counted).
  *
  * Pure WebCrypto, no npm dependency:
  *   - VAPID (RFC 8292): the signing key is MINTED HERE on first use and kept in Firestore meta/vapid (public key as
@@ -214,6 +215,24 @@ export async function pushAll(store: Store, user: UserDoc, payload: PushPayload,
   }
   for (const [i, r] of results.entries()) if (!r.ok && !r.gone) console.warn(`[push] ${r.status || 'network'} from ${new URL(subs[i].endpoint).host} for ${user.uid}`);
   return sent;
+}
+
+/**
+ * A report owner's own event (its city status moved — engine.ts; the city asked them a question — cityask.ts) on every
+ * phone the account turned on, right after the mail. Email settings do not apply: a subscription is its own opt-in.
+ * Reads the account; nothing without a uid, an account or a subscription. Never throws. `users` (0 or 1: the account
+ * has a subscription) and `sent` (phones that accepted) are what the caller hands logPushes.
+ */
+export async function pushOwner(store: Store, uid: string | null | undefined, payload: PushPayload): Promise<{ users: number; sent: number }> {
+  if (!uid) return { users: 0, sent: 0 };
+  try {
+    const u = await store.getUser(uid);
+    if (!u || !hasPush(u)) return { users: 0, sent: 0 };
+    return { users: 1, sent: await pushAll(store, u, payload) };
+  } catch (e) {
+    console.error('[push] owner push failed:', e instanceof Error ? e.message : e);
+    return { users: 0, sent: 0 };
+  }
 }
 
 /** One log line per run that reached at least one subscribed account: kind 'push.sent', data { source, users, sent, ... }. */

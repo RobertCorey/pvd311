@@ -27,7 +27,6 @@ import StreetCasePage, { type NearbyRow } from '../components/StreetCasePage';
 import StreetPreview from '../components/StreetPreview';
 import MapKey from '../components/MapKey';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
-import PushCard from '../components/PushCard';
 import StreetDigestCard, { addressLabel } from '../components/StreetDigestCard';
 import SavedAddresses from '../components/SavedAddresses';
 import CategoryIcon from '../components/CategoryIcon';
@@ -77,7 +76,6 @@ const TEST_HOOK = import.meta.env.MODE !== 'production' || (typeof location !== 
 type FeedState = 'loading' | 'error' | 'ok';
 /** What GET /api/street/case/:id added to the selected case (api/street caches it per id). */
 interface CaseMore { id: string; state: 'loading' | 'ok' | 'error'; detail: CaseDetail | null }
-interface DigestTarget { lat: number; lng: number; label: string }
 /** history.state of entries this page pushes: `street` = ours; `depth` = how many case entries openCase has pushed on
  *  top of the entry the case page opened over (1 for a pin or row, +1 per nearby swap); `back` = that entry is a list
  *  view of this page, so "Back to map" may navigate(-depth) to it. Without `back` (the page opened from a deep link)
@@ -671,10 +669,10 @@ export default function Street() {
     } catch { /* cancelled or blocked */ }
   }
 
-  /* ── Account (shared by the digest card, the Follow toggle and "Your places") ───────────────────── */
+  /* ── Account (shared by the digest switch, the Follow toggle and "Your places") ─────────────────── */
   const [me, setMe] = useState<Me | null>(null);
   // The city cases this account follows (users.cityFollowing). Its own state, not derived from `me`: the toggles below
-  // update it optimistically and the digest's PATCH responses must not reset it. null = signed out / not loaded yet.
+  // update it optimistically and the digest switch's saves must not reset it. null = signed out / not loaded yet.
   const [cityFollowing, setCityFollowing] = useState<string[] | null>(null);
   const [meState, setMeState] = useState<FollowAccountState>('loading');
   const [meTick, setMeTick] = useState(0); // the Follow toggle's retry after a failed load
@@ -709,13 +707,6 @@ export default function Street() {
     if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
     return `/street?${p}`;
   };
-  /** The weekly digest card (components/StreetDigestCard) bound to a point: the home point in the sheet, or the
-   *  selected case's street on its page. `push` = whether its on-state carries the "Notify me on this phone" row (off
-   *  when the pressed Follow toggle on the same case page already shows it, so the page never has two). */
-  const digestCard = (tg: DigestTarget, from: 'point' | 'case', push = true): ReactNode => (
-    <StreetDigestCard lat={tg.lat} lng={tg.lng} label={addressLabel(tg.label)} address={tg.label} from={from} push={push}
-      returnTo={returnHere(selectedCase)} account={{ me, onMe: setMe }} />
-  );
 
   /* ── Render helpers ───────────────────────────────────────────────────────────────────────────── */
   const [hover, setHover] = useState<string | null>(null);
@@ -964,7 +955,6 @@ export default function Street() {
     );
   }
 
-  const digestTarget: DigestTarget | null = point ? { lat: point.lat, lng: point.lng, label: url.q } : null;
   const body = (
     <>
       {data && feedState === 'loading' && <div className="street-skel" aria-hidden="true"><span /><span /></div>}
@@ -975,7 +965,8 @@ export default function Street() {
       )}
       {widened && <p className="hint street-widened" role="status">{t('street.widened')}</p>}
       {renderBody()}
-      {digestTarget && data && digestCard(digestTarget, 'point')}
+      {/* The address view's one subscription control (components/StreetDigestCard), bound to the home point. */}
+      {point && data && <StreetDigestCard lat={point.lat} lng={point.lng} address={url.q} returnTo={returnHere(selectedCase)} me={me} onMe={setMe} />}
       <p className="hint street-source">{t('street.source')}</p>
     </>
   );
@@ -1049,7 +1040,6 @@ export default function Street() {
   if (caseOpen && selectedCase) {
     const c = selectedCase;
     const followed = !!cityFollowing?.includes(c.id);
-    const tg: DigestTarget | null = c.lat != null && c.lng != null ? { lat: c.lat, lng: c.lng, label: c.street } : null;
     const m = point ? distanceM(c, point) : null;
     casePage = (
       <StreetCasePage
@@ -1058,9 +1048,8 @@ export default function Street() {
         follow={(notes) => (
           <StreetFollow key={c.id} signedIn={!!session} following={cityFollowing ? followed : null} returnTo={returnHere(c)}
             account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
-            onFollow={() => followCase(c.id)} onUnfollow={() => unfollowCase(c.id)} push={<PushCard me={me} from="case" />} notes={notes} />
+            onFollow={() => followCase(c.id)} onUnfollow={() => unfollowCase(c.id)} notes={notes} />
         )}
-        digest={tg ? digestCard(tg, 'case', !followed) : undefined}
       />
     );
   }

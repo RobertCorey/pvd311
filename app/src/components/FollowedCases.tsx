@@ -15,7 +15,7 @@ import '../screens/Account.css';
  *  Renders nothing when signed out, while loading, or when the account follows nothing — the page's own empty state
  *  is about the account's reports, not this list. `onLoaded(n)` tells the page how many (so it can put this list
  *  first when there are no reports); `email` (StreetFollow's FollowEmailState) decides whether the hint promises a
- *  mail or says why none would come, with a link to Account. */
+ *  mail or says why none would come, with a link to Account → Updates. */
 export default function FollowedCases({ email, onLoaded }: { email?: FollowEmailState; onLoaded?: (n: number) => void } = {}) {
   const t = useT();
   const session = useSession();
@@ -49,7 +49,7 @@ export default function FollowedCases({ email, onLoaded }: { email?: FollowEmail
       <h2 id={titleId}>{t('my.cityFollowing.title')}</h2>
       {email == null || email === 'ok'
         ? <p className="hint">{t('my.cityFollowing.hint')}</p>
-        : <p className="hint">{t('my.cityFollowing.hint.plain')} {t(email === 'off' ? 'street.follow.emailOff' : 'street.follow.unverified')} <Link to="/account">{t('street.follow.account')}</Link></p>}
+        : <p className="hint">{t('my.cityFollowing.hint.plain')} {t(email === 'off' ? 'street.follow.emailOff' : 'street.follow.unverified')} <Link to="/account/updates">{t('street.follow.account')}</Link></p>}
       {error && <p className="notice notice-error" role="alert">{t('street.follow.error')}</p>}
       <ul className="my-list">
         {items.map((c) => <Row key={c.id} c={c} nowMs={nowMs} onUnfollow={() => unfollow(c)} />)}
@@ -59,7 +59,7 @@ export default function FollowedCases({ email, onLoaded }: { email?: FollowEmail
 }
 
 /** The /street deep link to a case: `case=` alone opens the card; lat/lng (when placed) frame the map around it. */
-function caseHref(c: Pick<FollowedCase, 'id' | 'lat' | 'lng'>): string {
+export function caseHref(c: Pick<FollowedCase, 'id' | 'lat' | 'lng'>): string {
   const p = new URLSearchParams({ case: c.id });
   if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
   return `/street?${p}`;

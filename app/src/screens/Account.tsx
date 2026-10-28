@@ -1,26 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useT } from '../i18n';
-import { shortLabel } from '../lib/categories';
 import { GOOGLE_CLIENT_ID, authErrorKey, completeSignInLink, isSignInLink, pendingEmail, sendSignInLink, signOut, takeReturnTo, useSession } from '../lib/auth';
-import { deleteAddress, followingReports, getMe, saveAddress, updateMe, type Me, type MyReportView } from '../api/me';
+import { getMe, updateMe, type Me } from '../api/me';
 import GoogleSignInButton from '../components/GoogleSignInButton';
-import PushCard, { type PushState } from '../components/PushCard';
-import StreetWatchRow from '../components/StreetWatchRow';
-import UpdatesSummary from '../components/UpdatesSummary';
-import WatchGroups from '../components/WatchGroups';
-import { GROUPS_ID, PHONE_ID, WATCH_ID } from '../lib/updatesSummary';
+import AccountUpdates from './AccountUpdates';
 import './Account.css';
 
 type Phase = 'idle' | 'busy' | 'sent' | 'error';
+/** Account → Updates: every subscription in one place; the mails' footers link here. */
+const UPDATES = '/account/updates';
 
 export default function Account() {
   const session = useSession();
   const navigate = useNavigate();
+  const updates = useLocation().pathname.replace(/\/+$/, '') === UPDATES;
   // Already signed in and asked to come back somewhere (e.g. a parked report) → go there.
   const returnTo = new URLSearchParams(location.search).get('returnTo');
   useEffect(() => { if (session && returnTo && !isSignInLink()) navigate(takeReturnTo('/my'), { replace: true }); }, [session, returnTo, navigate]);
-  return <section className="section account">{session ? <SignedIn /> : <SignedOut />}</section>;
+  // Updates signed out (a mail's "change what you get" link): sign in first, then straight back to the tab.
+  if (!session && updates) return <Navigate to={`/account?returnTo=${encodeURIComponent(UPDATES)}`} replace />;
+  return <section className="section account">{session ? <SignedIn updates={updates} /> : <SignedOut />}</section>;
 }
 
 // ── Signed out: email link + Google ──
@@ -104,131 +104,65 @@ function SignedOut() {
   );
 }
 
-// ── Signed in: profile, prefs, addresses, following ──
-function SignedIn() {
+// ── Signed in: the two tabs over one GET /api/me — Account (profile, sign-out) | Updates (AccountUpdates) ──
+function SignedIn({ updates }: { updates: boolean }) {
   const t = useT();
-  const navigate = useNavigate();
   const [me, setMe] = useState<Me | null>(null);
-  const [following, setFollowing] = useState<MyReportView[] | null>(null);
   const [err, setErr] = useState(false);
-  const [name, setName] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [addr, setAddr] = useState({ label: '', address: '' });
-  const [pushState, setPushState] = useState<PushState | undefined>(undefined);
-  // This browser's push endpoint as the card reports it (kept after Turn off: the summary discounts it from `me.push`).
-  const [pushEndpoint, setPushEndpoint] = useState<string | null>(null);
-  const onPushState = useCallback((state: PushState, endpoint: string | null) => { setPushState(state); setPushEndpoint(endpoint); }, []);
 
   const load = useCallback(async () => {
-    try {
-      const m = await getMe(); setMe(m); setName(m.displayName ?? ''); setErr(false);
-      followingReports().then((r) => setFollowing(r.items)).catch(() => setFollowing([]));
-    } catch (e) {
+    try { setMe(await getMe()); setErr(false); } catch (e) {
       if (e instanceof Error && (e as { status?: number }).status === 401) { signOut(); return; }
       setErr(true);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function saveName(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true);
-    try { setMe(await updateMe({ displayName: name.trim() || null })); } catch { setErr(true); } finally { setSaving(false); }
-  }
-  async function togglePref(patch: Partial<Me['prefs']>) {
-    if (!me) return;
-    const before = me;
-    setMe({ ...me, prefs: { ...me.prefs, ...patch } }); // optimistic (the other prefs kept); reverted below on failure
-    try { setMe(await updateMe({ prefs: patch })); } catch { setMe(before); setErr(true); }
-  }
-  async function addAddress(e: React.FormEvent) {
-    e.preventDefault();
-    if (addr.address.trim().length < 3) return;
-    setSaving(true);
-    try { const r = await saveAddress({ label: addr.label.trim(), address: addr.address.trim() }); setMe((m) => (m ? { ...m, addresses: r.addresses } : m)); setAddr({ label: '', address: '' }); }
-    catch { setErr(true); } finally { setSaving(false); }
-  }
-  async function removeAddress(id: string) {
-    try { const r = await deleteAddress(id); setMe((m) => (m ? { ...m, addresses: r.addresses } : m)); } catch { setErr(true); }
-  }
+  return (
+    <>
+      <h1 className="account-h1">{t('account.signedIn.title')}</h1>
+      <nav className="account-tabs" aria-label={t('account.tabs')}>
+        <NavLink to="/account" end className="account-tab">{t('account.tab.account')}</NavLink>
+        <NavLink to={UPDATES} className="account-tab">{t('account.tab.updates')}</NavLink>
+      </nav>
+      {!me
+        ? (err
+          ? <div className="notice notice-error" role="alert">{t('account.error.load')} <button type="button" className="btn btn-ghost" onClick={load}>{t('account.retry')}</button></div>
+          : <p className="muted" aria-busy="true">{t('account.loading')}</p>)
+        : updates ? <AccountUpdates me={me} setMe={setMe} /> : <Profile me={me} onMe={setMe} />}
+    </>
+  );
+}
 
-  if (!me) {
-    return err
-      ? <div className="notice notice-error" role="alert">{t('account.error.load')} <button type="button" className="btn btn-ghost" onClick={load}>{t('account.retry')}</button></div>
-      : <p className="muted" aria-busy="true">{t('account.loading')}</p>;
+/** The Account tab: email, My reports (+ Admin), the name, sign out. */
+function Profile({ me, onMe }: { me: Me; onMe: (me: Me) => void }) {
+  const t = useT();
+  const navigate = useNavigate();
+  const [name, setName] = useState(me.displayName ?? '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+
+  async function saveName(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setErr(false);
+    try { onMe(await updateMe({ displayName: name.trim() || null })); } catch { setErr(true); } finally { setSaving(false); }
   }
 
   return (
     <>
-      <h1 className="account-h1">{t('account.signedIn.title')}</h1>
       <p className="muted account-email">{me.email ?? '—'}</p>
-      {err && <div className="notice notice-error" role="alert">{t('account.error.save')}</div>}
-
       <div className="account-actions">
         <Link className="btn btn-primary" to="/my">{t('account.myReports')}</Link>
         {me.admin && <Link className="btn btn-secondary" to="/admin">{t('admin.title')}</Link>}
       </div>
-
-      <h2>{t('account.prefs.title')}</h2>
-      <div className="card account-prefs">
-        <UpdatesSummary me={me} pushState={pushState} pushEndpoint={pushEndpoint} />
-        <label className="account-toggle">
-          <input type="checkbox" checked={me.prefs.emailUpdates} onChange={(e) => togglePref({ emailUpdates: e.target.checked })} />
-          <span>{t('account.prefs.emailUpdates')}</span>
-        </label>
-        <p className="hint">{t('account.prefs.emailUpdates.hint')}</p>
-        <label className="account-toggle">
-          <input type="checkbox" checked={me.prefs.weekDigest === true} onChange={(e) => togglePref({ weekDigest: e.target.checked })} />
-          <span>{t('account.prefs.weekDigest')}</span>
-        </label>
-        <p className="hint">{t('account.prefs.weekDigest.hint')}</p>
-        <PushCard me={me} from="account" onState={onPushState} id={PHONE_ID} />
-        <StreetWatchRow me={me} onMe={setMe} pushState={pushState} from="account" id={WATCH_ID} />
-        {(me.prefs.streetWatch === true || me.prefs.streetDigest === true) && <WatchGroups me={me} onMe={setMe} from="account" id={GROUPS_ID} />}
-        <form className="account-inline" onSubmit={saveName}>
-          <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
-          <div className="account-row">
-            <input id="account-name" className="input" value={name} maxLength={80} autoComplete="name" placeholder={t('account.name.placeholder')} onChange={(e) => setName(e.target.value)} />
-            <button type="submit" className="btn btn-secondary" disabled={saving || name.trim() === (me.displayName ?? '')}>{t('account.save')}</button>
-          </div>
-          <p className="hint">{t('account.name.hint')}</p>
-        </form>
-      </div>
-
-      <h2>{t('account.addresses.title')}</h2>
-      <div className="card">
-        {me.addresses.length === 0 && <p className="muted">{t('account.addresses.empty')}</p>}
-        <ul className="account-list">
-          {me.addresses.map((a) => (
-            <li key={a.id}>
-              <span><strong>{a.label}</strong><br /><span className="muted">{a.address}</span></span>
-              <button type="button" className="btn btn-ghost" onClick={() => removeAddress(a.id)} aria-label={`${t('account.addresses.remove')} ${a.label}`}>{t('account.addresses.remove')}</button>
-            </li>
-          ))}
-        </ul>
-        {me.addresses.length < 10 && (
-          <form className="account-inline" onSubmit={addAddress}>
-            <div className="account-row">
-              <input className="input account-label" value={addr.label} maxLength={40} placeholder={t('account.addresses.labelPlaceholder')} aria-label={t('account.addresses.label')} onChange={(e) => setAddr({ ...addr, label: e.target.value })} />
-              <input className="input" value={addr.address} maxLength={300} placeholder={t('account.addresses.addressPlaceholder')} aria-label={t('account.addresses.address')} autoComplete="street-address" onChange={(e) => setAddr({ ...addr, address: e.target.value })} />
-            </div>
-            <button type="submit" className="btn btn-secondary" disabled={saving || addr.address.trim().length < 3}>{t('account.addresses.add')}</button>
-          </form>
-        )}
-      </div>
-
-      <h2>{t('account.following.title')}</h2>
-      {following == null ? <p className="muted">{t('account.loading')}</p> : following.length === 0 ? <p className="muted">{t('account.following.empty')}</p> : (
-        <ul className="my-list">
-          {following.map((r) => (
-            <li key={r.id}><Link to={`/r/${r.id}`} className="card my-row">
-              <span className="my-cat">{shortLabel(r.category, t)}</span>
-              <span className="my-addr">{r.address}</span>
-              <span className="muted my-date">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : ''}</span>
-            </Link></li>
-          ))}
-        </ul>
-      )}
-
+      <form className="card account-inline" onSubmit={saveName}>
+        <label className="label" htmlFor="account-name">{t('account.name.label')}</label>
+        <div className="account-row">
+          <input id="account-name" className="input" value={name} maxLength={80} autoComplete="name" placeholder={t('account.name.placeholder')} onChange={(e) => setName(e.target.value)} />
+          <button type="submit" className="btn btn-secondary" disabled={saving || name.trim() === (me.displayName ?? '')}>{t('account.save')}</button>
+        </div>
+        <p className="hint">{t('account.name.hint')}</p>
+        {err && <div className="notice notice-error" role="alert">{t('account.error.save')}</div>}
+      </form>
       <div className="account-signout">
         <button type="button" className="btn btn-ghost" onClick={() => { signOut(); navigate('/'); }}>{t('account.signOut')}</button>
         <p className="hint">{t('account.signOut.hint')}</p>
@@ -236,4 +170,3 @@ function SignedIn() {
     </>
   );
 }
-

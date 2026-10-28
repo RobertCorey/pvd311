@@ -8,9 +8,8 @@ import './AdminEngagement.css';
 type Tr = ReturnType<typeof useT>;
 
 /**
- * Engagement tab — who opted into what (push, follows, the two Monday digests, street watch, the "Only tell me about…"
- * narrowing), what last Monday's runs did, what is held for the morning catch-up, and the recent digest / watch / push
- * events and mails. One GET /api/admin/engagement, counted on the Worker from a ≤ 500-account scan and cached a minute.
+ * Engagement tab — who opted into what (push, follows, the two Monday digests), what last Monday's runs did, and the
+ * recent digest / push events and mails. One GET /api/admin/engagement, counted on the Worker from a ≤ 500-account scan and cached a minute.
  * Desktop: tiles → two run cards → two tables. Phone: everything stacks; the mail table reuses the Email tab's cards.
  */
 export default function AdminEngagement({ go }: { go: (hash: string) => void }) {
@@ -44,8 +43,6 @@ export default function AdminEngagement({ go }: { go: (hash: string) => void }) 
             <Tile n={a.follows.accounts} label={t('admin.engagement.tile.follows')} what={t('admin.engagement.tile.followsWhat', { n: a.follows.cases })} />
             <Tile n={a.streetDigest} label={t('admin.engagement.tile.streetDigest')} what={t('admin.engagement.tile.streetDigestWhat')} query={crossCheck(a, 'streetDigest', t)} />
             <Tile n={a.weekDigest} label={t('admin.engagement.tile.weekDigest')} what={t('admin.engagement.tile.weekDigestWhat')} query={crossCheck(a, 'weekDigest', t)} />
-            <Tile n={a.streetWatch} label={t('admin.engagement.tile.streetWatch')} what={t('admin.engagement.tile.streetWatchWhat')} query={crossCheck(a, 'streetWatch', t)} />
-            <Tile n={a.watchGroupsSet} label={t('admin.engagement.tile.groups')} what={t('admin.engagement.tile.groupsWhat')} />
           </div>
 
           {quiet && <p className="admin-empty eng-empty">{t('admin.engagement.empty')}</p>}
@@ -56,11 +53,6 @@ export default function AdminEngagement({ go }: { go: (hash: string) => void }) 
               <RunCard kind="week" run={d.lastWeekDigest} t={t} />
               <RunCard kind="street" run={d.lastStreetDigest} t={t} />
             </div>
-            <p className="eng-line">
-              <strong>{t('admin.engagement.overnight')}</strong>{' '}
-              <span className="eng-overnight">{d.overnightHeld > 0 ? t('admin.engagement.overnightHeld', { n: d.overnightHeld }) : t('admin.engagement.overnightNone')}</span>
-              <span className="admin-meta"> · {t('admin.engagement.overnightWhat')}</span>
-            </p>
             <p className="admin-meta eng-vapid">{d.vapidSince ? t('admin.engagement.vapid', { when: abs(d.vapidSince) }) : t('admin.engagement.noVapid')}</p>
           </section>
 
@@ -135,7 +127,7 @@ const Tile = ({ n, label, what, query }: { n: number; label: string; what: strin
 
 /** The equality-query count for an opt-in when it disagrees with the scan (a capped scan, or a query that saw more): the
  *  Monday jobs read the query, so that is the number that will actually be mailed. Nothing when they agree or no query ran. */
-function crossCheck(a: Engagement['accounts'], k: 'streetDigest' | 'weekDigest' | 'streetWatch', t: Tr): string | null {
+function crossCheck(a: Engagement['accounts'], k: 'streetDigest' | 'weekDigest', t: Tr): string | null {
   const q = a.queried?.[k];
   return typeof q === 'number' && q !== a[k] ? t('admin.engagement.tile.query', { n: q }) : null;
 }
@@ -170,10 +162,7 @@ function summarize(e: Pick<AdminEvent, 'kind' | 'msg' | 'data'>, t: Tr): string 
   switch (e.kind) {
     case 'week.digest': return has('users', 'mailed') ? t('admin.engagement.sum.week', { mailed: n('mailed'), users: n('users'), pushed: n('pushed'), total: n('total'), post: d.adminMailed ? t('admin.engagement.yes') : t('admin.engagement.no') }) : e.msg;
     case 'street.digest': return has('users', 'mailed') ? t('admin.engagement.sum.street', { mailed: n('mailed'), users: n('users'), pushed: n('pushed') }) : e.msg;
-    case 'watch.pushed': return has('hits', 'pushed') ? t('admin.engagement.sum.pushed', { pushed: n('pushed'), hits: n('hits'), accounts: n('accounts') }) : e.msg;
-    case 'watch.held': return has('hits') ? t('admin.engagement.sum.held', { hits: n('hits'), accounts: n('accounts') }) : e.msg;
-    case 'watch.morning': return has('pushed', 'pushedTo') ? t('admin.engagement.sum.morning', { pushed: n('pushed'), pushedTo: n('pushedTo'), accounts: n('accounts') }) : e.msg;
-    case 'push.sent': return has('sent', 'users') ? t('admin.engagement.sum.push', { source: String(d.source ?? ''), sent: n('sent'), users: n('users') }) + (d.morning ? ` ${t('admin.engagement.sum.morningTag')}` : '') : e.msg;
+    case 'push.sent': return has('sent', 'users') ? t('admin.engagement.sum.push', { source: String(d.source ?? ''), sent: n('sent'), users: n('users') }) : e.msg;
     default: return e.msg;
   }
 }

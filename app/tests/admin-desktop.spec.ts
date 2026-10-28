@@ -83,19 +83,19 @@ for (const tab of ['usage', 'accounts', 'portal', 'config', 'explain'] as const)
   });
 }
 
-test('engagement: seven tiles in one row, the two run cards side by side, runs + mail tables, no horizontal scroll', async ({ page }) => {
+test('engagement: five tiles in one row, the two run cards side by side, runs + mail tables, no horizontal scroll', async ({ page }) => {
   await page.goto('/admin#engagement');
   const main = page.locator('.admin-main');
   await expect(main.locator('h1')).toContainText('Engagement');
   const tiles = main.locator('.eng-tile');
-  await expect(tiles).toHaveCount(7);
+  await expect(tiles).toHaveCount(5);
   const tops = await tiles.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
   expect(new Set(tops).size).toBe(1);
   const cards = main.locator('.eng-card');
   await expect(cards).toHaveCount(2);
   const [a, b] = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
   expect(Math.round(a!.y)).toBe(Math.round(b!.y));
-  await expect(main.locator('.eng-events tbody tr')).toHaveCount(9);
+  await expect(main.locator('.eng-events tbody tr')).toHaveCount(5);
   await expect(main.locator('.eng-mails tbody tr')).toHaveCount(13);
   await expect(main.locator('.eng-events thead')).toBeVisible();
   expect(await noHScroll(page)).toBe(false);

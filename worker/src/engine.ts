@@ -17,7 +17,8 @@ import { createStore, createAuthStore } from './firestore.js';
 import { createPortal, type MyRequestRow } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
-import { notifyReport, statusChangeEmail } from './notify.js';
+import { notifyReport, statusChangeEmail, statusChangePush, updatesLine } from './notify.js';
+import { logPushes, pushOwner } from './push.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
 import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
@@ -32,7 +33,6 @@ import { GOLDEN_CONTROLS } from './golden-controls.js';
 import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 import { syncCityCases, followUpCityCases, backfillCityCaseGeo } from './citycases.js';
 import { runStreetDigest } from './street.js';
-import { runWatchMorning } from './streetwatch.js';
 import { runWeekDigest } from './week.js';
 import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
@@ -222,9 +222,10 @@ async function submitOne(
       await auditCityQuestions(store, { category: report.category, reportId: report.id, controls: result.controls, scouted: result.scouted, leftBlank: result.leftBlank });
     }
     {
-      const track = `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`;
+      const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
+      const track = `${base}/r/${report.id}`;
       await notifyReport(store, mailer, report, `Your report was filed with Providence 311${result.caseId ? ` (${result.caseId})` : ''}`,
-        `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`,
+        `<p>Your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} was filed with the city${result.caseId ? ` as case <b>${escHtml(result.caseId)}</b>` : ''}.</p><p><a href="${track}">Track it here</a> — we check the city's status every 30 minutes and will email you when it changes.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(base)}</p>`,
         { kind: 'filed' });
     }
   } catch (err) {
@@ -367,11 +368,7 @@ export async function runWatcher(env: Env): Promise<void> {
           }
         }
         // Reporter status emails — after the detail read, so they carry the city's Resolution Message when it has one.
-        for (const { report, caseId, to } of statusMail) {
-          const fresh = (await store.fetchReport(report.id).catch(() => null)) ?? report;
-          const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl: `${env.APP_BASE_URL ?? 'https://fixmypvd.org'}/r/${report.id}`, resolution: cityResolutionMessage(fresh) });
-          await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status' });
-        }
+        await notifyStatusChanges(env, store, mailer, statusMail);
       }
     } else {
       console.log('[watcher] nothing to watch');
@@ -408,6 +405,27 @@ export async function runWatcher(env: Env): Promise<void> {
   } finally {
     await portal.close().catch(() => {});
   }
+}
+
+/**
+ * The watcher's status moves, told: the status email to the reporter + followers (notify.ts), then the same move on the
+ * owner's phones (push.ts pushOwner — after the mail, never instead of it); one 'push.sent' log line (source
+ * report_status) for the run. Each report is re-read first so the mail and push carry the city's Resolution Message
+ * from this run's detail read.
+ */
+export async function notifyStatusChanges(env: Env, store: Store, mailer: Mailer, changes: { report: ReportDoc; caseId: string; to: string }[]): Promise<void> {
+  const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
+  const pushes = { users: 0, sent: 0 };
+  for (const { report, caseId, to } of changes) {
+    const fresh = (await store.fetchReport(report.id).catch(() => null)) ?? report;
+    const trackUrl = `${base}/r/${report.id}`;
+    const resolution = cityResolutionMessage(fresh);
+    const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl, resolution, base });
+    await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status' });
+    const p = await pushOwner(store, fresh.ownerUid, statusChangePush({ reportId: report.id, category: report.category, address: report.address, status: to, trackUrl, resolution }));
+    pushes.users += p.users; pushes.sent += p.sent;
+  }
+  await logPushes(store, 'report_status', pushes);
 }
 
 /** After the watcher (same 30-min cron): record every public-feed case over plain HTTP — no browser session. */
@@ -627,10 +645,6 @@ async function snapshotCounts(store: Store): Promise<Record<DigestKey, number>> 
 export async function runDaily(env: Env): Promise<void> {
   const store = createStore(env);
   const mailer = createMailer(env);
-
-  // Street watch (streetwatch.ts): the hits the quiet-hour syncs held overnight — ONE "Overnight near …" push per
-  // account, first thing, so it lands at 07:00 and not after the retention sweep. Skips itself outside 05:00–09:00 ET.
-  await runWatchMorning(env, store).catch((e) => console.error('[daily] watch morning catch-up failed:', e instanceof Error ? e.message : e));
 
   // Retention: photos are deleted 30 days after the city resolves/cancels the case (privacy promise).
   try {

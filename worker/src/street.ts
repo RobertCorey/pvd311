@@ -20,10 +20,9 @@
  *     `detail` (address, timeline, the fixed-choice city-question answers — publicAnswer — status history). 404 when gone
  *     or a draft.
  *
- *   runStreetDigest (Mondays, from runDaily): every account with prefs.streetDigest and a saved address gets ONE mail
- *   listing the week's new and closed cases within DIGEST_RADIUS_M of each address — nothing happened → no mail.
- *   "Only tell me about…" (prefs.watchGroups, watchgroups.ts): a section lists only the cases whose picker group the
- *   account chose; an address with nothing left after that filter gets no section, so no mail or push mentions it.
+ *   runStreetDigest (Mondays, from runDaily): every account with a saved address that gets the digest (addressDigest:
+ *   the address's own `digest` flag, set on PUT /api/me/addresses) gets ONE mail listing the week's new and closed
+ *   cases within DIGEST_RADIUS_M of each such address — nothing happened → no mail.
  */
 import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
@@ -32,7 +31,7 @@ import type { AnswerKind, CityCaseDetail } from './citycases.js';
 import { geocodeStreetCached } from './cityfeed.js';
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
-import { groupAllowed } from './watchgroups.js';
+import { updatesLine } from './notify.js';
 
 export const DEFAULT_RADIUS_M = 300;
 export const MAX_RADIUS_M = 1000;
@@ -417,8 +416,7 @@ export function streetDigestEmail(sections: DigestSection[], o: { base: string; 
     + `<ul style="padding-left:1.2em;margin:0">${s.items.map(row).join('')}</ul>`
     + `<p style="margin:.5em 0 0"><a href="${esc(s.url)}">See everything near here</a></p>`).join('')
     + `<p style="color:#888;margin-top:2em">City cases within about ${DIGEST_RADIUS_M} m, from Providence 311's public list. ${total} this week. `
-    + `You asked for this weekly email on FixMyPVD — turn it off with "Turn off" under <a href="${esc(sections[0]?.url ?? `${o.base}/street`)}">Hear about this street every week</a> on your street page, `
-    + `or manage your addresses under <a href="${esc(o.base)}/account">Account</a>. `
+    + `You asked for this weekly email on FixMyPVD. ${updatesLine(o.base)} `
     + `FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
 }
@@ -431,10 +429,17 @@ export function streetDigestPush(s: DigestSection, since: string): PushPayload {
   return { title: `This week near ${s.label || s.address}`, body: `${newN} new · ${closedN} closed`, url: s.url, tag: `street:${s.id ?? s.label}` };
 }
 
-/** Mondays: one mail per opted-in account with activity near a saved address, and a push per such address to the
- *  account's subscribed phones (push.ts; mail needs a verified email, a push only needs the subscription). The account's
- *  "Only tell me about…" groups (watchgroups.groupAllowed) are applied to each address's cases before a section is built,
- *  so the mail's rows, the subject's counts and the push's "<new> new · <closed> closed" all count matching cases only.
+/**
+ * Does this saved address get the Monday street digest? Its own `digest` flag; an address saved before the flag existed
+ * (2026-10-28) follows the old account-wide prefs.streetDigest, which meant every address. me.ts writes the flag on every
+ * address whenever the list changes, so the fallback only ever applies to accounts untouched since then.
+ */
+export const addressDigest = (a: SavedAddress, u: Pick<UserDoc, 'prefs'>): boolean =>
+  typeof a.digest === 'boolean' ? a.digest : u.prefs?.streetDigest === true;
+
+/** Mondays: one mail per account with activity near a saved address that gets the digest (addressDigest), and a push
+ *  per such address to the account's subscribed phones (push.ts; mail needs a verified email, a push only needs the
+ *  subscription). The accounts come from the prefs.streetDigest == true query (me.ts keeps it = "some address is on").
  *  Returns counts for the log. */
 export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
   const now = opts.now ?? Date.now();
@@ -447,12 +452,13 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
   for (const u of users) {
     const canMail = !!u.email && !!u.emailVerified;
     const canPush = hasPush(u);
-    if ((!canMail && !canPush) || !(u.addresses ?? []).length) continue;
+    if ((!canMail && !canPush) || !(u.addresses ?? []).some((a) => addressDigest(a, u))) continue;
     rows ??= await loadCases(store, DIGEST_DAYS, now);
     const sections: DigestSection[] = [];
     let patched = false;
     const addresses: SavedAddress[] = [];
     for (const a of u.addresses) {
+      if (!addressDigest(a, u)) { addresses.push(a); continue; }
       let { lat, lng } = a;
       if (lat == null || lng == null) {
         const hit = await geocodeStreetCached(store, a.address).catch(() => null);
@@ -460,10 +466,25 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
       }
       addresses.push({ ...a, lat, lng });
       if (lat == null || lng == null) continue;
-      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now }).filter((c) => groupAllowed(u, c));
+      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now });
       if (items.length) sections.push({ id: a.id, label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }), items });
     }
-    if (patched) await store.patchUser(u.uid, { addresses }).catch(() => {});
+    // Write back only the coordinates it found, merged by id into a fresh read: writing the array read at the start of
+    // the run would undo a switch the resident flipped meanwhile (Account → Updates writes the same array).
+    if (patched) {
+      const found = new Map(addresses.filter((a) => a.lat != null && a.lng != null).map((a) => [a.id, a]));
+      const fresh = await store.getUser(u.uid).catch(() => null);
+      if (fresh?.addresses?.length) {
+        let changed = false;
+        const next = fresh.addresses.map((a) => {
+          const f = found.get(a.id);
+          if (!f || a.lat != null || a.lng != null || f.address !== a.address) return a;
+          changed = true;
+          return { ...a, lat: f.lat, lng: f.lng };
+        });
+        if (changed) await store.patchUser(u.uid, { addresses: next }).catch(() => {});
+      }
+    }
     if (!sections.length) continue;
     if (canMail) {
       const m = streetDigestEmail(sections, { base, since });

@@ -84,7 +84,7 @@ export const usage = () => ({
   devices: [['mobile', 330], ['desktop', 74], ['tablet', 8]].map(([device, visitors]) => ({ device, visitors })),
   categories: [['pothole', 80], ['street_light', 41], ['illegal_dumping', 30], ['missed_trash', 22]].map(([category, visitors]) => ({ category, visitors })),
 });
-/** GET /api/admin/engagement — opt-in counts from one users scan, last Monday's two runs, recent digest / watch / push events and mail.
+/** GET /api/admin/engagement — opt-in counts from one users scan, last Monday's two runs, recent digest / push events and mail.
  *  Pass partial overrides (shallow) to vary a case; `engagementEmpty()` is a fresh install where nothing has gone out. */
 export const engagement = (o: Record<string, unknown> = {}) => {
   const monday = mins(60 * 24 * 2 + 60 * 5); // last Monday 7 am-ish, as rel() renders it: "2 d ago"
@@ -92,18 +92,13 @@ export const engagement = (o: Record<string, unknown> = {}) => {
   const mail = (id: string, at: string, kind: string, to: string, subject: string, status = 'sent') => ({ id, at, kind, to, subject, status });
   return {
     at: mins(2),
-    accounts: { total: 14, withPush: 5, pushDevices: 7, follows: { accounts: 4, cases: 9 }, streetDigest: 6, weekDigest: 8, streetWatch: 3, watchGroupsSet: 2, scanned: 14, truncated: false },
-    overnightHeld: 3,
+    accounts: { total: 14, withPush: 5, pushDevices: 7, follows: { accounts: 4, cases: 9 }, streetDigest: 6, weekDigest: 8, scanned: 14, truncated: false },
     vapidSince: mins(60 * 24 * 40),
     lastWeekDigest: { at: monday, users: 8, mailed: 7, pushed: 4, total: 292, adminMailed: true },
     lastStreetDigest: { at: monday, users: 6, mailed: 4, pushed: 2 },
     recent: {
       events: [
-        ev('eg_1', mins(35), 'watch.pushed', 'Street watch: 2 pushes for 2 new cases near 2 accounts', { cases: 6, users: 3, hits: 2, pushed: 2, skippedOwn: 0, held: 0, accounts: 2 }),
-        ev('eg_2', mins(35), 'push.sent', 'Push (street_watch): 2 sent to 2 subscribed accounts', { source: 'street_watch', users: 2, sent: 2 }),
-        ev('eg_3', mins(60 * 9), 'watch.morning', 'Street watch morning catch-up: 2 pushes to 2 accounts for 3 overnight cases', { ran: true, items: 3, stale: 0, accounts: 2, skippedOff: 0, pushedTo: 2, pushed: 2 }),
-        ev('eg_4', mins(60 * 9), 'push.sent', 'Push (street_watch): 2 sent to 2 subscribed accounts', { source: 'street_watch', users: 2, sent: 2, morning: true }),
-        ev('eg_5', mins(60 * 14), 'watch.held', 'Street watch: 3 hits near 2 accounts held for the morning catch-up (quiet hours)', { cases: 4, users: 3, hits: 3, pushed: 0, skippedOwn: 1, held: 3, accounts: 2 }),
+        ev('eg_1', mins(35), 'push.sent', 'Push (city_follow): 2 sent to 2 subscribed accounts', { source: 'city_follow', users: 2, sent: 2 }),
         ev('eg_6', monday, 'week.digest', 'Weekly city digest: 7 of 8 opted-in accounts mailed; the r/providence post mailed to admin', { users: 8, mailed: 7, pushed: 4, total: 292, adminMailed: true }),
         ev('eg_7', monday, 'push.sent', 'Push (week_digest): 4 sent to 4 subscribed accounts', { source: 'week_digest', users: 4, sent: 4 }),
         ev('eg_8', monday, 'street.digest', 'Weekly street digest: 4 of 6 opted-in accounts had something to hear about', { users: 6, mailed: 4, pushed: 2 }),
@@ -120,8 +115,8 @@ export const engagement = (o: Record<string, unknown> = {}) => {
   };
 };
 export const engagementEmpty = () => engagement({
-  accounts: { total: 0, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0, streetWatch: 0, watchGroupsSet: 0, scanned: 0, truncated: false },
-  overnightHeld: 0, vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] },
+  accounts: { total: 0, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0, scanned: 0, truncated: false },
+  vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] },
 });
 /** GET /api/admin/city-questions — the real committed seed, with live records for a few categories (shape = worker buildAdminView). */
 const CQ_SEED = JSON.parse(readFileSync(new URL('../../shared/city-questions.seed.json', import.meta.url), 'utf8')) as {

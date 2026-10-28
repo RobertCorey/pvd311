@@ -19,11 +19,11 @@ import './StreetCasePage.css';
  *  Order: the sticky top bar ("‹ Back to map" · Follow · Share), the hero (a static mini-map of the spot + the title
  *  block: type, address, neighborhood, status pill), the stat row (how long open / to close · reported · distance from
  *  the point or the neighborhood), the fact tiles (type, status, sent to the department, work completed), then the
- *  sections: timeline, what was reported, the city's note, nearby (rows that swap the page to that case), the weekly
- *  digest card. The dialog takes focus when it opens and when the case changes, keeps Tab inside, and Escape / the
- *  backdrop / "Back to map" call `onClose`; the caller owns the URL, history and the focus return. The keys are heard on
- *  the document, not the dialog: a control that swaps itself out (the digest card's button for its on-state) drops
- *  focus to <body>, where the dialog's own keydown never fires. Answers are text nodes, never HTML. */
+ *  sections: timeline, what was reported, the city's note, nearby (rows that swap the page to that case). The dialog
+ *  takes focus when it opens and when the case changes, keeps Tab inside, and Escape / the backdrop / "Back to map"
+ *  call `onClose`; the caller owns the URL, history and the focus return. The keys are heard on the document, not the
+ *  dialog: a control that swaps itself out drops focus to <body>, where the dialog's own keydown never fires. Answers
+ *  are text nodes, never HTML. */
 
 export interface CaseMore { state: 'loading' | 'ok' | 'error'; detail: CaseDetail | null }
 export interface NearbyRow { c: MapCase; m: number; hood: string | null }
@@ -51,15 +51,13 @@ export interface StreetCasePageProps {
   flash: string | null;
   /** The Follow toggle (components/StreetFollow) for the top bar, handed the element its lines render into. */
   follow: (notes: HTMLElement | null) => ReactNode;
-  /** The weekly digest card bound to this case's street (located cases only). */
-  digest?: ReactNode;
 }
 
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const BackIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>;
 const ShareIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="M8 7l4-4 4 4" /><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" /></svg>;
 
-export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, days, onNearby, onClose, onShare, flash, follow, digest }: StreetCasePageProps) {
+export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, days, onNearby, onClose, onShare, flash, follow }: StreetCasePageProps) {
   const { t, lang } = useI18n();
   const titleId = useId();
   const tlId = useId();
@@ -224,7 +222,6 @@ export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, day
                 ) : <p className="hint case-nearby-hint">{t('street.case.nearby.none', { m: NEARBY_M, days })}</p>}
               </section>
             )}
-            {digest}
             <p className="case-report"><Link to="/" className="btn btn-secondary">{t('street.report')}</Link></p>
           </div>
         </div>

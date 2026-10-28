@@ -3,7 +3,6 @@
  * Runtime: Cloudflare Workers (nodejs_compat) + Browser Run. No KV/R2 — state lives in Firestore/Storage.
  */
 import type { Report, ReportStatus } from '../../shared/types.js';
-import type { GroupKey } from '../../shared/categories.js';
 import type { PortalControl } from './scout.js';
 import type { CityQuestionsDoc } from './cityquestions.js';
 import type { EmailRecord, EmailMeta } from './emaillog.js';
@@ -45,7 +44,8 @@ export interface Env {
 export type ReportDoc = Report & { id: string };
 
 /** users/{uid} — account profile + preferences. Created lazily on first authenticated call. */
-export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
+/** `digest`: this address is in the Monday street digest (street.ts addressDigest; absent on addresses saved before 2026-10-28 → prefs.streetDigest). */
+export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null; digest?: boolean }
 /** One Web Push subscription in users/{uid}.push[] (push.ts; ≤ 5 per account, newest first). Having one = "Notify me on this phone" is on. */
 export interface PushSub { endpoint: string; p256dh: string; auth: string; ua: string | null; createdAt: string; lastUsedAt?: string | null }
 export interface UserDoc {
@@ -56,7 +56,7 @@ export interface UserDoc {
   provider: string;
   createdAt: string;
   lastSeenAt: string;
-  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] }; // city-status emails for own + followed reports; weekly "My street" digest for saved addresses; Monday "This week in Providence" mail (week.ts); push the moment a new case is seen near a saved address (streetwatch.ts, push only); "Only tell me about…" — the picker groups the street watch AND the street digest are narrowed to, [] / absent = everything (watchgroups.ts)
+  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean }; // city-status emails for own + followed reports; streetDigest = "some saved address gets the Monday street digest" — written by me.ts from the per-address flags, the index listStreetDigestUsers queries (and, for an address without a flag, the old account-wide setting); Monday "This week in Providence" mail (week.ts)
   addresses: SavedAddress[];               // ≤ 10
   following: string[];                     // report ids (≤ 200)
   cityFollowing?: string[];                // public city case GUIDs (cityCases/{guid}), newest first (≤ 100) — cityfollow.ts
@@ -134,12 +134,10 @@ export interface Store {
   listCityCases(opts: { before?: string | null; limit: number }): Promise<Record<string, unknown>[]>;
   /** Cases created at or after `since` (ISO), newest first — the "My street" window (street.ts). */
   listCityCasesSince(since: string, limit: number): Promise<Record<string, unknown>[]>;
-  /** Accounts that opted into the weekly street digest (prefs.streetDigest == true). */
+  /** Accounts with a saved address in the weekly street digest (prefs.streetDigest == true, kept by me.ts). */
   listStreetDigestUsers(limit: number): Promise<UserDoc[]>;
   /** Accounts that opted into the Monday "This week in Providence" mail (prefs.weekDigest == true) — week.ts. */
   listWeekDigestUsers(limit: number): Promise<UserDoc[]>;
-  /** Accounts that opted into "Street watch" pushes (prefs.streetWatch == true) — streetwatch.ts, from the 30-min sync. */
-  listStreetWatchUsers(limit: number): Promise<UserDoc[]>;
   /** One public city case (with `id`), or null. */
   getCityCase(id: string): Promise<Record<string, unknown> | null>;
   /** Batch get of cityCases/{id}; missing ids skipped, order not guaranteed. */

@@ -2,9 +2,9 @@
 import { apiFetch, parseError, withTimeout } from './client';
 import type { Quota, ReportView } from './types';
 import { authHeaders } from '../lib/auth';
-import type { GroupKey } from '@shared/categories';
 
-export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null }
+/** `digest`: the Monday street email for this address — GET /api/me gives the effective value (a new address is off). */
+export interface SavedAddress { id: string; label: string; address: string; lat: number | null; lng: number | null; digest?: boolean }
 /** "Your places": at most this many saved addresses — /street's "Your places this week" card and /week's "Yours" hoods. */
 export const PLACES_MAX = 5;
 /** The saved addresses with coordinates, in the account's order, at most PLACES_MAX — the one list both pages use. */
@@ -13,11 +13,8 @@ export const placedAddresses = (addresses: SavedAddress[]): (SavedAddress & { la
 
 export interface Me {
   uid: string; email: string | null; emailVerified: boolean; displayName: string | null; provider: string;
-  /** `streetWatch`: push-only "tell me right away" for new city cases within 300 m of a saved address (no email; the
-   *  Worker pushes nothing to an account without subscriptions, so the app only lets it on while push is on). */
-  /** `watchGroups`: "Only tell me about…" — the case-type groups (shared/categories GROUP_ORDER) the street watch AND the
-   *  Monday street digest are limited to; empty or absent = everything. The Worker validates, dedupes and caps at 10. */
-  prefs: { emailUpdates: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] }; addresses: SavedAddress[]; following: string[]; createdAt: string;
+  /** The Monday street email is per address (SavedAddress.digest); the app never writes prefs.streetDigest. */
+  prefs: { emailUpdates: boolean; weekDigest?: boolean }; addresses: SavedAddress[]; following: string[]; createdAt: string;
   /** City case GUIDs this account follows (cityCases, newest first, ≤ 100). Read it with `?? []`: an older Worker omits it. */
   cityFollowing: string[];
   /** True for an allow-listed Google-verified email (docs/api.md Admin). */
@@ -67,7 +64,7 @@ export interface PushRegistration { endpoint: string; keys: { p256dh: string; au
 export const registerPush = (sub: PushRegistration) => call<void>('/api/me/push', { method: 'POST', body: JSON.stringify(sub) });
 /** Forget one subscription by endpoint (204, idempotent). */
 export const unregisterPush = (endpoint: string) => call<void>('/api/me/push', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
-export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean; streetDigest?: boolean; weekDigest?: boolean; streetWatch?: boolean; watchGroups?: GroupKey[] } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
+export const updateMe = (patch: { displayName?: string | null; prefs?: { emailUpdates?: boolean; weekDigest?: boolean } }) => call<Me>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 export const myReports = () => call<{ items: MyReportView[] }>('/api/me/reports');
 export const followingReports = () => call<{ items: MyReportView[] }>('/api/me/following');
 export const follow = (id: string) => call<void>(`/api/me/following/${encodeURIComponent(id)}`, { method: 'PUT' });
@@ -78,7 +75,11 @@ export const followCity = (guid: string) => call<void>(`/api/me/city/${encodeURI
 export const unfollowCity = (guid: string) => call<void>(`/api/me/city/${encodeURIComponent(guid)}`, { method: 'DELETE' });
 /** The followed city cases with their current status, in cityFollowing order (vanished cases skipped). */
 export const followedCases = () => call<{ items: FollowedCase[] }>('/api/me/city');
+/** Upsert by id (no id = a new address, its Monday email off unless `digest: true`). The body replaces the stored entry. */
 export const saveAddress = (a: Partial<SavedAddress> & { address: string }) => call<{ addresses: SavedAddress[] }>('/api/me/addresses', { method: 'PUT', body: JSON.stringify(a) });
+/** Turn one saved address's Monday street email on or off (the whole entry goes back, as the upsert replaces it). */
+export const setAddressDigest = (a: SavedAddress, digest: boolean) =>
+  saveAddress({ id: a.id, label: a.label, address: a.address, lat: a.lat, lng: a.lng, digest });
 export const deleteAddress = (id: string) => call<{ addresses: SavedAddress[] }>(`/api/me/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });
 /** Owner-only, while the report is still pending. */
 export const editDescription = (id: string, description: string) => call<{ ok: true; description: string | null }>(`/api/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ description }) });

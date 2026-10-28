@@ -63,7 +63,7 @@ export interface StreetSheetProps {
   actions?: ReactNode;
   /** Desktop only: the search row + filter rail, rendered at the top of the panel (the phone keeps them floating over the map). */
   controls?: ReactNode;
-  /** The body: list / landing / empty states, then the digest card and source line (a case opens over the page:
+  /** The body: list / landing / empty states, then the Monday email switch and source line (a case opens over the page:
    *  components/StreetCasePage). */
   children: ReactNode;
   /** The tail nav (About · Privacy · language · disclaimer). Pass null on desktop, where the page footer stays. */

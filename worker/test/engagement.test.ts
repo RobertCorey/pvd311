@@ -18,15 +18,18 @@ const user = (uid: string, o: Partial<UserDoc> = {}): UserDoc => ({
 });
 const sub = (endpoint: string): PushSub => ({ endpoint: `https://push.example/${endpoint}`, p256dh: 'p', auth: 'a', ua: null, createdAt: at(1000) });
 
+/** Stale prefs from the street watch, cut 2026-10-28: still on some docs, never counted or returned. */
+const stale = (p: Record<string, unknown>) => p as unknown as UserDoc['prefs'];
+
 /** Six accounts with mixed prefs, subscriptions and follows (plus the malformed shapes a doc can carry). */
 const USERS: UserDoc[] = [
-  user('u1', { push: [sub('a'), sub('b')], prefs: { emailUpdates: true, streetWatch: true, watchGroups: ['streets', 'trash'] } }),
+  user('u1', { push: [sub('a'), sub('b')], prefs: stale({ emailUpdates: true, streetWatch: true, watchGroups: ['streets', 'trash'] }) }),
   user('u2', { push: [sub('c')], cityFollowing: ['g1', 'g2'], prefs: { emailUpdates: true, weekDigest: true } }),
-  user('u3', { cityFollowing: ['g2', 'g3'], prefs: { emailUpdates: true, streetDigest: true, watchGroups: [] } }),
+  user('u3', { cityFollowing: ['g2', 'g3'], prefs: { emailUpdates: true, streetDigest: true } }),
   user('u4', { push: [] }),
-  // Malformed: push entries without keys, a string pref, unknown group names, a follow list of non-strings — none count.
-  user('u5', { push: [{} as unknown as PushSub, 'x' as unknown as PushSub], cityFollowing: [42 as unknown as string, ''], prefs: { emailUpdates: true, streetDigest: 'yes' as unknown as boolean, watchGroups: ['bogus'] } }),
-  user('u6', { prefs: { emailUpdates: false, streetDigest: true, weekDigest: true, streetWatch: true, watchGroups: ['other'] } }),
+  // Malformed: push entries without keys, a string pref, a follow list of non-strings — none count.
+  user('u5', { push: [{} as unknown as PushSub, 'x' as unknown as PushSub], cityFollowing: [42 as unknown as string, ''], prefs: { emailUpdates: true, streetDigest: 'yes' as unknown as boolean } }),
+  user('u6', { prefs: stale({ emailUpdates: false, streetDigest: true, weekDigest: true, streetWatch: true, watchGroups: ['other'] }) }),
 ];
 
 const E = (id: string, o: Partial<EmailRecord> = {}): EmailRecord => ({
@@ -38,7 +41,6 @@ const ev = (id: string, kind: string, minutesAgo: number, data: Record<string, u
 const META: Record<string, unknown> = {
   weekDigest: { at: at(6 * 60), users: 5, mailed: 2, pushed: 1, total: 312, adminMailed: true },
   streetDigest: { at: at(6 * 60 + 5), users: 3, mailed: 1, pushed: 2 },
-  watchOvernight: { items: [{ uid: 'u1', caseId: 'c1' }, { uid: 'u6', caseId: 'c1' }, { bad: true }], since: at(300), at: at(30) },
   vapid: { publicKey: 'BPUBLIC', privateJwk: { kty: 'EC', crv: 'P-256', d: 'SECRET_D', x: 'x', y: 'y' }, createdAt: '2026-10-26T01:02:03.000Z' },
 };
 
@@ -48,12 +50,11 @@ function fakeStore(o: Partial<Record<keyof Store, unknown>> = {}): Store {
     countUsers: vi.fn(async () => 6),
     listStreetDigestUsers: vi.fn(async () => USERS.filter((u) => u.prefs.streetDigest === true)),
     listWeekDigestUsers: vi.fn(async () => USERS.filter((u) => u.prefs.weekDigest === true)),
-    listStreetWatchUsers: vi.fn(async () => USERS.filter((u) => u.prefs.streetWatch === true)),
     getMeta: vi.fn(async (id: string) => META[id] ?? null),
     recentEvents: vi.fn(async () => [
-      ev('e1', 'watch.pushed', 5, { cases: 3, users: 2, hits: 1, pushed: 2, skippedOwn: 0, held: 0, accounts: 1 }),
+      ev('e1', 'watch.pushed', 5, { cases: 3, users: 2, hits: 1, pushed: 2, skippedOwn: 0, held: 0, accounts: 1 }), // from before the cut: not shown
       ev('e2', 'tick.reaped', 6),
-      ev('e3', 'push.sent', 7, { source: 'street_watch', users: 1, sent: 2 }),
+      ev('e3', 'push.sent', 7, { source: 'report_status', users: 1, sent: 2 }),
       ev('e4', 'report.created', 8),
       ev('e5', 'week.digest', 6 * 60, { users: 5, mailed: 2, pushed: 1, total: 312, adminMailed: true }),
       ev('e6', 'street.digest', 6 * 60 + 5, { users: 3, mailed: 1, pushed: 2 }),
@@ -75,14 +76,13 @@ function fakeStore(o: Partial<Record<keyof Store, unknown>> = {}): Store {
 beforeEach(() => { resetEngagementCache(); vi.restoreAllMocks(); });
 
 describe('countAccounts (pure, over the users scan)', () => {
-  it('counts push, follows, the three opt-ins and narrowed selections from a mixed fixture; malformed shapes do not count', () => {
+  it('counts push, follows and the two Monday opt-ins from a mixed fixture; malformed shapes and stale street-watch prefs do not count', () => {
     const c = countAccounts(USERS, { total: 6 });
     expect(c).toEqual({
       total: 6, scanned: 6, truncated: false,
       withPush: 2, pushDevices: 3,
       follows: { accounts: 2, cases: 3 },          // u2 (g1, g2) + u3 (g2, g3) → three distinct cases
-      streetDigest: 2, weekDigest: 2, streetWatch: 2,
-      watchGroupsSet: 2,                            // u1 (two groups) + u6 (one); u3's [] and u5's ['bogus'] are "everything"
+      streetDigest: 2, weekDigest: 2,
     });
   });
   it('scanned / truncated / total: truncated when the scan filled its window; total is countUsers but never below scanned', () => {
@@ -94,7 +94,7 @@ describe('countAccounts (pure, over the users scan)', () => {
     expect(ENGAGEMENT_SCAN).toBe(500);
   });
   it('an empty scan is all zeros and not truncated', () => {
-    expect(countAccounts([], { total: 0 })).toEqual({ total: 0, scanned: 0, truncated: false, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0, streetWatch: 0, watchGroupsSet: 0 });
+    expect(countAccounts([], { total: 0 })).toEqual({ total: 0, scanned: 0, truncated: false, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0 });
   });
 });
 
@@ -108,14 +108,15 @@ describe('the Monday cards and the recent lists (pure)', () => {
     // Numbers are coerced defensively; adminMailed is strictly true.
     expect(weekDigestRun({ at: at(1), users: '5', adminMailed: 'yes' })).toEqual({ at: at(1), users: 0, mailed: 0, pushed: 0, total: 0, adminMailed: false });
   });
-  it('pickEvents keeps only the six feature kinds, newest first, capped', () => {
+  it('pickEvents keeps only the three feature kinds, newest first, capped', () => {
     const many = Array.from({ length: 60 }, (_, i) => ev(`x${i}`, i % 2 ? 'push.sent' : 'tick.reaped', i));
     const picked = pickEvents([...many].reverse());
     expect(picked).toHaveLength(30);
     expect(picked.every((e) => e.kind === 'push.sent')).toBe(true);
     expect(picked[0].id).toBe('x1');
-    expect(pickEvents(Array.from({ length: 100 }, (_, i) => ev(`y${i}`, 'watch.pushed', i)))).toHaveLength(RECENT_EVENTS);
-    expect([...ENGAGEMENT_EVENT_KINDS]).toEqual(['week.digest', 'street.digest', 'watch.pushed', 'watch.held', 'watch.morning', 'push.sent']);
+    expect(pickEvents(Array.from({ length: 100 }, (_, i) => ev(`y${i}`, 'street.digest', i)))).toHaveLength(RECENT_EVENTS);
+    expect([...ENGAGEMENT_EVENT_KINDS]).toEqual(['week.digest', 'street.digest', 'push.sent']);
+    expect(pickEvents(['watch.pushed', 'watch.held', 'watch.morning'].map((k, i) => ev(`w${i}`, k, i)))).toEqual([]); // the street watch's old events
   });
   it('maskEmail keeps the first character and the domain', () => {
     expect(maskEmail('rob@fixmypvd.org')).toBe('r***@fixmypvd.org');
@@ -139,21 +140,22 @@ describe('the Monday cards and the recent lists (pure)', () => {
 });
 
 describe('buildEngagement', () => {
-  it('assembles the shape from one users scan, the three equality queries, four meta docs, the event stream and the email log', async () => {
+  it('assembles the shape from one users scan, the two equality queries, three meta docs, the event stream and the email log', async () => {
     const store = fakeStore();
     const r = await buildEngagement(store, NOW);
     expect(r.at).toBe(new Date(NOW).toISOString());
     expect(r.accounts).toEqual({
       total: 6, scanned: 6, truncated: false, withPush: 2, pushDevices: 3, follows: { accounts: 2, cases: 3 },
-      streetDigest: 2, weekDigest: 2, streetWatch: 2, watchGroupsSet: 2,
-      queried: { streetDigest: 2, weekDigest: 2, streetWatch: 2 },
+      streetDigest: 2, weekDigest: 2,
+      queried: { streetDigest: 2, weekDigest: 2 },
     });
-    expect(r.overnightHeld).toBe(2);                                     // the malformed item is ignored
+    expect(r).not.toHaveProperty('overnightHeld');
+    expect(store.getMeta).not.toHaveBeenCalledWith('watchOvernight');
     expect(r.vapidSince).toBe('2026-10-26T01:02:03.000Z');
     expect(r.lastWeekDigest).toEqual({ at: at(6 * 60), users: 5, mailed: 2, pushed: 1, total: 312, adminMailed: true });
     expect(r.lastStreetDigest).toEqual({ at: at(6 * 60 + 5), users: 3, mailed: 1, pushed: 2 });
-    expect(r.recent.events.map((e) => e.id)).toEqual(['e1', 'e3', 'e5', 'e6', 'e8', 'e7']);
-    expect(r.recent.events[0]).toEqual({ id: 'e1', at: at(5), level: 'info', kind: 'watch.pushed', msg: 'watch.pushed happened', reportId: null, data: { cases: 3, users: 2, hits: 1, pushed: 2, skippedOwn: 0, held: 0, accounts: 1 } });
+    expect(r.recent.events.map((e) => e.id)).toEqual(['e3', 'e5', 'e6']);
+    expect(r.recent.events[0]).toEqual({ id: 'e3', at: at(7), level: 'info', kind: 'push.sent', msg: 'push.sent happened', reportId: null, data: { source: 'report_status', users: 1, sent: 2 } });
     expect(r.recent.mails.map((m) => m.id)).toEqual(['m3', 'm1', 'm4', 'm5']);
     expect(r.recent.mails[0]).toMatchObject({ kind: 'admin_digest', to: 'r***@fixmypvd.org', subject: '[FixMyPVD] Your r/providence post for this week' });
     expect(r.recent.mails[2]).toMatchObject({ kind: 'street_digest', status: 'failed', to: 'o***@example.com' });
@@ -176,24 +178,24 @@ describe('buildEngagement', () => {
     const r = await buildEngagement(store, NOW);
     expect(r.accounts).toMatchObject({ total: 1234, scanned: 500, truncated: true, weekDigest: 10, queried: { weekDigest: 17 } });
   });
-  it('empty state: no accounts, no runs, nothing held, push never used, no events or mails', async () => {
+  it('empty state: no accounts, no runs, push never used, no events or mails', async () => {
     const store = fakeStore({
-      listUsers: vi.fn(async () => []), countUsers: vi.fn(async () => 0), listStreetDigestUsers: vi.fn(async () => []), listWeekDigestUsers: vi.fn(async () => []), listStreetWatchUsers: vi.fn(async () => []),
+      listUsers: vi.fn(async () => []), countUsers: vi.fn(async () => 0), listStreetDigestUsers: vi.fn(async () => []), listWeekDigestUsers: vi.fn(async () => []),
       getMeta: vi.fn(async () => null), recentEvents: vi.fn(async () => []), listEmails: vi.fn(async () => []),
     });
     expect(await buildEngagement(store, NOW)).toEqual({
       at: new Date(NOW).toISOString(),
-      accounts: { total: 0, scanned: 0, truncated: false, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0, streetWatch: 0, watchGroupsSet: 0, queried: { streetDigest: 0, weekDigest: 0, streetWatch: 0 } },
-      overnightHeld: 0, vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] },
+      accounts: { total: 0, scanned: 0, truncated: false, withPush: 0, pushDevices: 0, follows: { accounts: 0, cases: 0 }, streetDigest: 0, weekDigest: 0, queried: { streetDigest: 0, weekDigest: 0 } },
+      vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] },
     });
   });
   it('fails soft: every read throwing still answers, with zeros, nulls and the cross-check marked unavailable', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const boom = vi.fn(async () => { throw new Error('firestore 503'); });
-    const store = fakeStore({ listUsers: boom, countUsers: boom, listStreetDigestUsers: boom, listWeekDigestUsers: boom, listStreetWatchUsers: boom, getMeta: boom, recentEvents: boom, listEmails: boom });
+    const store = fakeStore({ listUsers: boom, countUsers: boom, listStreetDigestUsers: boom, listWeekDigestUsers: boom, getMeta: boom, recentEvents: boom, listEmails: boom });
     const r = await buildEngagement(store, NOW);
     expect(r.accounts).toMatchObject({ total: 0, scanned: 0, truncated: false, queried: null });
-    expect(r).toMatchObject({ overnightHeld: 0, vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] } });
+    expect(r).toMatchObject({ vapidSince: null, lastWeekDigest: null, lastStreetDigest: null, recent: { events: [], mails: [] } });
     // One query down leaves the others' numbers in place but the cross-check block null (it is all-or-nothing).
     const one = await buildEngagement(fakeStore({ listWeekDigestUsers: boom }), NOW);
     expect(one.accounts).toMatchObject({ total: 6, weekDigest: 2, queried: null });
@@ -235,9 +237,9 @@ describe('GET /api/admin/engagement', () => {
     expect(resp.status).toBe(200);
     expect(resp.headers.get('cache-control')).toBe('no-store');
     const body = (await resp.json()) as { at: string; accounts: { total: number; withPush: number; queried: unknown }; lastWeekDigest: { adminMailed: boolean }; recent: { events: unknown[]; mails: unknown[] } };
-    expect(body.accounts).toMatchObject({ total: 6, withPush: 2, queried: { streetWatch: 2 } });
+    expect(body.accounts).toMatchObject({ total: 6, withPush: 2, queried: { streetDigest: 2, weekDigest: 2 } });
     expect(body.lastWeekDigest.adminMailed).toBe(true);
-    expect(body.recent.events).toHaveLength(6);
+    expect(body.recent.events).toHaveLength(3);
     expect(body.recent.mails).toHaveLength(4);
   });
   it('admin only: a non-admin Google account is refused, an email-link account for the admin address too', async () => {

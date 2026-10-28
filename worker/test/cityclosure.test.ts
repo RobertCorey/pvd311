@@ -13,7 +13,7 @@ vi.mock('../src/auth', async (orig) => ({
 }));
 
 import { handleApi } from '../src/api';
-import { statusChangeEmail, statusPhrase } from '../src/notify';
+import { statusChangeEmail, statusChangePush, statusPhrase } from '../src/notify';
 import { cityResolutionMessage } from '../src/casedetail';
 import type { Store, ReportDoc } from '../src/contracts';
 
@@ -109,7 +109,7 @@ describe('GET /api/stats', () => {
 });
 
 describe('status-change email wording', () => {
-  const base = { category: 'construction_no_permit', address: '12 Example St', caseId: 'PVD2026-90091', trackUrl: `https://fixmypvd.org/r/${ID}` };
+  const base = { category: 'construction_no_permit', address: '12 Example St', caseId: 'PVD2026-90091', trackUrl: `https://fixmypvd.org/r/${ID}`, base: 'https://fixmypvd.org' };
   it('Resolved reads as closed, never "resolved by the city", and quotes the city\'s note verbatim (escaped)', () => {
     const m = statusChangeEmail({ ...base, status: 'Resolved', resolution: `${NOTE} <ok> & "fine"` });
     expect(m.subject).toBe('The city closed your request (PVD2026-90091)');
@@ -134,5 +134,20 @@ describe('status-change email wording', () => {
     expect(statusPhrase('Cancelled')).toBe('The city cancelled your request');
     expect(statusPhrase('Something New')).toBe('The city updated your request');
     expect(statusChangeEmail({ ...base, status: 'Something New', resolution: null }).html).toContain('City status: <b>Something New</b>');
+  });
+  it('the footer sends people to Account → Updates, not "reply to stop"', () => {
+    const { html } = statusChangeEmail({ ...base, status: 'Assigned', resolution: null });
+    expect(html).toContain('Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
+    expect(html).not.toMatch(/reply to stop/i);
+  });
+  it('the same move as a push to the owner\'s phones: the phrase, the report, the city\'s note cut to 80, the tracking page, one tag per report', () => {
+    const long = `${NOTE} ${'x'.repeat(100)}`;
+    expect(statusChangePush({ reportId: ID, category: 'construction_no_permit', address: '12 Example St', status: 'Resolved', trackUrl: `https://fixmypvd.org/r/${ID}`, resolution: `  ${long}\n` })).toEqual({
+      title: 'The city closed your request',
+      body: `construction no permit at 12 Example St — Resolved · ${long.slice(0, 80)}`,
+      url: `https://fixmypvd.org/r/${ID}`,
+      tag: `report:${ID}`,
+    });
+    expect(statusChangePush({ reportId: ID, category: 'pothole', address: '1 Main St', status: 'Assigned', trackUrl: 'https://x/r/1', resolution: null }).body).toBe('pothole at 1 Main St — Assigned');
   });
 });

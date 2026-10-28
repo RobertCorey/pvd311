@@ -9,6 +9,8 @@ vi.mock('../src/auth', async (orig) => ({
   ...(await orig<typeof import('../src/auth')>()),
   userFromRequest: async (_env: unknown, req: Request) => TOKENS[(req.headers.get('authorization') ?? '').replace(/^Bearer /, '')] ?? null,
 }));
+// engine.ts value-imports @cloudflare/playwright, which cannot load in node; notifyStatusChanges never touches it.
+vi.mock('@cloudflare/playwright', () => ({ launch: vi.fn() }));
 
 import { handleApi } from '../src/api';
 import {
@@ -19,7 +21,9 @@ import { notifyCityFollowers } from '../src/citycases.js';
 import { cityFollowPush, pushFollowers } from '../src/cityfollow.js';
 import { runWeekDigest, resetWeekCache, weekDigestPush, weekSummary } from '../src/week.js';
 import { runStreetDigest, resetStreetCache, streetUrl, streetDigestPush, nearbyCases } from '../src/street.js';
-import type { Env, Mailer, PushSub, Store, UserDoc } from '../src/contracts.js';
+import { notifyStatusChanges } from '../src/engine.js';
+import { syncCityAsks, ASK_REMIND_AFTER_MS } from '../src/cityask.js';
+import type { Env, Mailer, PushSub, ReportDoc, Store, UserDoc } from '../src/contracts.js';
 
 // ── RFC 8291 Appendix A, verbatim (whitespace removed) ────────────────────────────────────────────────────────
 const RFC = {
@@ -486,6 +490,76 @@ describe('triggers', () => {
       expect(cityFollowPush({ ...base, to: 'Cancelled', resolution: null }).body).toBe('Cancelled');
       const u = users();
       expect(pushFollowers([u.two, u.mailonly, u.pushonly, u.stale, null, u.two], ID).map((x) => x.uid)).toEqual(['two', 'pushonly']);
+    });
+  });
+
+  describe('your own report (2026-10-28): its city status moves, the city asks you a question', () => {
+    const RID = 'm3hPCS9K2-UfxNBB6Fscbg';
+    const ASK = { at: '2026-10-16T15:53:08.542Z', from: 'pvd311@providenceri.gov', subject: 'PVD311 needs more information regarding your service request PVD311:0250715', text: 'Please respond to this email by providing the address and details of your request.', caseId: 'PVD2026-90113' };
+    const report = (o: Partial<ReportDoc> = {}): ReportDoc => ({
+      id: RID, category: 'pothole', address: '25 Dorrance St', reporterEmail: 'owner@example.com', ownerUid: 'owner', followerUids: ['fan'],
+      status: 'submitted', portalCaseId: 'PVD2026-90113', portalStatus: 'Assigned', ...o,
+    } as ReportDoc);
+    // The owner turned email updates off but has two phones on; a follower with a phone gets mail, never a push for someone else's report.
+    const people = () => ({ owner: user('owner', { prefs: { emailUpdates: false }, push: [sub(1), sub(2)] }), fan: user('fan', { push: [sub(3)] }) });
+    /** memStore plus the report reads/writes these two paths make. */
+    const withReport = (s: ReturnType<typeof memStore>, r: ReportDoc | null) => {
+      let current = r;
+      const store = Object.assign(s.store, {
+        fetchReport: vi.fn(async () => current),
+        patchReport: vi.fn(async (_id: string, f: Record<string, unknown>) => { if (current) current = { ...current, ...f } as ReportDoc; }),
+      });
+      return { store, current: () => current! };
+    };
+
+    it('a status move: the mail as before, then one push per phone of the owner — email settings do not apply — and one push.sent line', async () => {
+      const s = memStore({ users: people() });
+      const { store } = withReport(s, report());
+      const posts = stubPushService();
+      const { mailer, sent } = mockMailer();
+      await notifyStatusChanges(env, store, mailer, [{ report: report(), caseId: 'PVD2026-90113', to: 'Assigned' }]);
+      expect(sent).toEqual([{ to: 'fan@example.com', kind: 'status' }]);
+      expect(posts.map((p) => p.endpoint).sort()).toEqual(['https://push.test/1', 'https://push.test/2']);
+      expect(posts[0].payload).toEqual({ title: 'The city assigned your request', body: 'pothole at 25 Dorrance St — Assigned', url: `https://fixmypvd.org/r/${RID}`, tag: `report:${RID}` });
+      expect(s.events.filter((e) => e.kind === 'push.sent')).toEqual([expect.objectContaining({ data: { source: 'report_status', users: 1, sent: 2 } })]);
+    });
+
+    it('a status move on an anonymous report, or for an owner without a phone, pushes nothing and logs no push line', async () => {
+      const s = memStore({ users: { owner: user('owner') } });
+      const { store } = withReport(s, null);
+      const posts = stubPushService();
+      const { mailer, sent } = mockMailer();
+      await notifyStatusChanges(env, store, mailer, [{ report: report({ ownerUid: null, followerUids: [] }), caseId: 'PVD2026-90113', to: 'Resolved' }, { report: report({ followerUids: [] }), caseId: 'PVD2026-90113', to: 'Resolved' }]);
+      expect(sent).toHaveLength(2);
+      expect(posts).toHaveLength(0);
+      expect(s.events.filter((e) => e.kind === 'push.sent')).toEqual([]);
+    });
+
+    it('the city asks: the owner\'s mail, then one push per phone opening the answer box; the same ask again or its 48 h reminder push nothing', async () => {
+      const s = memStore({ users: people() });
+      const { store, current } = withReport(s, report({ cityMessages: [ASK] }));
+      const posts = stubPushService();
+      const { mailer, sent } = mockMailer();
+      const now = new Date('2026-10-16T21:00:00Z');
+      expect(await syncCityAsks(env, { store, mailer }, current(), { now })).toEqual({ opened: 1, notified: 1, reminded: 0 });
+      expect(sent).toEqual([{ to: 'owner@example.com', kind: 'ask' }]);
+      expect(posts.map((p) => p.endpoint).sort()).toEqual(['https://push.test/1', 'https://push.test/2']);
+      expect(posts[0].payload).toEqual({ title: 'The city needs more information', body: 'Your pothole report at 25 Dorrance St (PVD2026-90113) — answer on your tracking page', url: `https://fixmypvd.org/r/${RID}#answer`, tag: `ask:${RID}` });
+      expect(s.events.filter((e) => e.kind === 'push.sent')).toEqual([expect.objectContaining({ data: { source: 'city_ask', users: 1, sent: 2 } })]);
+      await syncCityAsks(env, { store, mailer }, current(), { now });
+      await syncCityAsks(env, { store, mailer }, current(), { now: new Date(now.getTime() + ASK_REMIND_AFTER_MS) });
+      expect(sent.map((m) => m.kind)).toEqual(['ask', 'ask_reminder']);
+      expect(posts).toHaveLength(2);
+    });
+
+    it('an ask on a closed case is recorded without mail or push', async () => {
+      const s = memStore({ users: people() });
+      const { store, current } = withReport(s, report({ cityMessages: [ASK], portalStatus: 'Resolved' }));
+      const posts = stubPushService();
+      const { mailer, sent } = mockMailer();
+      expect(await syncCityAsks(env, { store, mailer }, current(), { now: new Date('2026-10-16T21:00:00Z') })).toEqual({ opened: 1, notified: 0, reminded: 0 });
+      expect(sent).toHaveLength(0);
+      expect(posts).toHaveLength(0);
     });
   });
 

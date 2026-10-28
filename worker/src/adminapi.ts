@@ -23,7 +23,7 @@
  *   POST /api/admin/engine/pause           → pause submissions
  *   GET  /api/admin/usage?days=7|30        → first-party usage analytics (ui.ts, Analytics Engine)
  *   GET  /api/admin/engagement             → who is subscribed to what: accounts with push / follows / the Monday opt-ins (one users scan + equality
- *                                            cross-check), last digest runs, overnight holds, recent events + mails (engagement.ts; 60 s cache per isolate)
+ *                                            cross-check), last digest runs, recent events + mails (engagement.ts; 60 s cache per isolate)
  *   GET  /api/admin/emails?dir&kind&q&reportId&uid&addr&before&limit → the email log (emaillog.ts), newest first, summaries
  *   GET  /api/admin/emails/:id             → one email: full text (fetched from Resend when not stored) + delivery state + linked report/accounts
  *   POST /api/admin/emails/sync            → import Resend's sent mail + stored city mail we have no record of; refresh delivery states

@@ -7,7 +7,7 @@
  */
 import type { UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
-import { statusPhrase } from './notify.js';
+import { statusPhrase, updatesLine } from './notify.js';
 import { hasPush, type PushPayload } from './push.js';
 
 export const MAX_CITY_FOLLOWING = 100;  // per account
@@ -63,7 +63,7 @@ const longDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { mon
  * Subject + HTML for "the city moved a case you follow". Same neutral voice as notify.ts (the city's "Resolved" is
  * not our "fixed"): we say what the city did, and quote its status and Resolution Message verbatim.
  */
-export function cityFollowEmail(o: { caseType: string; street: string; from: string | null; to: string; resolution: string | null; createdAt: string | null; url: string }): { subject: string; html: string } {
+export function cityFollowEmail(o: { caseType: string; street: string; from: string | null; to: string; resolution: string | null; createdAt: string | null; url: string; base: string }): { subject: string; html: string } {
   const street = o.street.trim();
   const where = street ? ` on ${street}` : '';
   const subject = `City update: ${o.caseType}${where} — ${o.to}`;
@@ -76,7 +76,7 @@ export function cityFollowEmail(o: { caseType: string; street: string; from: str
   const html = `<p>${esc(phrase)}: <b>${esc(o.caseType)}</b>${esc(where)}.</p>`
     + `<p>City status: ${change}</p>${note}${reported}`
     + `<p><a href="${esc(o.url)}">See it on the map</a>.</p>`
-    + `<p style="color:#888">You follow this request on FixMyPVD — unfollow on its card. FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
+    + `<p style="color:#888">You follow this request on FixMyPVD. ${updatesLine(o.base)} FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
   return { subject, html };
 }
 

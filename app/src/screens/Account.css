@@ -9,9 +9,6 @@
 .account-google { min-height: 44px; }
 .account-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin: .75rem 0 .4rem; }
 .account-actions a.btn { text-decoration: none; }
-.account-prefs { display: grid; gap: .6rem; }
-.account-toggle { display: flex; align-items: center; gap: .6rem; font-weight: 600; cursor: pointer; }
-.account-toggle input { width: 1.25rem; height: 1.25rem; accent-color: var(--ink); }
 .account-inline { display: grid; gap: .4rem; }
 .account-row { display: flex; gap: .5rem; }
 .account-row .input { flex: 1; min-width: 0; }
@@ -20,6 +17,23 @@
 .account-list li { display: flex; justify-content: space-between; align-items: center; gap: .6rem; border-bottom: 1px solid var(--line); padding: .4rem 0; }
 .account-list li:last-child { border-bottom: 0; }
 .account-signout { margin-top: 1.5rem; text-align: center; }
+/* The two tabs under the title (Account | Updates): real links, the current one a surface pill framed in ink. */
+.account-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: .75rem 0 1rem; padding: 4px; border-radius: 999px; background: var(--ink-soft); }
+.account-tab { display: flex; align-items: center; justify-content: center; min-height: var(--tap); border: 2px solid transparent; border-radius: 999px; font-family: var(--font-display); font-weight: 700; color: var(--ink); text-decoration: none; }
+.account-tab[aria-current="page"] { background: var(--surface); border-color: var(--ink); }
+/* Updates (AccountUpdates.tsx): a heading per section over one card of switch rows / list rows. */
+.account-section { margin-top: 1.25rem; }
+.account-section h2 { font-size: 1.15rem; margin: 0 0 .4rem; }
+.account-updates .card { display: grid; gap: .5rem; }
+.account-updates .card > .hint, .account-updates .card > .notice, .account-updates .account-list { margin: 0; }
+.account-lead { margin: 0 0 .5rem; }
+.account-updates .card > .account-lead, .account-empty { margin: 0; }
+/* A saved street: its name over the row's two controls — the Monday email switch, then Remove at the end. */
+.account-list li.account-street { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+.account-street-name { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.account-street .switch-row { justify-content: flex-start; font-size: .95rem; }
+.account-follows li > span { min-width: 0; overflow-wrap: anywhere; }
+.account-follows a { display: inline-block; padding: 4px 0; }
 @media (max-width: 380px) { .account-row { flex-wrap: wrap; } .account-row .account-label { flex-basis: 100%; } }
 
 /* Integration bits (Track / Report / My reports) */
@@ -52,18 +66,3 @@
 /* No bottom padding: the clamp clips at the padding edge, so any padding there would show a sliver of line three. */
 .followed-link .my-note { grid-area: note; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: 4px; padding: 2px 8px 0; border-left: 3px solid var(--line); font-size: .85rem; line-height: 1.35; color: var(--ink); white-space: pre-wrap; }
 .followed-unfollow { justify-self: end; width: auto; padding: 6px 12px; font-size: .85rem; } /* min-height stays --tap (44 px) from .btn-ghost: the only destructive control here is not the smallest target */
-
-/* "What you'll hear about" (components/UpdatesSummary) at the top of the Updates card: a compact list, one sentence per
-   channel that is on. The whole row is the link (≥ 44 px, no inline-padding tricks), the phrase that names where it
-   goes is set in river like any inline link, the icon is muted. A hairline under the block separates it from the
-   controls it summarises. Rows below the first touch (no gap) so five lines stay compact on a phone. */
-.account-summary { display: grid; gap: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); min-width: 0; }
-.account-summary-title { margin: 0 0 2px; font-family: var(--font-display); font-size: 1rem; font-weight: 700; line-height: 1.3; }
-.account-summary-list { list-style: none; margin: 0; padding: 0; }
-.account-summary-row { display: flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 0; color: var(--ink); text-decoration: none; font-size: .95rem; line-height: 1.35; overflow-wrap: anywhere; }
-.account-summary-icon { flex: 0 0 auto; width: 18px; height: 18px; color: var(--muted); }
-.account-summary-go { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
-.account-summary-row:hover .account-summary-go { text-decoration-thickness: 2px; }
-.account-summary-none { margin: 0; padding: 6px 0 2px; font-size: .95rem; line-height: 1.35; }
-/* The in-page jumps land a little below the top edge, so the row reads as a block and not a clipped line. */
-#account-phone, #account-watch, #account-groups { scroll-margin-top: 12px; }

@@ -27,18 +27,11 @@
  * Residents can follow any case from its card (cityfollow.ts; cityCases/{guid}.followerUids). A status change seen
  * by the sync (or by the daily follow-up's detail read) mails each eligible follower once — notifiedStatus on the doc
  * is the status last mailed — with the Resolution Message from the same run's detail read. Mail never breaks the sync.
- *
- * The cases a run adds AND geocodes go to streetwatch.ts (runStreetWatch) at the end of the sync: accounts with
- * prefs.streetWatch and a push subscription hear about a new case within 300 m of a saved address, once. Push only.
- * A web-form filing is listed as "Draft" while the resident is mid-wizard (portal.ts creates the record before the
- * submit); when a later run first lists it with a real status it is a status change to the index but a brand-new
- * request to the street, so it goes to the watch then (coordinates from the geocode cache the Draft run filled).
  */
 import type { Env, Mailer, Store } from './contracts.js';
 import { GRID_CONFIG_META, geocodeStreetCached, mapCategory } from './cityfeed.js';
 import { MAX_CASE_FOLLOWERS, caseUrl, cityFollowEmail, cityFollowPush, eligibleFollowers, followedCaseView, pushFollowers } from './cityfollow.js';
 import { ensureVapid, logPushes, pushAll, type VapidKeys } from './push.js';
-import { runStreetWatch, type WatchCase } from './streetwatch.js';
 import { logEvent, markError, markOk } from './health.js';
 
 const INDEX_META = 'cityCasesIdx';
@@ -259,7 +252,6 @@ async function readDetail(http: CityHttp, id: string): Promise<CityCaseDetail> {
 // ── Sync ────────────────────────────────────────────────────────────────────────────────
 
 const statusKey = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '_') || 'unknown';
-const isDraft = (s: string) => /^draft$/i.test(s);
 
 /** Which cases need a detail read this run: never read, the list status moved since the last read, or read by an older
  *  parser. Never-read and moved cases first (their followers' mail and the overlay wait on them), then the re-reads a
@@ -274,7 +266,7 @@ export function pickDetailReads(index: Index, limit: number): string[] {
 }
 
 /** Every 30 min (after the watcher): list the window, record new/changed cases, read details for some, mail followers of changed ones. */
-export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {}): Promise<{ listed: number; added: number; changed: number; details: number; mails: number; watchPushed: number; requests: number } | null> {
+export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {}): Promise<{ listed: number; added: number; changed: number; details: number; mails: number; requests: number } | null> {
   const cfg = await store.getMeta<GridConfig>(GRID_CONFIG_META).catch(() => null);
   if (!cfg?.url || !cfg.body) { console.log('[citycases] no grid config yet (captured by the city feed scrape)'); return null; }
   const now = opts.now ?? Date.now();
@@ -285,10 +277,8 @@ export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {})
     const index: Index = (await store.getMeta<{ cases?: Index }>(INDEX_META).catch(() => null))?.cases ?? {};
     let added = 0; let changed = 0; let geocodes = 0;
     const changes: StatusChange[] = [];
-    const newCases: WatchCase[] = []; // first seen this run and geocoded in this loop → street watch (streetwatch.ts)
     for (const r of rows) {
       const e = index[r.id];
-      const fromDraft = !!e && isDraft(e.s) && !isDraft(r.status); // listed Draft last run, a real status now: new to the street
       const fields: Record<string, unknown> = {};
       if (!e || e.s !== r.status) {
         Object.assign(fields, {
@@ -299,16 +289,12 @@ export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {})
         if (!e) { fields.firstSeenAt = nowIso; added++; } else { changed++; changes.push({ id: r.id, from: e.s, to: r.status }); }
       }
       let g: 1 | undefined = e?.g;
-      let hit: { lat: number; lng: number } | null = null;
       if (!g && geocodes < GEOCODES_PER_RUN) {
         geocodes++;
-        hit = await geocodeStreetCached(store, r.street);
+        const hit = await geocodeStreetCached(store, r.street);
         fields.lat = hit?.lat ?? null; fields.lng = hit?.lng ?? null;
         g = 1;
-      } else if (fromDraft && g) {
-        hit = await geocodeStreetCached(store, r.street); // the Draft run cached this street: a meta read, no ArcGIS call
       }
-      if ((!e || fromDraft) && hit) newCases.push({ id: r.id, caseType: r.caseType, category: mapCategory(r.caseType), street: r.street, status: r.status, createdAt: r.createdAt, lat: hit.lat, lng: hit.lng });
       if (!Object.keys(fields).length) continue;
       await store.patchCityCase(r.id, fields);
       index[r.id] = { ...e, s: r.status, c: r.createdAt, ...(g ? { g } : {}) };
@@ -325,13 +311,11 @@ export async function syncCityCases(env: Env, store: Store, opts: SyncOpts = {})
     pruneIndex(index, now);
     await store.setMeta(INDEX_META, { cases: index, at: nowIso });
     const mails = await notifyCityFollowers(env, store, opts.mailer, watched);
-    // "Street watch" (streetwatch.ts): the located cases this run added, to accounts watching an address near them. Never throws.
-    const watch = await runStreetWatch(env, store, { newCases, now });
     const bf = await backfillCityCaseGeoIfPending(store, GEOCODES_PER_RUN * 2).catch((e) => { console.error('[citycases] geo backfill failed:', e instanceof Error ? e.message : e); return null; });
-    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded, ${mails} follow mails, ${watch.pushed} watch pushes${bf ? `, backfill ${bf.patched} (${bf.remaining} left)` : ''}, ${http.requests} requests`;
+    const note = `${rows.length}${total != null ? `/${total}` : ''} listed${complete ? '' : ' (partial)'}, ${added} new, ${changed} changed, ${details} details, ${geocodes} geocoded, ${mails} follow mails${bf ? `, backfill ${bf.patched} (${bf.remaining} left)` : ''}, ${http.requests} requests`;
     console.log(`[citycases] ${note}`);
     await markOk(store, 'citycases', note);
-    return { listed: rows.length, added, changed, details, mails, watchPushed: watch.pushed, requests: http.requests };
+    return { listed: rows.length, added, changed, details, mails, requests: http.requests };
   } catch (e) {
     console.error('[citycases] failed:', e instanceof Error ? e.message : e);
     await markError(store, 'citycases', e);
@@ -428,7 +412,7 @@ export async function notifyCityFollowers(env: Env, store: Store, mailer: Mailer
       if (!uids.length || doc.notifiedStatus === status) continue;
       const users = await Promise.all(uids.map((uid) => store.getUser(uid).catch(() => null)));
       const url = caseUrl(base, c.id, view.lat, view.lng);
-      const mail = cityFollowEmail({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, createdAt: view.createdAt, url });
+      const mail = cityFollowEmail({ caseType: view.caseType, street: view.street, from: c.from, to: status, resolution: view.resolution, createdAt: view.createdAt, url, base });
       for (const u of eligibleFollowers(users, c.id)) {
         await mailer.sendTo(u.email!, mail.subject, mail.html, { kind: 'city_follow', caseId: c.id });
         mails++;

@@ -14,6 +14,7 @@ const ROUTES: Array<[string, RegExp]> = [
   ['/street', /My street|Mi calle/],
   ['/week', /This week in Providence|Esta semana en Providence/],
   ['/account', /Your account|Tu cuenta/],
+  ['/account/updates', /Your account|Tu cuenta/], // signed out → /account to sign in first
   ['/admin', /Admin/],
   ['/r/nope', /can't find|no encontramos|no existe|no pudimos encontrar/i],
   ['/definitely-not-a-route', /doesn't exist|no existe/],

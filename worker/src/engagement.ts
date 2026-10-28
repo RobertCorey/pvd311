@@ -2,17 +2,16 @@
  * engagement.ts — GET /api/admin/engagement: who is subscribed to what (the /admin "Engagement" tab, 2026-10-26).
  *
  * One listUsers scan (the newest ENGAGEMENT_SCAN accounts) counted in memory by countAccounts — accounts with a phone
- * subscribed and their push devices, who follows city cases (and how many distinct cases), the three opt-ins
- * (prefs.streetDigest / weekDigest / streetWatch) and who narrowed them with "Only tell me about…" — plus the three
- * existing equality queries (prefs.X == true, the ones the Monday jobs and the watch sync read) as a cross-check that
- * does not depend on the scan window. `scanned` / `truncated` say how far the scan reached: past ENGAGEMENT_SCAN
- * accounts the in-memory counts are a floor and `queried` is the truth for the three it covers.
+ * subscribed and their push devices, who follows city cases (and how many distinct cases), the two Monday opt-ins
+ * (prefs.streetDigest — some saved address in the street digest, me.ts — and prefs.weekDigest) — plus the two existing
+ * equality queries (prefs.X == true, the ones the Monday jobs read) as a cross-check that does not depend on the scan
+ * window. `scanned` / `truncated` say how far the scan reached: past ENGAGEMENT_SCAN accounts the in-memory counts are
+ * a floor and `queried` is the truth for the two it covers.
  *
- * Around the counts: the last Monday runs (meta/weekDigest, meta/streetDigest — written by week.ts / street.ts), what
- * the quiet hours are holding right now (meta/watchOvernight, streetwatch.ts), when push was first used (meta/vapid's
- * createdAt — the keys never leave this module), and the recent events (recentEvents, filtered to the kinds these
- * features log) and mails (listEmails, filtered to the four resident/admin digest kinds; no body, recipients masked —
- * each row links to the email tab for the full record).
+ * Around the counts: the last Monday runs (meta/weekDigest, meta/streetDigest — written by week.ts / street.ts), when
+ * push was first used (meta/vapid's createdAt — the keys never leave this module), and the recent events (recentEvents,
+ * filtered to the kinds these features log) and mails (listEmails, filtered to the four resident/admin digest kinds;
+ * no body, recipients masked — each row links to the email tab for the full record).
  *
  * Built at most once per ENGAGEMENT_TTL_MS per isolate (one in-flight build shared); every read fails soft — a missing
  * meta doc or a failed query zeroes its part of the response, never the response.
@@ -20,8 +19,6 @@
 import type { Store, UserDoc } from './contracts.js';
 import type { EmailRecord, EmailKind } from './emaillog.js';
 import { isPushSub, VAPID_META } from './push.js';
-import { watchGroupsOf } from './watchgroups.js';
-import { parseOvernight, OVERNIGHT_META } from './streetwatch.js';
 
 export const ENGAGEMENT_SCAN = 500;       // accounts read by the one listUsers scan (newest first)
 export const ENGAGEMENT_TTL_MS = 60_000;  // one build per minute per isolate
@@ -30,8 +27,8 @@ export const RECENT_MAILS = 20;
 export const EVENT_SCAN = 500;            // recentEvents window the 40 are picked from (the stream is a few dozen a day)
 export const MAIL_SCAN = 300;             // listEmails window the 20 are picked from (most mail is per-report status)
 
-/** Event kinds the check-in features log: week.ts, street.ts, streetwatch.ts, push.ts (logPushes). */
-export const ENGAGEMENT_EVENT_KINDS = ['week.digest', 'street.digest', 'watch.pushed', 'watch.held', 'watch.morning', 'push.sent'] as const;
+/** Event kinds the check-in features log: week.ts, street.ts, push.ts (logPushes). */
+export const ENGAGEMENT_EVENT_KINDS = ['week.digest', 'street.digest', 'push.sent'] as const;
 /** Email-log kinds these features send: the two resident digests, the followed-case mail, Rob's Monday post. */
 export const ENGAGEMENT_MAIL_KINDS = ['week_digest', 'street_digest', 'city_follow', 'admin_digest'] as const satisfies readonly EmailKind[];
 
@@ -42,12 +39,10 @@ export interface AccountCounts {
   withPush: number;        // accounts with ≥ 1 well-formed push subscription ("Notify me on this phone" is on)
   pushDevices: number;     // subscriptions across them — one per browser profile, ≤ 5 per account
   follows: { accounts: number; cases: number }; // accounts following ≥ 1 city case · distinct cases followed
-  streetDigest: number;    // prefs.streetDigest === true (the Monday "My street" mail)
+  streetDigest: number;    // prefs.streetDigest === true (some saved address gets the Monday "My street" mail)
   weekDigest: number;      // prefs.weekDigest === true (the Monday "This week in Providence" mail)
-  streetWatch: number;     // prefs.streetWatch === true (push the moment a case appears near a saved address)
-  watchGroupsSet: number;  // accounts with a non-empty valid "Only tell me about…" selection
-  /** The same three opt-ins from the equality queries (prefs.X == true), capped at ENGAGEMENT_SCAN each; null when a query failed. */
-  queried: { streetDigest: number; weekDigest: number; streetWatch: number } | null;
+  /** The same two opt-ins from the equality queries (prefs.X == true), capped at ENGAGEMENT_SCAN each; null when a query failed. */
+  queried: { streetDigest: number; weekDigest: number } | null;
 }
 
 export interface DigestRun { at: string; users: number; mailed: number; pushed: number }
@@ -61,7 +56,6 @@ export interface EngagementMail { id: string; at: string; kind: EmailKind; to: s
 export interface Engagement {
   at: string;
   accounts: AccountCounts;
-  overnightHeld: number;              // items in meta/watchOvernight right now (account × case held for the morning)
   vapidSince: string | null;          // meta/vapid.createdAt — when the first phone could subscribe
   lastWeekDigest: WeekDigestRun | null;
   lastStreetDigest: DigestRun | null;
@@ -87,7 +81,7 @@ export function maskEmail(addr: string): string {
  *  failed) and is never reported below `scanned`; `truncated` when the scan filled its window (`limit`). */
 export function countAccounts(users: UserDoc[], o: { total?: number | null; limit?: number } = {}): Omit<AccountCounts, 'queried'> {
   const limit = o.limit ?? ENGAGEMENT_SCAN;
-  let withPush = 0, pushDevices = 0, followers = 0, streetDigest = 0, weekDigest = 0, streetWatch = 0, watchGroupsSet = 0;
+  let withPush = 0, pushDevices = 0, followers = 0, streetDigest = 0, weekDigest = 0;
   const cases = new Set<string>();
   for (const u of users) {
     const subs = Array.isArray(u.push) ? u.push.filter(isPushSub) : [];
@@ -96,12 +90,10 @@ export function countAccounts(users: UserDoc[], o: { total?: number | null; limi
     if (following.length) { followers++; for (const g of following) cases.add(g); }
     if (u.prefs?.streetDigest === true) streetDigest++;
     if (u.prefs?.weekDigest === true) weekDigest++;
-    if (u.prefs?.streetWatch === true) streetWatch++;
-    if (watchGroupsOf(u).length > 0) watchGroupsSet++;
   }
   const scanned = users.length;
   const total = typeof o.total === 'number' && Number.isFinite(o.total) && o.total > scanned ? o.total : scanned;
-  return { total, scanned, truncated: scanned >= limit, withPush, pushDevices, follows: { accounts: followers, cases: cases.size }, streetDigest, weekDigest, streetWatch, watchGroupsSet };
+  return { total, scanned, truncated: scanned >= limit, withPush, pushDevices, follows: { accounts: followers, cases: cases.size }, streetDigest, weekDigest };
 }
 
 /** meta/weekDigest as week.ts writes it → the card; null when there has been no run (or the doc is not one). */
@@ -141,27 +133,24 @@ export function pickMails(emails: EmailRecord[], n = RECENT_MAILS): EngagementMa
 const soft = <T,>(p: Promise<T>, fallback: T, what: string): Promise<T> =>
   p.catch((e) => { console.error(`[engagement] ${what} failed:`, e instanceof Error ? e.message : e); return fallback; });
 
-/** One uncached build: the scan, the three cross-check queries, four meta docs, the event stream and the email log, all
+/** One uncached build: the scan, the two cross-check queries, three meta docs, the event stream and the email log, all
  *  in parallel, each failing soft. */
 export async function buildEngagement(store: Store, now = Date.now()): Promise<Engagement> {
-  const [users, total, qStreet, qWeek, qWatch, week, street, overnight, vapid, events, mails] = await Promise.all([
+  const [users, total, qStreet, qWeek, week, street, vapid, events, mails] = await Promise.all([
     soft(store.listUsers({ limit: ENGAGEMENT_SCAN }), [] as UserDoc[], 'listUsers'),
     soft(store.countUsers(), null as number | null, 'countUsers'),
     soft(store.listStreetDigestUsers(ENGAGEMENT_SCAN).then((r) => r.length), null as number | null, 'listStreetDigestUsers'),
     soft(store.listWeekDigestUsers(ENGAGEMENT_SCAN).then((r) => r.length), null as number | null, 'listWeekDigestUsers'),
-    soft(store.listStreetWatchUsers(ENGAGEMENT_SCAN).then((r) => r.length), null as number | null, 'listStreetWatchUsers'),
     soft(store.getMeta<Record<string, unknown>>('weekDigest'), null, 'meta/weekDigest'),
     soft(store.getMeta<Record<string, unknown>>('streetDigest'), null, 'meta/streetDigest'),
-    soft(store.getMeta<unknown>(OVERNIGHT_META), null, 'meta/watchOvernight'),
     soft(store.getMeta<{ createdAt?: unknown }>(VAPID_META), null, 'meta/vapid'),
     soft(store.recentEvents(EVENT_SCAN), [] as EngagementEvent[], 'recentEvents'),
     soft(store.listEmails({ limit: MAIL_SCAN }), [] as EmailRecord[], 'listEmails'),
   ]);
-  const queried = qStreet != null && qWeek != null && qWatch != null ? { streetDigest: qStreet, weekDigest: qWeek, streetWatch: qWatch } : null;
+  const queried = qStreet != null && qWeek != null ? { streetDigest: qStreet, weekDigest: qWeek } : null;
   return {
     at: new Date(now).toISOString(),
     accounts: { ...countAccounts(users, { total }), queried },
-    overnightHeld: parseOvernight(overnight).length,
     vapidSince: iso(vapid?.createdAt),   // only the date leaves; the key pair stays here
     lastWeekDigest: weekDigestRun(week),
     lastStreetDigest: streetDigestRun(street),

@@ -75,6 +75,8 @@ describe('handleInbound', () => {
     expect(calls[0][1]).toBe('Providence 311 on your report PVD2026-71677: Report Un-shoveled Sidewalks');
     expect(calls[0][2]).toContain('Department Assigned: DPW');
     expect(calls[0][2]).toContain('https://fixmypvd.org/r/rep1');
+    expect(calls[0][2]).toContain('Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
+    expect(calls[0][2]).not.toMatch(/reply to stop/i);
     expect(calls[0][3]).toEqual({ replyTo: 'cases@fixmypvd.org', kind: 'city_copy', reportId: 'rep1', caseId: 'PVD2026-71677' });
     const patch = (d.store.patchReport as any).mock.calls[0];
     expect(patch[0]).toBe('rep1');

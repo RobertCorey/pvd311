@@ -21,7 +21,7 @@
  */
 import PostalMime from 'postal-mime';
 import type { Env, Store, Mailer, ReportDoc } from './contracts.js';
-import { notifyReport } from './notify.js';
+import { notifyReport, updatesLine } from './notify.js';
 import { classifyInbound, syncCityAsks, isOwnerAddress, answerCityAsk, asksOf, extractReplyText, isAnswerSubject, isNotAnAnswer, answerOutcomeEmail, unverifiedReplyEmail } from './cityask.js';
 import type { CityMailKind } from '../../shared/types.js';
 import { inboundId, logEmail, record, type EmailKind } from './emaillog.js';
@@ -169,7 +169,7 @@ async function routeInbound(
 
   if (!isCitySender(mail, env)) {
     // The owner answering a city ask (their reply to our "the city needs more information" mail) → the city.
-    // Only replies in that conversation (by subject), and never a bare "stop" or "thanks": status mail says "Reply to stop updates".
+    // Only replies in that conversation (by subject), and never a bare "stop" or "thanks": older status mail said "Reply to stop updates".
     if (caseId && isAnswerSubject(mail.subject) && !isNotAnAnswer(extractReplyText(mail.text))) {
       const found = await lookup(store, caseId);
       // asksOf: an ask the watcher has not recorded yet still counts (answerCityAsk records it with the answer).
@@ -247,7 +247,8 @@ async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer 
   const { store, mailer } = deps;
   const at = new Date().toISOString();
   const cls = await classifyInbound(env, mail.subject, mail.text);
-  const track = `${(env.APP_BASE_URL ?? 'https://fixmypvd.org').replace(/\/+$/, '')}/r/${report.id}`;
+  const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
+  const track = `${base.replace(/\/+$/, '')}/r/${report.id}`;
   const subjectTail = cleanSubject(mail.subject, caseId);
   const subject = `Providence 311 on your report ${caseId}${subjectTail ? `: ${subjectTail}` : ''}`;
   const body = mail.text.length > MAX_FORWARD ? `${mail.text.slice(0, MAX_FORWARD)}\n\n[trimmed]` : mail.text;
@@ -256,7 +257,7 @@ async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer 
     + quote(body)
     + (mail.attachments ? `<p style="color:#888">The city's message had ${mail.attachments} attachment${mail.attachments === 1 ? '' : 's'}, which we do not pass along.</p>` : '')
     + `<p><a href="${track}">Track this report</a>. Replying to this email reaches the FixMyPVD team, not the city.</p>`
-    + `<p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. Reply to stop updates.</p>`;
+    + `<p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(base)}</p>`;
 
   // An ask goes to the owner as "the city needs more information" (syncCityAsks below); followers get the usual copy.
   const ask = cls.kind === 'ask';
