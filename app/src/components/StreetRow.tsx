@@ -20,13 +20,17 @@ export function agoText(t: T, iso: string | null, nowMs: number): string {
   return a === 'today' ? t('street.ago.today') : a === 'yesterday' ? t('street.ago.yesterday') : t('street.ago.days', { n: a });
 }
 
-/** The city's status as the `.my-status` pill: `street.status.<status>` when we have a translation, else the raw string. */
+/** The city's status in words: `street.status.<status>` when we have a translation, else the raw string. */
+export function statusText(t: T, status: string): string {
+  const key = `street.status.${status}`;
+  return t(key) === key ? status : t(key);
+}
+
+/** The city's status as the `.my-status` pill (statusText). */
 export function StatusPill({ status }: { status: string }) {
   const t = useT();
   if (!status) return null;
-  const key = `street.status.${status}`;
-  const label = t(key) === key ? status : t(key);
-  return <span className={`my-status my-status--${pillKey(status)}`}>{label}</span>;
+  return <span className={`my-status my-status--${pillKey(status)}`}>{statusText(t, status)}</span>;
 }
 
 /** "Reported 3 days ago" (open) / "Closed yesterday" (closed); nothing when the case carries no parseable date. */

@@ -8,8 +8,9 @@ import { decodeCase, decodeCaseDetail, decodeFeed, metersBetween, type CaseDetai
 export { CLOSED_STATUSES, decodeCase, decodeFeed } from '../lib/streetMap';
 export type { CaseDetail, MapCase, MapFeed, MapItem, StreetCaseWire, StreetMap } from '../lib/streetMap';
 
-/** The windows the page fetches; "This week" (7) is cut client-side from the 30-day set. */
-export type MapDays = 30 | 90;
+/** The windows the page fetches (worker/src/street.ts snapDays): "Last 24 hours" and "This week" are cut client-side
+ *  from the 30-day set; 7 only for a custom range whose From is within the last 7 days (lib/streetMap feedDays). */
+export type MapDays = 7 | 30 | 90;
 
 const MAP_TTL_MS = 5 * 60_000;
 const mapCache = new Map<MapDays, { at: number; data: StreetMap }>();

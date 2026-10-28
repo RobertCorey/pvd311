@@ -5,7 +5,7 @@
 import { GROUP_ORDER } from '@shared/categories';
 import { groupOf, type GroupKey } from './categories';
 import { inCityLimit, PVD_BOUNDS } from './geo';
-import { hoodFromSlug, hoodSlug, NEIGHBORHOOD_NAMES } from './neighborhoods';
+import { hoodFromSlug, hoodSlug } from './neighborhoods';
 
 /* ── Wire format (GET /api/street/map) ─────────────────────────────────────────────────────────── */
 
@@ -196,6 +196,22 @@ export function distanceM(c: MapCase, p: LatLng): number | null {
   return c.lat == null || c.lng == null ? null : Math.round(metersBetween(p.lat, p.lng, c.lat, c.lng));
 }
 
+/** The case page's "Nearby" (2026-10-27): up to `limit` other located cases within `radiusM` of `c` from the loaded
+ *  feed, nearest first (ties: newest activity first), each with its rounded distance from `c`. [] for an unlocated case. */
+export const NEARBY_M = 150;
+export const NEARBY_MAX = 5;
+export function nearbyCases(cases: MapCase[], c: MapCase, radiusM = NEARBY_M, limit = NEARBY_MAX): { c: MapCase; m: number }[] {
+  if (c.lat == null || c.lng == null) return [];
+  const out: { c: MapCase; m: number; d: number }[] = [];
+  for (const x of cases) {
+    if (x.id === c.id || x.lat == null || x.lng == null) continue;
+    const d = metersBetween(c.lat, c.lng, x.lat, x.lng);
+    if (d <= radiusM) out.push({ c: x, m: Math.round(d), d });
+  }
+  out.sort((a, b) => a.d - b.d || (activityMs(b.c) ?? 0) - (activityMs(a.c) ?? 0));
+  return out.slice(0, limit).map(({ c: x, m }) => ({ c: x, m }));
+}
+
 /** The resident's own filed report, once the city sync has picked it up, sits in the city's list like any other case
  *  (cityCases are keyed by the portal's incident GUID; a report carries only the PVD case number, so nothing links the
  *  two on the wire). "Near this request" must not call it an *other* request, so the one row that is most likely the
@@ -255,9 +271,20 @@ export function boundsOf(points: { lat: number | null; lng: number | null }[]): 
 
 /* ── Filters ───────────────────────────────────────────────────────────────────────────────────── */
 
-export type Window = 7 | 30 | 90;
-export interface Filters { g: GroupKey | 'other' | null; s: 'open' | 'closed' | null; d: Window }
-export const DEFAULT_FILTERS: Filters = { g: null, s: null, d: 30 };
+/** A preset window in days; 1 = the last 24 hours. */
+export type Window = 1 | 7 | 30 | 90;
+/** A custom range of Providence calendar days ("YYYY-MM-DD", from ≤ to): activity from From 00:00 to To 23:59:59. */
+export interface DateRange { from: string; to: string }
+export interface Filters {
+  /** The picked type groups, in GROUP_ORDER order; [] = every type. */
+  g: GroupKey[];
+  s: 'open' | 'closed' | null;
+  /** The preset window; ignored while `range` is set. */
+  d: Window;
+  /** "Custom range…"; null = the preset `d`. */
+  range: DateRange | null;
+}
+export const DEFAULT_FILTERS: Filters = { g: [], s: null, d: 30, range: null };
 export const DAY_MS = 86_400_000;
 
 const parseMs = (iso: string | null): number | null => { if (!iso) return null; const t = Date.parse(iso); return Number.isFinite(t) ? t : null; };
@@ -268,49 +295,128 @@ export function activityMs(c: MapCase): number | null {
   return a == null ? b : b == null ? a : Math.max(a, b);
 }
 
-/** Activity within the last `d` days. "This week" is cut client-side from the 30-day load, so this runs on every
- *  render; a case without any parseable date stays in (the worker included it for a reason). */
+/** Activity within the last `d` days. "Last 24 hours" and "This week" are cut client-side from the 30-day load, so this
+ *  runs on every render; a case without any parseable date stays in (the worker included it for a reason). */
 export function inWindow(c: MapCase, d: Window, nowMs: number): boolean {
   const t = activityMs(c);
   return t == null || t >= nowMs - d * DAY_MS;
 }
 
-const matchStatus = (c: MapCase, s: Filters['s']) => s == null || (s === 'open' ? c.open : !c.open);
-const matchGroup = (c: MapCase, g: Filters['g']) => g == null || c.group === g;
+/** The filters' window as a test, bounds computed once: the preset (inWindow), or the custom range — reported or closed
+ *  between From 00:00 and To 23:59:59 Providence time (a case reported before From and closed in it counts, like a
+ *  close counts for a preset). A case without any parseable date stays in, as above. */
+export function windowTest(f: Pick<Filters, 'd' | 'range'>, nowMs: number): (c: MapCase) => boolean {
+  if (!f.range) { const d = f.d; return (c) => inWindow(c, d, nowMs); }
+  const a = nyDayStart(f.range.from), b = nyDayStart(addDays(f.range.to, 1));
+  const within = (t: number | null) => t != null && t >= a && t < b;
+  return (c) => {
+    const cr = parseMs(c.createdAt), cl = parseMs(c.closedAt);
+    return (cr == null && cl == null) || within(cr) || within(cl);
+  };
+}
 
-/** Window + status + group, keeping the feed's newest-activity-first order. */
+const matchStatus = (c: MapCase, s: Filters['s']) => s == null || (s === 'open' ? c.open : !c.open);
+const matchGroup = (c: MapCase, g: Filters['g']) => g.length === 0 || g.includes(c.group);
+
+/** Window + status + groups (any of them), keeping the feed's newest-activity-first order. */
 export function applyFilters(cases: MapCase[], f: Filters, nowMs: number): MapCase[] {
-  return cases.filter((c) => inWindow(c, f.d, nowMs) && matchStatus(c, f.s) && matchGroup(c, f.g));
+  const inW = windowTest(f, nowMs);
+  return cases.filter((c) => inW(c) && matchStatus(c, f.s) && matchGroup(c, f.g));
 }
 
 export interface FacetCounts {
-  /** Open / closed in view with the status dimension released (group + window applied). */
+  /** Open / closed in view with the status dimension released (groups + window applied). */
   open: number; closed: number;
-  /** The "All" chip: group released, status + window applied. */
+  /** "All types": groups released, status + window applied. */
   all: number;
-  /** Per group, status + window applied — zero-count groups are present (chips stay enabled). */
+  /** Per group, status + window applied — zero-count groups are present (every box stays enabled). With groups picked
+   *  the union of theirs is the sum of these (a case is in one group). */
   groups: Record<GroupKey, number>;
   /** Every filter applied: what the view actually shows. */
   total: number;
 }
 
 /** "What you would get" counts over the visible band (`viewBounds`; null = the whole set, unlocated included), each
- *  chip's own dimension released and the other filters applied — so a chip never reads 0 when tapping it would show something. */
+ *  control's own dimension released and the other filters applied — so a choice never reads 0 when picking it would show something. */
 export function facetCounts(cases: MapCase[], viewBounds: Bounds | null, f: Filters, nowMs: number): FacetCounts {
   const groups = Object.fromEntries(GROUP_ORDER.map((g) => [g, 0])) as Record<GroupKey, number>;
+  const inW = windowTest(f, nowMs);
   let open = 0, closed = 0, all = 0, total = 0;
   for (const c of cases) {
-    if (!inWindow(c, f.d, nowMs)) continue;
+    if (!inW(c)) continue;
     if (viewBounds && !inBounds(c, viewBounds)) continue;
     const okS = matchStatus(c, f.s), okG = matchGroup(c, f.g);
     if (okG) { if (c.open) open++; else closed++; }
-    if (okS) { all++; groups[c.group as GroupKey] = (groups[c.group as GroupKey] ?? 0) + 1; }
+    if (okS) { all++; groups[c.group] = (groups[c.group] ?? 0) + 1; }
     if (okS && okG) total++;
   }
   return { open, closed, all, groups, total };
 }
 
-/* ── Summary line, top types, neighborhood counts ──────────────────────────────────────────────── */
+/* ── Providence calendar days (the custom range) ───────────────────────────────────────────────── */
+
+const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** A real calendar day written "YYYY-MM-DD" (what a date input's value and the URL's from / to carry). */
+export function isYmd(s: string | null | undefined): s is string {
+  const m = YMD_RE.exec(s ?? '');
+  if (!m) return false;
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return t.getUTCFullYear() === Number(m[1]) && t.getUTCMonth() === Number(m[2]) - 1 && t.getUTCDate() === Number(m[3]);
+}
+const ymdParts = (ymd: string): [number, number, number] => { const m = YMD_RE.exec(ymd) as RegExpExecArray; return [Number(m[1]), Number(m[2]), Number(m[3])]; };
+/** `ymd` moved by `n` calendar days. */
+export function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymdParts(ymd);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+/** The Providence calendar day an instant falls on. */
+export function nyYmd(ms: number): string {
+  const p = Object.fromEntries(NY_DATE.formatToParts(ms).map((x) => [x.type, x.value]));
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+}
+const NY_CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+/** The instant a Providence calendar day starts (00:00 America/New_York). The clocks change at 2 AM, so midnight has the
+ *  offset 05:00 UTC has (00:00 EST / 01:00 EDT). */
+export function nyDayStart(ymd: string): number {
+  const [y, m, d] = ymdParts(ymd);
+  const guess = Date.UTC(y, m - 1, d, 5);
+  const p = Object.fromEntries(NY_CLOCK.formatToParts(guess).map((x) => [x.type, Number(x.value)]));
+  const wall = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second);
+  return Date.UTC(y, m - 1, d) - (wall - guess);
+}
+
+/** How far back "Custom range…" reaches: From ≥ today − 89, so the 90-day load always covers From 00:00. */
+export const RANGE_BACK_DAYS = 89;
+/** The date inputs' bounds (min = today − 89, max = today) and "Custom range…"'s first pick: the last 7 days, today included. */
+export function rangeBounds(nowMs: number): { min: string; max: string } {
+  const max = nyYmd(nowMs);
+  return { min: addDays(max, -RANGE_BACK_DAYS), max };
+}
+export function defaultRange(nowMs: number): DateRange {
+  const to = nyYmd(nowMs);
+  return { from: addDays(to, -7), to };
+}
+/** A range held to rangeBounds: From raised to today − 89, To lowered to today; null when nothing of it is left (wholly
+ *  before or after them). A shared link keeps its dates while the bounds move on, and days before today − 89 are past
+ *  what the 90-day load covers — they would read as "nothing reported". The same object back when nothing moved. */
+export function clampRange(r: DateRange | null, nowMs: number): DateRange | null {
+  if (!r) return null;
+  const { min, max } = rangeBounds(nowMs);
+  if (r.from >= min && r.to <= max) return r;
+  const from = r.from < min ? min : r.from, to = r.to > max ? max : r.to;
+  return from <= to ? { from, to } : null;
+}
+
+/** The server window to load (worker/src/street.ts snapDays: 7, 30 or 90 days back from now): 30 for the last 24 hours,
+ *  this week and 30 days (the shorter two are cut from it client-side), 90 for 90 days; a custom range → the smallest
+ *  that reaches back to From 00:00. */
+export function feedDays(f: Pick<Filters, 'd' | 'range'>, nowMs: number): 7 | 30 | 90 {
+  if (!f.range) return f.d === 90 ? 90 : 30;
+  const back = (nowMs - nyDayStart(f.range.from)) / DAY_MS;
+  return back <= 7 ? 7 : back <= 30 ? 30 : 90;
+}
+
+/* ── Summary line, top types ───────────────────────────────────────────────────────────────────── */
 
 export type Summary =
   | { kind: 'city'; total: number; open: number; closed: number; located: number; unplaced: number; days: Window }
@@ -339,16 +445,6 @@ export function topTypes(cases: MapCase[], limit = 3): TypeCount[] {
     if (e) e.n++; else m.set(key, { caseType: c.caseType, category: c.category, group: c.group, n: 1 });
   }
   return [...m.values()].sort((a, b) => b.n - a.n).slice(0, limit);
-}
-
-export interface HoodCount { name: string; n: number }
-
-/** Cases per neighborhood over `names` (all 25 by default, zeros kept), count desc then name. `hoodOf` is the caller's
- *  memoised lookup (id → name), built once per feed with hoodOfSync. */
-export function hoodCounts(cases: MapCase[], hoodOf: (c: MapCase) => string | null | undefined, names: readonly string[] = NEIGHBORHOOD_NAMES): HoodCount[] {
-  const m = new Map<string, number>(names.map((n) => [n, 0]));
-  for (const c of cases) { const h = hoodOf(c); if (h && m.has(h)) m.set(h, (m.get(h) ?? 0) + 1); }
-  return [...m.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
 }
 
 /* ── Sorting ───────────────────────────────────────────────────────────────────────────────────── */
@@ -484,15 +580,19 @@ export interface StreetUrlState {
   center: LatLng | null; zoom: number | null;
   /** Neighborhood NAME (the URL carries its slug under `n`); null when absent or not one of the 25. */
   hood: string | null;
-  g: GroupKey | null; s: 'open' | 'closed' | null; d: Window;
+  /** `g=trash,streets` (GROUP_ORDER order; /week's single `g=trash` is a list of one). */
+  g: GroupKey[]; s: 'open' | 'closed' | null; d: Window;
+  /** `from=YYYY-MM-DD&to=YYYY-MM-DD` (no `d`): "Custom range…". */
+  range: DateRange | null;
   /** `case=<cityGuid>` */
   caseId: string | null;
 }
-export const EMPTY_URL_STATE: StreetUrlState = { lat: null, lng: null, q: '', center: null, zoom: null, hood: null, g: null, s: null, d: 30, caseId: null };
+export const EMPTY_URL_STATE: StreetUrlState = { lat: null, lng: null, q: '', center: null, zoom: null, hood: null, g: [], s: null, d: 30, range: null, caseId: null };
 
 const num = (v: string | null): number | null => { if (v == null || v.trim() === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 const validLatLng = (lat: number | null, lng: number | null): lat is number => lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-const isGroup = (v: string | null): v is GroupKey => v != null && (GROUP_ORDER as string[]).includes(v);
+/** Known groups only, each once, in GROUP_ORDER order — so one selection always writes one URL. */
+const groupList = (gs: readonly string[]): GroupKey[] => GROUP_ORDER.filter((k) => gs.includes(k));
 
 /** Read /street's query string. Unknown or malformed values fall back to the default (and are dropped on the next write). */
 export function parseStreetUrl(params: URLSearchParams): StreetUrlState {
@@ -502,18 +602,20 @@ export function parseStreetUrl(params: URLSearchParams): StreetUrlState {
   const cLat = cParts.length === 2 ? num(cParts[0]) : null, cLng = cParts.length === 2 ? num(cParts[1]) : null;
   const zRaw = num(params.get('z'));
   const hasView = validLatLng(cLat, cLng) && zRaw != null && Number.isInteger(zRaw) && zRaw >= 0 && zRaw <= 22;
-  const s = params.get('s'), g = params.get('g'), d = params.get('d');
+  const s = params.get('s'), d = params.get('d'), from = params.get('from'), to = params.get('to');
   const caseId = (params.get('case') ?? '').trim();
   return {
     lat: hasPoint ? lat : null, lng: hasPoint ? (lng as number) : null, q: hasPoint ? (params.get('q') ?? '') : '',
     center: hasView ? { lat: cLat as number, lng: cLng as number } : null, zoom: hasView ? zRaw : null,
     hood: hoodFromSlug(params.get('n')),
-    g: isGroup(g) ? g : null, s: s === 'open' || s === 'closed' ? s : null, d: d === '7' ? 7 : d === '90' ? 90 : 30,
+    g: groupList((params.get('g') ?? '').split(',')), s: s === 'open' || s === 'closed' ? s : null,
+    d: d === '1' ? 1 : d === '7' ? 7 : d === '90' ? 90 : 30,
+    range: isYmd(from) && isYmd(to) && from <= to ? { from, to } : null,
     caseId: caseId && caseId.length <= 64 ? caseId : null,
   };
 }
 
-/** Write the query string, defaults omitted so canonical links stay short: lat, lng, q, c, z, n, g, s, d, case. */
+/** Write the query string, defaults omitted so canonical links stay short: lat, lng, q, c, z, n, g, s, d | from + to, case. */
 export function writeStreetUrl(state: Partial<StreetUrlState>): URLSearchParams {
   const st = { ...EMPTY_URL_STATE, ...state };
   const p = new URLSearchParams();
@@ -523,11 +625,20 @@ export function writeStreetUrl(state: Partial<StreetUrlState>): URLSearchParams 
   }
   if (st.center && st.zoom != null && Number.isFinite(st.zoom)) { p.set('c', `${st.center.lat.toFixed(4)},${st.center.lng.toFixed(4)}`); p.set('z', String(Math.round(st.zoom))); }
   if (st.hood) p.set('n', hoodSlug(st.hood));
-  if (st.g && isGroup(st.g)) p.set('g', st.g);
+  const g = groupList(st.g ?? []);
+  if (g.length) p.set('g', g.join(','));
   if (st.s === 'open' || st.s === 'closed') p.set('s', st.s);
-  if (st.d === 7 || st.d === 90) p.set('d', String(st.d));
+  const r = st.range;
+  if (r && isYmd(r.from) && isYmd(r.to) && r.from <= r.to) { p.set('from', r.from); p.set('to', r.to); }
+  else if (st.d === 1 || st.d === 7 || st.d === 90) p.set('d', String(st.d));
   if (st.caseId) p.set('case', st.caseId);
   return p;
+}
+
+/** writeStreetUrl as the address bar's query (no `?`): g's commas stay literal (`g=trash,streets`); everything else as
+ *  URLSearchParams encodes it. */
+export function streetSearch(state: Partial<StreetUrlState>): string {
+  return writeStreetUrl(state).toString().replace(/(^|&)g=([^&]*)/, (_, a: string, v: string) => `${a}g=${v.replace(/%2C/gi, ',')}`);
 }
 
 export interface DefaultViewContext {

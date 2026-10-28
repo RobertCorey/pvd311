@@ -7,11 +7,10 @@ import { isSafeReturnTo, useSession } from '../lib/auth';
 import { forwardGeocode, inProvidence, reverseGeocode } from '../lib/geo';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
-import type { GroupKey } from '../lib/categories';
 import { hoodOfSync, loadNeighborhoods, ringBounds, type NeighborhoodTable, type Rings } from '../lib/neighborhoods';
 import {
-  applyFilters, CITY_BOUNDS, distanceM, facetCounts, hoodCounts, inBounds, isDefaultView, isNewCase, metersBetween, padBounds,
-  parseStreetUrl, placeActivity, sortForPoint, summaryOf, topTypes, writeStreetUrl, type Bounds, type Filters, type LatLng, type StreetUrlState,
+  applyFilters, CITY_BOUNDS, clampRange, distanceM, facetCounts, feedDays, inBounds, isDefaultView, isNewCase, metersBetween, nearbyCases, padBounds,
+  parseStreetUrl, placeActivity, sortForPoint, streetSearch, summaryOf, topTypes, type Bounds, type DateRange, type Filters, type LatLng, type StreetUrlState,
 } from '../lib/streetMap';
 import { DESKTOP_MQ, useMediaQuery } from '../lib/useMediaQuery';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
@@ -23,8 +22,8 @@ import {
 import MapView, { type MapFit, type MapPoint, type MapViewChange } from '../components/MapView';
 import StreetSheet, { SHEET_FULL_INSET, SHEET_PEEK_MIN, type Detent, type DetentVia } from '../components/StreetSheet';
 import StreetFilters from '../components/StreetFilters';
-import StreetRow, { StatusPill } from '../components/StreetRow';
-import StreetDetail from '../components/StreetDetail';
+import StreetRow from '../components/StreetRow';
+import StreetCasePage, { type NearbyRow } from '../components/StreetCasePage';
 import MapKey from '../components/MapKey';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
 import PushCard from '../components/PushCard';
@@ -37,22 +36,24 @@ import './Street.css';
 /** "My street", map-first (spec: .claude/street-map-spec.md, 2026-10-25). One GET /api/street/map load; every count,
  *  filter, cluster and list is computed in the browser from that array (lib/streetMap.ts). The page is a full-bleed
  *  Leaflet stage with floating search + one row of filters (Show · When · Type), a three-detent sheet (phone) or a fixed panel (≥720 px), and is
- *  never empty: landing (city), viewport list, case card, stack, quiet-street and error states all show something.
- *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood), g/s/d (filters), case.
+ *  never empty: landing (city), viewport list, stack, quiet-street and error states all show something.
+ *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood — /week's neighborhood rows link
+ *  here; the page has no picker of its own any more), g/s/d or g/s/from+to (filters), case. A from+to is read inside
+ *  the date inputs' bounds (lib/streetMap clampRange; none left → the preset) and written back in place.
  *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
  *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone".
- *  A selected case is an overlay (Rob, 2026-10-27): the sheet/panel header becomes the case (type, status pill, × = Back
- *  to list), the card leads with the key facts and adds what GET /api/street/case/:id knows (timeline, answers); pins
- *  carry their type's glyph and only new cases pulse; the "Map key" button explains every mark. */
+ *  A selected case opens the case page over everything (components/StreetCasePage; Rob, 2026-10-27, with a Zillow
+ *  listing as the model): a pin, a fanned pin, a list row or a ?case= deep link opens it; the map does not move for it
+ *  (the pin stays selected behind it) and the sheet/panel keep their list, so closing it returns to exactly the view
+ *  and the list from before. case= stays the state: every open is a history entry, so Back closes it. Pins carry their
+ *  type's glyph and only new cases pulse; the "Map key" button explains every mark. */
 
 /** The phone's floating controls end here, from the stage's top: 10 + 48 search pill + 8 + 44 Show row + 8 + 44
  *  When / Type row (Street.css .street-controls; StreetParts.css .street-filters). Fits, the in-view band and the
- *  city's edges read it. */
+ *  city's edges read it. While "Custom range…" is chosen the From / To row adds RANGE_ROW (8 + 44) below — and the
+ *  sheet's FULL stops that much lower, the map key sits that much lower (Street.css .street-stage--range). */
 const RAIL_BOTTOM = 162;
-/** The sheet/panel title's id: the case card is labelled by it (the overlay's header is the case's title). */
-const TITLE_ID = 'street-title';
-/** The overlay header's status pill: the case card is described by it (it sits before the card, outside it). */
-const BADGE_ID = 'street-badge';
+const RANGE_ROW = 52;
 const RING_M = 300;
 const NEAR_POINT_M = 400;
 const PAGE = 40;
@@ -68,9 +69,11 @@ type FeedState = 'loading' | 'error' | 'ok';
 /** What GET /api/street/case/:id added to the selected case (api/street caches it per id). */
 interface CaseMore { id: string; state: 'loading' | 'ok' | 'error'; detail: CaseDetail | null }
 interface DigestTarget { lat: number; lng: number; label: string }
-/** history.state of entries this page pushes: `street` = ours; `back` = pushed by selectCase from a list view of this
- *  page, so "Back to list" may navigate(-1) (a deep-linked case=, or one re-selected by replace, gets the param removed). */
-interface StreetHistoryState { street?: boolean; back?: boolean }
+/** history.state of entries this page pushes: `street` = ours; `depth` = how many case entries openCase has pushed on
+ *  top of the entry the case page opened over (1 for a pin or row, +1 per nearby swap); `back` = that entry is a list
+ *  view of this page, so "Back to map" may navigate(-depth) to it. Without `back` (the page opened from a deep link)
+ *  "Back to map" pops to the deep link's own entry and removes its case= in place, so it never leaves the app. */
+interface StreetHistoryState { street?: boolean; back?: boolean; depth?: number }
 
 const LocateIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg>;
 const SearchIcon = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></svg>;
@@ -81,14 +84,22 @@ export default function Street() {
   const session = useSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const url = useMemo(() => parseStreetUrl(params), [params]);
+  const [params] = useSearchParams();
+  const parsed = useMemo(() => parseStreetUrl(params), [params]);
+  // A custom range from an old link may reach back past what the 90-day load covers (its counts would read 0): it is
+  // read inside the inputs' bounds, and the address bar follows (below, once setUrl exists).
+  const url = useMemo(() => ({ ...parsed, range: clampRange(parsed.range, Date.now()) }), [parsed]);
   const desktop = useMediaQuery(DESKTOP_MQ);
 
   const point = useMemo((): LatLng | null => (url.lat != null && url.lng != null ? { lat: url.lat, lng: url.lng } : null), [url.lat, url.lng]);
   const pointKey = point ? `${point.lat.toFixed(5)},${point.lng.toFixed(5)}` : '';
-  const filters: Filters = useMemo(() => ({ g: url.g, s: url.s, d: url.d }), [url.g, url.s, url.d]);
-  const wantDays: MapDays = url.d === 90 ? 90 : 30;
+  // Keyed by value: the URL is parsed again on every c/z write, and a pan must not look like a filter change.
+  const gKey = url.g.join(','), fromKey = url.range?.from ?? '', toKey = url.range?.to ?? '';
+  const filters: Filters = useMemo(() => ({ g: url.g, s: url.s, d: url.d, range: url.range }), [gKey, url.s, url.d, fromKey, toKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wantDays: MapDays = useMemo(() => feedDays(filters, Date.now()), [filters]);
+  // The phone's rail grows by the From / To row while "Custom range…" is chosen.
+  const railBottom = desktop ? 0 : RAIL_BOTTOM + (filters.range ? RANGE_ROW : 0);
+  const fullInset = SHEET_FULL_INSET + (!desktop && filters.range ? RANGE_ROW : 0);
 
   // Shell: the phone locks to the viewport and hides the footer while this page is mounted (Admin.tsx precedent).
   useEffect(() => { document.body.classList.add('is-street'); return () => document.body.classList.remove('is-street'); }, []);
@@ -132,7 +143,6 @@ export default function Street() {
   const awaitingFitRef = useRef(false);
   const fittedRef = useRef<{ center: LatLng; zoom: number } | null>(null);
   const [moved, setMoved] = useState(false); // a user pan/zoom (or a shared c/z view) since the last point was set: no auto zoom-out, no teach line
-  const raisedRef = useRef(false); // the sheet went PEEK → HALF because of a selection (a background tap drops it back)
   const urlRef = useRef(url);
   const pointRef = useRef(point);
   const locationRef = useRef(location);
@@ -168,28 +178,31 @@ export default function Street() {
     if (desktop) return 0;
     const peek = Math.max(SHEET_PEEK_MIN, peekH);
     if (d === 'peek' || stage <= 0) return d === 'peek' ? peek : sheetH;
-    return d === 'half' ? Math.min(Math.max(peek, Math.round(stage / 2)), stage - SHEET_FULL_INSET) : Math.max(peek, stage - SHEET_FULL_INSET);
-  }, [desktop, stageH, sheetH, peekH]);
+    return d === 'half' ? Math.min(Math.max(peek, Math.round(stage / 2)), stage - fullInset) : Math.max(peek, stage - fullInset);
+  }, [desktop, stageH, sheetH, peekH, fullInset]);
   // The sheet top for the current detent: the in-view band and panInside use it so a pin tapped at PEEK is panned
   // clear of the HALF sheet in the same commit that raises it (the mirrored --sheet-h would still read PEEK).
   const sheetTop = sheetHeightAt(detent);
-  const insets = useMemo(() => (desktop ? { top: 0, bottom: 0 } : { top: RAIL_BOTTOM, bottom: sheetTop }), [desktop, sheetTop]);
+  const insets = useMemo(() => (desktop ? { top: 0, bottom: 0 } : { top: railBottom, bottom: sheetTop }), [desktop, railBottom, sheetTop]);
   const peekTop = sheetHeightAt('peek');
-  const cityFit = useMemo(() => (desktop ? undefined : { top: RAIL_BOTTOM, bottom: peekTop }), [desktop, peekTop]);
+  const cityFit = useMemo(() => (desktop ? undefined : { top: railBottom, bottom: peekTop }), [desktop, railBottom, peekTop]);
 
   /** A programmatic fit: the point/bounds centred in the band between the rail and the sheet at detent `d`. */
   const doFit = useCallback((bounds: L.LatLngBoundsLiteral, d: Detent, name: string, maxZoom?: number) => {
     awaitingFitRef.current = true;
-    setFit({ bounds, paddingTop: desktop ? 0 : RAIL_BOTTOM, paddingBottom: sheetHeightAt(d, stageRef.current?.clientHeight || 0), maxZoom, key: `${name}#${++fitSeq.current}` });
-  }, [desktop, sheetHeightAt]);
+    setFit({ bounds, paddingTop: railBottom, paddingBottom: sheetHeightAt(d, stageRef.current?.clientHeight || 0), maxZoom, key: `${name}#${++fitSeq.current}` });
+  }, [railBottom, sheetHeightAt]);
 
   /* ── URL writers ──────────────────────────────────────────────────────────────────────────────── */
   /** Replace writes (c/z, g/s/d, dropping a gone case) keep the entry's history.state — an external deep link stays
    *  "not ours" after a pan or a chip tap. Pushes are stamped ours (`street`), plus whatever `state` adds. */
   const setUrl = useCallback((patch: Partial<StreetUrlState>, replace: boolean, state?: StreetHistoryState) => {
     const cur = (locationRef.current.state as StreetHistoryState | null) ?? null;
-    setParams(writeStreetUrl({ ...urlRef.current, ...patch }), { replace, state: replace ? cur : { street: true, ...state } });
-  }, [setParams]);
+    const q = streetSearch({ ...urlRef.current, ...patch }); // setSearchParams would write g's commas as %2C
+    navigate({ search: q ? `?${q}` : '' }, { replace, state: replace ? cur : { street: true, ...state } });
+  }, [navigate]);
+  // A range the read clamped (or dropped) replaces the link's own, so Share and a reload carry the dates shown.
+  useEffect(() => { if (url.range !== parsed.range) setUrl({ range: url.range }, true); }, [url, parsed, setUrl]);
 
   const [stackIds, setStackIds] = useState<string[] | null>(null);
   const czTimer = useRef(0);
@@ -210,6 +223,19 @@ export default function Street() {
     }, 300);
   }, [setUrl]);
   useEffect(() => () => window.clearTimeout(czTimer.current), []);
+
+  // The From / To row came or went (the phone's rail grew or shrank by RANGE_ROW): move the map by half of it, so the
+  // band between the rail and the sheet keeps its centre — the address stays in the middle of what is listed. A view
+  // that was the page's own fit stays one (c/z stay out of the URL).
+  const railRef = useRef({ railBottom, desktop });
+  useEffect(() => {
+    const prev = railRef.current;
+    railRef.current = { railBottom, desktop };
+    if (!map || desktop || prev.desktop !== desktop || prev.railBottom === railBottom) return;
+    const v = viewRef.current;
+    if (v && isDefaultView({ center: v.center, zoom: v.zoom }, { fitted: fittedRef.current, point: pointRef.current, caseAt: caseAtRef.current })) awaitingFitRef.current = true;
+    map.panBy([0, (prev.railBottom - railBottom) / 2], { animate: false });
+  }, [railBottom, desktop, map]);
 
   /* ── Restore order: c+z (once) → n → lat/lng → case (when the feed lands) → the city ───────── */
   const [goSeq, setGoSeq] = useState(0);
@@ -266,23 +292,20 @@ export default function Street() {
     urlRef.current = url; pointRef.current = point; locationRef.current = location;
     caseAtRef.current = selectedCase && selectedCase.lat != null && selectedCase.lng != null ? { lat: selectedCase.lat, lng: selectedCase.lng } : null;
   });
-  const selectViaRef = useRef<'pin' | 'row' | null>(null);
+  const selectViaRef = useRef<'pin' | 'row' | 'nearby' | null>(null);
   const handledCaseRef = useRef<string | null>(null);
   const [goneId, setGoneId] = useState<string | null>(null);
-  // Whether MapView may move the map for the selection (panInside / setView 17 when clustered). True for pin and row
-  // taps; for a case= restored from a URL only when the case is the view's sole target — a shared c/z view, a point or
-  // a neighborhood in the same URL decides the framing (spec urlState: "a shared view wins once"). MapView's selection
-  // effect runs before this screen's case effect in the same commit, so the initial value is what the restore sees.
-  const [panToSelection, setPanToSelection] = useState(() => !!url.caseId && !url.center && url.lat == null && !url.hood);
+  // The map never pans for a selection (MapView panToSelection={false}): the case page covers it, and closing the page
+  // must find the view as it was. A case= restored from a URL is fitted to only when it is the view's sole target — a
+  // shared c/z view, a point or a neighborhood in the same URL decides the framing (spec urlState: "a shared view wins once").
   const refitRef = useRef(false); // a case= that was the URL's sole target and missing from the 30-day set: fit to it when the 90-day set has it
   useEffect(() => {
     if (!url.caseId) { handledCaseRef.current = null; return; }
     if (!data) return;
     if (!selectedCase && lookedUp?.id !== url.caseId) {
-      // Not in this window (a followed case may be months old, or the window shrank under an open card — Clear or
-      // When 90 → 30 while a 45-day-old case is shown): ask for the case itself, once per id. This comes before the
-      // handled check so an already-shown case is fetched too, and drawn as extraCase. The effect runs again when
-      // the answer lands; a failed request counts as gone (there is nothing else to try).
+      // Not in this window (a followed case may be months old, from the follow mail or a /my row): ask for the case
+      // itself, once per id. This comes before the handled check so an already-shown case is fetched too, and drawn as
+      // extraCase. The effect runs again when the answer lands; a failed request counts as gone (there is nothing else to try).
       if (lookupRef.current !== url.caseId) {
         const id = url.caseId; lookupRef.current = id;
         getStreetCase(id).then((c) => setLookedUp({ id, c }), () => setLookedUp({ id, c: null }));
@@ -305,51 +328,74 @@ export default function Street() {
       // again after the 90-day switch). A c/z, point or hood restore already placed the map — just select.
       const fitToCase = lastTargetRef.current === 'case' || refitRef.current;
       refitRef.current = false;
-      setPanToSelection(fitToCase);
       if (fitToCase) {
         if (selectedCase.lat != null && selectedCase.lng != null) doFit(at({ lat: selectedCase.lat, lng: selectedCase.lng }), 'half', `case:${selectedCase.id}`, 17);
-        else doFit(CITY_LL, 'half', 'city'); // an unplaced case: the card, over the whole city
+        else doFit(CITY_LL, 'half', 'city'); // an unplaced case: the page, over the whole city
       }
     }
-    setDetentState((d) => { if (d === 'peek') { raisedRef.current = true; track('street_sheet', { detent: 'half', via: 'auto' }); return 'half'; } return d; });
   }, [url.caseId, data, selectedCase, lookedUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // A case that was not in the 30-day set: once the 90-day set has it, select it again.
   useEffect(() => {
     if (goneId && data && data.cases.some((c) => c.id === goneId)) { setGoneId(null); setUrl({ caseId: goneId }, true); }
   }, [goneId, data, setUrl]);
 
-  const selectCase = (id: string, via: 'pin' | 'row') => {
+  /** Open the case page (a pin, a fanned pin, a row) or swap it to a nearby case. The map, the detent and the list stay
+   *  as they are. Every open is a history entry, so Back — ours, the browser's or Android's — closes the page, and Back
+   *  from a nearby case returns to the one before it (StreetHistoryState). */
+  const openerRef = useRef<{ via: 'pin' | 'row'; id: string } | null>(null);
+  const openCase = (id: string, via: 'pin' | 'row' | 'nearby') => {
     if (via === 'pin') track('street_pin', { kind: 'pin' });
     const cur = urlRef.current;
     if (cur.caseId === id) return;
     selectViaRef.current = via;
-    setPanToSelection(true);
-    setStackIds(null);
-    // Raise PEEK → HALF in this same event so the card mounts into a non-inert body and takes focus at once (the case
-    // effect's raise is the fallback for the URL path). The band insets follow the detent, so the pin is panned clear
-    // of the HALF sheet, not of the PEEK one.
-    if (via === 'pin') setDetentState((d) => { if (d === 'peek') { raisedRef.current = true; track('street_sheet', { detent: 'half', via: 'auto' }); return 'half'; } return d; });
-    // card → card: one entry (replace), so Back — ours or Android's — still lands on the list. Otherwise pushState so
-    // Android Back closes the card; `back` marks the entry as pushed from a list view of this page, so "Back to list"
-    // may pop it. A case= that arrived any other way (deep link, the 90-day re-select) gets the param removed instead.
-    if (cur.caseId) setUrl({ caseId: id }, true); else setUrl({ caseId: id }, false, { back: true });
-  };
-  const focusAfterRef = useRef<string | null>(null);
-  const closeCase = () => {
-    focusAfterRef.current = urlRef.current.caseId;
+    if (via !== 'nearby') openerRef.current = { via, id };
     const st = (locationRef.current.state as StreetHistoryState | null) ?? null;
-    if (st?.back) navigate(-1); else setUrl({ caseId: null }, true);
+    if (cur.caseId) setUrl({ caseId: id }, false, { back: st?.back, depth: (st?.depth ?? 0) + 1 });
+    else setUrl({ caseId: id }, false, { back: true, depth: 1 });
+  };
+  /** "Back to map", Escape, the backdrop: pop every case entry we pushed; from a deep link, pop to its entry and drop
+   *  its case= there (`strip`; the page stays hidden in between — `holding`). Once per entry: a second Escape before
+   *  the URL has moved would pop one entry too many. */
+  const closingKeyRef = useRef<string | null>(null);
+  const stripRef = useRef(false);
+  const [holding, setHolding] = useState(false);
+  const closeCase = () => {
+    const loc = locationRef.current;
+    if (closingKeyRef.current === loc.key) return;
+    closingKeyRef.current = loc.key;
+    const st = (loc.state as StreetHistoryState | null) ?? null;
+    const depth = st?.depth ?? (st?.back ? 1 : 0);
+    if (depth > 0 && st?.back) navigate(-depth);
+    else if (depth > 0) { stripRef.current = true; setHolding(true); navigate(-depth); }
+    else setUrl({ caseId: null }, true);
   };
   useEffect(() => {
-    if (url.caseId || !focusAfterRef.current) return;
-    const id = focusAfterRef.current; focusAfterRef.current = null;
+    closingKeyRef.current = null; // the URL moved: the next close is a new one (Forward can bring back the same entry)
+    if (!stripRef.current || (location.state as StreetHistoryState | null)?.depth) return;
+    stripRef.current = false;
+    if (urlRef.current.caseId) setUrl({ caseId: null }, true);
+  }, [location.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!url.caseId) setHolding(false); }, [url.caseId]);
+  const caseOpen = !!selectedCase && !holding;
+  // Closed (by any of the above or the browser's Back): focus goes back to what opened the page — the row, or the map
+  // for a pin (pins are aria-hidden; the map's container is their focusable owner) — and, for a deep link, to the
+  // sheet's grabber (phone) or the map (desktop). Not when focus has already gone somewhere on purpose.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (caseOpen) { wasOpenRef.current = true; return; }
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const o = openerRef.current; openerRef.current = null;
+    const a = document.activeElement;
+    if (a && a !== document.body && a.isConnected) return;
     const stage = stageRef.current;
-    const el = stage?.querySelector<HTMLElement>(`.street-row-btn[data-id="${CSS.escape(id)}"]`) ?? stage?.querySelector<HTMLElement>('.street-grab');
-    el?.focus({ preventScroll: true });
-  }, [url.caseId]);
+    const row = o?.via === 'row' ? stage?.querySelector<HTMLElement>(`.street-row-btn[data-id="${CSS.escape(o.id)}"]`) : null;
+    const grab = !o && !desktop ? stage?.querySelector<HTMLElement>('.street-grab') : null;
+    (row ?? grab ?? map?.getContainer())?.focus({ preventScroll: true });
+  }, [caseOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── The selected case's detail: GET /api/street/case/:id once per id (api/street caches it; the stale deep-link
-   *  lookup above already filled the cache for its case). The card shows at once; the detail block follows. ────── */
+   *  lookup above already filled the cache for its case). The page shows at once; the detail block follows. ────── */
   const [caseMore, setCaseMore] = useState<CaseMore | null>(null);
   const selectedId = selectedCase?.id ?? null;
   useEffect(() => {
@@ -367,10 +413,7 @@ export default function Street() {
     return hit !== undefined ? { id, state: 'ok', detail: hit?.detail ?? null } : { id, state: 'loading', detail: null };
   };
 
-  const onBackgroundTap = () => {
-    if (urlRef.current.caseId) { closeCase(); if (raisedRef.current) { raisedRef.current = false; setDetent('peek', 'auto'); } }
-    setStackIds(null);
-  };
+  const onBackgroundTap = () => { setStackIds(null); };
   const onStackTap = (ids: string[]) => { track('street_pin', { kind: 'stack' }); setStackIds(ids); setDetentState((d) => (d === 'peek' ? 'half' : d)); };
   const onClusterTap = () => { track('street_pin', { kind: 'cluster' }); };
 
@@ -381,13 +424,13 @@ export default function Street() {
     if (!view) return null;
     if (!map || desktop) return padBounds(view.bounds, 0.05);
     const size = map.getSize();
-    const top = RAIL_BOTTOM, bottom = size.y - sheetTop;
+    const top = railBottom, bottom = size.y - sheetTop;
     if (bottom - top < 40) return padBounds(view.bounds, 0.05);
     const nw = map.containerPointToLatLng([0, top]); const se = map.containerPointToLatLng([size.x, bottom]);
     return padBounds({ south: se.lat, west: nw.lng, north: nw.lat, east: se.lng }, 0.05);
-  }, [view, sheetTop, desktop, map]);
+  }, [view, railBottom, sheetTop, desktop, map]);
 
-  const windowed = useMemo(() => (data ? applyFilters(data.cases, { g: null, s: null, d: filters.d }, nowMs) : []), [data, filters.d, nowMs]);
+  const windowed = useMemo(() => (data ? applyFilters(data.cases, { g: [], s: null, d: filters.d, range: filters.range }, nowMs) : []), [data, filters.d, filters.range, nowMs]);
   const filtered = useMemo(() => (data ? applyFilters(data.cases, filters, nowMs) : []), [data, filters, nowMs]);
   const points = useMemo<MapPoint[]>(() => {
     // The pin draws the type's glyph; a case open and reported in the last 48 h gets the halo.
@@ -404,7 +447,6 @@ export default function Street() {
   const counts = useMemo(() => (data && (landing || bandBounds) ? facetCounts(data.cases, landing ? null : bandBounds, filters, nowMs) : null), [data, landing, bandBounds, filters, nowMs]);
   const summary = useMemo(() => summaryOf(filtered, landing ? null : bandBounds, filters.d), [filtered, landing, bandBounds, filters.d]);
   const top3 = useMemo(() => topTypes(windowed, 3), [windowed]);
-  const hoods = useMemo(() => hoodCounts(windowed, hoodOf), [windowed, hoodOf]);
   const stackCases = useMemo(() => (stackIds && data ? stackIds.flatMap((id) => data.cases.filter((c) => c.id === id)) : null), [stackIds, data]);
   const [shown, setShown] = useState(PAGE);
   useEffect(() => { setShown(PAGE); }, [view, filters]);
@@ -415,7 +457,7 @@ export default function Street() {
   useEffect(() => { if (firstPointRef.current) { firstPointRef.current = false; return; } setWidened(false); setGoneId(null); setMoved(false); }, [pointKey]);
   useEffect(() => {
     if (!point || !data || feedState !== 'ok' || widened || url.zoom != null || moved || !view || !bandBounds) return;
-    if (Math.round(view.zoom) !== 16 || inView.length > 0 || filters.g != null || filters.s != null) return;
+    if (Math.round(view.zoom) !== 16 || inView.length > 0 || filters.g.length > 0 || filters.s != null) return;
     setWidened(true);
     doFit(at(point), 'half', `pt15:${pointKey}`, 15);
   }, [point, data, feedState, widened, url.zoom, moved, view, bandBounds, inView.length, filters.g, filters.s, pointKey, doFit]);
@@ -428,18 +470,26 @@ export default function Street() {
   }, [view, nb]);
   const bandCenter = bandBounds ? { lat: (bandBounds.south + bandBounds.north) / 2, lng: (bandBounds.west + bandBounds.east) / 2 } : null;
   const nearPoint = !!point && !!bandCenter && metersBetween(bandCenter.lat, bandCenter.lng, point.lat, point.lng) < NEAR_POINT_M;
-  const title = selectedCase ? (selectedCase.caseType || t(`street.g.${selectedCase.group}`))
-    : stackIds ? t('street.spot', { n: stackIds.length })
+  const title = stackIds ? t('street.spot', { n: stackIds.length })
     : nearPoint ? (url.q || t('street.here'))
     : url.hood ? url.hood
     : zoom >= 14 && centerHood ? centerHood
     : t('street.city.name');
 
-  const num = (n: number) => n.toLocaleString(lang === 'es' ? 'es' : 'en-US');
+  const locale = lang === 'es' ? 'es' : 'en-US';
+  const num = (n: number) => n.toLocaleString(locale);
+  /** A Providence calendar day ("YYYY-MM-DD") as "Oct 1" / "1 oct". */
+  const dayText = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  /** The window in words: the summary's tail ("last 24 hours", "Oct 1 – Oct 15") and the empty states' ("in the last
+   *  24 hours", "from Oct 1 to Oct 15"); a one-day range is its date. */
+  const windowWords = (r: DateRange | null, d: number, kind: 'window' | 'when') => {
+    if (r) return r.from === r.to ? (kind === 'when' ? t('street.when.date', { date: dayText(r.from) }) : dayText(r.from)) : t(`street.${kind}.range`, { from: dayText(r.from), to: dayText(r.to) });
+    return d === 1 ? t(`street.${kind}.day`) : t(`street.${kind}.days`, { days: d });
+  };
   const summaryText = !data
     ? (feedState === 'error' ? t('street.error') : t('street.loading'))
     : summary.kind === 'city'
-      ? t('street.summary.city', { total: num(summary.total), open: num(summary.open), closed: num(summary.closed), days: summary.days })
+      ? t('street.summary.city', { total: num(summary.total), open: num(summary.open), closed: num(summary.closed), window: windowWords(filters.range, summary.days, 'window') })
       : t('street.summary.view', { n: num(summary.n), open: num(summary.open), closed: num(summary.closed) });
   const [subtitle, setSubtitle] = useState('');
   useEffect(() => {
@@ -454,7 +504,7 @@ export default function Street() {
     const id = window.setTimeout(() => {
       const u = urlRef.current;
       const mode = u.caseId ? 'case' : u.hood ? 'hood' : u.lat != null ? 'point' : landing ? 'landing' : 'view';
-      track('street_view', { mode, d: u.d, g: u.g ?? '', s: u.s ?? '', z: Math.round(viewRef.current?.zoom ?? 0) });
+      track('street_view', { mode, d: u.range ? 'range' : u.d, g: u.g.join('+'), s: u.s ?? '', z: Math.round(viewRef.current?.zoom ?? 0) });
     }, 500);
     return () => window.clearTimeout(id);
   }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -500,17 +550,10 @@ export default function Street() {
     }, () => { setBusy(false); setMsg(t('street.denied')); }, { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 });
   }
 
-  /* ── Filters, neighborhoods, whole city, zoom out ─────────────────────────────────────────────── */
+  /* ── Filters, whole city, zoom out ────────────────────────────────────────────────────────────── */
   const onFilters = (f: Filters) => {
-    setUrl({ g: f.g as GroupKey | null, s: f.s, d: f.d }, true);
-    track('street_filter', { g: f.g ?? '', s: f.s ?? '', d: f.d });
-  };
-  const pickHood = (name: string) => {
-    if (!name) return;
-    setStackIds(null);
-    setUrl({ hood: name, caseId: null, center: null, zoom: null }, false);
-    setDetent('half', 'auto');
-    track('street_hood', { name });
+    setUrl({ g: f.g, s: f.s, d: f.d, range: f.range }, true);
+    track('street_filter', { g: f.g.join('+'), s: f.s ?? '', d: f.range ? 'range' : f.d });
   };
   const seeCity = () => {
     setStackIds(null);
@@ -526,9 +569,9 @@ export default function Street() {
   async function share() {
     const cur = urlRef.current; const v = viewRef.current;
     const def = !v || isDefaultView({ center: v.center, zoom: v.zoom }, { fitted: fittedRef.current, point: pointRef.current, caseAt: caseAtRef.current });
-    const p = writeStreetUrl({ ...cur, center: !def && v ? v.center : null, zoom: !def && v ? v.zoom : null });
+    const p = streetSearch({ ...cur, center: !def && v ? v.center : null, zoom: !def && v ? v.zoom : null });
     if (!def && v && !cur.center) setUrl({ center: v.center, zoom: v.zoom }, true); // location.href matches what we copy
-    const href = `${window.location.origin}/street${p.toString() ? `?${p}` : ''}`;
+    const href = `${window.location.origin}/street${p ? `?${p}` : ''}`;
     track('street_share');
     try {
       if (typeof navigator.share === 'function') { await navigator.share({ url: href }); return; }
@@ -576,8 +619,8 @@ export default function Street() {
     return `/street?${p}`;
   };
   /** The weekly digest card (components/StreetDigestCard) bound to a point: the home point in the sheet, or the
-   *  selected case's street on its card. `push` = whether its on-state carries the "Notify me on this phone" row (off
-   *  when the pressed Follow toggle on the same case card already shows it, so the card never has two). */
+   *  selected case's street on its page. `push` = whether its on-state carries the "Notify me on this phone" row (off
+   *  when the pressed Follow toggle on the same case page already shows it, so the page never has two). */
   const digestCard = (tg: DigestTarget, from: 'point' | 'case', push = true): ReactNode => (
     <StreetDigestCard lat={tg.lat} lng={tg.lng} label={addressLabel(tg.label)} address={tg.label} from={from} push={push}
       returnTo={returnHere(selectedCase)} account={{ me, onMe: setMe }} />
@@ -587,25 +630,21 @@ export default function Street() {
   const [hover, setHover] = useState<string | null>(null);
   const rowWith = (c: MapCase, tag?: string) => (
     <StreetRow key={c.id} c={c} hood={hoodOf(c)} distanceM={point ? distanceM(c, point) : null} selected={c.id === url.caseId}
-      onSelect={(id) => selectCase(id, 'row')} onHover={desktop ? setHover : undefined} nowMs={nowMs} tag={tag} />
+      onSelect={(id) => openCase(id, 'row')} onHover={desktop ? setHover : undefined} nowMs={nowMs} tag={tag} />
   );
   const row = (c: MapCase) => rowWith(c);
+  /** A "Most reported" chip is pressed while its group is the whole Type selection; a tap picks just it, or clears it. */
+  const only = (g: string) => filters.g.length === 1 && filters.g[0] === g;
   const topChips = top3.length > 0 && (
     <ul className="street-top" aria-label={t('street.city.top')}>
       {top3.map((x) => (
         <li key={x.caseType || x.category}>
-          <button type="button" className="street-top-item" aria-pressed={filters.g === x.group} onClick={() => onFilters({ ...filters, g: filters.g === x.group ? null : x.group })}>
+          <button type="button" className="street-top-item" aria-pressed={only(x.group)} onClick={() => onFilters({ ...filters, g: only(x.group) ? [] : [x.group] })}>
             <CategoryIcon k={x.category} size={18} /><span className="street-top-name">{x.caseType || t(`street.g.${x.group}`)}</span><b>{num(x.n)}</b>
           </button>
         </li>
       ))}
     </ul>
-  );
-  const hoodSelect = (
-    <select className="select street-hood" aria-label={t('street.hood.jump')} value={url.hood ?? ''} onChange={(e) => pickHood(e.target.value)}>
-      <option value="">{t('street.hood.jump')}</option>
-      {hoods.map((h) => <option key={h.name} value={h.name}>{h.name} ({h.n})</option>)}
-    </select>
   );
   const meanwhile = (
     <section className="street-meanwhile" aria-label={t('street.city.meanwhile')}>
@@ -614,22 +653,24 @@ export default function Street() {
       <button type="button" className="btn btn-ghost" onClick={seeCity}>{t('street.wholeCity')}</button>
     </section>
   );
-  const cached90 = filters.d < 90 ? peekStreetMap(90) : null;
-  const lookBack = filters.d < 90 && (
-    <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, d: 90 })}>
-      {t('street.fix.days')}{cached90 && bandBounds ? ` (${num(applyFilters(cached90.cases, { ...filters, d: 90 }, nowMs).filter((c) => landing || inBounds(c, bandBounds)).length)})` : ''}
+  // A custom range counts as short of 90 days: "Look back 90 days" replaces it with the preset.
+  const short = filters.range != null || filters.d < 90;
+  const cached90 = short ? peekStreetMap(90) : null;
+  const lookBack = short && (
+    <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, d: 90, range: null })}>
+      {t('street.fix.days')}{cached90 && bandBounds ? ` (${num(applyFilters(cached90.cases, { ...filters, d: 90, range: null }, nowMs).filter((c) => landing || inBounds(c, bandBounds)).length)})` : ''}
     </button>
   );
-  const days = filters.d;
-  const active = filters.g != null || filters.s != null;
+  const when = windowWords(filters.range, filters.d, 'when');
+  const active = filters.g.length > 0 || filters.s != null;
 
   function renderEmpty(): ReactNode {
     if (active && counts) {
       return (
         <div className="street-none">
-          <p>{t('street.nothing', { days })}</p>
+          <p>{t('street.nothing', { when })}</p>
           <div className="street-fixes">
-            {filters.g != null && counts.all > 0 && <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, g: null })}>{t('street.fix.allTypes', { n: num(counts.all) })}</button>}
+            {filters.g.length > 0 && counts.all > 0 && <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, g: [] })}>{t('street.fix.allTypes', { n: num(counts.all) })}</button>}
             {filters.s === 'open' && counts.closed > 0 && <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, s: null })}>{t('street.fix.closed', { n: num(counts.closed) })}</button>}
             {filters.s === 'closed' && counts.open > 0 && <button type="button" className="btn btn-ghost" onClick={() => onFilters({ ...filters, s: null })}>{t('street.fix.open', { n: num(counts.open) })}</button>}
             {!landing && <button type="button" className="btn btn-ghost" onClick={zoomOut}>{t('street.zoomOut')}</button>}
@@ -642,7 +683,7 @@ export default function Street() {
     if (point) {
       return (
         <div className="street-none">
-          <p>{t('street.none', { days })}</p>
+          <p>{t('street.none', { when })}</p>
           <Link to="/" className="btn btn-secondary">{t('street.report')}</Link>
           {lookBack}
           {meanwhile}
@@ -651,7 +692,7 @@ export default function Street() {
     }
     return (
       <div className="street-none">
-        <p>{t('street.nothing.plain', { days })}</p>
+        <p>{t('street.nothing.plain', { when })}</p>
         <div className="street-fixes">
           <button type="button" className="btn btn-ghost" onClick={zoomOut}>{t('street.zoomOut')}</button>
           {lookBack}
@@ -671,7 +712,7 @@ export default function Street() {
   }, [session, me, data, nowMs]);
   /** The card sits at the top of the landing list (signed in, ≥ 1 saved address with coordinates); a row does what
    *  its "Your places" chip does. Counted as one street_places_view per page mount. */
-  const placesShown = landing &&!!data && data.total > 0 && !selectedCase && !stackCases && !lookingUp && filtered.length > 0 && placeRows.length > 0;
+  const placesShown = landing && !!data && data.total > 0 && !stackCases && !lookingUp && filtered.length > 0 && placeRows.length > 0;
   const placesTracked = useRef(false);
   useEffect(() => {
     if (!placesShown || placesTracked.current) return;
@@ -707,7 +748,10 @@ export default function Street() {
   const [prevSeenAt] = useState(() => readSeenAt());
   const [prevSeenFeedAt] = useState(() => readSeenFeedAt());
   const [visitNo, setVisitNo] = useState<number | null>(null);
-  const landingShown = landing && !url.caseId && !stackIds && !!data;
+  // The landing list is in the sheet (also behind an open case page — its header lines stay put); it counts as a visit
+  // only with no case page over it.
+  const landingList = landing && !stackIds && !!data;
+  const landingShown = landingList && !url.caseId;
   const visitedRef = useRef(false);
   useEffect(() => {
     if (!landingShown || visitedRef.current) return;
@@ -724,7 +768,7 @@ export default function Street() {
   const cutoff = newCutoff(visitCutoff, prevSeenFeedAt); // what counts as new: after the newest case that visit saw
   const sinceN = useMemo(() => (cutoff != null && data ? newSince(data.cases, cutoff) : null), [cutoff, data]);
   let sinceNote: string | undefined;
-  if (landingShown && visitCutoff != null && sinceN != null) {
+  if (landingList && visitCutoff != null && sinceN != null) {
     const w = sinceWhen(visitCutoff, nowMs); // "when" is the visit, not the newest case it showed
     const when = w === 'today' ? t('street.ago.today') : w === 'yesterday' ? t('street.ago.yesterday') : w === 'while' ? t('street.since.while') : t('street.ago.days', { n: w.days });
     sinceNote = sinceN === 0 ? t('street.since.none', { when }) : t(sinceN === 1 ? 'street.since.one' : 'street.since', { n: num(sinceN), when });
@@ -736,7 +780,7 @@ export default function Street() {
   const [env] = useState(() => currentEnv());
   const iosTab = isIOS(env) && !env.standalone;
   const [installState, setInstallState] = useState<'offer' | 'hint' | 'done'>(() => (installSnoozed(Date.now()) ? 'done' : 'offer'));
-  const nudgeShown = landingShown && !desktop && !env.standalone && installState !== 'done' && visitNo != null && visitNo >= INSTALL_FROM_VISIT && (canInstall || iosTab) && filtered.length > 0;
+  const nudgeShown = landingList && !desktop && !env.standalone && installState !== 'done' && visitNo != null && visitNo >= INSTALL_FROM_VISIT && (canInstall || iosTab) && filtered.length > 0;
   const nudgeTracked = useRef(false);
   useEffect(() => {
     if (!nudgeShown || nudgeTracked.current) return;
@@ -787,27 +831,13 @@ export default function Street() {
       return <div className="street-skel" aria-hidden="true"><span /><span /><span /></div>;
     }
     if (lookingUp) return <div className="street-skel street-skel--case" aria-hidden="true"><span /><span /><span /></div>;
-    if (data.total === 0 && !selectedCase) {
+    if (data.total === 0) {
       return (
         <div className="street-quiet">
           <Illustration kind="street" className="illo" />
           <p>{t('street.city.quiet')}</p>
           <div className="street-fixes"><Link to="/" className="btn btn-secondary">{t('street.report')}</Link>{lookBack}</div>
         </div>
-      );
-    }
-    if (selectedCase) {
-      const tg: DigestTarget | null = selectedCase.lat != null && selectedCase.lng != null ? { lat: selectedCase.lat, lng: selectedCase.lng, label: selectedCase.street } : null;
-      const id = selectedCase.id;
-      const followed = !!cityFollowing?.includes(id);
-      const follow = (
-        <StreetFollow key={id} signedIn={!!session} following={cityFollowing ? followed : null} returnTo={returnHere(selectedCase)}
-          account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
-          onFollow={() => followCase(id)} onUnfollow={() => unfollowCase(id)} push={<PushCard me={me} from="case" />} />
-      );
-      return (
-        <StreetDetail c={selectedCase} labelledBy={TITLE_ID} describedBy={BADGE_ID} hood={hoodOf(selectedCase)} distanceM={point ? distanceM(selectedCase, point) : null} onBack={closeCase} onShare={share}
-          nowMs={nowMs} follow={follow} digest={tg ? digestCard(tg, 'case', !followed) : undefined} more={moreFor(id)} />
       );
     }
     if (stackCases) {
@@ -828,7 +858,6 @@ export default function Street() {
           <Link to="/week" className="card street-week-link">{t('street.weekLink')}</Link>
           <h3 className="street-h">{t('street.city.top')}</h3>
           {topChips}
-          {hoodSelect}
           <h3 className="street-h">{t('street.city.latest')}</h3>
           <ul className="street-list">{filtered.slice(0, LATEST).map((c) => rowWith(c, isNewSince(c, cutoff) ? t('street.newTag') : undefined))}</ul>
         </>
@@ -837,7 +866,6 @@ export default function Street() {
     if (inView.length === 0) return renderEmpty();
     return (
       <>
-        {desktop && hoodSelect}
         <h3 className="street-h">{t('street.inview.title')}</h3>
         <ul className="street-list">{inView.slice(0, shown).map(row)}</ul>
         {inView.length > shown && <button type="button" className="btn btn-ghost street-more" onClick={() => setShown((s) => s + PAGE)}>{t('street.showMore', { n: num(inView.length - shown) })}</button>}
@@ -854,9 +882,9 @@ export default function Street() {
           <p className="hint" role="status">{t('street.caseGone')}</p>
         </div>
       )}
-      {widened && !selectedCase && <p className="hint street-widened" role="status">{t('street.widened')}</p>}
+      {widened && <p className="hint street-widened" role="status">{t('street.widened')}</p>}
       {renderBody()}
-      {digestTarget && !selectedCase && data && digestCard(digestTarget, 'point')}
+      {digestTarget && data && digestCard(digestTarget, 'point')}
       <p className="hint street-source">{t('street.source')}</p>
     </>
   );
@@ -873,15 +901,14 @@ export default function Street() {
     </nav>
   );
 
-  // The case overlay's header is the case: no list lines under it (the "as of" status line stays — it is about the data).
-  const showTeach = landing && !moved && params.toString() === '' && detent === 'peek';
+  const showTeach = landing && !moved && [...params.keys()].every((k) => k === 'case') && detent === 'peek';
   const extraLines: ReactNode[] = [];
   if (showTeach) extraLines.push(<p key="teach" className="hint">{t('street.teach')}</p>);
-  if (data && !selectedCase && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{t('street.unplaced', { n: num(summary.unplaced) })}</p>);
-  if (data?.truncated && filters.d === 90 && !selectedCase) extraLines.push(<p key="trunc" className="hint">{t('street.truncated')}</p>);
+  if (data && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{t('street.unplaced', { n: num(summary.unplaced) })}</p>);
+  if (data?.truncated && wantDays === 90) extraLines.push(<p key="trunc" className="hint">{t('street.truncated')}</p>);
   if (data && feedState === 'error') extraLines.push(<p key="asof" className="hint" role="status">{t('street.asOf', { time: new Date(data.at).toLocaleTimeString(lang, { hour: 'numeric', minute: '2-digit' }) })}</p>);
 
-  const places = session && me && me.addresses.length > 0 && !selectedCase ? (
+  const places = session && me && me.addresses.length > 0 ? (
     <div className="street-places-row">
       <span className="street-places-label">{t('street.places')}</span>
       <SavedAddresses onPick={(a) => { if (a.lat != null && a.lng != null) go(a.address, a.lat, a.lng); else setMsg(t('street.notFound')); }} />
@@ -889,7 +916,7 @@ export default function Street() {
   ) : undefined;
 
   const shareBtn = <button type="button" className="street-ico" aria-label={t('street.detail.share')} onClick={share}>{ShareIcon}</button>;
-  const filterBar = <StreetFilters filters={filters} counts={counts} loading={feedState === 'loading' && !!data} disabled={feedState === 'error' && !data} onChange={onFilters} />;
+  const filterBar = <StreetFilters filters={filters} counts={counts} loading={feedState === 'loading' && !!data} disabled={feedState === 'error' && !data} panel={desktop} onChange={onFilters} />;
   const wholeCityBtn = <button type="button" className="street-vh street-vh-btn" onClick={seeCity}>{t('street.wholeCity')}</button>;
   const hasText = text !== '' || !!point;
   const controls = desktop ? (
@@ -922,35 +949,60 @@ export default function Street() {
     </div>
   );
 
-  return (
-    <section className="street-stage" ref={stageRef}>
-      <h1 className="street-vh">{t('street.title')}</h1>
-      <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
-      {!desktop && controls}
-      {!desktop && <MapKey hidden={detent === 'full'} />}
-      {/* A selected case is an overlay: the header is the case (type, status pill, × = Back to list) and the card the
-          body; Share moves into the card's actions, the summary line gives way (it still carries "Link copied"). */}
-      <StreetSheet
-        detent={detent} onDetent={setDetent} title={title} titleId={TITLE_ID} badgeId={BADGE_ID} subtitle={flash ?? (selectedCase ? '' : subtitle)} note={sinceNote}
-        badge={selectedCase ? <StatusPill status={selectedCase.status} /> : undefined}
-        onClose={selectedCase ? closeCase : undefined} closeLabel={t('street.detail.back')} overlay={!!selectedCase}
-        labels={{ show: t('street.sheet.show'), more: t('street.sheet.more'), hide: t('street.sheet.hide'), map: t('street.sheet.map') }}
-        places={places} extra={extraLines.length ? extraLines : undefined} actions={selectedCase ? undefined : shareBtn} controls={desktop ? controls : undefined}
-        tail={tail} desktop={desktop} panelLabel={t('street.title')} busy={feedState === 'loading' && !!data}
-        onPeekHeight={desktop ? undefined : setPeekH}
-      >
-        {body}
-      </StreetSheet>
-      {desktop && <MapKey withText />}
-      <MapView
-        key={desktop ? 'desk' : 'phone'}
-        ariaLabel={t('street.map.label')} frameless={!desktop} zoomControl={desktop}
-        points={points} selectedId={url.caseId} hoverId={hover} panToSelection={panToSelection}
-        onSelect={(id) => selectCase(id, 'pin')} onStackTap={onStackTap} onClusterTap={onClusterTap} onBackgroundTap={onBackgroundTap} onViewChange={onViewChange}
-        home={point} ring={point ? RING_M : null} hood={hoodRings} fit={fit} insets={insets} cityFit={cityFit}
-        onReady={(m) => { setMap(m); m.getContainer().setAttribute('aria-describedby', 'street-map-hint'); }}
-        testHook={TEST_HOOK}
+  /* ── The case page (components/StreetCasePage), over everything ──────────────────────────────────── */
+  const nearby = useMemo<NearbyRow[]>(
+    () => (selectedCase && data ? nearbyCases(data.cases, selectedCase).map(({ c, m }) => ({ c, m, hood: hoodOf(c) })) : []),
+    [selectedCase, data, hoodOf],
+  );
+  let casePage: ReactNode = null;
+  if (caseOpen && selectedCase) {
+    const c = selectedCase;
+    const followed = !!cityFollowing?.includes(c.id);
+    const tg: DigestTarget | null = c.lat != null && c.lng != null ? { lat: c.lat, lng: c.lng, label: c.street } : null;
+    const m = point ? distanceM(c, point) : null;
+    casePage = (
+      <StreetCasePage
+        c={c} hood={hoodOf(c)} from={m != null ? { m, place: (url.q && url.q !== t('street.here') && addressLabel(url.q)) || null } : null} more={moreFor(c.id)} nowMs={nowMs}
+        nearby={nearby} days={data?.days ?? wantDays} onNearby={(id) => openCase(id, 'nearby')} onClose={closeCase} onShare={share} flash={flash}
+        follow={(notes) => (
+          <StreetFollow key={c.id} signedIn={!!session} following={cityFollowing ? followed : null} returnTo={returnHere(c)}
+            account={meState} onRetry={() => setMeTick((x) => x + 1)} email={followEmail}
+            onFollow={() => followCase(c.id)} onUnfollow={() => unfollowCase(c.id)} push={<PushCard me={me} from="case" />} notes={notes} />
+        )}
+        digest={tg ? digestCard(tg, 'case', !followed) : undefined}
       />
-    </section>
+    );
+  }
+
+  return (
+    <>
+      <section className={`street-stage${!desktop && filters.range ? ' street-stage--range' : ''}`} ref={stageRef}>
+        <h1 className="street-vh">{t('street.title')}</h1>
+        <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
+        {!desktop && controls}
+        {!desktop && <MapKey hidden={detent === 'full'} />}
+        {/* The sheet/panel keep the list while the case page is open; "Link copied" is the page's own line then. */}
+        <StreetSheet
+          detent={detent} onDetent={setDetent} title={title} subtitle={(!caseOpen && flash) || subtitle} note={sinceNote}
+          labels={{ show: t('street.sheet.show'), more: t('street.sheet.more'), hide: t('street.sheet.hide'), map: t('street.sheet.map') }}
+          places={places} extra={extraLines.length ? extraLines : undefined} actions={shareBtn} controls={desktop ? controls : undefined}
+          tail={tail} desktop={desktop} panelLabel={t('street.title')} busy={feedState === 'loading' && !!data}
+          onPeekHeight={desktop ? undefined : setPeekH} fullInset={fullInset}
+        >
+          {body}
+        </StreetSheet>
+        {desktop && <MapKey withText />}
+        <MapView
+          key={desktop ? 'desk' : 'phone'}
+          ariaLabel={t('street.map.label')} frameless={!desktop} zoomControl={desktop}
+          points={points} selectedId={url.caseId} hoverId={hover} panToSelection={false}
+          onSelect={(id) => openCase(id, 'pin')} onStackTap={onStackTap} onClusterTap={onClusterTap} onBackgroundTap={onBackgroundTap} onViewChange={onViewChange}
+          home={point} ring={point ? RING_M : null} hood={hoodRings} fit={fit} insets={insets} cityFit={cityFit}
+          onReady={(m) => { setMap(m); m.getContainer().setAttribute('aria-describedby', 'street-map-hint'); }}
+          testHook={TEST_HOOK}
+        />
+      </section>
+      {casePage}
+    </>
   );
 }

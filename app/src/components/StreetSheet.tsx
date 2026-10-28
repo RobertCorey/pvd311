@@ -13,8 +13,7 @@ import './StreetSheet.css';
  * Gestures (ownership is exact so the map, the sheet and the list never fight):
  *  - pointer drag on the header (grabber + title row + places row) with pointer capture; release snaps to the
  *    nearest detent, or one detent in the drag direction when |velocity| > 0.5 px/ms;
- *  - body at HALF: no scrolling; a touch move of 24 px up raises to FULL, 24 px down drops to PEEK — except under
- *    `overlay` (the case card), where it scrolls like FULL and a pull down from the top drops to PEEK;
+ *  - body at HALF: no scrolling; a touch move of 24 px up raises to FULL, 24 px down drops to PEEK;
  *  - body at FULL: scrolls normally; a 24 px pull down that started at scrollTop 0 drops to HALF;
  *  - grabber: click / Enter / Space cycle peek → half → full → peek, ArrowUp / ArrowDown step one detent.
  *
@@ -29,7 +28,7 @@ export type DetentVia = 'drag' | 'button';
 const DETENTS: readonly Detent[] = ['peek', 'half', 'full'];
 /** FULL stops this many px under the stage top: 10 + 48 pill + 8 + 44 Show + 8 + 44 When / Type (= 162, Street.tsx
  *  RAIL_BOTTOM) + 6 gap + 17 px OSM attribution (lifted by --sheet-h, it must stay readable and tappable at every
- *  detent) + 9 breathing room. */
+ *  detent) + 9 breathing room. The default of `fullInset` (the parent adds the From / To row while it shows). */
 export const SHEET_FULL_INSET = 194;
 /** Header height with no places row and a one-line subtitle — the PEEK detent before measurement. */
 export const SHEET_PEEK_MIN = 104;
@@ -48,21 +47,8 @@ export interface SheetLabels {
 export interface StreetSheetProps {
   detent: Detent;
   onDetent: (d: Detent, via: DetentVia) => void;
-  /** One line, ellipsised — "Providence", the neighborhood, the address, the case type (two lines under `overlay`). */
+  /** One line, ellipsised — "Providence", the neighborhood, the address. */
   title: string;
-  /** id of the title's <h2>, so a card in the body can be labelled by it (the case overlay has no title of its own). */
-  titleId?: string;
-  /** Left of the subtitle on its line — the case's status pill under `overlay`. */
-  badge?: ReactNode;
-  /** id of the badge's span, so the card in the body can be described by it (the pill sits in the header, before it). */
-  badgeId?: string;
-  /** A 44 px × at the right of the title row (the case overlay's "Back to list"); `closeLabel` names it. */
-  onClose?: () => void;
-  closeLabel?: string;
-  /** The body is one item (the selected case's card): the title may wrap to two lines and the body scrolls at HALF,
-   *  so everything on the card is reachable at the detent a pin tap opens (Rob, 2026-10-27: "an overlay with all the
-   *  case details"). */
-  overlay?: boolean;
   /** The live summary ("42 in view · 18 open · 24 closed"). The parent debounces it (400 ms, only when changed). */
   subtitle: string;
   /** A second subtitle line ("3 new since you last looked (2 days ago)"): plain text, NOT a live region — it changes
@@ -77,7 +63,8 @@ export interface StreetSheetProps {
   actions?: ReactNode;
   /** Desktop only: the search row + filter rail, rendered at the top of the panel (the phone keeps them floating over the map). */
   controls?: ReactNode;
-  /** The body: list / case card / landing / empty states, then the digest card and source line. */
+  /** The body: list / landing / empty states, then the digest card and source line (a case opens over the page:
+   *  components/StreetCasePage). */
   children: ReactNode;
   /** The tail nav (About · Privacy · language · disclaimer). Pass null on desktop, where the page footer stays. */
   tail?: ReactNode;
@@ -89,14 +76,16 @@ export interface StreetSheetProps {
   busy?: boolean;
   /** The measured PEEK height (the header), whenever it changes — not the live --sheet-h, which lags a detent change. */
   onPeekHeight?: (h: number) => void;
+  /** How far under the stage top FULL stops (default SHEET_FULL_INSET); a change re-measures. */
+  fullInset?: number;
 }
 
 interface Heights { peek: number; half: number; full: number }
 
 /** Detent heights for a stage of `stageH` px and a measured header of `peekH` px; monotonic even on tiny stages. */
-function sheetHeights(stageH: number, peekH: number): Heights {
+function sheetHeights(stageH: number, peekH: number, inset: number): Heights {
   const peek = Math.max(0, Math.round(peekH));
-  const full = Math.max(peek, Math.round(stageH - SHEET_FULL_INSET));
+  const full = Math.max(peek, Math.round(stageH - inset));
   const half = Math.min(full, Math.max(peek, Math.round(stageH / 2)));
   return { peek, half, full };
 }
@@ -118,20 +107,22 @@ interface Drag { active: boolean; id: number; startY: number; startH: number; dr
 const idleDrag = (): Drag => ({ active: false, id: -1, startY: 0, startH: 0, dragged: false, samples: [] });
 
 export default function StreetSheet(props: StreetSheetProps) {
-  const { detent, onDetent, title, titleId, badge, badgeId, onClose, closeLabel, overlay = false, subtitle, note, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
+  const { detent, onDetent, title, subtitle, note, labels, places, extra, actions, controls, children, tail, desktop, panelLabel, busy } = props;
 
   const sheetRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement | null>(null);
-  const heightsRef = useRef<Heights>(sheetHeights(0, SHEET_PEEK_MIN));
+  const insetRef = useRef(props.fullInset ?? SHEET_FULL_INSET);
+  insetRef.current = props.fullInset ?? SHEET_FULL_INSET;
+  const heightsRef = useRef<Heights>(sheetHeights(0, SHEET_PEEK_MIN, insetRef.current));
+  const measureRef = useRef<(() => void) | null>(null);
   const onPeekRef = useRef(props.onPeekHeight);
   onPeekRef.current = props.onPeekHeight;
   const dragRef = useRef<Drag>(idleDrag());
   const detentRef = useRef(detent);
   const onDetentRef = useRef(onDetent);
-  const overlayRef = useRef(overlay);
-  useLayoutEffect(() => { detentRef.current = detent; onDetentRef.current = onDetent; overlayRef.current = overlay; });
+  useLayoutEffect(() => { detentRef.current = detent; onDetentRef.current = onDetent; });
 
   const publish = (h: number) => { stageRef.current?.style.setProperty('--sheet-h', `${Math.round(h)}px`); };
 
@@ -145,13 +136,14 @@ export default function StreetSheet(props: StreetSheetProps) {
     const measure = () => {
       const stageH = stage?.clientHeight || window.innerHeight;
       const peekH = top.offsetHeight + sheet.clientTop; // + the top border, so the header is never clipped at PEEK
-      heightsRef.current = sheetHeights(stageH, peekH);
+      heightsRef.current = sheetHeights(stageH, peekH, insetRef.current);
       if (!dragRef.current.active) publish(heightsRef.current[detentRef.current]);
       onPeekRef.current?.(heightsRef.current.peek);
     };
     // First paint lands directly on the detent: no 220 ms slide up from the CSS fallback height.
     sheet.classList.add('is-mounting');
     measure();
+    measureRef.current = measure;
     void sheet.offsetHeight; // flush the height while the transition is off
     sheet.classList.remove('is-mounting');
     let ro: ResizeObserver | null = null;
@@ -160,8 +152,10 @@ export default function StreetSheet(props: StreetSheetProps) {
       if (stage) ro.observe(stage);
       ro.observe(top);
     } else window.addEventListener('resize', measure);
-    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); stage?.style.removeProperty('--sheet-h'); stageRef.current = null; };
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); stage?.style.removeProperty('--sheet-h'); stageRef.current = null; measureRef.current = null; };
   }, [desktop]);
+  // A new FULL inset (the parent's rail grew or shrank): new detent heights, and FULL moves with it.
+  useLayoutEffect(() => { measureRef.current?.(); }, [props.fullInset]);
 
   // Every detent change (ours or the parent's) lands on --sheet-h; the CSS height transition does the motion.
   useLayoutEffect(() => { if (!desktop && !dragRef.current.active) publish(heightsRef.current[detent]); }, [detent, desktop]);
@@ -180,7 +174,7 @@ export default function StreetSheet(props: StreetSheetProps) {
       if (!tracking || fired || e.touches.length !== 1) return;
       const dy = e.touches[0].clientY - startY; // finger down = positive
       const d = detentRef.current;
-      if (d === 'half' && !overlayRef.current) {
+      if (d === 'half') {
         if (dy <= -SWIPE_PX) { fired = true; onDetentRef.current('full', 'drag'); }
         else if (dy >= SWIPE_PX) { fired = true; onDetentRef.current('peek', 'drag'); }
       } else if (d !== 'peek' && atTop && dy >= SWIPE_PX && body.scrollTop <= 0) { fired = true; onDetentRef.current(d === 'full' ? 'half' : 'peek', 'drag'); }
@@ -253,22 +247,20 @@ export default function StreetSheet(props: StreetSheetProps) {
   const cycle = () => go(detent === 'full' ? 'peek' : up(detent), 'button');
   const grabLabel = detent === 'peek' ? labels.show : detent === 'half' ? labels.more : labels.hide;
 
-  // The one live region (the summary, "Link copied") keeps its element in every mode; under a badge it shares its line.
-  const sub = <p className="street-sub" role="status" aria-live="polite">{subtitle}</p>;
+  // The one live region (the summary, "Link copied") keeps its element in every mode.
   const headRow = (
     <div className="street-head-row">
       <div className="street-head-text">
-        <h2 id={titleId} className="street-title">{title}</h2>
-        {badge ? <div className="street-sub-row"><span id={badgeId} className="street-badge">{badge}</span>{sub}</div> : sub}
+        <h2 className="street-title">{title}</h2>
+        <p className="street-sub" role="status" aria-live="polite">{subtitle}</p>
         {note && <p className="street-since">{note}</p>}
       </div>
-      {(actions || onClose || (!desktop && detent === 'full' && labels.map)) && (
+      {(actions || (!desktop && detent === 'full' && labels.map)) && (
         <div className="street-head-actions">
           {!desktop && detent === 'full' && labels.map && (
             <button type="button" className="chip street-map-chip" onClick={() => go('half', 'button')}>{labels.map}</button>
           )}
           {actions}
-          {onClose && <button type="button" className="street-ico street-close" aria-label={closeLabel} title={closeLabel} onClick={onClose}><span aria-hidden="true">×</span></button>}
         </div>
       )}
     </div>
@@ -276,7 +268,7 @@ export default function StreetSheet(props: StreetSheetProps) {
 
   if (desktop) {
     return (
-      <aside className="street-panel" aria-label={panelLabel ?? title} data-overlay={overlay || undefined}>
+      <aside className="street-panel" aria-label={panelLabel ?? title}>
         {controls && <div className="street-panel-controls">{controls}</div>}
         {headRow}
         {extra && <div className="street-extra">{extra}</div>}
@@ -290,7 +282,7 @@ export default function StreetSheet(props: StreetSheetProps) {
   }
 
   return (
-    <div ref={sheetRef} className="street-sheet" data-detent={detent} data-overlay={overlay || undefined}>
+    <div ref={sheetRef} className="street-sheet" data-detent={detent}>
       <div ref={topRef} className="street-sheet-top" onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={(e) => endDrag(e, false)} onPointerCancel={(e) => endDrag(e, true)} onClickCapture={onClickCapture}>
         <div className="street-head">

@@ -19,6 +19,8 @@
   border: 0;
 }
 .mapview .map-pin { cursor: pointer; }
+/* A static map (MapView interactive={false}, the case page's mini-map): a picture of the spot — no pointer cursors. */
+.mapview.is-static, .mapview.is-static .map-pin { cursor: default; }
 .map-pins .map-pin svg {
   display: block; position: relative; z-index: 1;
   filter: drop-shadow(0 2px 2px rgba(22, 33, 58, 0.35));

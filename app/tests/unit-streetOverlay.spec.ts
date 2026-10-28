@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GROUP_ORDER } from '@shared/categories';
-import { caseAge, caseTimeline, decodeCase, decodeCaseDetail, fullAddressLine, isNewCase, NEW_CASE_MS, nyDaysBetween, type CaseDetail, type MapCase } from '../src/lib/streetMap';
+import { caseAge, caseTimeline, decodeCase, decodeCaseDetail, fullAddressLine, isNewCase, metersBetween, NEARBY_M, NEARBY_MAX, nearbyCases, NEW_CASE_MS, nyDaysBetween, type CaseDetail, type MapCase } from '../src/lib/streetMap';
 import { caseMarker, casePinHtml, casePinKey, clusterMarker, glyphSvg, GROUP_GLYPHS, homeMarker, pinGroup } from '../src/lib/mapMarkers';
 
-// Pure-module unit tests for the case overlay, the pin glyphs and the map key (2026-10-27): no browser, no page fixture.
+// Pure-module unit tests for the case page, the pin glyphs and the map key (2026-10-27): no browser, no page fixture.
 
 const NOW = Date.parse('2026-10-27T17:00:00.000Z'); // 1 PM in Providence
 const isoAgo = (days: number, extraMs = 0) => new Date(NOW - days * 86_400_000 + extraMs).toISOString();
@@ -116,6 +116,31 @@ test.describe('caseAge + isNewCase', () => {
   });
 });
 
+test.describe('nearbyCases (the case page\'s Nearby)', () => {
+  /** A case `m` metres north of 41.82, -71.41 (1° of latitude ≈ 111,195 m on the haversine sphere). */
+  const north = (id: string, m: number, o: Partial<MapCase> = {}) => mkCase({ id, lat: 41.82 + m / 111_195, lng: -71.41, ...o });
+  test('150 m and five by default: the others within the radius (inclusive), nearest first, each with its rounded distance from the case', () => {
+    expect(NEARBY_M).toBe(150);
+    expect(NEARBY_MAX).toBe(5);
+    const me = north('me', 0);
+    const got = nearbyCases([north('far', 151), north('b', 80), me, north('a', 12.4), north('edge', 149.6)], me);
+    expect(got.map((x) => [x.c.id, x.m])).toEqual([['a', 12], ['b', 80], ['edge', 150]]);
+    expect(Math.abs(metersBetween(41.82, -71.41, got[2].c.lat!, got[2].c.lng!) - 149.6)).toBeLessThan(0.01);
+  });
+  test('never the case itself or an unlocated case; at most `limit`, and ties (a stack at one spot) newest activity first', () => {
+    const me = north('me', 0);
+    const stack = Array.from({ length: 8 }, (_, i) => north(`s${i}`, 30, { createdAt: isoAgo(i + 1) }));
+    const got = nearbyCases([me, north('me', 0), mkCase({ id: 'u', lat: null, lng: null }), ...stack.slice().reverse()], me);
+    expect(got.map((x) => x.c.id)).toEqual(['s0', 's1', 's2', 's3', 's4']);
+    expect(got.every((x) => x.m === 30)).toBe(true);
+    expect(nearbyCases(stack, me, 150, 2).map((x) => x.c.id)).toEqual(['s0', 's1']);
+    expect(nearbyCases(stack, me, 20)).toEqual([]);
+  });
+  test('an unlocated case has no neighbours', () => {
+    expect(nearbyCases([north('a', 5)], mkCase({ id: 'x', lat: null, lng: null }))).toEqual([]);
+  });
+});
+
 test.describe('pin markup (lib/mapMarkers)', () => {
   test('every picker group has its own glyph, path-only, white, in the head of the pin', () => {
     expect(Object.keys(GROUP_GLYPHS).sort()).toEqual([...GROUP_ORDER].sort());
@@ -159,12 +184,12 @@ test.describe('pin markup (lib/mapMarkers)', () => {
   });
 });
 
-test('i18n: the overlay\'s and the map key\'s strings are translated, with the same placeholders, singulars included', () => {
+test('i18n: the case page\'s and the map key\'s strings are translated, with the same placeholders, singulars included', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const read = (f: string) => JSON.parse(readFileSync(resolve(here, '../src/i18n', f), 'utf8')) as Record<string, string>;
   const en = read('strings.en.json'), es = read('strings.es.json');
   const keys = Object.keys(en).filter((k) => k.startsWith('street.case.') || k.startsWith('street.key'));
-  expect(keys.length).toBe(28);
+  expect(keys.length).toBe(39);
   const holes = (s: string) => (s.match(/\{[a-zA-Z]+\}/g) ?? []).sort();
   for (const k of keys) {
     expect(es[k], k).toBeTruthy();
@@ -173,4 +198,10 @@ test('i18n: the overlay\'s and the map key\'s strings are translated, with the s
   }
   for (const k of ['open', 'closed', 'cluster', 'stack', 'type', 'new', 'home', 'ring']) expect(en[`street.key.${k}`], k).toBeTruthy();
   for (const k of ['reported', 'received', 'routed', 'workCompleted', 'resolved']) expect(en[`street.case.step.${k}`], k).toBeTruthy();
+  // The case page: top bar, stat row (singular included), tiles, sections; the Follow toggle's short label and its line.
+  for (const k of ['back', 'map', 'stat.open', 'stat.closed', 'stat.closedAfter', 'stat.days', 'stat.days.one', 'stat.today', 'stat.sameDay', 'stat.reported', 'stat.from', 'stat.hood', 'tile.group', 'tile.status', 'note', 'nearby', 'nearby.hint', 'nearby.none']) expect(en[`street.case.${k}`], k).toBeTruthy();
+  for (const k of ['street.follow.short', 'street.follow.mails', 'street.meters']) { expect(en[k], k).toBeTruthy(); expect(es[k], k).toBeTruthy(); }
+  expect(es['street.follow.short']).toBe('Seguir');
+  // Gone with the in-sheet case card.
+  for (const k of ['street.detail.back', 'street.case.address', 'street.case.reportedOn', 'street.case.openDays', 'street.follow.on', 'street.follow.off']) { expect(en[k], k).toBeUndefined(); expect(es[k], k).toBeUndefined(); }
 });

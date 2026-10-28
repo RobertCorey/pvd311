@@ -351,26 +351,27 @@ test('sign out with no subscription on this phone sends nothing', async ({ page 
   expect(await pushLog(page)).toEqual([]);
 });
 
-test('/street case card: following shows the row under the pressed toggle — once, even with the digest on for that street; Unfollow moves it to the digest card', async ({ page }) => {
+test('/street case page: following shows the row under the title, with the Follow toggle\'s lines — once, even with the digest on for that street; unfollowing moves it to the digest card', async ({ page }) => {
   await setup(page, { signedIn: true, me: { ...DIGEST_ME, cityFollowing: ['c1'] } });
   await pushApi(page);
   await stubPush(page);
   await page.goto(`${POINT}&case=c1`);
   await waitForMap(page);
-  const detail = page.locator('.street-detail');
-  await expect(detail.locator('.street-follow-btn')).toHaveAttribute('aria-pressed', 'true');
+  const detail = page.locator('.case-page');
+  const toggle = detail.locator('.case-bar .street-follow-btn');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(detail.locator('.street-digest-on .notice-ok')).toContainText('for Home');
   await expect(detail.locator('.push-card')).toHaveCount(1);
-  await expect(detail.locator('.street-detail-actions .push-card')).toHaveAttribute('data-state', 'off');
+  await expect(detail.locator('.case-follow-notes .push-card')).toHaveAttribute('data-state', 'off');
   await expect(detail.locator('.street-digest .push-card')).toHaveCount(0);
-  await detail.getByRole('button', { name: 'Unfollow' }).click();
-  await expect(detail.locator('.street-follow-btn')).toHaveAttribute('aria-pressed', 'false');
-  await expect(detail.locator('.street-detail-actions .push-card')).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(detail.locator('.case-follow-notes .push-card')).toHaveCount(0);
   await expect(detail.locator('.street-digest .push-card')).toHaveCount(1);
-  // Not following and no digest for the street (Hope St, far from Home): no row anywhere on the card.
+  // Not following and no digest for the street (Hope St, far from Home): no row anywhere on the page.
   await page.goto(`${POINT}&case=s1`);
   await waitForMap(page);
-  await expect(detail.locator('.street-follow-btn')).toHaveAttribute('aria-pressed', 'false');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(detail.getByRole('button', { name: 'Email me about this street' })).toBeVisible();
   await expect(detail.locator('.push-card')).toHaveCount(0);
 });

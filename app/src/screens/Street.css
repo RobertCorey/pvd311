@@ -22,8 +22,10 @@
   justify-self: start; background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: var(--radius); font: inherit; font-weight: 600; cursor: pointer;
 }
 
-/* ── Floating controls over the map (phone): 10 + 48 pill + 8 + 44 filter row = 110 px = RAIL_BOTTOM ─ */
+/* ── Floating controls over the map (phone): 10 + 48 pill + 8 + 44 + 8 + 44 filter rows = 162 px = RAIL_BOTTOM ─ */
 .street-controls { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 2; display: grid; gap: 8px; }
+/* The Type dialog (StreetFilters) opens over the sheet (z 3) and the map key: the rail rises above both while it is open. */
+.street-controls:has(.street-type-pop) { z-index: 4; }
 .street-pill {
   display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px;
   background: var(--surface); border: 2px solid var(--ink); border-radius: 14px; box-shadow: var(--shadow);
@@ -52,9 +54,12 @@
 .street-search-row .btn { min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; width: auto; }
 .street-search-row .street-locate { grid-column: 1 / -1; justify-self: start; }
 
-/* The map key (components/MapKey): on phones a round button at the top right of the band, under the rail (110 + 8),
-   clear of the filter row; its dialog may run down over the sheet to the stage's bottom less 12 px. Not drawn at FULL. */
-.street-stage > .street-key { top: 170px; right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - 170px - 12px); }
+/* The map key (components/MapKey): on phones a round button at the top right of the band, under the rail (RAIL_BOTTOM
+   162 + 8; + RANGE_ROW 52 while the From / To row shows), clear of the filter rows; its dialog may run down over the
+   sheet to the stage's bottom less 12 px. Not drawn at FULL. */
+.street-stage { --rail-bottom: 162px; }
+.street-stage--range { --rail-bottom: 214px; }
+.street-stage > .street-key { top: calc(var(--rail-bottom) + 8px); right: 12px; --key-max: calc(100dvh - 66px - 84px - env(safe-area-inset-bottom) - var(--rail-bottom) - 8px - 12px); }
 
 /* Geocode miss / outside / denied / unsupported: a status line under the controls, readable over the tiles; it stops
    short of the map key's button at the right. */
@@ -114,8 +119,6 @@
 .street-top-item:hover { border-color: var(--ink); }
 .street-top-item b { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
 .street-top-item .street-top-name { overflow-wrap: anywhere; }
-
-.street-hood { margin: 0; }
 
 /* The in-view list's "Show {n} more", and the one-tap fixes in the empty states. */
 .street-more { width: 100%; margin-top: 10px; }

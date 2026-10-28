@@ -56,6 +56,9 @@ export interface MapViewProps {
   frameless?: boolean;
   /** Init-only. */
   zoomControl?: boolean;
+  /** false: a picture of the spot (the case page's mini-map, 2026-10-27) — no drag, zoom, keyboard or pin taps, no
+   *  focus stop; the attribution links stay. Init-only. Default true. */
+  interactive?: boolean;
   onReady?: (map: L.Map) => void;
   /** Also exposes window.__streetMap = map for Playwright. The parent passes it only in dev/test builds or on localhost
    *  (the test server is a production build): Street.tsx owns the decision, MapView just honours the flag. */
@@ -332,7 +335,7 @@ function createController(map: L.Map, propsRef: { current: MapViewProps }) {
 
   /** A case pin at `at`: its own coordinate, or its slot in a fan — the same pin, tap and states either way. */
   function makePin(p: MapPoint, i: number, at: L.LatLng): Keyed {
-    const m = L.marker(at, { icon: caseIcon(p.group, p.open, p.isNew), keyboard: false, interactive: true });
+    const m = L.marker(at, { icon: caseIcon(p.group, p.open, p.isNew), keyboard: false, interactive: propsRef.current.interactive !== false });
     m.on('click', () => propsRef.current.onSelect?.(p.id));
     group.addLayer(m);
     tagPin(m.getElement(), p.id);
@@ -642,7 +645,7 @@ type Controller = ReturnType<typeof createController>;
 
 export default function MapView(props: MapViewProps) {
   const {
-    center, zoom, draggablePin = null, height, ariaLabel, frameless = false, zoomControl = true,
+    center, zoom, draggablePin = null, height, ariaLabel, frameless = false, zoomControl = true, interactive = true,
     points, selectedId = null, hoverId = null, home = null, ring = null, hood = null, fit = null, insets, cityFit,
   } = props;
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -663,10 +666,11 @@ export default function MapView(props: MapViewProps) {
     const map = L.map(el, {
       center: center ?? DEFAULT_CENTER,
       zoom: zoom ?? DEFAULT_ZOOM,
-      zoomControl,
+      zoomControl: zoomControl && interactive,
       attributionControl: false,
-      keyboard: true,
+      keyboard: interactive,
       maxBoundsViscosity: 1,
+      ...(interactive ? {} : { dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false }),
     });
     const limit = keepInCity(map, () => propsRef.current.insets ?? { top: 0, bottom: 0 }, () => propsRef.current.cityFit,
       (fn) => { if (ctlRef.current) ctlRef.current.run(fn); else fn(); });
@@ -776,5 +780,5 @@ export default function MapView(props: MapViewProps) {
     ctlRef.current?.hoverChanged();
   }, [hoverId]);
 
-  return <div ref={elRef} className={frameless ? 'mapview map-pins is-frameless' : 'mapview map-pins'} style={height ? { height: `${height}px` } : undefined} />;
+  return <div ref={elRef} className={`mapview map-pins${frameless ? ' is-frameless' : ''}${interactive ? '' : ' is-static'}`} style={height ? { height: `${height}px` } : undefined} />;
 }

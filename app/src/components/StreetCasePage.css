@@ -1,0 +1,137 @@
+/* The case page (components/StreetCasePage.tsx, 2026-10-27): a modal over /street, portalled to <body>. Phones: the
+   whole screen, tab bar included. ≥ 720 px: a centred card over a dimmed backdrop. Ember & Harbor: ink on surface,
+   2 px ink frames, --ember only in the icons and the focus ring. The rows (StreetRow), the pill and the digest card
+   keep their StreetParts.css look. */
+
+body.has-case { overflow: hidden; }
+
+/* Over everything in #root (a z-index 1 stacking context; the tab bar is 20 inside it). */
+.case-layer { position: fixed; inset: 0; z-index: 30; }
+.case-backdrop { position: absolute; inset: 0; background: rgba(22, 33, 58, 0.45); }
+.case-page {
+  position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: var(--surface); color: var(--ink);
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+.case-page:focus { outline: none; } /* the container itself: the ring belongs to its controls */
+
+/* ── Top bar: "‹ Back to map" left; Follow and Share right. Sticky inside the scroller. ──────────── */
+.case-bar {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  background: var(--surface); border-bottom: 2px solid var(--ink);
+}
+.case-back {
+  display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap); margin: 0 auto 0 -4px; padding: 0 10px 0 4px;
+  background: none; border: 0; border-radius: 12px; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display); font-weight: 700; font-size: 1rem; white-space: nowrap;
+}
+.case-back:hover { background: var(--ink-soft); }
+.case-back svg { width: 20px; height: 20px; flex: none; }
+.case-bar-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.case-bar-actions .btn { width: auto; min-height: var(--tap); padding: 8px 14px; font-size: 0.95rem; text-decoration: none; white-space: nowrap; }
+.case-share {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: var(--tap); height: var(--tap); margin: 0; padding: 0 10px;
+  background: none; border: 0; border-radius: 12px; color: var(--ink); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display); font-weight: 700; font-size: 0.95rem;
+}
+.case-share:hover { background: var(--ink-soft); }
+.case-share svg { width: 22px; height: 22px; flex: none; }
+/* Phones: the icon alone (the label stays the button's name). */
+.case-share-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* "Link copied": a small ink pill just under the bar's right end; empty, it takes no room (kept in the tree for the announcement). */
+.case-flash {
+  position: absolute; top: calc(100% + 8px); right: 12px; margin: 0; padding: 6px 12px; border-radius: 999px;
+  background: var(--ink); color: var(--surface); font-size: 0.85rem; font-weight: 600; pointer-events: none;
+}
+.case-flash:empty { padding: 0; }
+
+/* ── Hero: the mini-map of the spot, then the title block (side by side from 720 px) ─────────────── */
+.case-hero { display: grid; gap: 14px; padding: 14px 16px 0; }
+.case-map { height: 190px; border: 2px solid var(--ink); border-radius: var(--radius-lg); overflow: hidden; }
+.case-map .mapview { height: 100%; }
+.case-map .mapview.is-frameless .leaflet-bottom { bottom: 0; }
+.case-head { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.case-type { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.case-title { margin: 0; font-family: var(--font-display); font-size: 1.45rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.case-addr { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; line-height: 1.3; overflow-wrap: anywhere; }
+.case-hood { margin: 0; font-size: 0.92rem; color: var(--muted); }
+.case-pill { margin: 4px 0 0; }
+.case-approx { margin: 2px 0 0; }
+/* StreetFollow's lines: "We'll email you…", the hints and the error, and the phone row while following. */
+.case-follow-notes { display: grid; gap: 8px; }
+.case-follow-notes:empty { display: none; }
+.case-follow-notes > p { margin: 0; }
+.case-follow-notes:not(:empty) { margin-top: 6px; }
+
+/* ── Stat row (beds · baths · sqft): label over a big value, hairlines between ───────────────────── */
+.case-stats { display: flex; margin: 16px 16px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.case-stat { flex: 1 1 0; min-width: 0; display: grid; align-content: start; gap: 2px; padding: 0 10px; }
+.case-stat:first-child { padding-left: 0; }
+.case-stat + .case-stat { border-left: 1px solid var(--line); }
+.case-stat dt { font-size: 0.78rem; color: var(--muted); line-height: 1.3; overflow-wrap: anywhere; }
+.case-stat dd { margin: 0; font-family: var(--font-display); font-size: 1.15rem; font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ── Fact tiles ──────────────────────────────────────────────────────────────────────────────────── */
+.case-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 14px 16px 0; }
+.case-tile { display: grid; align-content: start; gap: 2px; padding: 10px 12px; border: 2px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.case-tile dt { font-size: 0.78rem; color: var(--muted); line-height: 1.3; }
+.case-tile dd { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 1rem; line-height: 1.25; overflow-wrap: anywhere; }
+
+/* ── Sections ────────────────────────────────────────────────────────────────────────────────────── */
+.case-body { display: grid; gap: 0 28px; padding: 0 16px; }
+.case-main, .case-side { min-width: 0; }
+.case-section { margin-top: 18px; }
+.case-section .street-h { margin: 0 0 8px; }
+.case-page .street-note { margin: 0; }
+.case-nearby-hint { margin: -4px 0 8px; }
+.case-page .street-digest { margin-top: 18px; }
+.case-report { margin: 18px 0 0; }
+.case-report .btn { width: auto; min-height: var(--tap); padding: 10px 14px; font-size: 0.95rem; text-decoration: none; }
+/* The detail skeleton: three static ink-soft bars (no spinner), the height of a short timeline. */
+.case-skel { display: grid; gap: 8px; margin-top: 18px; }
+.case-skel > span { display: block; height: 12px; border-radius: 6px; background: var(--ink-soft); }
+.case-skel > span:nth-child(1) { width: 45%; }
+.case-skel > span:nth-child(2) { width: 80%; }
+.case-skel > span:nth-child(3) { width: 65%; }
+
+/* Timeline: a 2 px rail with a ring per step (the close a filled one); label, date, and "N days after it was reported". */
+.street-tl { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: grid; gap: 6px; }
+.street-tl-step { position: relative; display: flex; flex-wrap: wrap; column-gap: 8px; font-size: 0.9rem; line-height: 1.35; }
+.street-tl-step::before { content: ''; position: absolute; left: -20px; top: 0.3em; width: 10px; height: 10px; box-sizing: border-box; border-radius: 999px; background: var(--surface); border: 2px solid var(--ink); }
+.street-tl-step[data-step="resolved"]::before { background: var(--ink); }
+.street-tl-label { font-weight: 600; }
+.street-tl-date { color: var(--muted); font-variant-numeric: tabular-nums; }
+.street-tl-days { flex-basis: 100%; font-size: 0.85rem; color: var(--muted); }
+/* "What was reported": the city-question answers as label over value (plain text, kept as typed). */
+.street-answers { margin: 0; display: grid; gap: 8px; }
+.street-answers > div { display: grid; }
+.street-answers dt { font-size: 0.78rem; color: var(--muted); }
+.street-answers dd { margin: 0; font-size: 0.92rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── ≥ 720 px: a centred card over the dimmed stage ────────────────────────────────────────────── */
+@media (min-width: 720px) {
+  .case-layer { display: grid; place-items: center; padding: 24px; }
+  .case-page {
+    position: relative; inset: auto; width: min(1100px, calc(100vw - 48px)); max-height: calc(100dvh - 48px);
+    border: 2px solid var(--ink); border-radius: var(--radius-lg); box-shadow: 0 10px 40px rgba(22, 33, 58, 0.28);
+    padding-bottom: 28px;
+  }
+  .case-bar { padding: 10px 16px; }
+  .case-share-label { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; }
+  .case-hero { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; padding: 20px 24px 0; align-items: start; }
+  .case-hero--nomap { grid-template-columns: minmax(0, 1fr); }
+  .case-map { height: 280px; }
+  .case-head { padding-top: 6px; }
+  .case-title { font-size: 1.75rem; }
+  .case-addr { font-size: 1.15rem; }
+  .case-stats { margin: 20px 24px 0; padding: 14px 0; }
+  .case-stat { flex: 0 1 auto; padding: 0 24px; }
+  .case-stat dd { font-size: 1.3rem; }
+  .case-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 16px 24px 0; }
+  .case-body { padding: 0 24px; }
+}
+@media (min-width: 960px) {
+  .case-body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+}

@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ago, applyFilters, boundsOf, CITY_BOUNDS, clusterGrid, DAY_MS, decodeCase, decodeFeed, distanceM, EMPTY_URL_STATE, facetCounts, hoodCounts,
-  inBounds, inWindow, isDefaultView, likelyOwnCase, metersBetween, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, sortForPoint, SPIDER_MAX, spiderOffsets, stackKey, streetKey, summaryOf, topTypes,
-  writeStreetUrl, type MapCase, type MapFeed, type StreetUrlState,
+  addDays, ago, applyFilters, boundsOf, CITY_BOUNDS, clampRange, clusterGrid, DAY_MS, decodeCase, decodeFeed, defaultRange, distanceM, EMPTY_URL_STATE, facetCounts, feedDays,
+  inBounds, inWindow, isDefaultView, isYmd, likelyOwnCase, metersBetween, nyDayStart, nyYmd, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, rangeBounds, sortForPoint, SPIDER_MAX,
+  spiderOffsets, stackKey, streetKey, streetSearch, summaryOf, topTypes, windowTest, writeStreetUrl, type DateRange, type MapCase, type MapFeed, type StreetUrlState, type Window,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, neighborhoodAt, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
 import { INSTALL_FROM_VISIT, INSTALL_SNOOZE_MS, isNewSince, newCutoff, newestCreated, newSince, SINCE_MIN_MS, sinceCutoff, sinceWhen, WHILE_DAYS } from '../src/lib/streetVisit';
@@ -69,7 +69,11 @@ test.describe('decodeFeed', () => {
 });
 
 test.describe('filters', () => {
-  test('inWindow cuts "this week" client-side; closing counts as activity', () => {
+  test('inWindow cuts "this week" and "24 hours" client-side; closing counts as activity', () => {
+    expect(inWindow(byId('c3'), 1, NOW)).toBe(true);    // reported now
+    expect(inWindow(byId('c1'), 1, NOW)).toBe(false);   // 3 days ago
+    expect(inWindow(byId('c2'), 1, NOW)).toBe(true);    // closed exactly 24 h ago (to the minute) — the edge is in
+    expect(inWindow(mkCase({ id: 'h', createdAt: isoAgo(5), closedAt: new Date(NOW - DAY_MS - 60_000).toISOString() }), 1, NOW)).toBe(false);
     expect(inWindow(byId('c1'), 7, NOW)).toBe(true);
     expect(inWindow(byId('c4'), 7, NOW)).toBe(false);   // created 20 d, closed 12 d ago
     expect(inWindow(byId('c4'), 30, NOW)).toBe(true);
@@ -77,32 +81,109 @@ test.describe('filters', () => {
     expect(inWindow(mkCase({ id: 'nodate', createdAt: null }), 7, NOW)).toBe(true); // unparseable → kept
   });
 
-  test('applyFilters: window, status, group; order preserved', () => {
-    const f = (g: 'streets' | 'lights' | null, s: 'open' | 'closed' | null, d: 7 | 30 | 90) => applyFilters(DECODED.cases, { g, s, d }, NOW).map((c) => c.id);
-    expect(f(null, null, 30)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
-    expect(f(null, null, 7)).toEqual(['c1', 'c2', 'c3', 'c5']);
-    expect(f(null, 'open', 30)).toEqual(['c1', 'c3']);
-    expect(f(null, 'closed', 7)).toEqual(['c2', 'c5']);
-    expect(f('streets', null, 30)).toEqual(['c1', 'c5']);
-    expect(f('lights', 'open', 30)).toEqual([]);
+  test('applyFilters: window, status, groups (any of them); order preserved', () => {
+    const f = (g: ('streets' | 'lights' | 'other')[], s: 'open' | 'closed' | null, d: Window, range: DateRange | null = null) => applyFilters(DECODED.cases, { g, s, d, range }, NOW).map((c) => c.id);
+    expect(f([], null, 30)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+    expect(f([], null, 7)).toEqual(['c1', 'c2', 'c3', 'c5']);
+    expect(f([], null, 1)).toEqual(['c2', 'c3']);
+    expect(f([], 'open', 30)).toEqual(['c1', 'c3']);
+    expect(f([], 'closed', 7)).toEqual(['c2', 'c5']);
+    expect(f(['streets'], null, 30)).toEqual(['c1', 'c5']);
+    expect(f(['lights'], 'open', 30)).toEqual([]);
+    // Several groups: their union.
+    expect(f(['streets', 'lights'], null, 30)).toEqual(['c1', 'c2', 'c5']);
+    expect(f(['lights', 'other'], 'closed', 30)).toEqual(['c2', 'c4']);
+    // A range wins over the preset.
+    expect(f([], null, 7, { from: '2026-10-10', to: '2026-10-15' })).toEqual(['c4']);
   });
 
-  test('facetCounts releases each chip\'s own dimension', () => {
-    const all = facetCounts(DECODED.cases, null, { g: null, s: null, d: 30 }, NOW);
+  test('a custom range: reported or closed between From 00:00 and To 23:59:59 Providence time; no date stays in', () => {
+    // NOW = Oct 25, 1 PM EDT: c1 reported Oct 22; c2 reported Oct 16, closed Oct 24; c3 reported Oct 25; c4 reported
+    // Oct 5, closed Oct 13; c5 reported Sep 10, closed Oct 23.
+    const ids = (from: string, to: string) => DECODED.cases.filter(windowTest({ d: 30, range: { from, to } }, NOW)).map((c) => c.id);
+    expect(ids('2026-10-22', '2026-10-22')).toEqual(['c1']);
+    expect(ids('2026-10-23', '2026-10-24')).toEqual(['c2', 'c5']);       // by their closes
+    expect(ids('2026-09-10', '2026-09-10')).toEqual(['c5']);              // by its report (closed after the range)
+    expect(ids('2026-10-17', '2026-10-21')).toEqual([]);                  // c2 open across it — nothing happened then
+    expect(ids('2026-09-01', '2026-10-25')).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+    // The day's edges are Providence's midnights (EDT: 04:00 UTC).
+    const at = (iso: string) => mkCase({ id: iso, createdAt: iso });
+    const oct22 = windowTest({ d: 30, range: { from: '2026-10-22', to: '2026-10-22' } }, NOW);
+    expect(oct22(at('2026-10-22T04:00:00.000Z'))).toBe(true);   // 00:00 Oct 22
+    expect(oct22(at('2026-10-22T03:59:59.000Z'))).toBe(false);  // 23:59:59 Oct 21
+    expect(oct22(at('2026-10-23T03:59:59.000Z'))).toBe(true);   // 23:59:59 Oct 22
+    expect(oct22(at('2026-10-23T04:00:00.000Z'))).toBe(false);  // 00:00 Oct 23
+    expect(oct22(mkCase({ id: 'nodate', createdAt: null }))).toBe(true);
+    // Without a range the preset applies.
+    expect(DECODED.cases.filter(windowTest({ d: 7, range: null }, NOW)).map((c) => c.id)).toEqual(['c1', 'c2', 'c3', 'c5']);
+  });
+
+  test('Providence calendar days: today, midnight (EST and EDT, both change days), day arithmetic, validity, the inputs\' bounds', () => {
+    expect(nyYmd(Date.parse('2026-10-26T03:59:00.000Z'))).toBe('2026-10-25');
+    expect(nyYmd(Date.parse('2026-10-26T04:00:00.000Z'))).toBe('2026-10-26');
+    expect(nyYmd(Date.parse('2026-12-02T04:59:00.000Z'))).toBe('2026-12-01');
+    expect(new Date(nyDayStart('2026-10-25')).toISOString()).toBe('2026-10-25T04:00:00.000Z');
+    expect(new Date(nyDayStart('2026-12-01')).toISOString()).toBe('2026-12-01T05:00:00.000Z');
+    expect(new Date(nyDayStart('2026-03-08')).toISOString()).toBe('2026-03-08T05:00:00.000Z'); // clocks spring forward at 2 AM
+    expect(new Date(nyDayStart('2026-11-01')).toISOString()).toBe('2026-11-01T04:00:00.000Z'); // and fall back at 2 AM
+    expect(addDays('2026-12-30', 3)).toBe('2027-01-02');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+    expect(isYmd('2024-02-29')).toBe(true);
+    for (const bad of ['2026-02-30', '2026-2-3', '2026-10-25T00:00', '', null, undefined]) expect(isYmd(bad), String(bad)).toBe(false);
+    expect(rangeBounds(NOW)).toEqual({ min: '2026-07-28', max: '2026-10-25' });   // today − 89 … today
+    expect(defaultRange(NOW)).toEqual({ from: '2026-10-18', to: '2026-10-25' });  // the last 7 days
+  });
+
+  test('feedDays: 30 for 24 hours / this week / 30 days, 90 for 90; a range → the smallest server window (7 / 30 / 90) that reaches From 00:00', () => {
+    for (const d of [1, 7, 30] as const) expect(feedDays({ d, range: null }, NOW)).toBe(30);
+    expect(feedDays({ d: 90, range: null }, NOW)).toBe(90);
+    const back = (from: string) => feedDays({ d: 30, range: { from, to: '2026-10-25' } }, NOW);
+    expect(back('2026-10-25')).toBe(7);
+    expect(back('2026-10-19')).toBe(7);    // 00:00 Oct 19 is 6.5 days back
+    expect(back('2026-10-18')).toBe(30);   // 7.5 days back: past the 7-day set
+    expect(back('2026-09-26')).toBe(30);
+    expect(back('2026-09-25')).toBe(90);   // 30.5 days back
+    expect(back(rangeBounds(NOW).min)).toBe(90);
+  });
+
+  test('clampRange: a range from a link is held to the inputs\' bounds (Jul 28 … Oct 25 here) — From raised, To lowered; nothing left → null', () => {
+    const inside = { from: '2026-10-01', to: '2026-10-15' };
+    expect(clampRange(inside, NOW)).toBe(inside); // untouched: the same object
+    expect(clampRange({ from: '2026-07-28', to: '2026-10-25' }, NOW)).toEqual({ from: '2026-07-28', to: '2026-10-25' });
+    // Partly before them: the first days were never loaded (a 90-day feed), so From starts at today − 89.
+    expect(clampRange({ from: '2026-07-16', to: '2026-08-15' }, NOW)).toEqual({ from: '2026-07-28', to: '2026-08-15' });
+    expect(clampRange({ from: '2026-07-01', to: '2026-07-28' }, NOW)).toEqual({ from: '2026-07-28', to: '2026-07-28' });
+    // Past today: To is today.
+    expect(clampRange({ from: '2026-10-20', to: '2026-11-02' }, NOW)).toEqual({ from: '2026-10-20', to: '2026-10-25' });
+    // Wholly outside: no range (the preset applies) — an Oct 1–15 link opened in February, or one in the future.
+    expect(clampRange({ from: '2026-07-01', to: '2026-07-27' }, NOW)).toBeNull();
+    expect(clampRange({ from: '2026-10-01', to: '2026-10-15' }, Date.parse('2027-02-10T17:00:00.000Z'))).toBeNull();
+    expect(clampRange({ from: '2026-10-01', to: '2026-10-15' }, Date.parse('2027-01-10T17:00:00.000Z'))).toEqual({ from: '2026-10-13', to: '2026-10-15' });
+    expect(clampRange({ from: '2026-10-26', to: '2026-10-30' }, NOW)).toBeNull();
+    expect(clampRange(null, NOW)).toBeNull();
+  });
+
+  test('facetCounts releases each control\'s own dimension', () => {
+    const all = facetCounts(DECODED.cases, null, { g: [], s: null, d: 30, range: null }, NOW);
     expect(all).toMatchObject({ open: 2, closed: 3, all: 5, total: 5 });
     expect(all.groups).toMatchObject({ streets: 2, lights: 1, other: 2, trash: 0 });
     // s=open: the Closed chip still counts the closed cases (status released); groups honour the status filter
-    const open = facetCounts(DECODED.cases, null, { g: null, s: 'open', d: 30 }, NOW);
+    const open = facetCounts(DECODED.cases, null, { g: [], s: 'open', d: 30, range: null }, NOW);
     expect(open).toMatchObject({ open: 2, closed: 3, all: 2, total: 2 });
     expect(open.groups).toMatchObject({ streets: 1, other: 1, lights: 0 });
     // g=lights: open/closed count only lights, All counts everything (group released)
-    const lights = facetCounts(DECODED.cases, null, { g: 'lights', s: null, d: 30 }, NOW);
+    const lights = facetCounts(DECODED.cases, null, { g: ['lights'], s: null, d: 30, range: null }, NOW);
     expect(lights).toMatchObject({ open: 0, closed: 1, all: 5, total: 1 });
-    // a window applies to every count
-    expect(facetCounts(DECODED.cases, null, { g: null, s: null, d: 7 }, NOW)).toMatchObject({ all: 4, total: 4, closed: 2 });
+    // several groups: open/closed and total count their union; each group's own count is unchanged
+    const two = facetCounts(DECODED.cases, null, { g: ['streets', 'lights'], s: null, d: 30, range: null }, NOW);
+    expect(two).toMatchObject({ open: 1, closed: 2, all: 5, total: 3 });
+    expect(two.groups).toMatchObject({ streets: 2, lights: 1, other: 2 });
+    // a window applies to every count — a preset or a range
+    expect(facetCounts(DECODED.cases, null, { g: [], s: null, d: 7, range: null }, NOW)).toMatchObject({ all: 4, total: 4, closed: 2 });
+    expect(facetCounts(DECODED.cases, null, { g: [], s: null, d: 30, range: { from: '2026-10-23', to: '2026-10-24' } }, NOW)).toMatchObject({ all: 2, total: 2, open: 0, closed: 2 });
     // bounds: the unlocated c4 never counts; c5 is outside this tight box
     const box = { south: 41.828, north: 41.8285, west: -71.401, east: -71.400 };
-    expect(facetCounts(DECODED.cases, box, { g: null, s: null, d: 30 }, NOW)).toMatchObject({ open: 2, closed: 1, all: 3, total: 3 });
+    expect(facetCounts(DECODED.cases, box, { g: [], s: null, d: 30, range: null }, NOW)).toMatchObject({ open: 2, closed: 1, all: 3, total: 3 });
   });
 
   test('summaryOf: city mode counts the unplaced, view mode counts the box', () => {
@@ -110,11 +191,8 @@ test.describe('filters', () => {
     expect(summaryOf(DECODED.cases, { south: 41.828, north: 41.8285, west: -71.401, east: -71.400 }, 30)).toEqual({ kind: 'view', n: 3, open: 2, closed: 1 });
   });
 
-  test('topTypes and hoodCounts', () => {
+  test('topTypes', () => {
     expect(topTypes(DECODED.cases, 2)).toEqual([{ caseType: 'Pothole', category: 'pothole', group: 'streets', n: 2 }, { caseType: 'Street Light Out', category: 'street_light', group: 'lights', n: 1 }]);
-    const hc = hoodCounts(DECODED.cases, (c) => (c.id === 'c5' ? 'Hope' : c.lat != null ? 'College Hill' : null), ['Fox Point', 'Hope', 'College Hill']);
-    expect(hc).toEqual([{ name: 'College Hill', n: 3 }, { name: 'Hope', n: 1 }, { name: 'Fox Point', n: 0 }]);
-    expect(hoodCounts([], () => null)).toHaveLength(25); // all 25 by default, zeros kept
   });
 });
 
@@ -280,8 +358,8 @@ test.describe('spiderOffsets', () => {
 test.describe('url state', () => {
   test('writeStreetUrl omits defaults; parse(write(state)) round-trips', () => {
     expect(writeStreetUrl(EMPTY_URL_STATE).toString()).toBe('');
-    expect(writeStreetUrl({ d: 30, s: null, g: null }).toString()).toBe('');
-    const full: StreetUrlState = { lat: 41.8282, lng: -71.4005, q: '481 Angell St', center: { lat: 41.82834, lng: -71.40061 }, zoom: 17, hood: 'Upper South Providence', g: 'streets', s: 'open', d: 90, caseId: 'c1' };
+    expect(writeStreetUrl({ d: 30, s: null, g: [], range: null }).toString()).toBe('');
+    const full: StreetUrlState = { lat: 41.8282, lng: -71.4005, q: '481 Angell St', center: { lat: 41.82834, lng: -71.40061 }, zoom: 17, hood: 'Upper South Providence', g: ['streets'], s: 'open', d: 90, range: null, caseId: 'c1' };
     const p = writeStreetUrl(full);
     expect(p.toString()).toBe('lat=41.82820&lng=-71.40050&q=481+Angell+St&c=41.8283%2C-71.4006&z=17&n=upper-south-providence&g=streets&s=open&d=90&case=c1');
     expect(parseStreetUrl(p)).toEqual({ ...full, center: { lat: 41.8283, lng: -71.4006 } });
@@ -289,7 +367,33 @@ test.describe('url state', () => {
     expect(parseStreetUrl(new URLSearchParams('lat=41.82820&lng=-71.40050&q=481%20Angell%20St'))).toEqual({ ...EMPTY_URL_STATE, lat: 41.8282, lng: -71.4005, q: '481 Angell St' });
     expect(writeStreetUrl({ lat: 41.8282, lng: -71.4005, q: '481 Angell St' }).toString()).toBe('lat=41.82820&lng=-71.40050&q=481+Angell+St');
     expect(writeStreetUrl({ d: 7 }).toString()).toBe('d=7');
-    expect(writeStreetUrl({ s: 'closed', g: 'trash' }).toString()).toBe('g=trash&s=closed');
+    expect(writeStreetUrl({ s: 'closed', g: ['trash'] }).toString()).toBe('g=trash&s=closed');
+  });
+
+  test('filters v2 in the URL: d=1 for 24 hours; several groups as g=a,b in GROUP_ORDER (the address bar keeps the commas); a custom range as from=&to= with no d; malformed ones dropped', () => {
+    expect(writeStreetUrl({ d: 1 }).toString()).toBe('d=1');
+    expect(parseStreetUrl(new URLSearchParams('d=1')).d).toBe(1);
+    // Groups: canonical order, unknown and repeated dropped; the old single g= is a list of one.
+    expect(streetSearch({ g: ['streets', 'trash'] })).toBe('g=trash,streets');
+    expect(writeStreetUrl({ g: ['streets', 'trash'] }).get('g')).toBe('trash,streets');
+    expect(parseStreetUrl(new URLSearchParams('g=trash,streets')).g).toEqual(['trash', 'streets']);
+    expect(parseStreetUrl(new URLSearchParams('g=trash%2Cstreets')).g).toEqual(['trash', 'streets']);
+    expect(parseStreetUrl(new URLSearchParams('g=streets,nope,trash,streets')).g).toEqual(['trash', 'streets']);
+    expect(parseStreetUrl(new URLSearchParams('g=trash')).g).toEqual(['trash']);
+    expect(parseStreetUrl(new URLSearchParams('g=,')).g).toEqual([]);
+    // Only g's commas are spelled out; the view's c= stays as URLSearchParams writes it.
+    expect(streetSearch({ center: { lat: 41.8283, lng: -71.4006 }, zoom: 16, g: ['trash', 'water'], q: 'a,b', lat: 41.8282, lng: -71.4005 })).toBe('lat=41.82820&lng=-71.40050&q=a%2Cb&c=41.8283%2C-71.4006&z=16&g=trash,water');
+    // A range: from + to, no d (it wins over any preset).
+    const range = { from: '2026-10-01', to: '2026-10-15' };
+    expect(writeStreetUrl({ range, d: 7 }).toString()).toBe('from=2026-10-01&to=2026-10-15');
+    expect(parseStreetUrl(new URLSearchParams('from=2026-10-01&to=2026-10-15'))).toMatchObject({ range, d: 30 });
+    expect(parseStreetUrl(new URLSearchParams('from=2026-10-15&to=2026-10-15')).range).toEqual({ from: '2026-10-15', to: '2026-10-15' });
+    for (const bad of ['from=2026-10-15&to=2026-10-01', 'from=2026-10-01', 'to=2026-10-01', 'from=2026-02-30&to=2026-03-02', 'from=10/01/2026&to=10/15/2026']) {
+      expect(parseStreetUrl(new URLSearchParams(bad)).range, bad).toBeNull();
+    }
+    expect(writeStreetUrl({ range: { from: '2026-10-15', to: '2026-10-01' }, d: 7 }).toString()).toBe('d=7'); // never writes a backwards range
+    const full: StreetUrlState = { ...EMPTY_URL_STATE, lat: 41.8282, lng: -71.4005, q: 'x', g: ['trash', 'lights', 'other'], s: 'closed', d: 30, range, caseId: 'c9' };
+    expect(parseStreetUrl(new URLSearchParams(streetSearch(full)))).toEqual(full);
   });
 
   test('old filter links map onto the one-choice Show: no s (both statuses on) → All, s=open → Open, s=closed → Closed; g / d as before', () => {
@@ -298,14 +402,14 @@ test.describe('url state', () => {
     expect(parseStreetUrl(new URLSearchParams('s=open')).s).toBe('open');
     expect(parseStreetUrl(new URLSearchParams('s=closed')).s).toBe('closed');
     expect(parseStreetUrl(new URLSearchParams('s=both')).s).toBeNull();
-    expect(parseStreetUrl(new URLSearchParams('g=trash&d=7'))).toMatchObject({ g: 'trash', d: 7, s: null });
-    expect(parseStreetUrl(new URLSearchParams('g=other')).g).toBe('other'); // /week's "Most reported" → Other
+    expect(parseStreetUrl(new URLSearchParams('g=trash&d=7'))).toMatchObject({ g: ['trash'], d: 7, s: null });
+    expect(parseStreetUrl(new URLSearchParams('g=other')).g).toEqual(['other']); // /week's "Most reported" → Other
     // All writes nothing, so a cleared view's link is the bare page.
-    expect(writeStreetUrl({ s: null, g: null, d: 30 }).toString()).toBe('');
+    expect(writeStreetUrl({ s: null, g: [], d: 30, range: null }).toString()).toBe('');
   });
 
   test('parseStreetUrl drops unknown or malformed values', () => {
-    const st = parseStreetUrl(new URLSearchParams('lat=abc&lng=-71.4&q=x&c=41.8&z=16&n=narnia&g=nope&s=maybe&d=15&case='));
+    const st = parseStreetUrl(new URLSearchParams('lat=abc&lng=-71.4&q=x&c=41.8&z=16&n=narnia&g=nope&s=maybe&d=15&from=x&to=y&case='));
     expect(st).toEqual(EMPTY_URL_STATE);
     expect(parseStreetUrl(new URLSearchParams('c=41.8283,-71.4006')).center).toBeNull();      // z missing → no view
     expect(parseStreetUrl(new URLSearchParams('c=41.8283,-71.4006&z=16.5')).zoom).toBeNull(); // integer zoom only
@@ -390,10 +494,24 @@ test('i18n parity: every street.*, my.cityFollowing.*, admin.email.kind.*, admin
   expect(esKeys.filter((k) => !(k in en))).toEqual([]);
   for (const k of enKeys) { expect(typeof en[k], k).toBe('string'); expect(es[k].length, k).toBeGreaterThan(0); }
   // The /street filters (components/StreetFilters.tsx): Show / When / Type, All, All types, Clear (visible) + its full
-  // name — translated (Spanish "Todas" for the requests, "Todos los tipos" for the types).
-  expect(enKeys.filter((k) => k.startsWith('street.filter.')).sort()).toEqual(['street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.show', 'street.filter.type', 'street.filter.when']);
-  for (const k of ['street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.show', 'street.filter.type', 'street.filter.when']) expect(es[k], k).not.toBe(en[k]);
+  // name, the Type dialog's Done and "+n", the custom range's group + From / To — translated (Spanish "Todas" for the
+  // requests, "Todos los tipos" for the types).
+  expect(enKeys.filter((k) => k.startsWith('street.filter.')).sort()).toEqual([
+    'street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.done', 'street.filter.from', 'street.filter.range',
+    'street.filter.show', 'street.filter.to', 'street.filter.type', 'street.filter.typesMore', 'street.filter.when',
+  ]);
+  for (const k of ['street.filter.all', 'street.filter.allTypes', 'street.filter.clear', 'street.filter.clearShort', 'street.filter.done', 'street.filter.from', 'street.filter.range', 'street.filter.show', 'street.filter.to', 'street.filter.type', 'street.filter.when']) expect(es[k], k).not.toBe(en[k]);
   expect(es['street.filter.all']).toBe('Todas');
+  // The windows: the When options, the summary's tail and the empty states' words — translated, placeholders agreeing.
+  expect(enKeys.filter((k) => k.startsWith('street.days.')).sort()).toEqual(['street.days.1', 'street.days.30', 'street.days.7', 'street.days.90', 'street.days.custom']);
+  for (const k of ['street.days.1', 'street.days.7', 'street.days.custom', 'street.window.day', 'street.window.days', 'street.when.day', 'street.when.days', 'street.when.range', 'street.when.date', 'street.summary.city', 'street.nothing', 'street.nothing.plain', 'street.none']) {
+    expect(es[k], k).not.toBe(en[k]);
+    expect((es[k].match(/\{[a-zA-Z]+\}/g) ?? []).sort(), k).toEqual((en[k].match(/\{[a-zA-Z]+\}/g) ?? []).sort());
+  }
+  for (const k of ['street.nothing', 'street.nothing.plain', 'street.none']) for (const d of [en, es]) expect(d[k], k).toContain('{when}');
+  for (const d of [en, es]) expect(d['street.summary.city']).toContain('{window}');
+  // Gone with the "Jump to a neighborhood…" select (Rob, 2026-10-27).
+  for (const d of [en, es]) expect(d['street.hood.jump']).toBeUndefined();
   // The street-watch row's six keys plus the "Only tell me about" rail's four (components/WatchGroups.tsx), and the
   // Spanish is a translation, not the English copied over.
   expect(enKeys.filter((k) => k.startsWith('watch.')).sort()).toEqual(['watch.body', 'watch.error', 'watch.groups.all', 'watch.groups.error', 'watch.groups.hint', 'watch.groups.title', 'watch.needsPush', 'watch.noPushHere', 'watch.on', 'watch.title']);

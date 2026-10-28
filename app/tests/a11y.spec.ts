@@ -4,10 +4,13 @@ import { createRequire } from 'node:module';
 import { API as WORKER, DEFAULT_ITEMS, SESSION, TRACK_NEAR, caseWire, detailFor, feed, nearWire } from './street-mocks';
 import { WEEK, DATED, PLACES } from './week-mocks';
 import { ENDPOINT, stubPush } from './push-mocks';
+import { addDays, nyYmd } from '../src/lib/streetMap';
 
 // axe-core WCAG 2.x A/AA pass over the main screens, light and dark.
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 const API = 'https://pvd311-worker.pvd311-worker.workers.dev';
+/** A custom range on /street: the last `n` Providence days (the date inputs refuse anything outside today − 89 … today). */
+const lastDays = (n: number) => { const to = nyYmd(Date.now()); return `from=${addDays(to, -n)}&to=${to}`; };
 
 async function mocks(page: Page) {
   await page.addInitScript(() => { });
@@ -64,6 +67,9 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['street-landing', (p) => p.goto('/street')],
   // The filter row off its defaults: Show = Open (filled ink), a type and the week picked, Clear leading the row (pinned left).
   ['street-filtered', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&s=open&g=trash&d=7'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-clear').waitFor(); }],
+  // Filters v2: the Type dialog open over the sheet (two groups checked); a custom range's third row (From, To, Clear).
+  ['street-type-open', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&g=trash,streets'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-type-btn').click(); await p.locator('.street-type-pop').waitFor(); }],
+  ['street-range', async (p) => { await p.goto(`/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&${lastDays(7)}`); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-date').first().waitFor(); }],
   // The landing's half sheet, signed in with a saved address: the "Your places this week" card over the week link.
   ['street-places', async (p) => { await signedIn(p, { addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: 41.8282, lng: -71.4005 }] }); await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-grab').click(); await p.locator('.street-places-card').waitFor(); }],
   // The landing's half sheet on a return visit (seenAt 2 days ago, 2nd visit, the suite's iPhone UA): the second subtitle line, the New pills, the home-screen nudge with its iPhone hint revealed.
@@ -72,12 +78,15 @@ const SCREENS: Array<[string, (p: Page) => Promise<unknown>]> = [
   ['week-dated', (p) => p.goto('/week?until=2026-10-18')],
   // Signed in with saved places: their hoods tagged "Yours" and pinned (one with nothing this week), the comparison line, the list opened by Show all.
   ['week-yours', async (p) => { await signedIn(p, { addresses: PLACES }); await p.goto('/week'); await p.locator('.week-hood-compare').waitFor(); await p.locator('.week-hoods-more').click(); await p.locator('.week-hoods-more[aria-expanded="true"]').waitFor(); }],
-  ['street-case', (p) => p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1')],
-  // The case overlay with everything GET /api/street/case/:id adds: full address, timeline with the close, the city's note, answers.
-  ['street-case-detail', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c2'); await p.locator('.street-detail .street-tl-step[data-step="resolved"]').waitFor(); await p.locator('.street-detail .street-answers').waitFor(); }],
+  // The case page (a modal dialog over the whole screen): the mini-map, the stat row, the tiles, Nearby, the digest card.
+  ['street-case', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.case-page .case-nearby .street-row-btn').first().waitFor(); }],
+  // The same with everything GET /api/street/case/:id adds: full address, the form's dates as tiles, timeline with the close, the city's note, answers.
+  ['street-case-detail', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c2'); await p.locator('.case-page .street-tl-step[data-step="resolved"]').waitFor(); await p.locator('.case-page .street-answers').waitFor(); await p.locator('.case-page .case-tile[data-tile="workCompleted"]').waitFor(); }],
+  // An unplaced case: no mini-map, no Nearby.
+  ['street-case-unplaced', async (p) => { await p.goto('/street?case=z2'); await p.locator('.case-page .case-hero--nomap').waitFor(); }],
   // The map key's dialog open over the point view (swatches, the dialog's ×, the button's expanded state).
   ['street-key', async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-row-btn').first().waitFor(); await p.getByRole('button', { name: 'Map key', exact: true }).click(); await p.locator('.street-key-pop').waitFor(); }],
-  ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); }],
+  ['street-case-following', async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.street-follow-btn[aria-pressed="true"]').waitFor(); await p.locator('.case-follow-notes .street-follow-note').waitFor(); }],
   ['my-following', async (p) => { await signedIn(p); await p.goto('/my'); await p.locator('.followed-cases').waitFor(); }],
   // Account → Updates: the checkboxes, the phone row (the iPhone install hint under the suite's UA) and the disabled street-watch row.
   ['account-updates', async (p) => { await signedIn(p); await p.goto('/account'); await p.locator('.account-prefs .watch-row').waitFor(); }],
@@ -98,6 +107,12 @@ const DESKTOP_SCREENS: Array<[string, { width: number; height: number }, (p: Pag
   ['street-desktop', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St'); await p.locator('.street-row-btn').first().waitFor(); }],
   ['street-desktop-filtered', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&s=closed&g=lights&d=90'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-clear').waitFor(); }],
   ['street-desktop-landing-narrow', { width: 800, height: 800 }, async (p) => { await p.goto('/street'); await p.locator('.map-cluster').first().waitFor(); }],
+  // A custom range's dates under When, and the Type dialog open over the panel.
+  ['street-desktop-range', { width: 1280, height: 800 }, async (p) => { await p.goto(`/street?${lastDays(14)}&g=trash,lights`); await p.locator('.map-cluster').first().waitFor(); await p.locator('.street-date').first().waitFor(); }],
+  ['street-desktop-type-open', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&d=1'); await p.locator('.street-row-btn').first().waitFor(); await p.locator('.street-type-btn').click(); await p.locator('.street-type-pop').waitFor(); }],
+  // The case page as a centred dialog over the dimmed map and panel, with everything the detail adds; and signed in, following.
+  ['street-desktop-case', { width: 1280, height: 800 }, async (p) => { await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c2'); await p.locator('.case-page .street-tl-step[data-step="resolved"]').waitFor(); await p.locator('.case-page .case-nearby .street-row-btn').first().waitFor(); }],
+  ['street-desktop-case-following', { width: 1280, height: 800 }, async (p) => { await signedIn(p); await p.goto('/street?lat=41.8282&lng=-71.4005&q=481%20Angell%20St&case=c1'); await p.locator('.case-page .street-follow-btn[aria-pressed="true"]').waitFor(); await p.locator('.case-page .street-tl').waitFor(); }],
 ];
 
 test.describe('a11y desktop (light)', () => {

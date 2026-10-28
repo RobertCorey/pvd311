@@ -23,7 +23,7 @@ async function shot(name: string, o: { desktop?: boolean }, run: (page: import('
 await shot('map-landing', {}, async (page) => { await setup(page); await page.goto(`${base}/street`); await waitForMap(page); await page.waitForSelector('.map-cluster'); });
 await shot('map-half', {}, async (page) => { await setup(page); await page.goto(`${base}/street`); await waitForMap(page); await page.waitForSelector('.map-cluster'); await page.locator('.street-grab').click(); });
 await shot('map-point', {}, async (page) => { await setup(page); await page.goto(`${base}${POINT}`); await waitForMap(page); await page.waitForSelector('.street-row-btn'); });
-await shot('map-case', {}, async (page) => { await setup(page); await page.goto(`${base}${POINT}&case=c2`); await waitForMap(page); await page.waitForSelector('.street-detail'); });
+await shot('map-case', {}, async (page) => { await setup(page); await page.goto(`${base}${POINT}&case=c2`); await waitForMap(page); await page.waitForSelector('.case-page'); });
 await shot('map-quiet', {}, async (page) => { await setup(page, { items: (await import('./street-mocks')).filler() }); await page.goto(`${base}${POINT}`); await waitForMap(page); await page.waitForSelector('.street-none'); });
 await shot('map-stack', {}, async (page) => { await setup(page); await page.goto(`${base}/street`); await waitForMap(page); await page.waitForSelector('.map-cluster'); await setView(page, STACK.lat, STACK.lng, 18); await page.waitForSelector('.map-leg'); });
 await shot('map-desktop', { desktop: true }, async (page) => { await setup(page); await page.goto(`${base}/street`); await waitForMap(page); await page.waitForSelector('.map-cluster'); });

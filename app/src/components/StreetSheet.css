@@ -39,18 +39,6 @@
    touch heavier: the payoff of coming back. Its own class (not .street-sub) so the live summary stays one element. */
 .street-since { margin: 0; font-size: 0.8rem; line-height: 20px; color: var(--ink); font-weight: 600; text-wrap: pretty; }
 .street-head-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-/* The case overlay (`overlay`): the header IS the case — the type (up to two lines, so a long city type is never cut),
-   its status pill on the subtitle's line, and a 44 px × that does what "Back to list" does. */
-.street-sheet[data-overlay] .street-title, .street-panel[data-overlay] .street-title {
-  white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere;
-}
-.street-sheet[data-overlay] .street-head-row { align-items: flex-start; }
-.street-sub-row { display: flex; align-items: center; gap: 8px; min-height: 24px; min-width: 0; }
-.street-sub-row .street-sub { flex: 1 1 auto; min-width: 0; }
-.street-badge { flex: 0 0 auto; display: inline-flex; }
-.street-close { font-size: 1.7rem; line-height: 1; font-weight: 400; }
-/* Centred on the title's first line (24 px) rather than on the row: the 44 px target reaches 10 px up into the grabber's band. */
-.street-sheet[data-overlay] .street-close, .street-panel[data-overlay] .street-close { margin-top: -10px; }
 .street-map-chip { min-height: 40px; padding: 6px 12px; font-size: 0.9rem; }
 
 /* Extra header lines (unplaced / truncated / teach): inside the measured header, so keep them one line and tight. */
@@ -67,8 +55,6 @@
 /* Body: a clipped preview at PEEK/HALF (a swipe on it moves the sheet); the list scrolls only at FULL. */
 .street-body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0 14px 14px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .street-sheet[data-detent="full"] .street-body { overflow-y: auto; }
-/* The case overlay scrolls at HALF too: the key facts sit above the fold, the rest (timeline, answers, actions) under it. */
-.street-sheet[data-overlay][data-detent="half"] .street-body { overflow-y: auto; }
 .street-body[aria-busy="true"] { opacity: 0.7; }
 
 /* Desktop (≥720 px): the same content as a static panel beside the map; the stage grid sizes it (440 px / 360 px). */
