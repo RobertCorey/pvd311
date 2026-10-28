@@ -250,18 +250,21 @@ async function forwardToReporter(env: Env, deps: { store: Store; mailer: Mailer 
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
   const track = `${base.replace(/\/+$/, '')}/r/${report.id}`;
   const subjectTail = cleanSubject(mail.subject, caseId);
-  const subject = `Providence 311 on your report ${caseId}${subjectTail ? `: ${subjectTail}` : ''}`;
+  const tail = subjectTail ? `: ${subjectTail}` : '';
   const body = mail.text.length > MAX_FORWARD ? `${mail.text.slice(0, MAX_FORWARD)}\n\n[trimmed]` : mail.text;
-  const html =
-    `<p>The city sent an update on your ${escHtml(report.category.replace(/_/g, ' '))} report at ${escHtml(report.address)} (case <b>${escHtml(caseId)}</b>):</p>`
+  // The owner's copy says "your report"; a follower's, "a report you follow".
+  const copy = (whose: 'your' | 'follow') => (
+    `<p>The city sent an update on ${whose === 'your' ? 'your' : 'a'} ${escHtml(report.category.replace(/_/g, ' '))} report${whose === 'follow' ? ' you follow' : ''} at ${escHtml(report.address)} (case <b>${escHtml(caseId)}</b>):</p>`
     + quote(body)
     + (mail.attachments ? `<p style="color:#888">The city's message had ${mail.attachments} attachment${mail.attachments === 1 ? '' : 's'}, which we do not pass along.</p>` : '')
     + `<p><a href="${track}">Track this report</a>. Replying to this email reaches the FixMyPVD team, not the city.</p>`
-    + `<p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(base)}</p>`;
+    + `<p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(base)}</p>`
+  );
+  const followers = { subject: `Providence 311 on a report you follow ${caseId}${tail}`, html: copy('follow') };
 
   // An ask goes to the owner as "the city needs more information" (syncCityAsks below); followers get the usual copy.
   const ask = cls.kind === 'ask';
-  let recipients = await notifyReport(store, mailer, report, subject, html, { replyTo: env.RELAY_ADDRESS ?? undefined, excludeOwner: ask, kind: 'city_copy' });
+  let recipients = await notifyReport(store, mailer, report, `Providence 311 on your report ${caseId}${tail}`, copy('your'), { replyTo: env.RELAY_ADDRESS ?? undefined, excludeOwner: ask, kind: 'city_copy', followers });
 
   const entry: CityMessage = { at, from: mail.from, subject: mail.subject.slice(0, 300), text: mail.text.slice(0, MAX_TEXT), caseId, kind: cls.kind, dept: cls.dept, by: cls.by, messageId: mail.messageId };
   const messages = [...(report.cityMessages ?? []).slice(-(MAX_STORED - 1)), entry];

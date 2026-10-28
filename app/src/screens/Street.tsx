@@ -9,9 +9,11 @@ import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
 import { hoodOfSync, loadNeighborhoods, ringBounds, type NeighborhoodTable, type Rings } from '../lib/neighborhoods';
 import {
-  applyFilters, CITY_BOUNDS, clampRange, distanceM, facetCounts, feedDays, inBounds, isDefaultView, isNewCase, metersBetween, nearbyCases, padBounds,
-  parseStreetUrl, placeActivity, sortForPoint, streetSearch, summaryOf, topTypes, type Bounds, type DateRange, type Filters, type LatLng, type StreetUrlState,
+  applyFilters, CITY_BOUNDS, clampRange, DAY_MS, distanceM, facetCounts, feedDays, inBounds, isDefaultView, isNewCase, metersBetween, nearbyCases, nyDayStart,
+  padBounds, parseStreetUrl, placeActivity, reportHref, sortForPoint, streetSearch, summaryOf, topGroups, type Bounds, type DateRange, type Filters, type LatLng,
+  type StreetUrlState,
 } from '../lib/streetMap';
+import { GROUP_ICON } from '../lib/categories';
 import { DESKTOP_MQ, useMediaQuery } from '../lib/useMediaQuery';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 import { currentEnv, isIOS } from '../lib/push';
@@ -27,6 +29,7 @@ import StreetCasePage, { type NearbyRow } from '../components/StreetCasePage';
 import StreetPreview from '../components/StreetPreview';
 import MapKey from '../components/MapKey';
 import StreetFollow, { type FollowAccountState, type FollowEmailState } from '../components/StreetFollow';
+import { caseHref } from '../components/FollowedCases';
 import StreetDigestCard, { addressLabel } from '../components/StreetDigestCard';
 import SavedAddresses from '../components/SavedAddresses';
 import CategoryIcon from '../components/CategoryIcon';
@@ -40,6 +43,8 @@ import './Street.css';
  *  URL: ?lat&lng&q (the home point, unchanged for the digest email), c/z (view), n (hood — /week's neighborhood rows link
  *  here; the page has no picker of its own any more), g/s/d or g/s/from+to (filters), case. A from+to is read inside
  *  the date inputs' bounds (lib/streetMap clampRange; none left → the preset) and written back in place.
+ *  A neighborhood (n=) counts and lists only the cases inside its outline — "14 in Fox Point" (Rob, 2026-10-28) — with
+ *  the outline fitted between the rail and the HALF sheet; any pan or zoom leaves it (n= cleared).
  *  A case= that is not in the loaded window (a followed case months old, from the follow mail or a /my row) is fetched by
  *  itself (GET /api/street/case/:guid) and shown with its pin; only a case the city's record no longer has is "gone".
  *  A selected case opens the case page over everything (components/StreetCasePage; Rob, 2026-10-27, with a Zillow
@@ -449,8 +454,10 @@ export default function Street() {
     return padBounds({ south: se.lat, west: nw.lng, north: nw.lat, east: se.lng }, 0.05);
   }, [view, railBottom, sheetTop, desktop, map]);
 
-  const windowed = useMemo(() => (data ? applyFilters(data.cases, { g: [], s: null, d: filters.d, range: filters.range }, nowMs) : []), [data, filters.d, filters.range, nowMs]);
   const filtered = useMemo(() => (data ? applyFilters(data.cases, filters, nowMs) : []), [data, filters, nowMs]);
+  /** n=: the neighborhood's own cases (inside its outline), all and filtered; null without n= or until the rings load. */
+  const hoodAll = useMemo(() => (url.hood && nb && data ? data.cases.filter((c) => hoodOf(c) === url.hood) : null), [url.hood, nb, data, hoodOf]);
+  const hoodCases = useMemo(() => (hoodAll ? applyFilters(hoodAll, filters, nowMs) : null), [hoodAll, filters, nowMs]);
   const points = useMemo<MapPoint[]>(() => {
     // The pin draws the type's glyph; a case open and reported in the last 48 h gets the halo.
     const pin = (c: MapCase): MapPoint[] => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open, group: c.group, isNew: isNewCase(c, nowMs) }] : []);
@@ -459,13 +466,17 @@ export default function Street() {
     return pts;
   }, [filtered, extraCase, nowMs]);
   const inView = useMemo(() => {
+    if (hoodCases) return point ? sortForPoint(hoodCases, point) : hoodCases;
     if (!bandBounds) return [];
     const list = filtered.filter((c) => inBounds(c, bandBounds));
     return point ? sortForPoint(list, point) : list;
-  }, [filtered, bandBounds, point]);
-  const counts = useMemo(() => (data && (landing || bandBounds) ? facetCounts(data.cases, landing ? null : bandBounds, filters, nowMs) : null), [data, landing, bandBounds, filters, nowMs]);
-  const summary = useMemo(() => summaryOf(filtered, landing ? null : bandBounds, filters.d), [filtered, landing, bandBounds, filters.d]);
-  const top3 = useMemo(() => topTypes(windowed, 3), [windowed]);
+  }, [hoodCases, filtered, bandBounds, point]);
+  const counts = useMemo(
+    () => (data && (landing || bandBounds || hoodAll) ? facetCounts(hoodAll ?? data.cases, landing || hoodAll ? null : bandBounds, filters, nowMs) : null),
+    [data, hoodAll, landing, bandBounds, filters, nowMs],
+  );
+  const summary = useMemo(() => summaryOf(hoodCases ?? filtered, landing || hoodCases ? null : bandBounds, filters.d), [hoodCases, filtered, landing, bandBounds, filters.d]);
+  const top3 = useMemo(() => topGroups(filtered, 3), [filtered]);
   const stackCases = useMemo(() => (stackIds && data ? stackIds.flatMap((id) => data.cases.filter((c) => c.id === id)) : null), [stackIds, data]);
   const [shown, setShown] = useState(PAGE);
   useEffect(() => { setShown(PAGE); }, [view, filters]);
@@ -569,14 +580,23 @@ export default function Street() {
   const num = (n: number) => n.toLocaleString(locale);
   /** A Providence calendar day ("YYYY-MM-DD") as "Oct 1" / "1 oct". */
   const dayText = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  /** The day we started reading the city's list, when the loaded window reaches back to it (the feed's firstDay). */
+  const first = data?.firstDay ?? null;
   /** The window in words: the summary's tail ("last 24 hours", "Oct 1 – Oct 15") and the empty states' ("in the last
-   *  24 hours", "from Oct 1 to Oct 15"); a one-day range is its date. */
+   *  24 hours", "from Oct 1 to Oct 15"); a one-day range is its date. A window reaching back before `first` holds no
+   *  more than what came since: "since Oct 10", and a range starts there (2026-10-28 audit: 30 and 90 days both 546). */
   const windowWords = (r: DateRange | null, d: number, kind: 'window' | 'when') => {
-    if (r) return r.from === r.to ? (kind === 'when' ? t('street.when.date', { date: dayText(r.from) }) : dayText(r.from)) : t(`street.${kind}.range`, { from: dayText(r.from), to: dayText(r.to) });
+    if (r) {
+      const from = first && r.from < first && r.to >= first ? first : r.from;
+      return from === r.to ? (kind === 'when' ? t('street.when.date', { date: dayText(from) }) : dayText(from)) : t(`street.${kind}.range`, { from: dayText(from), to: dayText(r.to) });
+    }
+    if (first && nowMs - d * DAY_MS < nyDayStart(first)) return t(`street.${kind}.since`, { date: dayText(first) });
     return d === 1 ? t(`street.${kind}.day`) : t(`street.${kind}.days`, { days: d });
   };
   const summaryText = !data
     ? (feedState === 'error' ? t('street.error') : t('street.loading'))
+    : summary.kind === 'city' && url.hood && hoodCases
+      ? t('street.summary.hood', { n: num(summary.total), hood: url.hood, open: num(summary.open), closed: num(summary.closed) })
     : summary.kind === 'city'
       ? t('street.summary.city', { total: num(summary.total), open: num(summary.open), closed: num(summary.closed), window: windowWords(filters.range, summary.days, 'window') })
       : t('street.summary.view', { n: num(summary.n), open: num(summary.open), closed: num(summary.closed) });
@@ -702,10 +722,7 @@ export default function Street() {
    *  character the allowlist rejects, the case alone — the same shape as the follow mail's link — so the card still reopens. */
   const returnHere = (c?: MapCase | null) => {
     if (isSafeReturnTo(here)) return here;
-    if (!c) return '/street';
-    const p = new URLSearchParams({ case: c.id });
-    if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
-    return `/street?${p}`;
+    return c ? caseHref(c) : '/street';
   };
 
   /* ── Render helpers ───────────────────────────────────────────────────────────────────────────── */
@@ -715,19 +732,22 @@ export default function Street() {
       onSelect={(id) => openCase(id, 'row')} onHover={desktop ? setHover : undefined} nowMs={nowMs} tag={tag} />
   );
   const row = (c: MapCase) => rowWith(c);
-  /** A "Most reported" chip is pressed while its group is the whole Type selection; a tap picks just it, or clears it. */
+  /** "Most reported": the busiest type groups of what the filters show. A chip is pressed while its group is the whole
+   *  Type selection; a tap picks just it, or clears it. */
   const only = (g: string) => filters.g.length === 1 && filters.g[0] === g;
   const topChips = top3.length > 0 && (
     <ul className="street-top" aria-label={t('street.city.top')}>
       {top3.map((x) => (
-        <li key={x.caseType || x.category}>
+        <li key={x.group}>
           <button type="button" className="street-top-item" aria-pressed={only(x.group)} onClick={() => onFilters({ ...filters, g: only(x.group) ? [] : [x.group] })}>
-            <CategoryIcon k={x.category} size={18} /><span className="street-top-name">{x.caseType || t(`street.g.${x.group}`)}</span><b>{num(x.n)}</b>
+            <CategoryIcon k={GROUP_ICON[x.group]} size={18} /><span className="street-top-name">{t(`group.${x.group}`)}</span><b>{num(x.n)}</b>
           </button>
         </li>
       ))}
     </ul>
   );
+  /** "Report something here", with the address the map is about (not the "Where you are" stand-in for a located point). */
+  const reportHere = <Link to={reportHref(point, url.q && url.q !== t('street.here') ? url.q : '')} className="btn btn-secondary">{t('street.report')}</Link>;
   const meanwhile = (
     <section className="street-meanwhile" aria-label={t('street.city.meanwhile')}>
       <h3 className="street-h">{t('street.city.meanwhile')}</h3>
@@ -766,7 +786,7 @@ export default function Street() {
       return (
         <div className="street-none">
           <p>{t('street.none', { when })}</p>
-          <Link to="/" className="btn btn-secondary">{t('street.report')}</Link>
+          {reportHere}
           {lookBack}
           {meanwhile}
         </div>
@@ -917,8 +937,8 @@ export default function Street() {
       return (
         <div className="street-quiet">
           <Illustration kind="street" className="illo" />
-          <p>{t('street.city.quiet')}</p>
-          <div className="street-fixes"><Link to="/" className="btn btn-secondary">{t('street.report')}</Link>{lookBack}</div>
+          <p>{t('street.city.quiet', { when })}</p>
+          <div className="street-fixes">{reportHere}{lookBack}</div>
         </div>
       );
     }
@@ -948,7 +968,7 @@ export default function Street() {
     if (inView.length === 0) return renderEmpty();
     return (
       <>
-        <h3 className="street-h">{t('street.inview.title')}</h3>
+        <h3 className="street-h">{hoodCases && url.hood ? url.hood : t('street.inview.title')}</h3>
         <ul className="street-list">{inView.slice(0, shown).map(row)}</ul>
         {inView.length > shown && <button type="button" className="btn btn-ghost street-more" onClick={() => setShown((s) => s + PAGE)}>{t('street.showMore', { n: num(inView.length - shown) })}</button>}
       </>
@@ -986,7 +1006,7 @@ export default function Street() {
   const showTeach = landing && !moved && [...params.keys()].every((k) => k === 'case') && detent === 'peek';
   const extraLines: ReactNode[] = [];
   if (showTeach) extraLines.push(<p key="teach" className="hint">{t('street.teach')}</p>);
-  if (data && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{t('street.unplaced', { n: num(summary.unplaced) })}</p>);
+  if (data && summary.kind === 'city' && summary.unplaced > 0) extraLines.push(<p key="unplaced" className="hint">{summary.unplaced === 1 ? t('street.unplaced.one') : t('street.unplaced', { n: num(summary.unplaced) })}</p>);
   if (data?.truncated && wantDays === 90) extraLines.push(<p key="trunc" className="hint">{t('street.truncated')}</p>);
   if (data && feedState === 'error') extraLines.push(<p key="asof" className="hint" role="status">{t('street.asOf', { time: new Date(data.at).toLocaleTimeString(lang, { hour: 'numeric', minute: '2-digit' }) })}</p>);
 
@@ -1023,7 +1043,7 @@ export default function Street() {
           <input className="street-pill-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={t('street.search.placeholder')} aria-label={t('street.search.placeholder')} autoComplete="street-address" enterKeyHint="search" />
           {hasText && <button type="button" className="street-pill-x" aria-label={t('street.search.clear')} onClick={clearAddress}>×</button>}
         </form>
-        <button type="submit" form="street-search" className="street-ico" aria-label={t('street.search.go')} disabled={busy}>{SearchIcon}</button>
+        <button type="submit" form="street-search" className="street-ico" aria-label={t('street.search')} disabled={busy}>{SearchIcon}</button>
       </div>
       {filterBar}
       {msg && <p className="hint street-msg" role="status">{msg}</p>}
@@ -1057,7 +1077,7 @@ export default function Street() {
   return (
     <>
       <section className={`street-stage${!desktop && filters.range ? ' street-stage--range' : ''}`} ref={stageRef}>
-        <h1 className="street-vh">{t('street.title')}</h1>
+        <h1 className="street-vh">{t('nav.street')}</h1>
         <p id="street-map-hint" className="street-vh">{t('street.map.hint')}</p>
         {!desktop && controls}
         {!desktop && <MapKey hidden={detent === 'full'} />}
@@ -1070,7 +1090,7 @@ export default function Street() {
           detent={detent} onDetent={setDetent} title={title} subtitle={(!caseOpen && flash) || subtitle} note={sinceNote}
           labels={{ show: t('street.sheet.show'), more: t('street.sheet.more'), hide: t('street.sheet.hide'), map: t('street.sheet.map') }}
           places={places} extra={extraLines.length ? extraLines : undefined} actions={shareBtn} controls={desktop ? controls : undefined}
-          tail={tail} desktop={desktop} panelLabel={t('street.title')} busy={feedState === 'loading' && !!data}
+          tail={tail} desktop={desktop} panelLabel={t('nav.street')} busy={feedState === 'loading' && !!data}
           onPeekHeight={desktop ? undefined : setPeekH} fullInset={fullInset}
         >
           {body}

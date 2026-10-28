@@ -70,7 +70,7 @@ export interface StreetSheetProps {
   tail?: ReactNode;
   /** ≥720 px: render <aside class="street-panel"> instead of the sheet. */
   desktop: boolean;
-  /** aria-label of the desktop <aside> — t('street.title'). Defaults to `title`. */
+  /** aria-label of the desktop <aside> — t('nav.street'). Defaults to `title`. */
   panelLabel?: string;
   /** aria-busy on the body while a window refetches (the previous set stays on screen). */
   busy?: boolean;

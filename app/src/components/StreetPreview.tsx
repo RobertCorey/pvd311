@@ -41,7 +41,7 @@ export default function StreetPreview({ c, hood, nowMs, onOpen, onClose, ref }: 
         <span className="street-icon"><CategoryIcon k={c.category} size={24} /></span>
         <span className="street-preview-main">
           <span className="street-preview-head">
-            <span className="street-type">{c.caseType || t(`street.g.${c.group}`)}</span>
+            <span className="street-type">{c.caseType || t(`group.${c.group}`)}</span>
             <StatusPill status={c.status} />
           </span>
           <PlaceLine c={c} hood={hood} />

@@ -105,7 +105,7 @@ test('signed in with two followed city cases → "City requests you follow": row
   await expect(rows.nth(0).locator('.my-addr')).toHaveText('10 Angell St');
   await expect(rows.nth(0).locator('.my-status')).toHaveText('In progress');
   await expect(rows.nth(0).locator('.my-date')).toHaveText('Updated today');
-  await expect(rows.nth(0).locator('a.my-row')).toHaveAttribute('href', '/street?case=g1&lat=41.82856&lng=-71.40050');
+  await expect(rows.nth(0).locator('a.my-row')).toHaveAttribute('href', '/street?case=g1&c=41.8286,-71.4005&z=17');
   await expect(rows.nth(0).locator('.my-note')).toHaveCount(0);
   await expect(rows.nth(1).locator('.my-status')).toHaveText('Closed');
   await expect(rows.nth(1).locator('.my-date')).toHaveText('Closed yesterday');

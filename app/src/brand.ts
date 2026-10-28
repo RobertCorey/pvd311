@@ -5,7 +5,6 @@ export const BRAND = {
   /** Wordmark split: "FixMy" in ink, "PVD" in ember. */
   wordmark: ['FixMy', 'PVD'] as const,
   tagline: "Report a Providence street problem in one photo — we file it with the city's 311 for you.",
-  heroSub: "Spot a city problem. We'll file it with 311 for you.",
   domain: 'fixmypvd.org',
   /** Canonical site URL once the domain exists; until then links use the current origin. */
   siteUrl: typeof location !== 'undefined' && /fixmypvd\.org$/.test(location.hostname) ? 'https://fixmypvd.org' : (typeof location !== 'undefined' ? location.origin : 'https://fixmypvd.org'),

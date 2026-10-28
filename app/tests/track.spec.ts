@@ -480,6 +480,20 @@ test('near: the report\'s own case, once the city sync lists it, is not an "othe
   await expect(near(page)).toHaveText('3 open nearby · See them on the map');
 });
 
+// "What to expect" agrees with About and Privacy: the city's public list shows the type, the street, the status and
+// the dates — not the description or the photo.
+for (const [lang, line] of [
+  ['en', 'Once filed, the city has the whole report. Its public list of requests shows the type, the street, the status and the dates — not the description or the photo.'],
+  ['es', 'Una vez presentado, la ciudad tiene el reporte completo. Su lista pública de solicitudes muestra el tipo, la calle, el estado y las fechas, pero no la descripción ni la foto.'],
+] as const) {
+  test(`What to expect (${lang}): what the city's public list shows — not the description or the photo`, async ({ page }) => {
+    if (lang === 'es') await useSpanish(page);
+    await mockReport(page, view());
+    await page.goto('/r/abc');
+    await expect(page.locator('.track-expect li').nth(2)).toHaveText(line);
+  });
+}
+
 test('near: a report without coordinates has no line and asks the Worker nothing', async ({ page }) => {
   await mockReport(page, view({ lat: null, lng: null }));
   const urls = await mockNear(page, TRACK_NEAR);

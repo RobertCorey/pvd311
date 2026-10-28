@@ -66,6 +66,10 @@ test.describe('caseTimeline', () => {
     const evening = caseTimeline(c, detail({ timeline: TL({ reported: '2026-10-17T00:30:00.000Z', resolved: '2026-10-17T14:00:00.000Z' }) }));
     expect(evening[1]).toMatchObject({ step: 'resolved', days: 1 });
   });
+  test('steps are listed by date: the city can date "received" after "sent to the department"', () => {
+    const steps = caseTimeline(mkCase(), detail({ timeline: TL({ reported: isoAgo(7), received: isoAgo(5), routed: isoAgo(6) }) }));
+    expect(steps.map((s) => s.step)).toEqual(['reported', 'routed', 'received']);
+  });
   test('reported falls back to the case\'s createdAt; unparseable dates are skipped', () => {
     const c = mkCase({ createdAt: isoAgo(3) });
     const steps = caseTimeline(c, detail({ timeline: TL({ received: 'not a date' as unknown as string, routed: isoAgo(2) }) }));

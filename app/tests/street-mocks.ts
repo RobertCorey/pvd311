@@ -171,6 +171,8 @@ export interface Call { method: string; url: string; body: unknown }
 
 export interface SetupOpts {
   items?: Case[]; items90?: Case[]; signedIn?: boolean; me?: Record<string, unknown>;
+  /** The feed's `firstDay` (YYYY-MM-DD): the day the Worker's data starts; absent → omitted, as an older Worker does. */
+  firstDay?: string;
   /** Cases GET /api/street/case/:id knows beyond the window sets (a followed case months old); anything else is 404. */
   extraCases?: Case[];
   /** GET /api/street/case/:id's `detail` per case id (worker/src/street.ts streetCaseDetail); absent → omitted. */
@@ -212,7 +214,7 @@ export async function setup(page: Page, o: SetupOpts = {}): Promise<Call[]> {
     const status = o.status ? o.status(++n, days) : 200;
     if (status !== 200) return r.fulfill({ status, contentType: 'application/json', body: '{"error":"boom"}' });
     const items = days === 90 ? (o.items90 ?? o.items ?? DEFAULT_ITEMS) : (o.items ?? DEFAULT_ITEMS);
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(feed({ days, items })) });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...feed({ days, items }), ...(o.firstDay ? { firstDay: o.firstDay } : {}) }) });
   });
   // One case by id (the deep-link fallback): the window sets plus `extraCases`; 404 otherwise.
   await page.route(`${API}/api/street/case/*`, async (r) => {

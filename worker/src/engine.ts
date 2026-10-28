@@ -421,7 +421,8 @@ export async function notifyStatusChanges(env: Env, store: Store, mailer: Mailer
     const trackUrl = `${base}/r/${report.id}`;
     const resolution = cityResolutionMessage(fresh);
     const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl, resolution, base });
-    await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status' });
+    const followers = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl, resolution, base, follower: true });
+    await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status', followers });
     const p = await pushOwner(store, fresh.ownerUid, statusChangePush({ reportId: report.id, category: report.category, address: report.address, status: to, trackUrl, resolution }));
     pushes.users += p.users; pushes.sent += p.sent;
   }

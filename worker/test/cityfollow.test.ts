@@ -41,8 +41,8 @@ describe('followedCaseView', () => {
 });
 
 describe('caseUrl + cityFollowEmail', () => {
-  it('links the card on the map, with lat/lng only when the case is located', () => {
-    expect(caseUrl('https://fixmypvd.org/', GUID, 41.8282, -71.4005)).toBe(`https://fixmypvd.org/street?case=${GUID}&lat=41.82820&lng=-71.40050`);
+  it('links the card on the map, framed by a map view (c/z, not a lat/lng point) only when the case is located', () => {
+    expect(caseUrl('https://fixmypvd.org/', GUID, 41.8282, -71.4005)).toBe(`https://fixmypvd.org/street?case=${GUID}&c=41.8282,-71.4005&z=17`);
     expect(caseUrl('https://fixmypvd.org', GUID, null, null)).toBe(`https://fixmypvd.org/street?case=${GUID}`);
   });
   it('subject names the case and the new status; body says what the city did, quotes its note, dates the report, links the map', () => {

@@ -150,6 +150,15 @@ export default function Report() {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     const q = new URLSearchParams(location.search);
+    // "Report something here" on the map (lib/streetMap reportHref): the place comes filled in — its address, or the
+    // nearest one for a point without.
+    const at = { lat: Number(q.get('lat')), lng: Number(q.get('lng')) };
+    if (q.get('lat') && q.get('lng') && inProvidence(at.lat, at.lng)) {
+      const label = q.get('q')?.trim() ?? '';
+      setLoc(at);
+      if (label) { setAddress(label); geocodedFor.current = label; }
+      else reverseGeocode(at.lat, at.lng).then((l) => { if (l) { setAddress(l); geocodedFor.current = l; } }).catch(() => {});
+    }
     const resume = q.has('resume');
     const composing = !!q.get('c');
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;

@@ -21,14 +21,20 @@
  *     or a draft.
  *
  *   runStreetDigest (Mondays, from runDaily): every account with a saved address that gets the digest (addressDigest:
- *   the address's own `digest` flag, set on PUT /api/me/addresses) gets ONE mail listing the week's new and closed
- *   cases within DIGEST_RADIUS_M of each such address — nothing happened → no mail.
+ *   the address's own `digest` flag, set on PUT /api/me/addresses) gets ONE mail listing the new and closed cases of
+ *   the Monday–Sunday week that just ended (the week /week and its Monday mail count, 2026-10-28) within
+ *   DIGEST_RADIUS_M of each such address — nothing happened → no mail.
+ *
+ * Every read goes through loadCases, which drops the coordinates of a case geocoded outside the city line (inCity:
+ * the geocoder accepts anything in Rhode Island): such a case is listed and counted, but not pinned (2026-10-28).
  */
 import type { Env, Mailer, SavedAddress, Store, UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
 import { CITY_GUID_RE, followedCaseView, type FollowedCase } from './cityfollow.js';
 import type { AnswerKind, CityCaseDetail } from './citycases.js';
 import { geocodeStreetCached } from './cityfeed.js';
+import { inCity } from '../../shared/neighborhoods.js';
+import { etDate, etMidnight, etWeekStart } from './quota.js';
 import { logEvent } from './health.js';
 import { ensureVapid, hasPush, logPushes, pushAll, type PushPayload, type VapidKeys } from './push.js';
 import { updatesLine } from './notify.js';
@@ -73,10 +79,13 @@ const parse = (iso: unknown): number | null => {
   return Number.isNaN(v) ? null : v;
 };
 
-/** Cases within `radiusM` of the point whose creation or close falls inside the last `days`; newest activity first. Pure. */
-export function nearbyCases(rows: Row[], o: { lat: number; lng: number; radiusM: number; days: number; now?: number }): StreetCase[] {
+/** Cases within `radiusM` of the point whose creation or close falls inside the last `days` — or inside [since, until)
+ *  when given (the Monday digest's calendar week); newest activity first. Pure. */
+export function nearbyCases(rows: Row[], o: { lat: number; lng: number; radiusM: number; days: number; now?: number; since?: number; until?: number }): StreetCase[] {
   const now = o.now ?? Date.now();
-  const since = now - o.days * 86_400_000;
+  const since = o.since ?? now - o.days * 86_400_000;
+  const until = o.until ?? Number.POSITIVE_INFINITY;
+  const inWindow = (t: number | null) => t != null && t >= since && t < until;
   const out: (StreetCase & { activity: number })[] = [];
   for (const c of rows) {
     const lat = c.lat; const lng = c.lng;
@@ -88,8 +97,8 @@ export function nearbyCases(rows: Row[], o: { lat: number; lng: number; radiusM:
     const open = !CLOSED.has(status);
     const created = parse(c.createdAt);
     const closed = open ? null : closedAt(c as unknown as CaseLike);
+    if (!inWindow(created) && !inWindow(closed)) continue;
     const activity = Math.max(created ?? 0, closed ?? 0);
-    if (!activity || activity < since) continue;
     const detail = (c.detail ?? null) as { resolution?: string | null } | null;
     out.push({
       id: String(c.id), caseType: String(c.caseType ?? ''), category: String(c.category ?? 'unsure'), street: String(c.street ?? ''),
@@ -180,6 +189,9 @@ export interface MapFeed {
   located: number;
   /** True when the load hit LOAD_LIMIT — the window may be missing its oldest cases. */
   truncated: boolean;
+  /** The New York day of the first case we hold (firstCaseDay) — a window reaching before it is labelled "since" it
+   *  (2026-10-28) — or null when the read does not reach back to it. */
+  firstDay: string | null;
   /** index = t → [city caseType, category key] ('unsure' when the doc has none). */
   types: [string, string][];
   /** index = s; starts with KNOWN_STATUSES, any other status string seen is appended. */
@@ -194,7 +206,7 @@ const round5 = (x: number) => Math.round(x * 1e5) / 1e5;
  * nearbyCases (skip Draft, activity = max(created, closedAt) ≥ since), newest activity first (input order is the
  * tiebreak — the sort is stable). Pure.
  */
-export function mapFeed(rows: Row[], o: { days: number; now?: number; truncated?: boolean }): MapFeed {
+export function mapFeed(rows: Row[], o: { days: number; now?: number; truncated?: boolean; firstDay?: string | null }): MapFeed {
   const now = o.now ?? Date.now();
   const since = now - o.days * 86_400_000;
   const types: [string, string][] = [];
@@ -240,7 +252,7 @@ export function mapFeed(rows: Row[], o: { days: number; now?: number; truncated?
   items.sort((a, b) => b.activity - a.activity);
   return {
     v: 1, days: o.days, at: new Date(now).toISOString(),
-    total: items.length, located, truncated: o.truncated ?? false,
+    total: items.length, located, truncated: o.truncated ?? false, firstDay: o.firstDay ?? null,
     types, statuses, items: items.map((x) => x.item),
   };
 }
@@ -254,10 +266,10 @@ export function snapDays(raw: string | null): 7 | 30 | 90 {
   return MAX_DAYS;
 }
 
-export async function handleStreetMap(url: URL, store: Store): Promise<Response> {
+export async function handleStreetMap(url: URL, store: Store, now = Date.now()): Promise<Response> {
   const days = snapDays(url.searchParams.get('days'));
-  const rows = await loadCases(store, days);
-  return json(mapFeed(rows, { days, truncated: rows.length >= LOAD_LIMIT }), 200, { 'cache-control': 'public, max-age=300' });
+  const rows = await loadCases(store, days, now);
+  return json(mapFeed(rows, { days, now, truncated: rows.length >= LOAD_LIMIT, firstDay: firstCaseDay(rows, days, now) }), 200, { 'cache-control': 'public, max-age=300' });
 }
 
 // ── GET /api/street/case/:guid ────────────────────────────────────────────────────────────
@@ -357,18 +369,35 @@ export async function handleStreetCase(guid: string, store: Store): Promise<Resp
 
 const loads = new Map<string, { at: number; rows: Promise<Row[]> }>();
 
-/** Rows created in the last `days` + the 60-day close lookback, cached per (since, limit) for 5 minutes. `limit` is
- *  LOAD_LIMIT unless a caller needs a deeper read (week.ts's archive weeks reach 130 days back and would otherwise
- *  lose their oldest — the wanted — rows, since the query is newest-first). */
+/** The first createdAt day loadCases(days, now) asks for (UTC date, as the query compares it). */
+const loadSince = (days: number, now: number): string => new Date(now - (days + CLOSE_LOOKBACK_DAYS) * 86_400_000).toISOString().slice(0, 10);
+
+/** A geocode outside the city line (inCity) is no place on the map: the case keeps everything but its coordinates. */
+const placed = (c: Row): Row => (typeof c.lat === 'number' && typeof c.lng === 'number' && !inCity(c.lat, c.lng) ? { ...c, lat: null, lng: null } : c);
+
+/** Rows created in the last `days` + the 60-day close lookback, cached per (since, limit) for 5 minutes, coordinates
+ *  outside the city line dropped (placed). `limit` is LOAD_LIMIT unless a caller needs a deeper read (week.ts's archive
+ *  weeks reach 130 days back and would otherwise lose their oldest — the wanted — rows, since the query is newest-first). */
 export async function loadCases(store: Store, days: number, now = Date.now(), limit = LOAD_LIMIT): Promise<Row[]> {
-  const since = new Date(now - (days + CLOSE_LOOKBACK_DAYS) * 86_400_000).toISOString().slice(0, 10);
+  const since = loadSince(days, now);
   const key = `${since}|${limit}`;
   const hit = loads.get(key);
   if (hit && now - hit.at < LOAD_TTL_MS) return hit.rows;
-  const rows = store.listCityCasesSince(since, limit);
+  const rows = store.listCityCasesSince(since, limit).then((rs) => rs.map(placed));
   loads.set(key, { at: now, rows });
   rows.catch(() => loads.delete(key));
   return rows;
+}
+
+/** The New York day of the first case we hold — when we started reading the city's list (2026-10-10 live) — if what
+ *  loadCases(days, now, limit) read reaches back to it: its oldest createdAt, unless the read filled `limit` or that
+ *  oldest case is within a day of the read's own start (then the store holds older ones and this read says nothing).
+ *  /street labels a window that reaches before it "since <day>"; /week stops its Previous link there. */
+export function firstCaseDay(rows: Row[], days: number, now: number, limit = LOAD_LIMIT): string | null {
+  if (rows.length >= limit) return null;
+  let first = Number.POSITIVE_INFINITY;
+  for (const c of rows) { const t = parse(c.createdAt); if (t != null && t < first) first = t; }
+  return Number.isFinite(first) && first - Date.parse(`${loadSince(days, now)}T00:00:00Z`) > 86_400_000 ? etDate(first) : null;
 }
 
 /** Tests: drop the in-isolate cache. */
@@ -395,16 +424,24 @@ export interface DigestSection { id?: string; label: string; address: string; ur
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : '');
 
-export function streetUrl(base: string, a: { lat: number; lng: number; address: string }): string {
-  return `${base}/street?lat=${a.lat.toFixed(5)}&lng=${a.lng.toFixed(5)}&q=${encodeURIComponent(a.address)}`;
+/** /street at a saved address; with `range` (YYYY-MM-DD New York days) the map opens on those dates, as the digest's
+ *  "See everything near here" does — the week the mail counted, not the page's default 30 days. */
+export function streetUrl(base: string, a: { lat: number; lng: number; address: string }, range?: { from: string; to: string }): string {
+  return `${base}/street?lat=${a.lat.toFixed(5)}&lng=${a.lng.toFixed(5)}&q=${encodeURIComponent(a.address)}${range ? `&from=${range.from}&to=${range.to}` : ''}`;
 }
 
+/** The digest's window as ISO instants: [since, until). */
+export interface DigestWeek { since: string; until: string }
+const inWeek = (iso: string | null, w: DigestWeek) => !!iso && iso >= w.since && iso < w.until;
+const newIn = (items: StreetCase[], w: DigestWeek) => items.filter((i) => inWeek(i.createdAt, w)).length;
+const closedIn = (items: StreetCase[], w: DigestWeek) => items.filter((i) => !i.open && inWeek(i.closedAt, w)).length;
+
 /** Subject + HTML for one person's weekly mail. `sections` only holds addresses where something happened. */
-export function streetDigestEmail(sections: DigestSection[], o: { base: string; since: string }): { subject: string; html: string } {
+export function streetDigestEmail(sections: DigestSection[], o: { base: string } & DigestWeek): { subject: string; html: string } {
   const total = sections.reduce((n, s) => n + s.items.length, 0);
-  const newN = sections.reduce((n, s) => n + s.items.filter((i) => i.createdAt && i.createdAt >= o.since).length, 0);
-  const closedN = sections.reduce((n, s) => n + s.items.filter((i) => !i.open && i.closedAt && i.closedAt >= o.since).length, 0);
-  const where = sections.length === 1 ? sections[0].label || sections[0].address : `${sections.length} of your addresses`;
+  const newN = sections.reduce((n, s) => n + newIn(s.items, o), 0);
+  const closedN = sections.reduce((n, s) => n + closedIn(s.items, o), 0);
+  const where = sections.length === 1 ? sections[0].label || sections[0].address : `${sections.length} of your streets`;
   const subject = `This week near ${where}: ${newN} new, ${closedN} closed`;
   const row = (i: StreetCase) => {
     const when = i.open ? `reported ${day(i.createdAt)}` : `closed ${day(i.closedAt)}`;
@@ -423,10 +460,8 @@ export function streetDigestEmail(sections: DigestSection[], o: { base: string; 
 
 /** The push (push.ts) for one address's week — "This week near <label>" / "<new> new · <closed> closed", opening that
  *  street page. Tagged per address so two saved addresses give two notifications instead of one replacing the other. */
-export function streetDigestPush(s: DigestSection, since: string): PushPayload {
-  const newN = s.items.filter((i) => i.createdAt && i.createdAt >= since).length;
-  const closedN = s.items.filter((i) => !i.open && i.closedAt && i.closedAt >= since).length;
-  return { title: `This week near ${s.label || s.address}`, body: `${newN} new · ${closedN} closed`, url: s.url, tag: `street:${s.id ?? s.label}` };
+export function streetDigestPush(s: DigestSection, w: DigestWeek): PushPayload {
+  return { title: `This week near ${s.label || s.address}`, body: `${newIn(s.items, w)} new · ${closedIn(s.items, w)} closed`, url: s.url, tag: `street:${s.id ?? s.label}` };
 }
 
 /**
@@ -440,11 +475,16 @@ export const addressDigest = (a: SavedAddress, u: Pick<UserDoc, 'prefs'>): boole
 /** Mondays: one mail per account with activity near a saved address that gets the digest (addressDigest), and a push
  *  per such address to the account's subscribed phones (push.ts; mail needs a verified email, a push only needs the
  *  subscription). The accounts come from the prefs.streetDigest == true query (me.ts keeps it = "some address is on").
- *  Returns counts for the log. */
+ *  The week is the Monday–Sunday week that ended last (New York days; on the Monday run, the one that ended yesterday)
+ *  — /week's week. Returns counts for the log. */
 export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, opts: { now?: number } = {}): Promise<{ users: number; mailed: number; pushed: number }> {
   const now = opts.now ?? Date.now();
   const base = env.APP_BASE_URL ?? 'https://fixmypvd.org';
-  const since = new Date(now - DIGEST_DAYS * 86_400_000).toISOString();
+  const monday = etWeekStart(now);
+  const dayOff = (n: number) => new Date(Date.parse(`${monday}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  const range = { from: dayOff(-DIGEST_DAYS), to: dayOff(-1) };
+  const sinceMs = etMidnight(range.from), untilMs = etMidnight(monday);
+  const week: DigestWeek = { since: new Date(sinceMs).toISOString(), until: new Date(untilMs).toISOString() };
   const users = await store.listStreetDigestUsers(500);
   let mailed = 0; let pushed = 0; let pushUsers = 0;
   let keys: VapidKeys | null = null;
@@ -466,8 +506,8 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
       }
       addresses.push({ ...a, lat, lng });
       if (lat == null || lng == null) continue;
-      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, now });
-      if (items.length) sections.push({ id: a.id, label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }), items });
+      const items = nearbyCases(rows, { lat, lng, radiusM: DIGEST_RADIUS_M, days: DIGEST_DAYS, since: sinceMs, until: untilMs });
+      if (items.length) sections.push({ id: a.id, label: a.label, address: a.address, url: streetUrl(base, { lat, lng, address: a.address }, range), items });
     }
     // Write back only the coordinates it found, merged by id into a fresh read: writing the array read at the start of
     // the run would undo a switch the resident flipped meanwhile (Account → Updates writes the same array).
@@ -487,7 +527,7 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
     }
     if (!sections.length) continue;
     if (canMail) {
-      const m = streetDigestEmail(sections, { base, since });
+      const m = streetDigestEmail(sections, { base, ...week });
       await mailer.sendTo(u.email!, m.subject, m.html, { kind: 'street_digest' });
       mailed++;
     }
@@ -495,7 +535,7 @@ export async function runStreetDigest(env: Env, store: Store, mailer: Mailer, op
       pushUsers++;
       try {
         keys ??= await ensureVapid(store);
-        for (const s of sections) pushed += await pushAll(store, u, streetDigestPush(s, since), keys);
+        for (const s of sections) pushed += await pushAll(store, u, streetDigestPush(s, week), keys);
       } catch (e) { console.error('[street] digest push failed:', e instanceof Error ? e.message : e); }
     }
   }

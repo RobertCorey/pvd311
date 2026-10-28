@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   addDays, ago, applyFilters, boundsOf, CITY_BOUNDS, clampRange, clusterGrid, DAY_MS, decodeCase, decodeFeed, defaultRange, distanceM, EMPTY_URL_STATE, facetCounts, feedDays,
   inBounds, inWindow, isDefaultView, isYmd, likelyOwnCase, metersBetween, nyDayStart, nyYmd, OWN_CASE_M, padBounds, parseStreetUrl, placeActivity, rangeBounds, sortForPoint, SPIDER_MAX,
-  spiderOffsets, stackKey, streetKey, streetSearch, summaryOf, topTypes, windowTest, writeStreetUrl, type DateRange, type MapCase, type MapFeed, type StreetUrlState, type Window,
+  spiderOffsets, stackKey, streetKey, streetSearch, summaryOf, topGroups, windowTest, writeStreetUrl, type DateRange, type MapCase, type MapFeed, type StreetUrlState, type Window,
 } from '../src/lib/streetMap';
 import { hoodFromSlug, hoodOfSync, hoodSlug, loadNeighborhoods, neighborhoodAt, NEIGHBORHOOD_NAMES, ringBounds } from '../src/lib/neighborhoods';
 import { INSTALL_FROM_VISIT, INSTALL_SNOOZE_MS, isNewSince, newCutoff, newestCreated, newSince, SINCE_MIN_MS, sinceCutoff, sinceWhen, WHILE_DAYS } from '../src/lib/streetVisit';
@@ -50,7 +50,9 @@ test.describe('decodeCase', () => {
 test.describe('decodeFeed', () => {
   test('tuples → cases: minutes to ISO, res || null, open from the CLOSED set, group fallback other', () => {
     expect(DECODED.cases.map((c) => c.id)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']); // array order kept
-    expect(DECODED).toMatchObject({ days: 30, total: 5, located: 4, truncated: false, at: FEED.at });
+    expect(DECODED).toMatchObject({ days: 30, total: 5, located: 4, truncated: false, at: FEED.at, firstDay: null });
+    expect(decodeFeed({ ...FEED, firstDay: '2026-10-10' }).firstDay).toBe('2026-10-10');
+    expect(decodeFeed({ ...FEED, firstDay: 'soon' }).firstDay).toBeNull();
     const c1 = byId('c1');
     expect(c1).toMatchObject({ caseType: 'Pothole', category: 'pothole', group: 'streets', status: 'Assigned', open: true, street: '10 Angell St', resolution: null, lat: 41.8283, lng: -71.4006, closedAt: null });
     expect(Date.parse(c1.createdAt!)).toBe(minsAgo(3) * 60_000);
@@ -131,10 +133,10 @@ test.describe('filters', () => {
     expect(isYmd('2024-02-29')).toBe(true);
     for (const bad of ['2026-02-30', '2026-2-3', '2026-10-25T00:00', '', null, undefined]) expect(isYmd(bad), String(bad)).toBe(false);
     expect(rangeBounds(NOW)).toEqual({ min: '2026-07-28', max: '2026-10-25' });   // today − 89 … today
-    expect(defaultRange(NOW)).toEqual({ from: '2026-10-18', to: '2026-10-25' });  // the last 7 days
+    expect(defaultRange(NOW)).toEqual({ from: '2026-10-19', to: '2026-10-25' });  // the last 7 days: seven dates, today included
   });
 
-  test('feedDays: 30 for 24 hours / this week / 30 days, 90 for 90; a range → the smallest server window (7 / 30 / 90) that reaches From 00:00', () => {
+  test('feedDays: 30 for 24 hours / 7 days / 30 days, 90 for 90; a range → the smallest server window (7 / 30 / 90) that reaches From 00:00', () => {
     for (const d of [1, 7, 30] as const) expect(feedDays({ d, range: null }, NOW)).toBe(30);
     expect(feedDays({ d: 90, range: null }, NOW)).toBe(90);
     const back = (from: string) => feedDays({ d: 30, range: { from, to: '2026-10-25' } }, NOW);
@@ -191,8 +193,9 @@ test.describe('filters', () => {
     expect(summaryOf(DECODED.cases, { south: 41.828, north: 41.8285, west: -71.401, east: -71.400 }, 30)).toEqual({ kind: 'view', n: 3, open: 2, closed: 1 });
   });
 
-  test('topTypes', () => {
-    expect(topTypes(DECODED.cases, 2)).toEqual([{ caseType: 'Pothole', category: 'pothole', group: 'streets', n: 2 }, { caseType: 'Street Light Out', category: 'street_light', group: 'lights', n: 1 }]);
+  test('topGroups: by type group (the Type filter\'s unit), n desc, GROUP_ORDER on ties; built from whatever set it is given', () => {
+    expect(topGroups(DECODED.cases, 3)).toEqual([{ group: 'streets', n: 2 }, { group: 'other', n: 2 }, { group: 'lights', n: 1 }]);
+    expect(topGroups(DECODED.cases.filter((c) => c.group === 'lights'))).toEqual([{ group: 'lights', n: 1 }]);
   });
 });
 

@@ -12,7 +12,7 @@ import './StreetParts.css';
  *  - Show: All / Open / Closed — a segmented control built from a fieldset + legend and native radios (arrow keys move
  *    within it). Open and Closed carry a dot in the pin colours (ember / muted) so it doubles as the pins' legend
  *    (decorative: the names already say open / closed).
- *  - When: the window select (24 hours / This week / 30 / 90 days / Custom range…). Custom range… reveals From and
+ *  - When: the window select (24 hours / 7 days / 30 / 90 days / Custom range…). Custom range… reveals From and
  *    To date inputs (Providence calendar days, today − 89 … today; From ≤ To by their bounds — From's max is To, To's
  *    min is From — so a date never moves the other one: desktop browsers apply a typed date at every complete keystroke,
  *    and "25" typed into To's day reads the 2nd on the way). A typed date that is not a whole day inside its box's
@@ -81,8 +81,8 @@ export default function StreetFilters({ filters, counts, loading, disabled = fal
   const picked = filters.g;
   const typeN = !counts ? undefined : picked.length ? picked.reduce((a, g) => a + (counts.groups[g] ?? 0), 0) : counts.all;
   const typeName = picked.length === 0 ? t('street.filter.allTypes')
-    : picked.length === 1 ? t(`street.g.${picked[0]}`)
-    : t('street.filter.typesMore', { name: t(`street.g.${picked[0]}`), n: picked.length - 1 });
+    : picked.length === 1 ? t(`group.${picked[0]}`)
+    : t('street.filter.typesMore', { name: t(`group.${picked[0]}`), n: picked.length - 1 });
 
   function setStatus(s: Show) {
     if (disabled) return;
@@ -279,7 +279,7 @@ export default function StreetFilters({ filters, counts, loading, disabled = fal
           <div ref={popRef} id={`${id}-type-pop`} className="street-type-pop" role="dialog" aria-label={t('street.filter.type')}>
             <ul className="street-checks">
               {check('all', t('street.filter.allTypes'), counts?.all, picked.length === 0, allTypes)}
-              {GROUP_ORDER.map((g) => check(g, t(`street.g.${g}`), counts?.groups[g], picked.includes(g), () => toggleGroup(g)))}
+              {GROUP_ORDER.map((g) => check(g, t(`group.${g}`), counts?.groups[g], picked.includes(g), () => toggleGroup(g)))}
             </ul>
             <div className="street-type-foot">
               <button type="button" className="btn btn-secondary street-type-done" onClick={() => close(true)}>{t('street.filter.done')}</button>

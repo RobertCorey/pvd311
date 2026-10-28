@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Reac
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { caseAge, caseDay, caseTimeline, fullAddressLine, NEARBY_M, type CaseDetail, type MapCase } from '../lib/streetMap';
+import { caseAge, caseDay, caseTimeline, fullAddressLine, NEARBY_M, reportHref, type CaseDetail, type MapCase } from '../lib/streetMap';
 import CategoryIcon from './CategoryIcon';
 import MapView, { type MapPoint } from './MapView';
 import StreetRow, { StatusPill, statusText } from './StreetRow';
@@ -105,11 +105,12 @@ export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, day
 
   const located = c.lat != null && c.lng != null;
   const points = useMemo<MapPoint[]>(() => (c.lat != null && c.lng != null ? [{ id: c.id, lat: c.lat, lng: c.lng, open: c.open, group: c.group }] : []), [c]);
-  const typeName = c.caseType || t(`street.g.${c.group}`);
+  const typeName = c.caseType || t(`group.${c.group}`);
   // Pins placed by street name alone (no house number) stand for the whole street.
   const approx = located && c.street !== '' && !/^\d/.test(c.street);
   const detail = more.state === 'ok' ? more.detail : null;
-  const address = (detail ? fullAddressLine(c.street, detail.address) : null) ?? (c.street || t('street.noStreet'));
+  const place = (detail ? fullAddressLine(c.street, detail.address) : null) ?? c.street;
+  const address = place || t('street.noStreet');
   const steps = detail ? caseTimeline(c, detail) : [];
   const after = (n: number) => (n === 0 ? t('street.case.after.same') : t(n === 1 ? 'street.case.after.one' : 'street.case.after', { n }));
   const daysText = (n: number) => t(n === 1 ? 'street.case.stat.days.one' : 'street.case.stat.days', { n });
@@ -127,7 +128,7 @@ export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, day
 
   // Fact tiles: the type group and the status always; the department hand-off and the work order's completion once the
   // city's form has them.
-  const tiles: { key: string; k: string; v: string }[] = [{ key: 'group', k: t('street.case.tile.group'), v: t(`street.g.${c.group}`) }];
+  const tiles: { key: string; k: string; v: string }[] = [{ key: 'group', k: t('street.case.tile.group'), v: t(`group.${c.group}`) }];
   if (c.status) tiles.push({ key: 'status', k: t('street.case.tile.status'), v: statusText(t, c.status) });
   const routed = day(detail?.timeline.routed ?? null);
   if (routed) tiles.push({ key: 'routed', k: t('street.case.step.routed'), v: routed });
@@ -222,7 +223,7 @@ export default function StreetCasePage({ c, hood, from, more, nowMs, nearby, day
                 ) : <p className="hint case-nearby-hint">{t('street.case.nearby.none', { m: NEARBY_M, days })}</p>}
               </section>
             )}
-            <p className="case-report"><Link to="/" className="btn btn-secondary">{t('street.report')}</Link></p>
+            <p className="case-report"><Link to={reportHref(located ? { lat: c.lat!, lng: c.lng! } : null, place)} className="btn btn-secondary">{t('street.report')}</Link></p>
           </div>
         </div>
       </div>

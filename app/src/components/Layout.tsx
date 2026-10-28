@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigationType } from 'react-router-dom';
 import { trackPageView } from '../lib/analytics';
 import { BRAND } from '../brand';
 import { useI18n } from '../i18n';
@@ -9,11 +9,23 @@ import Skyline from './Skyline';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 import AccountLink from './AccountLink';
 
+/** The tab title per route, "<page> · FixMyPVD" (the home page and the rest: plain "FixMyPVD"). week/index.html and
+ *  street/index.html (vite.config.ts) carry the same titles for link previews. */
+const TITLES: Record<string, string> = {
+  '/street': 'nav.street', '/week': 'week.title', '/my': 'header.myReports', '/account': 'header.accountIn',
+  '/account/updates': 'account.tab.updates', '/about': 'nav.about', '/privacy': 'nav.privacy',
+};
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
   const { canInstall, install } = useInstallPrompt();
   const { pathname } = useLocation();
+  const navType = useNavigationType();
+  const titleKey = TITLES[pathname.replace(/\/+$/, '')];
+  useEffect(() => { document.title = titleKey ? `${t(titleKey)} · ${BRAND.name}` : BRAND.name; }, [titleKey, t]);
   useEffect(() => { trackPageView(); }, [pathname]);
+  // A new page opens at its top; Back and Forward (POP) leave the scroll to the browser's own restoration.
+  useEffect(() => { if (navType !== 'POP') window.scrollTo(0, 0); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="app has-tabs">
       <header className="app-header">

@@ -459,7 +459,7 @@ describe('triggers', () => {
         body: 'Filled the hole on the north side of the street, two more scheduled for next week.'.length > 80
           ? '12 Angell St — Assigned → Resolved · Filled the hole on the north side of the street, two more scheduled for next wee'
           : 'unreachable',
-        url: `https://fixmypvd.org/street?case=${ID}&lat=41.82820&lng=-71.40050`,
+        url: `https://fixmypvd.org/street?case=${ID}&c=41.8282,-71.4005&z=17`,
         tag: `case:${ID}`,
       });
       expect(posts[0].payload.body.split(' · ')[1]).toHaveLength(80);
@@ -564,7 +564,8 @@ describe('triggers', () => {
   });
 
   describe('the Monday digests', () => {
-    const NOW = Date.parse('2026-10-25T12:00:00Z'); // Sunday: the week mailed is Oct 18 – Oct 24
+    const NOW = Date.parse('2026-10-25T12:00:00Z'); // the rows are dated from this Sunday …
+    const MONDAY = Date.parse('2026-10-26T12:00:00Z'); // … and the digests run the next morning: the week mailed is Oct 19 – Oct 25
     const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
     const HOME = { lat: 41.8282, lng: -71.4005 };
     const row = (id: string, o: Record<string, unknown> = {}) => ({ id, caseType: 'Pothole', category: 'pothole', street: '10 Angell St', status: 'Assigned', createdAt: daysAgo(3), firstSeenAt: daysAgo(3), lat: 41.8283, lng: -71.4006, ...o });
@@ -580,10 +581,10 @@ describe('triggers', () => {
       } });
       const posts = stubPushService();
       const { mailer, sent } = mockMailer();
-      expect(await runWeekDigest(env, s.store, mailer, { now: NOW })).toEqual({ users: 4, mailed: 2, pushed: 2, adminMailed: true });
+      expect(await runWeekDigest(env, s.store, mailer, { now: MONDAY })).toEqual({ users: 4, mailed: 2, pushed: 2, adminMailed: true });
       expect(sent.map((m) => m.to).sort()).toEqual(['both@example.com', 'mail@example.com']);
       expect(posts.map((p) => p.endpoint).sort()).toEqual(['https://push.test/1', 'https://push.test/2']);
-      expect(posts[0].payload).toEqual({ title: 'This week in Providence', body: '2 requests · 1 closed', url: 'https://fixmypvd.org/week?until=2026-10-24', tag: 'week' });
+      expect(posts[0].payload).toEqual({ title: 'This week in Providence', body: '2 requests · 1 closed', url: 'https://fixmypvd.org/week?until=2026-10-25', tag: 'week' });
       expect(s.events.find((e) => e.kind === 'push.sent')).toMatchObject({ data: { source: 'week_digest', users: 2, sent: 2 } });
       expect((s.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
     });
@@ -594,7 +595,7 @@ describe('triggers', () => {
         bare: user('bare', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(2)] }),
       } });
       const posts = stubPushService();
-      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: NOW })).toMatchObject({ pushed: 2 });
+      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: MONDAY })).toMatchObject({ pushed: 2 });
       expect(Object.fromEntries(posts.map((p) => [p.endpoint, p.payload.body]))).toEqual({
         'https://push.test/1': '2 requests · 1 closed · College Hill: 2 requests, median 1 d',
         'https://push.test/2': '2 requests · 1 closed',
@@ -604,10 +605,10 @@ describe('triggers', () => {
     it('runWeekDigest: a quiet week pushes nothing; weekDigestPush pluralises', async () => {
       const s = memStore({ rows: [], users: { both: user('both', { prefs: { emailUpdates: true, weekDigest: true }, push: [sub(1)] }) } });
       stubPushService();
-      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0, adminMailed: false });
+      expect(await runWeekDigest(env, s.store, mockMailer().mailer, { now: MONDAY })).toEqual({ users: 1, mailed: 0, pushed: 0, adminMailed: false });
       expect((fetch as any).mock.calls).toHaveLength(0);
-      const one = weekSummary([row('only')], { now: NOW, until: '2026-10-24' });
-      expect(weekDigestPush(one, { base: 'https://fixmypvd.org/' })).toEqual({ title: 'This week in Providence', body: '1 request · 0 closed', url: 'https://fixmypvd.org/week?until=2026-10-24', tag: 'week' });
+      const one = weekSummary([row('only')], { now: MONDAY, until: '2026-10-25' });
+      expect(weekDigestPush(one, { base: 'https://fixmypvd.org/' })).toEqual({ title: 'This week in Providence', body: '1 request · 0 closed', url: 'https://fixmypvd.org/week?until=2026-10-25', tag: 'week' });
     });
 
     it('runStreetDigest pushes one "This week near <label>" per address with activity, to subscribed phones only', async () => {
@@ -620,18 +621,19 @@ describe('triggers', () => {
       } });
       const posts = stubPushService();
       const { mailer, sent } = mockMailer();
-      expect(await runStreetDigest(env, s.store, mailer, { now: NOW })).toEqual({ users: 4, mailed: 2, pushed: 2 });
+      expect(await runStreetDigest(env, s.store, mailer, { now: MONDAY })).toEqual({ users: 4, mailed: 2, pushed: 2 });
       expect(sent.map((m) => m.to).sort()).toEqual(['both@example.com', 'mail@example.com']);
       expect(posts.map((p) => p.endpoint)).toEqual(['https://push.test/1', 'https://push.test/3']);
-      expect(posts[0].payload).toEqual({ title: 'This week near Home', body: '2 new · 1 closed', url: streetUrl('https://fixmypvd.org', { ...HOME, address: 'Home St' }), tag: 'street:a1' });
+      expect(posts[0].payload).toEqual({ title: 'This week near Home', body: '2 new · 1 closed', url: streetUrl('https://fixmypvd.org', { ...HOME, address: 'Home St' }, { from: '2026-10-19', to: '2026-10-25' }), tag: 'street:a1' });
       expect(posts[1].payload.title).toBe('This week near Work');
       expect(s.events.find((e) => e.kind === 'push.sent')).toMatchObject({ data: { source: 'street_digest', users: 2, sent: 2 } });
     });
 
     it('streetDigestPush counts new and closed like the mail subject does', () => {
       const items = nearbyCases(rows(), { ...HOME, radiusM: 300, days: 7, now: NOW });
-      expect(streetDigestPush({ id: 'a1', label: 'Home', address: '12 Angell St', url: 'https://x/1', items }, daysAgo(7))).toEqual({ title: 'This week near Home', body: '2 new · 1 closed', url: 'https://x/1', tag: 'street:a1' });
-      expect(streetDigestPush({ label: '', address: '12 Angell St', url: 'https://x/1', items: [] }, daysAgo(7))).toEqual({ title: 'This week near 12 Angell St', body: '0 new · 0 closed', url: 'https://x/1', tag: 'street:' });
+      const week = { since: daysAgo(7), until: new Date(NOW).toISOString() };
+      expect(streetDigestPush({ id: 'a1', label: 'Home', address: '12 Angell St', url: 'https://x/1', items }, week)).toEqual({ title: 'This week near Home', body: '2 new · 1 closed', url: 'https://x/1', tag: 'street:a1' });
+      expect(streetDigestPush({ label: '', address: '12 Angell St', url: 'https://x/1', items: [] }, week)).toEqual({ title: 'This week near 12 Angell St', body: '0 new · 0 closed', url: 'https://x/1', tag: 'street:' });
     });
   });
 });

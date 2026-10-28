@@ -264,7 +264,7 @@ test('Requests you follow: one list of followed city requests and followed repor
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText('Pothole');
   await expect(rows.nth(0)).toContainText('10 Angell St');
-  await expect(rows.nth(0).getByRole('link', { name: 'Pothole' })).toHaveAttribute('href', '/street?case=c1&lat=41.82856&lng=-71.40050');
+  await expect(rows.nth(0).getByRole('link', { name: 'Pothole' })).toHaveAttribute('href', '/street?case=c1&c=41.8286,-71.4005&z=17');
   await expect(rows.nth(1)).toContainText('Street light out');
   await expect(rows.nth(1).getByRole('link', { name: 'Street light out' })).toHaveAttribute('href', '/r/rep1234567');
   await sec.getByRole('button', { name: 'Unfollow — Pothole, 10 Angell St' }).click();

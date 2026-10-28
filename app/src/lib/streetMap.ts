@@ -16,6 +16,9 @@ export type MapItem = [
 ];
 export interface MapFeed {
   v: 1; days: number; at: string; total: number; located: number; truncated: boolean;
+  /** The New York day of the first case the Worker holds, or null when the read reaches further back (an older Worker
+   *  leaves it out). */
+  firstDay?: string | null;
   /** index = t → [city caseType, category key] */
   types: [string, string][];
   /** index = s */
@@ -29,7 +32,9 @@ export interface MapCase {
   createdAt: string | null; closedAt: string | null; street: string; resolution: string | null;
   lat: number | null; lng: number | null;
 }
-export interface StreetMap { days: number; at: string; total: number; located: number; truncated: boolean; cases: MapCase[] }
+/** `firstDay`: when we started reading the city's list (2026-10-10), if the loaded window reaches back to it — a window
+ *  that starts before it is labelled "since <day>" (2026-10-28 audit: 30 and 90 days read the same 546). */
+export interface StreetMap { days: number; at: string; total: number; located: number; truncated: boolean; firstDay: string | null; cases: MapCase[] }
 
 /** A status in this set is "closed"; everything else (including unknown strings) is open. Same set as the worker. */
 export const CLOSED_STATUSES: ReadonlySet<string> = new Set(['Resolved', 'Closed', 'Cancelled', 'Merged']);
@@ -56,7 +61,7 @@ export function decodeFeed(feed: MapFeed): StreetMap {
       resolution: typeof res === 'string' && res ? res : null, lat: located ? lat : null, lng: located ? lng : null,
     };
   });
-  return { days: feed.days, at: feed.at, total: feed.total, located: feed.located, truncated: !!feed.truncated, cases };
+  return { days: feed.days, at: feed.at, total: feed.total, located: feed.located, truncated: !!feed.truncated, firstDay: isYmd(feed.firstDay) ? feed.firstDay : null, cases };
 }
 
 /** GET /api/street/case/:guid — one case as an object (worker/src/street.ts StreetCaseView; the /my list's row shape),
@@ -122,9 +127,10 @@ export function decodeCaseDetail(w: unknown): CaseDetail | null {
   return { address: str(d.address), timeline, answers, statusHistory };
 }
 
-/** The steps the overlay's timeline lists, in lifecycle order — only those with a date. `resolved` only for a case
- *  that is closed now (a reopened case keeps its old resolution date on the form), with `days` = calendar days after
- *  it was reported (nyDaysBetween). `reported` falls back to the case's createdAt. */
+/** The steps the overlay's timeline lists, oldest first — only those with a date (the city's form can date "received"
+ *  after "sent to the department": sorted by date, not by the usual order, which only breaks ties). `resolved` only
+ *  for a case that is closed now (a reopened case keeps its old resolution date on the form), with `days` = calendar
+ *  days after it was reported (nyDaysBetween). `reported` falls back to the case's createdAt. */
 export function caseTimeline(c: MapCase, detail: CaseDetail): { step: TimelineStep; at: string; days?: number }[] {
   const at: CaseTimeline = { ...detail.timeline, reported: detail.timeline.reported ?? c.createdAt };
   const created = parseMs(at.reported);
@@ -135,7 +141,7 @@ export function caseTimeline(c: MapCase, detail: CaseDetail): { step: TimelineSt
     if (step === 'resolved' && created != null) out.push({ step, at: iso, days: nyDaysBetween(created, parseMs(iso) as number) });
     else out.push({ step, at: iso });
   }
-  return out;
+  return out.sort((a, b) => (parseMs(a.at) as number) - (parseMs(b.at) as number)); // stable: equal dates keep lifecycle order
 }
 
 /** The city's full address when it says more than the street the card already shows — a different first line (a house
@@ -304,7 +310,7 @@ export function activityMs(c: MapCase): number | null {
   return a == null ? b : b == null ? a : Math.max(a, b);
 }
 
-/** Activity within the last `d` days. "Last 24 hours" and "This week" are cut client-side from the 30-day load, so this
+/** Activity within the last `d` days. "Last 24 hours" and "7 days" are cut client-side from the 30-day load, so this
  *  runs on every render; a case without any parseable date stays in (the worker included it for a reason). */
 export function inWindow(c: MapCase, d: Window, nowMs: number): boolean {
   const t = activityMs(c);
@@ -396,14 +402,15 @@ export function nyDayStart(ymd: string): number {
 
 /** How far back "Custom range…" reaches: From ≥ today − 89, so the 90-day load always covers From 00:00. */
 export const RANGE_BACK_DAYS = 89;
-/** The date inputs' bounds (min = today − 89, max = today) and "Custom range…"'s first pick: the last 7 days, today included. */
+/** The date inputs' bounds (min = today − 89, max = today) and "Custom range…"'s first pick: the last 7 days, today
+ *  included — seven dates, as "7 days" and /week count them. */
 export function rangeBounds(nowMs: number): { min: string; max: string } {
   const max = nyYmd(nowMs);
   return { min: addDays(max, -RANGE_BACK_DAYS), max };
 }
 export function defaultRange(nowMs: number): DateRange {
   const to = nyYmd(nowMs);
-  return { from: addDays(to, -7), to };
+  return { from: addDays(to, -6), to };
 }
 /** A range held to rangeBounds: From raised to today − 89, To lowered to today; null when nothing of it is left (wholly
  *  before or after them). A shared link keeps its dates while the bounds move on, and days before today − 89 are past
@@ -417,7 +424,7 @@ export function clampRange(r: DateRange | null, nowMs: number): DateRange | null
 }
 
 /** The server window to load (worker/src/street.ts snapDays: 7, 30 or 90 days back from now): 30 for the last 24 hours,
- *  this week and 30 days (the shorter two are cut from it client-side), 90 for 90 days; a custom range → the smallest
+ *  7 days and 30 days (the shorter two are cut from it client-side), 90 for 90 days; a custom range → the smallest
  *  that reaches back to From 00:00. */
 export function feedDays(f: Pick<Filters, 'd' | 'range'>, nowMs: number): 7 | 30 | 90 {
   if (!f.range) return f.d === 90 ? 90 : 30;
@@ -425,7 +432,7 @@ export function feedDays(f: Pick<Filters, 'd' | 'range'>, nowMs: number): 7 | 30
   return back <= 7 ? 7 : back <= 30 ? 30 : 90;
 }
 
-/* ── Summary line, top types ───────────────────────────────────────────────────────────────────── */
+/* ── Summary line, top groups ──────────────────────────────────────────────────────────────────── */
 
 export type Summary =
   | { kind: 'city'; total: number; open: number; closed: number; located: number; unplaced: number; days: Window }
@@ -443,17 +450,14 @@ export function summaryOf(filtered: MapCase[], view: Bounds | null, days: Window
   return view ? { kind: 'view', n, open, closed } : { kind: 'city', total: n, open, closed, located, unplaced: n - located, days };
 }
 
-export interface TypeCount { caseType: string; category: string; group: GroupKey | 'other'; n: number }
+export interface GroupCount { group: GroupKey; n: number }
 
-/** The busiest city case types (ties: first seen in the feed wins — the feed is newest first). */
-export function topTypes(cases: MapCase[], limit = 3): TypeCount[] {
-  const m = new Map<string, TypeCount>();
-  for (const c of cases) {
-    const key = c.caseType || c.category;
-    const e = m.get(key);
-    if (e) e.n++; else m.set(key, { caseType: c.caseType, category: c.category, group: c.group, n: 1 });
-  }
-  return [...m.values()].sort((a, b) => b.n - a.n).slice(0, limit);
+/** "Most reported": the busiest type groups among `cases` — the unit the Type filter picks, so a chip's count is what
+ *  it shows (2026-10-28 audit: a type-named chip opened its whole group). Ties: GROUP_ORDER. */
+export function topGroups(cases: MapCase[], limit = 3): GroupCount[] {
+  const m = new Map<GroupKey, number>();
+  for (const c of cases) m.set(c.group, (m.get(c.group) ?? 0) + 1);
+  return [...m].map(([group, n]) => ({ group, n })).sort((a, b) => b.n - a.n || GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group)).slice(0, limit);
 }
 
 /* ── Sorting ───────────────────────────────────────────────────────────────────────────────────── */
@@ -642,6 +646,15 @@ export function writeStreetUrl(state: Partial<StreetUrlState>): URLSearchParams 
   else if (st.d === 1 || st.d === 7 || st.d === 90) p.set('d', String(st.d));
   if (st.caseId) p.set('case', st.caseId);
   return p;
+}
+
+/** "Report something here": the report screen with the place filled in — Report.tsx reads `lat`, `lng` and `q` (the
+ *  address; left out when there is none to show). Without a place, the plain report screen. */
+export function reportHref(p: LatLng | null, q: string): string {
+  if (!p) return '/';
+  const s = new URLSearchParams({ lat: p.lat.toFixed(5), lng: p.lng.toFixed(5) });
+  if (q) s.set('q', q);
+  return `/?${s}`;
 }
 
 /** writeStreetUrl as the address bar's query (no `?`): g's commas stay literal (`g=trash,streets`); everything else as

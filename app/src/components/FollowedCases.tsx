@@ -58,11 +58,12 @@ export default function FollowedCases({ email, onLoaded }: { email?: FollowEmail
   );
 }
 
-/** The /street deep link to a case: `case=` alone opens the card; lat/lng (when placed) frame the map around it. */
+/** The /street deep link to a case: `case=` opens its page; when it is placed, the map view `c=<lat>,<lng>&z=17` frames
+ *  it — a view, not a lat/lng point, which would make the case's own spot "where you are" (2026-10-28 audit). The same
+ *  shape as the follow mail's link (worker/src/cityfollow.ts caseUrl). */
 export function caseHref(c: Pick<FollowedCase, 'id' | 'lat' | 'lng'>): string {
-  const p = new URLSearchParams({ case: c.id });
-  if (c.lat != null && c.lng != null) { p.set('lat', c.lat.toFixed(5)); p.set('lng', c.lng.toFixed(5)); }
-  return `/street?${p}`;
+  const view = c.lat != null && c.lng != null ? `&c=${c.lat.toFixed(4)},${c.lng.toFixed(4)}&z=17` : '';
+  return `/street?case=${encodeURIComponent(c.id)}${view}`;
 }
 
 function Row({ c, nowMs, onUnfollow }: { c: FollowedCase; nowMs: number; onUnfollow: () => void }) {

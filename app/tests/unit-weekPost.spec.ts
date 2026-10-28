@@ -7,20 +7,21 @@ import { DATED, QUIET, WEEK } from './week-mocks';
 // browser: the exact string for the fixture week, then every line that is left out or reworded for an edge.
 
 const BASE = 'https://fixmypvd.org';
-const SUMMARY: WeekSummary = { ...WEEK, days: 7 };
+/** The fixture's numbers as a whole week (compare): the mocked WEEK is the week in progress, which drops "vs last week". */
+const SUMMARY: WeekSummary = { ...WEEK, days: 7, compare: true };
 const post = (over: Partial<WeekSummary> = {}, base = BASE) => weekPostMarkdown({ ...SUMMARY, ...over }, { base });
 const lines = (md: string) => md.split('\n\n');
 
 test('the fixture week, exactly: title with the range, the numbers line, the three lists, the closes, the link and the source', () => {
   expect(post()).toBe([
-    '**This week in Providence (Oct 18 – Oct 25)**',
+    '**This week in Providence (Oct 19 – Oct 25)**',
     '312 requests to 311 (+22 vs last week), 114 closed, median 3.5 days to close.',
     'Most reported: Pothole (61), Street Light Out (44), Missed Trash Pickup (39).',
     'Busiest: Elmhurst (48), West End (41), Downtown (36).',
     // 40 / 114 = 35.1, 30 / 114 = 26.3, 20 / 114 = 17.5 → 18; six outcomes have a count, so the three named end in "…".
     'What closing meant: 35% work done, 26% referred elsewhere, 18% logged in another system…',
     '- Street Light Out, 22 Thayer St (College Hill): "Bulb replaced."\n- Pothole, 10 Angell St (College Hill): "Filled with cold patch; permanent repair scheduled."\n- Graffiti: "Referred to Parks."',
-    "Full week, map and the city's own notes: https://fixmypvd.org/week?until=2026-10-25",
+    "Full week and the city's own notes: https://fixmypvd.org/week?until=2026-10-25",
     "From Providence 311's public request list. Not affiliated with the city.",
   ].join('\n\n'));
 });
@@ -30,7 +31,7 @@ test('a dated week is titled by its seven calendar days and links to its own dat
   expect(lines(md)[0]).toBe('**This week in Providence (Oct 12 – Oct 18)**');
   expect(md).toContain('https://fixmypvd.org/week?until=2026-10-18');
   // The current week reads its range off since/until (Providence days); without them it falls back to untilDate − 6.
-  expect(weekPostRange(SUMMARY)).toBe('Oct 18 – Oct 25');
+  expect(weekPostRange(SUMMARY)).toBe('Oct 19 – Oct 25');
   expect(weekPostRange({ ...SUMMARY, since: '', until: '' })).toBe('Oct 19 – Oct 25');
   expect(weekPostRange({ ...SUMMARY, since: '', until: '', untilDate: '' })).toBe('');
   expect(lines(post({ since: '', until: '', untilDate: '' }))[0]).toBe('**This week in Providence**');
@@ -41,6 +42,8 @@ test('the delta: + for more, − (U+2212) for fewer, "same" for equal; thousands
   expect(lines(post({ prev: { total: 324, closed: 130 } }))[1]).toBe('312 requests to 311 (−12 vs last week), 114 closed, median 3.5 days to close.');
   expect(lines(post({ prev: { total: 312, closed: 130 } }))[1]).toBe('312 requests to 311 (same as last week), 114 closed, median 3.5 days to close.');
   expect(lines(post({ total: 1234, prev: { total: 234, closed: 0 }, closed: 1000 }))[1]).toBe('1,234 requests to 311 (+1,000 vs last week), 1,000 closed, median 3.5 days to close.');
+  // Not two whole weeks (the week in progress, or data that starts mid-week): no change is claimed.
+  expect(lines(post({ compare: false }))[1]).toBe('312 requests to 311, 114 closed, median 3.5 days to close.');
 });
 
 test('singular forms: 1 request, median 1 day (after rounding to a decimal)', () => {
@@ -58,7 +61,7 @@ test('no notable closes → no list: the outcomes line is followed by the link l
   const l = lines(post({ notable: [] }));
   expect(l).toHaveLength(7);
   expect(l[4]).toMatch(/^What closing meant:/);
-  expect(l[5]).toMatch(/^Full week, map/);
+  expect(l[5]).toMatch(/^Full week and the city's own notes:/);
   // More than three closes → only the first three (the Worker sends them newest first).
   const many = SUMMARY.notable.concat([{ ...SUMMARY.notable[0], id: 'n4', street: '1 Extra St' }]);
   expect(lines(post({ notable: many }))[5].split('\n')).toHaveLength(3);
@@ -73,7 +76,7 @@ test('closes: street and neighborhood only when given, the note on one line, no 
   expect(line({ resolution: 'Crew went out.\n\n  Bulb  replaced. ' })).toBe('- Street Light Out, 22 Thayer St (College Hill): "Crew went out. Bulb replaced."');
   expect(line({ resolution: '' })).toBe('- Street Light Out, 22 Thayer St (College Hill)');
   // A blank city type falls back to the group's name.
-  expect(line({ caseType: '', category: 'street_light' })).toBe('- Lights, 22 Thayer St (College Hill): "Bulb replaced."');
+  expect(line({ caseType: '', category: 'street_light' })).toBe('- Lights & wires, 22 Thayer St (College Hill): "Bulb replaced."');
 });
 
 test('outcomes: ranked by share, the dictionary order breaks ties, "." when three or fewer have a count, no line when none closed', () => {
@@ -88,7 +91,7 @@ test('outcomes: ranked by share, the dictionary order breaks ties, "." when thre
 
 test('lists: at most three types and three neighborhoods; a blank city type reads as its group; empty lists are left out', () => {
   expect(lines(post({ topTypes: SUMMARY.topTypes.slice(0, 2) }))[2]).toBe('Most reported: Pothole (61), Street Light Out (44).');
-  expect(lines(post({ topTypes: [{ caseType: '', category: 'pothole', n: 7, prevN: 1 }] }))[2]).toBe('Most reported: Streets (7).');
+  expect(lines(post({ topTypes: [{ caseType: '', category: 'pothole', n: 7, prevN: 1 }] }))[2]).toBe('Most reported: Streets & sidewalks (7).');
   expect(lines(post({ neighborhoods: SUMMARY.neighborhoods.slice(0, 1) }))[3]).toBe('Busiest: Elmhurst (48).');
   const bare = lines(post({ topTypes: [], neighborhoods: [] }));
   expect(bare[2]).toMatch(/^What closing meant:/);
@@ -96,18 +99,18 @@ test('lists: at most three types and three neighborhoods; a blank city type read
 });
 
 test('a quiet week still makes a post: the numbers line and the link, nothing else in between', () => {
-  const md = weekPostMarkdown({ ...QUIET, days: 7 }, { base: BASE });
+  const md = weekPostMarkdown({ ...QUIET, days: 7, compare: true }, { base: BASE });
   expect(lines(md)).toEqual([
-    '**This week in Providence (Oct 18 – Oct 25)**',
+    '**This week in Providence (Oct 19 – Oct 25)**',
     '0 requests to 311 (same as last week), 0 closed.',
-    "Full week, map and the city's own notes: https://fixmypvd.org/week?until=2026-10-25",
+    "Full week and the city's own notes: https://fixmypvd.org/week?until=2026-10-25",
     "From Providence 311's public request list. Not affiliated with the city.",
   ]);
 });
 
 test('labels come from the English dictionary whatever the app language; a caller may pass its own t', () => {
   expect(tEn('week.outcome.no_action')).toBe('Nothing found');
-  expect(tEn('street.g.lights')).toBe('Lights');
+  expect(tEn('group.lights')).toBe('Lights & wires');
   expect(tEn('week.delta.up', { n: 3 })).toBe('3 more than last week');
   expect(tEn('no.such.key')).toBe('no.such.key');
   const md = weekPostMarkdown(SUMMARY, { base: BASE, t: (k) => `<${k}>` });

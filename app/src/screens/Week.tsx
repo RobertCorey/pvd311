@@ -1,39 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getWeek, resetWeekCache, WEEK_OUTCOMES, type WeekHood, type WeekNotable, type WeekSummary } from '../api/week';
+import { getWeek, resetWeekCache, WEEK_OUTCOMES, type WeekHood, type WeekSummary } from '../api/week';
 import { getMe, placedAddresses, updateMe, type Me } from '../api/me';
 import { ApiError } from '../api/types';
 import { useSession } from '../lib/auth';
 import { track } from '../lib/analytics';
 import { useI18n } from '../i18n';
-import { groupOf } from '../lib/categories';
-import { addDays, todayNY, weekLinkProblem, WEEK_TZ as TZ, YMD } from '../lib/week';
+import { GROUP_ICON, groupOf } from '../lib/categories';
+import { addDays, dayNY, todayNY, weekEnd, weekLinkProblem, WEEK_TZ as TZ, YMD } from '../lib/week';
 import { hoodOfSync, hoodSlug, loadNeighborhoods } from '../lib/neighborhoods';
 import { weekPostMarkdown } from '../lib/weekPost';
 import { BRAND } from '../brand';
 import { agoText } from '../components/StreetRow';
+import { caseHref } from '../components/FollowedCases';
 import CategoryIcon from '../components/CategoryIcon';
 import Illustration from '../components/Illustration';
 import '../components/StreetParts.css';
 import './Week.css';
 
 /** /week — "This week in Providence" (Rob, 2026-10-25: "make the app more something you'd want to check in on").
- *  A plain scrolling page anyone can open and share: 7 days of the city's public 311 list against the 7 before
- *  (GET /api/week), every section a door into /street (type → ?g=, neighborhood → ?n=, a close → ?case=), and the
- *  Monday 'week_digest' opt-in (prefs.weekDigest). Ember & Harbor: ink on paper, numbers in Bricolage, the outcome
- *  bar carries the admin insights' validated palette and every share is also written out in text.
+ *  A plain scrolling page anyone can open and share: a Monday–Sunday week of the city's public 311 list against the
+ *  one before (GET /api/week), every section a door into /street on the week's dates (a type group → ?g=, a
+ *  neighborhood → ?n=, a close → ?case=), and the Monday 'week_digest' opt-in (prefs.weekDigest). Ember & Harbor: ink
+ *  on paper, numbers in Bricolage, the outcome bar carries the admin insights' validated palette and every share is
+ *  also written out in text.
  *
- *  Stable links (2026-10-26): `/week?until=YYYY-MM-DD` is the week ending at the end of that Providence day, so a
- *  Monday Reddit post still means the same week on Thursday. Share always copies the dated url (the Worker names
- *  it in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links.
+ *  Weeks (2026-10-28, Rob: Monday–Sunday everywhere, so the page counts what the Monday mail counts): the bare page is
+ *  the week in progress, "Since Monday"; `/week?until=YYYY-MM-DD` is the week holding that Providence day, so a Monday
+ *  Reddit post still means the same week on Thursday. Share always copies the dated url (the Worker names it by its
+ *  Sunday in `untilDate`); a past week is titled by its range and gets ‹ Previous · Next › · Latest week links.
+ *  Previous stops at the week we started reading the city's list (`firstDay`), which says so; "vs last week" shows
+ *  only between two whole weeks (`compare`).
  *
  *  Your neighborhood (2026-10-27): every hood row says "N closed · median X days" (the Worker's per-hood median); signed
- *  in, the hoods of the reader's saved places (api/me placedAddresses — /street's "Your places this week" list) are
+ *  in, the hoods of the reader's saved places (api/me placedAddresses — /street's "Your streets this week" list) are
  *  tagged "Yours" and pinned on top even outside the top 8 or with nothing this week, and the first of them with a median
  *  gets one line against the city's. "Show all N neighborhoods" opens the rest; "Show fewer" scrolls the button back into
  *  view. Each count is "N requests" to a screen reader. */
 
 const HOODS_SHOWN = 8;
+/** "Most reported" rows: the busiest type groups (the skeleton holds six). */
+const TOP_ROWS = 6;
 const FLASH_MS = 2500;
 
 /** Text onto the clipboard, with the old way as a fallback: `navigator.clipboard` is undefined on an insecure origin
@@ -95,23 +102,24 @@ export default function Week() {
   const dayName = (ymd: string) => fromYmd(ymd, { weekday: 'long', month: 'short', day: 'numeric' });
   const median = (d: number | null) => (d == null ? '—' : num(Math.round(d * 10) / 10));
   const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
-  const caseHref = (x: WeekNotable) => {
-    const p = new URLSearchParams({ case: x.id });
-    if (x.lat != null && x.lng != null) { p.set('lat', x.lat.toFixed(5)); p.set('lng', x.lng.toFixed(5)); }
-    return `/street?${p}`;
-  };
   const delta = (now: number, prev: number) => {
+    if (!data?.compare) return null;
     const d = now - prev;
     const k = d > 0 ? 'up' : d < 0 ? 'down' : 'same';
     return <dd className={`week-delta week-delta--${k}`}><span aria-hidden="true">{d > 0 ? '↑' : d < 0 ? '↓' : '→'} </span>{t(`week.delta.${k}`, { n: num(Math.abs(d)) })}</dd>;
   };
 
   /* ── Which week this is ───────────────────────────────────────────────────────────────────────── */
-  /** The week's end date: the Worker's untilDate once loaded, else the url's (a well-formed past date reads as dated
-   *  straight away, so the title does not flip from "This week" after the numbers land). */
-  const untilDate = data?.untilDate || (until && YMD.test(until) ? until : null);
+  /** The week's Sunday: the Worker's untilDate once loaded, else the url's day moved to its Sunday (a well-formed past
+   *  date reads as dated straight away, so the title does not flip from "This week" after the numbers land). */
+  const untilDate = data?.untilDate || (until && YMD.test(until) ? weekEnd(until) : null);
   const dated = data ? !data.current : !!(untilDate && untilDate < todayNY());
   const weekFrom = untilDate ? addDays(untilDate, -6) : null;
+  /** /street on this week's days (Monday to Sunday, or to the day the numbers were counted for the week in progress),
+   *  so a row opens on the same count it shows. */
+  const streetDates = weekFrom && untilDate && data ? `&from=${weekFrom}&to=${dated ? untilDate : dayNY(Date.parse(data.until))}` : '';
+  /** The day we started reading the city's list, when this week reaches back to it (Previous stops here). */
+  const started = data?.firstDay && weekFrom && data.firstDay >= weekFrom ? fromYmd(data.firstDay, { month: 'short', day: 'numeric' }) : null;
   const range = untilDate && weekFrom ? `${fromYmd(weekFrom, { month: 'short', day: 'numeric' })} – ${fromYmd(untilDate, { month: 'short', day: 'numeric' })}` : '';
   const title = dated ? t('week.titleOf', { range }) : t('week.title');
   /** The stable link for this week — what Share copies. The sign-in round trip returns here for a past week and to
@@ -216,8 +224,8 @@ export default function Week() {
   );
 
   /* ── Page ─────────────────────────────────────────────────────────────────────────────────────── */
-  /** ‹ Previous week · Next week › · Latest week — only the links that exist; nothing at all on the current week's
-   *  first page when it has no previous week (never happens: the floor is 56 days back). */
+  /** ‹ Previous week · Next week › · Latest week — only the links that exist; nothing at all for the week in progress
+   *  when it has no previous week (it is the week we started reading the city's list). */
   const weekNav = (o: { prev: string | null; next: string | null; latest: boolean }) => (o.prev || o.next || o.latest ? (
     <nav className="week-nav" aria-label={t('week.nav')}>
       {o.prev && <Link to={`/week?until=${o.prev}`} className="week-nav-link week-nav-prev"><span aria-hidden="true">‹ </span>{t('week.prev')}</Link>}
@@ -231,7 +239,7 @@ export default function Week() {
   const head = (
     <header className="week-head">
       <h1 id="week-title">{title}</h1>
-      {data && !dated && <p className="week-range">{t('week.range', { from: day(data.since), to: day(data.until) })}</p>}
+      {data && !dated && <p className="week-range">{t('week.range', { from: day(data.since) })}</p>}
       {data && dated && weekFrom && untilDate && <p className="week-range">{t('week.rangeOf', { from: fromYmd(weekFrom, { weekday: 'long' }), to: fromYmd(untilDate, { weekday: 'long' }) })}</p>}
       {loading && <p className="week-range week-range--skel" aria-hidden="true"><span /></p>}
       {data && data.total > 0 && actions(false)}
@@ -288,7 +296,9 @@ export default function Week() {
         {head}
         <div className="empty week-quiet">
           <Illustration kind="street" className="illo" />
-          <p>{dated && weekFrom && untilDate ? t('week.quietOf', { from: fromYmd(weekFrom, { month: 'short', day: 'numeric' }), to: fromYmd(untilDate, { month: 'short', day: 'numeric' }) }) : t('week.quiet')}</p>
+          <p>{started ? t('week.started', { date: started })
+            : dated && weekFrom && untilDate ? t('week.quietOf', { from: fromYmd(weekFrom, { month: 'short', day: 'numeric' }), to: fromYmd(untilDate, { month: 'short', day: 'numeric' }) })
+            : t('week.quiet')}</p>
         </div>
         {digestCard}
         <p className="hint week-source">{t('week.source')}</p>
@@ -318,6 +328,7 @@ export default function Week() {
   return (
     <article className="week section" aria-labelledby="week-title">
       {head}
+      {started && <p className="hint week-started">{t('week.started', { date: started })}</p>}
 
       <dl className="week-stats">
         <div className="card week-stat"><dt>{t('week.stat.requests')}</dt><dd className="week-stat-n">{num(data.total)}</dd>{delta(data.total, data.prev.total)}</div>
@@ -325,17 +336,18 @@ export default function Week() {
         <div className="card week-stat"><dt>{t('week.stat.median')}</dt><dd className="week-stat-n">{median(data.medianCloseDays)}</dd></div>
       </dl>
 
-      {data.topTypes.length > 0 && (
+      {data.groups.length > 0 && (
         <section aria-labelledby="week-top-h">
           <h2 id="week-top-h" className="week-h">{t('week.top.title')}</h2>
           <ol className="week-list week-top">
-            {data.topTypes.map((x) => (
-              <li key={`${x.caseType}|${x.category}`}>
-                <Link to={`/street?g=${groupOf(x.category) ?? 'other'}`} className="week-row">
-                  <span className="street-icon"><CategoryIcon k={x.category} size={24} /></span>
+            {/* By type group, the unit /street filters by — a row's count is what it opens on. */}
+            {data.groups.slice(0, TOP_ROWS).map((x) => (
+              <li key={x.group}>
+                <Link to={`/street?g=${x.group}${streetDates}`} className="week-row">
+                  <span className="street-icon"><CategoryIcon k={GROUP_ICON[x.group]} size={24} /></span>
                   <span className="week-row-main">
-                    <span className="week-row-name">{x.caseType || t(`street.g.${groupOf(x.category) ?? 'other'}`)}</span>
-                    <span className="week-row-sub">{t('week.top.last', { n: num(x.prevN) })}</span>
+                    <span className="week-row-name">{t(`group.${x.group}`)}</span>
+                    {data.compare && <span className="week-row-sub">{t('week.top.last', { n: num(x.prevN) })}</span>}
                   </span>
                   <b className="week-row-n"><span className="week-vh">{t('week.top.thisWeek')} </span>{num(x.n)}</b>
                 </Link>
@@ -359,7 +371,7 @@ export default function Week() {
               ].filter(Boolean).join(' · ');
               return (
                 <li key={h.slug}>
-                  <Link to={`/street?n=${encodeURIComponent(h.slug)}`} className={`week-row week-hood${mine ? ' week-hood--yours' : ''}`}>
+                  <Link to={`/street?n=${encodeURIComponent(h.slug)}${streetDates}`} className={`week-row week-hood${mine ? ' week-hood--yours' : ''}`}>
                     <span className="week-hood-name">{h.name}{mine && <>{' '}<span className="week-hood-yours">{t('week.hoods.yours')}</span></>}</span>
                     {/* The count named for a screen reader ("48 requests"), so it never reads as a bare number next to "18 closed". */}
                     {!quiet && <b className="week-row-n"><span aria-hidden="true">{num(h.n)}</span><span className="week-vh">{t(h.n === 1 ? 'week.hoods.requests.one' : 'week.hoods.requests', { n: num(h.n) })}</span></b>}
@@ -372,16 +384,21 @@ export default function Week() {
           </ol>
           {/* The same button element either way, so focus stays on it when the list grows or shrinks above it. Show fewer
               drops up to 17 rows (~1,500 px) above it, and nothing holds the scroll: iOS Safari has no scroll anchoring and
-              Chrome's anchor is one of the removed rows — so once the short list has rendered, the button comes back on screen. */}
+              Chrome's anchor is one of the removed rows — so once the short list has rendered, the button comes back on screen,
+              whole: by whole pixels rounded towards showing all of it (scrollIntoView could leave a fraction past the edge). */}
           {hoodsHidden && (
             <button ref={hoodsMore} type="button" className="btn btn-ghost week-hoods-more" aria-expanded={allHoods} aria-controls="week-hoods-list" onClick={() => {
-              if (allHoods) requestAnimationFrame(() => hoodsMore.current?.scrollIntoView({ block: 'nearest' }));
+              if (allHoods) requestAnimationFrame(() => {
+                const r = hoodsMore.current?.getBoundingClientRect();
+                if (r && r.top < 0) window.scrollBy(0, Math.floor(r.top));
+                else if (r && r.bottom > window.innerHeight) window.scrollBy(0, Math.ceil(r.bottom - window.innerHeight));
+              });
               setAllHoods((v) => !v);
             }}>
               {allHoods ? t('week.hoods.fewer') : t('week.hoods.all', { n: num(pinned.length + others.length) })}
             </button>
           )}
-          {compare && <p className="week-hood-compare">{t('week.hoods.compare', { hood: compare.name, days: daysText(compare.medianCloseDays!), city: num(data.medianCloseDays!) })}</p>}
+          {compare && <p className="week-hood-compare">{t('week.hoods.compare', { hood: compare.name, days: daysText(compare.medianCloseDays!), city: daysText(data.medianCloseDays!) })}</p>}
         </section>
       )}
 
@@ -414,7 +431,7 @@ export default function Week() {
                   <Link to={caseHref(x)} className="week-row week-done-row">
                     <span className="street-icon"><CategoryIcon k={x.category} size={24} /></span>
                     <span className="week-row-main">
-                      <span className="street-type">{x.caseType || t(`street.g.${groupOf(x.category) ?? 'other'}`)}</span>
+                      <span className="street-type">{x.caseType || t(`group.${groupOf(x.category) ?? 'other'}`)}</span>
                       <span className="street-addr">{[x.street || t('street.noStreet'), x.neighborhood].filter(Boolean).join(' · ')}</span>
                       {when && <span className="street-when">{t('street.when.closed', { when })}</span>}
                       <span className="street-note">{x.resolution}</span>

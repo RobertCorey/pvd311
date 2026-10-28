@@ -88,11 +88,14 @@ Email is **not** on this screen (kept minimal for speed) — it's offered on the
 - **"What to expect"** — plain copy, grounded in the city's public feed (Sep 21–28 2026: of 193 requests 4–7 days old, 47% Resolved, 41% Assigned/In Progress): a crew is usually assigned within a day, about half are resolved within a week, some take longer; you'll get email if you added one; this record is public on the city feed. The case id is plain text: the portal has no per-case public URL (the /public-requests/ row detail is a client-side modal), so there is nothing to deep-link (Rob, 2026-09-29).
 - **States:** `pending_send` (offline/queued), `sent_awaiting_caseid`, `submitted`, `assigned`, `resolved`, `cancelled`, `needs_attention` (HITL rejected / submit failed). **Cancelled** shows an explainer (often duplicate / out-of-scope) + a "report again with more detail" nudge. No PII beyond what the reporter entered; the page is reachable only via the unguessable token.
 
-### 3.4 Public map — CUT (Rob, 2026-08-22: "half baked… keep focused")
+### 3.4 The Map (`/street`), the week (`/week`) and Account → Updates
 
-No `/map` page. What survives from it:
-- **Dedupe prompt** fires inline on the report screen once location is set (`GET /api/nearby`, 75 m same category): *"Already reported nearby — pothole on Benefit St, 2 days ago."* Actions: **View that report** / **Report anyway.**
-- Backend `/api/public-feed` + the city-feed scrape stay (they feed nearby + the watcher); no UI consumes the feed.
+The August `/map` (our own reports) was cut (Rob, 2026-08-22); since 2026-10-25 the city's whole public list is the map:
+- **`/street` — the Map tab.** Every case on Providence 311's public request list (`GET /api/street/map`), pinned by the street the city gives, with filters (Show · When · Type), a neighborhood view (`?n=`, counted inside its outline), and a full case page (`?case=`). An address view offers "Email me Mondays about this street". A geocode outside the city line is listed but not pinned.
+- **`/week` — "This week in Providence".** Monday–Sunday weeks of the same list (`GET /api/week`): totals, the busiest type groups and neighborhoods, what closing meant, the city's own closing notes; past weeks by `?until=`; "Copy as post" for r/providence.
+- **The Monday emails.** One per saved street that is switched on ("This week near …") and the citywide week ("This week in Providence") — both the Monday–Sunday week that just ended.
+- **Account → Updates** (`/account/updates`) is the one place for every subscription: your reports' status emails, your streets and their Monday emails, requests you follow, the Monday city email, and this phone's notifications. Every resident email's footer links there.
+- The **dedupe prompt** still fires inline on the report screen once location is set (`GET /api/nearby`, 75 m same category).
 
 ### 3.5 About / Privacy (`/about`)
 

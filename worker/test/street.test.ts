@@ -14,6 +14,8 @@ import type { Env, Mailer, PushSub, Store, UserDoc } from '../src/contracts.js';
 // Angell St / Thayer St corner (41.8282, -71.4005) as "home"; cases are placed by hand around it.
 const HOME = { lat: 41.8282, lng: -71.4005 };
 const NOW = Date.parse('2026-10-25T12:00:00Z');
+/** The Monday digest run: the week that ended yesterday, Mon Oct 19 – Sun Oct 25, holds the rows dated from NOW. */
+const MONDAY = Date.parse('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
 
 const row = (id: string, o: Record<string, unknown> = {}) => ({
@@ -124,13 +126,15 @@ describe('weekly digest', () => {
     const quiet = user({ uid: 'u2', email: 'far@example.com', addresses: [{ id: 'b', label: 'Work', address: '1 Far Away Rd', lat: 41.84, lng: -71.41 }] });
     const unverified = user({ uid: 'u3', email: 'x@example.com', emailVerified: false });
     const d = deps([user(), quiet, unverified], rows);
-    const r = await runStreetDigest(env, d.store, d.mailer, { now: NOW });
+    const r = await runStreetDigest(env, d.store, d.mailer, { now: MONDAY });
     expect(r).toEqual({ users: 3, mailed: 1, pushed: 0 });
     expect(d.sent).toHaveLength(1);
     expect(d.sent[0]).toMatchObject({ to: 'me@example.com', subject: 'This week near Home: 2 new, 1 closed', kind: 'street_digest' });
     expect(d.sent[0].html).toContain('Street Light Out');
     expect(d.sent[0].html).toContain('Bulb replaced');
-    expect(d.sent[0].html).toContain(streetUrl('https://fixmypvd.org', { lat: HOME.lat, lng: HOME.lng, address: '12 Angell St' }).replace(/&/g, '&amp;'));
+    // "See everything near here" opens the map on the week the mail counted, not the page's default 30 days.
+    expect(d.sent[0].html).toContain(streetUrl('https://fixmypvd.org', { lat: HOME.lat, lng: HOME.lng, address: '12 Angell St' }, { from: '2026-10-19', to: '2026-10-25' }).replace(/&/g, '&amp;'));
+    expect(d.sent[0].html).toContain('&amp;from=2026-10-19&amp;to=2026-10-25');
     // Settings live only in Account → Updates (2026-10-28): the footer links there, not to the street page.
     expect(d.sent[0].html).toContain('You asked for this weekly email on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>.');
     expect(d.sent[0].html).not.toMatch(/Turn off|Hear about this street/);
@@ -142,7 +146,7 @@ describe('weekly digest', () => {
     // Meanwhile the resident turned Work off in Account → Updates and added a third street.
     fresh.set('u1', { ...before, addresses: [{ ...before.addresses[0] }, { ...before.addresses[1], digest: false }, { id: 'a3', label: 'Gym', address: '1 Main St', digest: false }] });
     const d = deps([before], [row('p1')]);
-    await runStreetDigest(env, d.store, d.mailer, { now: NOW });
+    await runStreetDigest(env, d.store, d.mailer, { now: MONDAY });
     const written = (d.patched[0] as { addresses: Record<string, unknown>[] }).addresses;
     expect(written.map((a) => [a.id, a.digest])).toEqual([['a1', true], ['a2', false], ['a3', false]]);
     expect(written[0].lat).not.toBeNull();
@@ -154,7 +158,7 @@ describe('weekly digest', () => {
     const d = deps([user({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: null, lng: null }] })], [row('p1')]);
     (d.store as any).getMeta = vi.fn(async () => null);
     try {
-      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 0 });
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: MONDAY })).toEqual({ users: 1, mailed: 1, pushed: 0 });
       expect(d.patched[0]).toEqual({ addresses: [{ id: 'a1', label: 'Home', address: '12 Angell St', lat: HOME.lat, lng: HOME.lng }] });
     } finally { vi.unstubAllGlobals(); }
   });
@@ -169,7 +173,7 @@ describe('weekly digest', () => {
 
     it('mails and pushes only the addresses that are on, whatever the old account-wide pref says', async () => {
       const d = deps([user({ addresses: [home(false), work(true)], push: [sub] })], rows());
-      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 1, pushed: 1 });
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: MONDAY })).toEqual({ users: 1, mailed: 1, pushed: 1 });
       expect(d.sent[0].subject).toBe('This week near Work: 1 new, 0 closed');
       expect(d.sent[0].html).toContain('Dorrance');
       expect(d.sent[0].html).not.toContain('10 Angell St');
@@ -178,17 +182,17 @@ describe('weekly digest', () => {
 
     it('an account whose addresses are all off gets nothing — no rows read, no mail, no push', async () => {
       const d = deps([user({ addresses: [home(false), work(false)], push: [sub] })], rows());
-      expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 1, mailed: 0, pushed: 0 });
+      expect(await runStreetDigest(env, d.store, d.mailer, { now: MONDAY })).toEqual({ users: 1, mailed: 0, pushed: 0 });
       expect(d.store.listCityCasesSince).not.toHaveBeenCalled();
       expect(pushAll).not.toHaveBeenCalled();
     });
 
     it('migration: an address without a flag follows the old prefs.streetDigest — on means both, off means neither', async () => {
       const on = deps([user({ addresses: [home(), work()] })], rows());
-      expect(await runStreetDigest(env, on.store, on.mailer, { now: NOW })).toMatchObject({ mailed: 1 });
-      expect(on.sent[0].subject).toBe('This week near 2 of your addresses: 2 new, 0 closed');
+      expect(await runStreetDigest(env, on.store, on.mailer, { now: MONDAY })).toMatchObject({ mailed: 1 });
+      expect(on.sent[0].subject).toBe('This week near 2 of your streets: 2 new, 0 closed');
       const off = deps([user({ prefs: { emailUpdates: true }, addresses: [home(), work(true)] })], rows());
-      await runStreetDigest(env, off.store, off.mailer, { now: NOW });
+      await runStreetDigest(env, off.store, off.mailer, { now: MONDAY });
       expect(off.sent[0].subject).toBe('This week near Work: 1 new, 0 closed');
     });
 
@@ -199,7 +203,7 @@ describe('weekly digest', () => {
       (d.store as any).getMeta = vi.fn(async () => null);
       (d.store as any).setMeta = vi.fn(async () => {});
       try {
-        expect(await runStreetDigest(env, d.store, d.mailer, { now: NOW })).toMatchObject({ mailed: 1 });
+        expect(await runStreetDigest(env, d.store, d.mailer, { now: MONDAY })).toMatchObject({ mailed: 1 });
         expect(fetch).toHaveBeenCalledTimes(1);
         expect(d.patched[0]).toEqual({ addresses: [{ ...home(false), lat: null, lng: null }, work(true)] });
       } finally { vi.unstubAllGlobals(); }
@@ -211,8 +215,8 @@ describe('weekly digest', () => {
     const m = streetDigestEmail([
       { label: 'Home', address: '12 Angell St', url: 'https://x/1', items },
       { label: 'Work', address: '1 Dorrance St', url: 'https://x/2', items },
-    ], { base: 'https://fixmypvd.org', since: daysAgo(7) });
-    expect(m.subject).toBe('This week near 2 of your addresses: 2 new, 0 closed');
+    ], { base: 'https://fixmypvd.org', since: daysAgo(7), until: new Date(NOW).toISOString() });
+    expect(m.subject).toBe('This week near 2 of your streets: 2 new, 0 closed');
     expect(m.html).toContain('https://x/2');
   });
 });
@@ -480,6 +484,24 @@ describe('GET /api/street/map', () => {
     expect(j).toMatchObject({ v: 1, days: 30, total: 2, located: 1, truncated: false });
     expect(j.items).toHaveLength(2);
     expect(j.items[0]).toHaveLength(9);
+  });
+
+  it('a case geocoded outside the city line is listed and counted, but not placed (2026-10-28: "150 Friendship St" in North Providence)', async () => {
+    const s = store([row('in'), row('np', { street: '150 Friendship St', lat: 41.862, lng: -71.444 }), row('edge', { lat: 41.8372, lng: -71.3725 })]);
+    const j = await (await handleStreetMap(new URL('https://api.test/api/street/map'), s, NOW)).json() as { total: number; located: number; items: MapItem[] };
+    expect(j).toMatchObject({ total: 3, located: 2 });
+    const byId = Object.fromEntries(j.items.map((x) => [x[0], x]));
+    expect([byId.np[5], byId.np[6]]).toEqual([null, null]);
+    expect(byId.edge[5]).toBe(41.8372);   // ~50 m past the simplified ring: still the city
+  });
+
+  it('firstDay: the New York day of the oldest case when the read reaches back past it; null when the read is full', async () => {
+    const rows = [row('a'), row('first', { createdAt: '2026-10-10T14:00:00Z' })];
+    const j = await (await handleStreetMap(new URL('https://api.test/api/street/map'), store(rows), NOW)).json() as { firstDay: string | null };
+    expect(j.firstDay).toBe('2026-10-10');
+    resetStreetCache();
+    const full = Array.from({ length: LOAD_LIMIT }, (_, i) => row(`r${i}`));
+    expect((await (await handleStreetMap(new URL('https://api.test/api/street/map'), store(full), NOW)).json() as { firstDay: string | null }).firstDay).toBeNull();
   });
 
   it('shares one listCityCasesSince read across two map calls and a following /api/street call for the same window', async () => {

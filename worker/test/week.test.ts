@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { weekSummary, medianDays, handleWeek, weekDigestEmail, weekDigestPush, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, readerHoods, addDays, daysBetween, isYmd, deltaText, dayInNewYork, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, PLACES_MAX, WEEK_OUTCOMES, YOUR_HOODS_N, type WeekSummary, type WeekWindow } from '../src/week.js';
+import { weekSummary, medianDays, handleWeek, weekDigestEmail, weekDigestPush, weekPostAdminEmail, runWeekDigest, resetWeekCache, resolveWindow, readerHoods, addDays, weekEnd, isYmd, deltaText, dayInNewYork, saysNothing, ARCHIVE_DAYS, ARCHIVE_LOAD_LIMIT, MAX_LOAD_DAYS, NOTABLE_RES_MAX, NOTABLE_N, PLACES_MAX, WEEK_OUTCOMES, YOUR_HOODS_N, type WeekSummary, type WeekWindow } from '../src/week.js';
 import { resetStreetCache, LOAD_LIMIT } from '../src/street.js';
 import { hoodOf, hoodSlug, NEIGHBORHOODS, NEIGHBORHOOD_NAMES } from '../../shared/neighborhoods.js';
 import { weekPostMarkdown, OUTCOME_LABELS_EN, GROUP_LABELS_EN } from '../../shared/weekPost.js';
@@ -8,9 +8,12 @@ import { inferKind, toText } from '../src/emaillog.js';
 import { MAX_PLAINTEXT } from '../src/push.js';
 import type { Env, Mailer, Store, UserDoc } from '../src/contracts.js';
 
-// Sunday 2026-10-25 12:00 UTC (08:00 EDT): "this week" = Oct 18 12:00Z → now, "last week" = Oct 11 → Oct 18.
+// Sunday 2026-10-25 12:00 UTC (08:00 EDT): "this week" = Mon Oct 19 00:00 EDT → now (the week in progress), "last week"
+// = Mon Oct 12 → Sun Oct 18. MONDAY is the next morning, when Oct 19–25 is a whole week.
 const NOW = Date.parse('2026-10-25T12:00:00Z');
+const MONDAY = Date.parse('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
+const MON_OCT_19 = '2026-10-19T04:00:00.000Z';
 
 // Real Providence points, verified against the rings: Brown's main green (College Hill), Providence College (Elmhurst).
 const COLLEGE_HILL = { lat: 41.8262, lng: -71.4032 };
@@ -58,9 +61,9 @@ describe('weekSummary', () => {
       row('DRAFT-caps', { status: 'DRAFT', createdAt: daysAgo(1) }),
     ];
     const s = weekSummary(rows, { now: NOW });
-    expect(s).toMatchObject({ days: 7, since: daysAgo(7), until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), total: 5, open: 3, closed: 2, located: 4, prev: { total: 3, closed: 1 } });
-    // The current week also says which dated link it is, and that it ends now.
-    expect(s).toMatchObject({ untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true });
+    expect(s).toMatchObject({ days: 7, since: MON_OCT_19, until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), total: 5, open: 3, closed: 2, located: 4, prev: { total: 3, closed: 1 } });
+    // The current week also says which dated link it is (its Sunday), that it is in progress — so no "vs last week".
+    expect(s).toMatchObject({ untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true, compare: false, firstDay: null });
   });
 
   it('a case created 10 days ago and closed 2 days ago is in both weeks — a new request last week, a close this week (prev uses the same rule)', () => {
@@ -102,6 +105,28 @@ describe('weekSummary', () => {
     ]);
     expect(s.topTypes[0].category).toBe('cat0');
     expect(s.prev.total).toBe(3);
+  });
+
+  it('groups: every type group with a case this week (by its category; none → other), n desc, last week beside each', () => {
+    const rows = [
+      row('p1'), row('p2'),
+      row('sl', { caseType: 'Street Light Out', category: 'street_light' }),
+      row('odd', { caseType: 'Odd', category: 'nope' }),
+      row('prev-sl', { caseType: 'Street Light Out', category: 'street_light', createdAt: daysAgo(9), firstSeenAt: daysAgo(9) }),
+    ];
+    expect(weekSummary(rows, { now: NOW }).groups).toEqual([{ group: 'streets', n: 2, prevN: 0 }, { group: 'lights', n: 1, prevN: 1 }, { group: 'other', n: 1, prevN: 0 }]);
+  });
+
+  it('"what got done" leaves out closes whose note says nothing — "No information provided", a bare duplicate pointer — and still counts them', () => {
+    for (const n of ['No information provided', 'No Information Provided.', 'Duplicate, see parent case', 'Duplicate', 'duplicate of PVD2026-12345']) expect(saysNothing(n), n).toBe(true);
+    for (const n of ['Filled.', 'Duplicate request. Crew already scheduled to remove the tree next week.', 'Bulb replaced']) expect(saysNothing(n), n).toBe(false);
+    const s = weekSummary([
+      closedRow('none', 3, 1, { detail: { resolutionDate: daysAgo(1), resolution: 'No information provided' } }),
+      closedRow('dup', 3, 1, { detail: { resolutionDate: daysAgo(1), resolution: 'Duplicate, see parent case' } }),
+      closedRow('real', 3, 1),
+    ], { now: NOW });
+    expect(s.notable.map((n) => n.id)).toEqual(['real']);
+    expect(s.closed).toBe(3);
   });
 
   it('groups located cases by neighborhood over the real rings, n desc; unlocated cases count but join no hood', () => {
@@ -261,8 +286,10 @@ describe('GET /api/week', () => {
     expect(r.headers.get('content-type')).toBe('application/json');
     expect(r.headers.get('cache-control')).toBe('public, max-age=300');
     const j = await r.json() as WeekSummary;
-    expect(j).toMatchObject({ days: 7, total: 2, open: 1, closed: 1, located: 2, prev: { total: 2, closed: 0 }, since: daysAgo(7), until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true });
-    expect(Object.keys(j).sort()).toEqual(['at', 'busiestDay', 'closed', 'current', 'days', 'located', 'medianCloseDays', 'neighborhoods', 'nextUntil', 'notable', 'open', 'outcomes', 'prev', 'prevUntil', 'since', 'topTypes', 'total', 'until', 'untilDate'].sort());
+    expect(j).toMatchObject({ days: 7, total: 2, open: 1, closed: 1, located: 2, prev: { total: 2, closed: 0 }, since: MON_OCT_19, until: new Date(NOW).toISOString(), at: new Date(NOW).toISOString(), untilDate: '2026-10-25', prevUntil: '2026-10-18', nextUntil: null, current: true });
+    // The read reaches 74 days back and its oldest case is Oct 15: that is when the data starts (street.ts firstCaseDay).
+    expect(j).toMatchObject({ firstDay: '2026-10-15', compare: false, groups: [{ group: 'streets', n: 2, prevN: 2 }] });
+    expect(Object.keys(j).sort()).toEqual(['at', 'busiestDay', 'closed', 'compare', 'current', 'days', 'firstDay', 'groups', 'located', 'medianCloseDays', 'neighborhoods', 'nextUntil', 'notable', 'open', 'outcomes', 'prev', 'prevUntil', 'since', 'topTypes', 'total', 'until', 'untilDate'].sort());
     const r2 = await handleWeek(url, s, NOW + 60_000);
     expect(((await r2.json()) as WeekSummary).at).toBe(new Date(NOW).toISOString());   // served from the isolate cache
     expect((s.listCityCasesSince as any).mock.calls).toHaveLength(1);
@@ -285,26 +312,34 @@ describe('GET /api/week', () => {
 describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
   const iso = (s: string) => new Date(Date.parse(s)).toISOString();
 
-  it('calendar helpers: addDays / daysBetween / isYmd', () => {
+  it('calendar helpers: addDays / weekEnd / isYmd', () => {
     expect(addDays('2026-10-25', -7)).toBe('2026-10-18');
     expect(addDays('2026-10-25', -56)).toBe('2026-08-30');
     expect(addDays('2026-12-28', 7)).toBe('2027-01-04');
-    expect(daysBetween('2026-10-25', '2026-08-30')).toBe(56);
-    expect(daysBetween('2026-10-25', '2026-10-25')).toBe(0);
+    // The Sunday ending each day's Monday–Sunday week; a Sunday is its own.
+    expect(weekEnd('2026-10-19')).toBe('2026-10-25');   // Monday
+    expect(weekEnd('2026-10-21')).toBe('2026-10-25');
+    expect(weekEnd('2026-10-25')).toBe('2026-10-25');   // Sunday
+    expect(weekEnd('2026-12-29')).toBe('2027-01-03');
     expect(isYmd('2026-10-18')).toBe(true);
     for (const bad of ['2026-02-30', '2026-10-1', '20261018', 'garbage', '2026-13-01', '', '2026-10-18T00:00:00Z']) expect(isYmd(bad), bad).toBe(false);
   });
 
-  it('resolveWindow: omitted, empty or today → the current week ending now, with the dated form beside it', () => {
-    for (const until of [null, undefined, '', '2026-10-25']) {
+  it('resolveWindow: omitted, empty or a day of this week → the week in progress, Monday 00:00 → now, named by its Sunday', () => {
+    for (const until of [null, undefined, '', '2026-10-25', '2026-10-19', '2026-10-22']) {
       const w = resolveWindow(until, NOW) as WeekWindow;
-      expect(w).toMatchObject({ untilDate: '2026-10-25', current: true, prevUntil: '2026-10-18', nextUntil: null, daysBack: 0, since: NOW - 7 * 86_400_000, until: NOW, untilX: Number.POSITIVE_INFINITY, prevSince: NOW - 14 * 86_400_000 });
+      expect(w).toMatchObject({ untilDate: '2026-10-25', current: true, prevUntil: '2026-10-18', nextUntil: null, since: Date.parse(MON_OCT_19), until: NOW, untilX: Date.parse('2026-10-26T04:00:00Z'), prevSince: Date.parse('2026-10-12T04:00:00Z') });
     }
+    // Mid-week the week is named by the coming Sunday — the link Share copies, which becomes the whole week when it ends.
+    const wednesday = Date.parse('2026-10-28T15:00:00Z');
+    expect(resolveWindow(null, wednesday)).toMatchObject({ untilDate: '2026-11-01', current: true, prevUntil: '2026-10-25', nextUntil: null, since: Date.parse('2026-10-26T04:00:00Z'), until: wednesday });
+    expect(resolveWindow('2026-11-01', wednesday)).toMatchObject({ untilDate: '2026-11-01', current: true });
   });
 
-  it('resolveWindow: a past date is 00:00 of untilDate − 6 → 23:59:59.999 of untilDate, New York; prev/next step by 7 days', () => {
+  it('resolveWindow: a past date is the Monday–Sunday week holding it, 00:00 Monday → 23:59:59.999 Sunday, New York; prev/next step by 7 days', () => {
     const w = resolveWindow('2026-10-18', NOW) as WeekWindow;
-    expect(w).toMatchObject({ untilDate: '2026-10-18', current: false, prevUntil: '2026-10-11', nextUntil: '2026-10-25', daysBack: 7 });
+    expect(w).toMatchObject({ untilDate: '2026-10-18', current: false, prevUntil: '2026-10-11', nextUntil: '2026-10-25' });
+    expect(resolveWindow('2026-10-14', NOW)).toEqual(w);   // a Wednesday of that week: the same week
     expect(new Date(w.since).toISOString()).toBe('2026-10-12T04:00:00.000Z');       // Mon Oct 12 00:00 EDT
     expect(new Date(w.untilX).toISOString()).toBe('2026-10-19T04:00:00.000Z');      // Mon Oct 19 00:00 EDT (exclusive)
     expect(new Date(w.until).toISOString()).toBe('2026-10-19T03:59:59.999Z');       // Sun Oct 18 23:59:59.999 EDT
@@ -313,38 +348,39 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
   });
 
   it('resolveWindow across DST: the week that falls back is 169 h, the one that springs forward 167 h — still 7 calendar days', () => {
-    // DST ends Sun Nov 1 2026 02:00 → the week Nov 1–7 starts in EDT and ends in EST.
-    const fall = resolveWindow('2026-11-07', Date.parse('2026-11-10T12:00:00Z')) as WeekWindow;
-    expect(new Date(fall.since).toISOString()).toBe('2026-11-01T04:00:00.000Z');    // 00:00 EDT
-    expect(new Date(fall.until).toISOString()).toBe('2026-11-08T04:59:59.999Z');    // 23:59:59.999 EST
+    // DST ends Sun Nov 1 2026 02:00 → the week Oct 26 – Nov 1 starts in EDT and ends in EST.
+    const fall = resolveWindow('2026-11-01', Date.parse('2026-11-10T12:00:00Z')) as WeekWindow;
+    expect(new Date(fall.since).toISOString()).toBe('2026-10-26T04:00:00.000Z');    // Mon 00:00 EDT
+    expect(new Date(fall.until).toISOString()).toBe('2026-11-02T04:59:59.999Z');    // Sun 23:59:59.999 EST
     expect(fall.untilX - fall.since).toBe(169 * 3_600_000);
-    expect(dayInNewYork(fall.since)).toBe('2026-11-01'); expect(dayInNewYork(fall.until)).toBe('2026-11-07');
-    // DST starts Sun Mar 8 2026 02:00 → the week Mar 8–14 is an hour short.
-    const spring = resolveWindow('2026-03-14', Date.parse('2026-03-20T12:00:00Z')) as WeekWindow;
-    expect(new Date(spring.since).toISOString()).toBe('2026-03-08T05:00:00.000Z');  // 00:00 EST
-    expect(new Date(spring.until).toISOString()).toBe('2026-03-15T03:59:59.999Z');  // 23:59:59.999 EDT
+    expect(dayInNewYork(fall.since)).toBe('2026-10-26'); expect(dayInNewYork(fall.until)).toBe('2026-11-01');
+    // DST starts Sun Mar 8 2026 02:00 → the week Mar 2–8 is an hour short.
+    const spring = resolveWindow('2026-03-08', Date.parse('2026-03-20T12:00:00Z')) as WeekWindow;
+    expect(new Date(spring.since).toISOString()).toBe('2026-03-02T05:00:00.000Z');  // Mon 00:00 EST
+    expect(new Date(spring.until).toISOString()).toBe('2026-03-09T03:59:59.999Z');  // Sun 23:59:59.999 EDT
     expect(spring.untilX - spring.since).toBe(167 * 3_600_000);
-    expect(dayInNewYork(spring.since)).toBe('2026-03-08'); expect(dayInNewYork(spring.until)).toBe('2026-03-14');
+    expect(dayInNewYork(spring.since)).toBe('2026-03-02'); expect(dayInNewYork(spring.until)).toBe('2026-03-08');
   });
 
-  it('resolveWindow: the archive floor is 56 days back from today (NY); prevUntil is null there; older → too_old', () => {
+  it('resolveWindow: the archive floor is 56 days back from today (NY): the week ending on or after it is the oldest; prevUntil is null there; older → too_old', () => {
     expect(ARCHIVE_DAYS).toBe(56);
     const floor = resolveWindow('2026-08-30', NOW) as WeekWindow;
-    expect(floor).toMatchObject({ untilDate: '2026-08-30', current: false, prevUntil: null, nextUntil: '2026-09-06', daysBack: 56 });
-    expect(resolveWindow('2026-08-29', NOW)).toBe('too_old');
+    expect(floor).toMatchObject({ untilDate: '2026-08-30', current: false, prevUntil: null, nextUntil: '2026-09-06' });
+    expect(resolveWindow('2026-08-24', NOW)).toEqual(floor);   // its Monday
+    expect(resolveWindow('2026-08-23', NOW)).toBe('too_old');
     expect(resolveWindow('2025-10-25', NOW)).toBe('too_old');
     // One step above the floor still has a previous week.
     expect((resolveWindow('2026-09-06', NOW) as WeekWindow).prevUntil).toBe('2026-08-30');
   });
 
-  it('resolveWindow: a malformed or future date is invalid_until — "today" is New York\'s, not UTC\'s', () => {
+  it('resolveWindow: a malformed date or one after this week is invalid_until — "today" is New York\'s, not UTC\'s', () => {
     for (const bad of ['2026-10-26', '2027-01-01', 'garbage', '2026-02-30', '2026-10-1', '20261018', 'null']) expect(resolveWindow(bad, NOW), bad).toBe('invalid_until');
     // 02:00Z on Oct 26 is still Sunday Oct 25 22:00 in Providence: Oct 26 is a future date, Oct 25 the current week.
     const late = Date.parse('2026-10-26T02:00:00Z');
     expect(resolveWindow('2026-10-26', late)).toBe('invalid_until');
     expect(resolveWindow('2026-10-25', late)).toMatchObject({ untilDate: '2026-10-25', current: true });
     expect(resolveWindow(null, late)).toMatchObject({ untilDate: '2026-10-25', current: true, prevUntil: '2026-10-18' });
-    expect(resolveWindow('2026-10-24', late)).toMatchObject({ untilDate: '2026-10-24', current: false, nextUntil: null }); // Oct 31 would be after today
+    expect(resolveWindow('2026-10-24', late)).toMatchObject({ untilDate: '2026-10-25', current: true });  // Saturday: this week
   });
 
   it('weekSummary(until): membership ends at the NY day end; a case created in the week and closed after it was open then; prev by the same calendar rule', () => {
@@ -372,10 +408,11 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
     expect(s.topTypes).toEqual([{ caseType: 'Pothole', category: 'pothole', n: 4, prevN: 2 }]);
     // busiestDay only counts creations inside the window; a three-way tie goes to the latest NY day.
     expect(s.busiestDay).toEqual({ date: '2026-10-18', n: 1 });
-    // The same rows seen from the current week (Oct 18 12:00Z → now): 'late', 'after' and the Oct 20 close are this
-    // week's and closed-after is closed now; last week by the 168-h rule holds early, before, closed-in, closed-after.
+    // The same rows seen from the week in progress (Mon Oct 19 00:00 EDT → now): 'after' and the Oct 20 close are this
+    // week's; last week is the dated week above — early, late, closed-in and closed-after (created then).
     const cur = weekSummary(rows, { now: NOW });
-    expect(cur).toMatchObject({ total: 3, open: 2, closed: 1, prev: { total: 4, closed: 1 } });
+    expect(cur).toMatchObject({ total: 2, open: 1, closed: 1, prev: { total: 4, closed: 1 } });
+    expect(cur.prev.total).toBe(s.total);
     expect(cur.notable.map((n) => n.id)).toEqual(['closed-after']);
   });
 
@@ -401,7 +438,8 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
       expect(r.status).toBe(200);
       expect(r.headers.get('cache-control')).toBe('public, max-age=300');
       const j = await r.json() as WeekSummary;
-      expect(j).toMatchObject({ untilDate: '2026-10-18', prevUntil: '2026-10-11', nextUntil: '2026-10-25', current: false, total: 1, since: '2026-10-12T04:00:00.000Z', until: '2026-10-19T03:59:59.999Z' });
+      // The store's first case is Oct 15: this is the first week with data — no Previous, no "vs last week".
+      expect(j).toMatchObject({ untilDate: '2026-10-18', prevUntil: null, nextUntil: '2026-10-25', current: false, total: 1, since: '2026-10-12T04:00:00.000Z', until: '2026-10-19T03:59:59.999Z', firstDay: '2026-10-15', compare: false });
       expect(sinceArg(s, 0)).toBe(sinceDays(MAX_LOAD_DAYS + 60));
       expect((s.listCityCasesSince as any).mock.calls[0][1]).toBe(ARCHIVE_LOAD_LIMIT);
       expect(ARCHIVE_LOAD_LIMIT).toBe(2 * LOAD_LIMIT);
@@ -436,9 +474,9 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
       const lateSunday = Date.parse('2026-10-26T03:59:00Z');   // Sun Oct 25 23:59 EDT
       const earlyMonday = Date.parse('2026-10-26T04:01:00Z');  // Mon Oct 26 00:01 EDT, inside the 5-minute TTL
       expect(((await (await get(s, '', lateSunday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-25', current: true, nextUntil: null });
-      expect(((await (await get(s, '', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-26', prevUntil: '2026-10-19', current: true, nextUntil: null });
-      // And Sunday's dated link now resolves as a past, full-day week (its own entry).
-      expect(((await (await get(s, '?until=2026-10-25', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-25', current: false, nextUntil: null, until: '2026-10-26T03:59:59.999Z' });  // Nov 1 is still ahead
+      expect(((await (await get(s, '', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-11-01', prevUntil: '2026-10-25', current: true, nextUntil: null, since: '2026-10-26T04:00:00.000Z' });
+      // And Sunday's dated link now resolves as a past, whole week (its own entry), the week in progress next.
+      expect(((await (await get(s, '?until=2026-10-25', earlyMonday)).json()) as WeekSummary)).toMatchObject({ untilDate: '2026-10-25', current: false, nextUntil: '2026-11-01', until: '2026-10-26T03:59:59.999Z' });
     });
 
     it('the floor week loads 70 days (+60 lookback); beyond it 400 too_old; a malformed or future date 400 invalid_until', async () => {
@@ -448,7 +486,7 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
       expect(((await r.json()) as WeekSummary)).toMatchObject({ untilDate: '2026-08-30', prevUntil: null, nextUntil: '2026-09-06', current: false });
       expect(MAX_LOAD_DAYS).toBe(70);
       expect(sinceArg(s, 0)).toBe(sinceDays(70 + 60));
-      for (const [q, error] of [['?until=2026-08-29', 'too_old'], ['?until=2026-10-26', 'invalid_until'], ['?until=nope', 'invalid_until'], ['?until=2026-02-30', 'invalid_until']] as const) {
+      for (const [q, error] of [['?until=2026-08-23', 'too_old'], ['?until=2026-10-26', 'invalid_until'], ['?until=nope', 'invalid_until'], ['?until=2026-02-30', 'invalid_until']] as const) {
         const bad = await get(s, q);
         expect(bad.status, q).toBe(400);
         expect(bad.headers.get('content-type')).toBe('application/json');
@@ -459,8 +497,12 @@ describe('dated weeks — ?until=YYYY-MM-DD (New York calendar days)', () => {
   });
 });
 
+/** A whole week for the mail tests: Mon Oct 19 – Sun Oct 25, read the next morning (the rows are dated from NOW). */
+const wholeWeek = (rows: Record<string, unknown>[], o: { hoodOf?: (lat: number, lng: number) => string | null; firstDay?: string } = {}): WeekSummary =>
+  weekSummary(rows, { now: MONDAY, until: '2026-10-25', ...o });
+
 describe('the Monday mail', () => {
-  const summary = (): WeekSummary => weekSummary([
+  const summary = (): WeekSummary => wholeWeek([
     row('p1', { createdAt: daysAgo(1), firstSeenAt: daysAgo(1) }),
     row('p2', { createdAt: daysAgo(2), firstSeenAt: daysAgo(2) }),
     row('sl', { caseType: 'Street Light Out', category: 'street_light', ...ELMHURST }),
@@ -470,7 +512,7 @@ describe('the Monday mail', () => {
     closedRow('prev-closed', 12, 9),
     closedRow('prev-closed-2', 12, 10),
     closedRow('prev-closed-3', 12, 11),
-  ], { now: NOW });
+  ]);
 
   it('deltaText words the week-over-week change', () => {
     expect(deltaText(12, 10)).toBe('+2 vs last week');
@@ -485,7 +527,7 @@ describe('the Monday mail', () => {
     expect(m.subject).toBe('This week in Providence: 5 requests, 2 closed');
     expect(m.html).toContain('<b>5</b> requests (+1 vs last week)');
     expect(m.html).toContain('<b>2</b> closed (-1 vs last week)');
-    expect(m.html).toContain('Oct 18 – Oct 25');
+    expect(m.html).toContain('Oct 19 – Oct 25');
     expect(m.html).toContain('<b>Pothole</b> · 3 (last week 4)');
     expect(m.html).toContain('<b>Street Light Out</b> · 2 (last week 0)');
     expect(m.html).toContain('<b>College Hill</b> · 3 requests, 1 closed');
@@ -502,8 +544,18 @@ describe('the Monday mail', () => {
     expect(inferKind('This week near Home: 2 new, 1 closed', ['r@example.com'], { NOTIFY_EMAIL: 'rob@fixmypvd.org' })).toBe('street_digest');
   });
 
+  it('no "vs last week" when either week is not a whole one (compare false: the data starts mid-week)', () => {
+    const s = wholeWeek([row('only', { lat: null, lng: null })], { firstDay: '2026-10-22' });
+    expect(s.compare).toBe(false);
+    const m = weekDigestEmail(s, { base: 'https://fixmypvd.org' });
+    expect(m.html).toContain('<b>1</b> request · <b>0</b> closed</p>');
+    expect(m.html).toContain('<b>Pothole</b> · 1</li>');
+    expect(m.html).not.toContain('last week');
+    expect(weekPostMarkdown(s, { base: 'https://fixmypvd.org' }).split('\n\n')[1]).toBe('1 request to 311, 0 closed.');
+  });
+
   it('leaves out sections the week has nothing for', () => {
-    const m = weekDigestEmail(weekSummary([row('only', { lat: null, lng: null })], { now: NOW }), { base: 'https://fixmypvd.org' });
+    const m = weekDigestEmail(wholeWeek([row('only', { lat: null, lng: null })]), { base: 'https://fixmypvd.org' });
     expect(m.subject).toBe('This week in Providence: 1 request, 0 closed');
     expect(m.html).toContain('<b>1</b> request (+1 vs last week)');
     expect(m.html).toContain('Most reported');
@@ -514,11 +566,11 @@ describe('the Monday mail', () => {
   it("Rob's post mail: the lead, the exact shared Markdown in a pre-wrap <pre>, the dated 'Copy it from the week page' link, the footer; kind admin_digest", () => {
     const s = summary();
     const md = weekPostMarkdown(s, { base: 'https://fixmypvd.org' });
-    expect(md.split('\n\n').slice(0, 2)).toEqual(['**This week in Providence (Oct 18 – Oct 25)**', '5 requests to 311 (+1 vs last week), 2 closed, median 4 days to close.']);
+    expect(md.split('\n\n').slice(0, 2)).toEqual(['**This week in Providence (Oct 19 – Oct 25)**', '5 requests to 311 (+1 vs last week), 2 closed, median 4 days to close.']);
     expect(md).toContain('- Pothole, 12 Angell St (College Hill): "Filled & compacted."');
     const m = weekPostAdminEmail(s, { base: 'https://fixmypvd.org/' });
     expect(m.subject).toBe('Your r/providence post for this week');
-    expect(m.html).toContain('<p style="margin:0 0 1em">Last week in Providence (Oct 18 – Oct 25) — 5 requests, 2 closed — as a ready post for r/providence; paste it as is or trim.</p>');
+    expect(m.html).toContain('<p style="margin:0 0 1em">This week in Providence (Oct 19 – Oct 25) — 5 requests, 2 closed — as a ready post for r/providence; paste it as is or trim.</p>');
     // The Markdown is HTML-escaped inside the <pre> (so "&" survives the mail client) and comes back verbatim as the
     // plain-text part / email-log text — the bytes /week's "Copy as post" copies.
     expect(m.html).toContain('<pre style="white-space:pre-wrap;');
@@ -535,7 +587,7 @@ describe('the Monday mail', () => {
   it("the post's inlined English labels are the app dictionary's (the mail and the button must say the same thing)", () => {
     const dict = en as Record<string, string>;
     for (const [k, v] of Object.entries(OUTCOME_LABELS_EN)) expect(v, `week.outcome.${k}`).toBe(dict[`week.outcome.${k}`]);
-    for (const [k, v] of Object.entries(GROUP_LABELS_EN)) expect(v, `street.g.${k}`).toBe(dict[`street.g.${k}`]);
+    for (const [k, v] of Object.entries(GROUP_LABELS_EN)) expect(v, `group.${k}`).toBe(dict[`group.${k}`]);
     expect(Object.keys(OUTCOME_LABELS_EN).sort()).toEqual([...WEEK_OUTCOMES].sort());
   });
 });
@@ -556,8 +608,9 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
     closedRow('elm-8d', 9, 1, { ...ELMHURST }),
     row('dt-open', { ...DOWNTOWN }),
   ];
-  const summary = () => weekSummary(rows(), { now: NOW });
+  const summary = () => wholeWeek(rows());
   const BASE = 'https://fixmypvd.org/';
+  const DATES = '&amp;from=2026-10-19&amp;to=2026-10-25';
 
   it('readerHoods: placed addresses in saved order, once each, the first 5 placed only, a place outside every ring left out', () => {
     expect(readerHoods([
@@ -576,14 +629,14 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
   });
 
   it('a reader without hoods gets exactly the mail everyone got before — byte for byte', () => {
-    const GOLDEN = `<h2 style="margin:0 0 .2em">This week in Providence</h2><p style="color:#666;margin:0 0 1em">Oct 18 – Oct 25, from Providence 311's public list.</p>`
+    const GOLDEN = `<h2 style="margin:0 0 .2em">This week in Providence</h2><p style="color:#666;margin:0 0 1em">Oct 19 – Oct 25, from Providence 311's public list.</p>`
       + `<p style="font-size:1.1em;margin:0"><b>5</b> requests (+1 vs last week) · <b>2</b> closed (-1 vs last week)</p>`
       + `<h3 style="margin:1.2em 0 .3em">Most reported</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>Pothole</b> · 3 (last week 4)</li><li style="margin:0 0 8px"><b>Street Light Out</b> · 2 (last week 0)</li></ul>`
       + `<h3 style="margin:1.2em 0 .3em">Busiest neighborhoods</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>College Hill</b> · 3 requests, 1 closed</li><li style="margin:0 0 8px"><b>Elmhurst</b> · 2 requests, 1 closed</li></ul>`
       + `<h3 style="margin:1.2em 0 .3em">Closed this week, in the city's words</h3><ul style="padding-left:1.2em;margin:0"><li style="margin:0 0 8px"><b>Pothole</b> · 12 Angell St, College Hill · Resolved (closed Sat, Oct 24)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Filled &amp; compacted.</div></li><li style="margin:0 0 8px"><b>Street Light Out</b> · 1 Eaton St, Elmhurst · Resolved (closed Fri, Oct 23)<div style="color:#555;margin:2px 0 0 1em;white-space:pre-wrap">Bulb replaced</div></li></ul>`
       + `<p style="margin:1.2em 0 0"><a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a></p>`
       + `<p style="color:#888;margin-top:2em">You asked for this every Monday on FixMyPVD. Change or stop these emails under <a href="https://fixmypvd.org/account/updates">Account → Updates</a>. FixMyPVD is an independent project, not affiliated with the City of Providence.</p>`;
-    const s = weekSummary([
+    const s = wholeWeek([
       row('p1', { createdAt: daysAgo(1), firstSeenAt: daysAgo(1) }),
       row('p2', { createdAt: daysAgo(2), firstSeenAt: daysAgo(2) }),
       row('sl', { caseType: 'Street Light Out', category: 'street_light', ...ELMHURST }),
@@ -591,7 +644,7 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
       closedRow('bulb', 6, 2, { caseType: 'Street Light Out', category: 'street_light', street: '1 Eaton St', ...ELMHURST, detail: { resolutionDate: daysAgo(2), resolution: 'Bulb replaced' } }),
       row('prev-1', { createdAt: daysAgo(9), firstSeenAt: daysAgo(9) }),
       closedRow('prev-closed', 12, 9), closedRow('prev-closed-2', 12, 10), closedRow('prev-closed-3', 12, 11),
-    ], { now: NOW });
+    ]);
     // The HTML as weekDigestEmail built it before this change (captured from the previous code), and the push body.
     expect(weekDigestEmail(s, { base: BASE }).html).toBe(GOLDEN);
     expect(weekDigestEmail(s, { base: BASE, hoods: [] }).html).toBe(GOLDEN);
@@ -599,25 +652,25 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
     expect(weekDigestPush(s, { base: BASE, hoods: [] })).toEqual(weekDigestPush(s, { base: BASE }));
   });
 
-  it('two hoods, one quiet: a line each in saved order, linked to /street?n=<slug>, right under the headline; the comparison for the one with a median', () => {
+  it('two hoods, one quiet: a line each in saved order, linked to /street?n=<slug> on the week\'s dates, right under the headline; the comparison for the one with a median', () => {
     const s = summary();
     expect(s.medianCloseDays).toBe(4.5);
     const m = weekDigestEmail(s, { base: BASE, hoods: ['Fox Point', 'College Hill'] });
     expect(m.subject).toBe(weekDigestEmail(s, { base: BASE }).subject);
     expect(m.html).toContain('<h3 style="margin:1.2em 0 .3em">Your neighborhoods</h3><ul style="padding-left:1.2em;margin:0">'
-      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point"><b>Fox Point</b></a>: nothing this week</li>'
-      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill"><b>College Hill</b></a>: 3 requests, 2 closed · median 3 days</li></ul>'
-      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4.5.</p>`);
+      + `<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point${DATES}"><b>Fox Point</b></a>: nothing this week</li>`
+      + `<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill${DATES}"><b>College Hill</b></a>: 3 requests, 2 closed · median 3 days</li></ul>`
+      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4.5 days.</p>`);
     // Right after the headline stats, before every shared section; no UTM (the mail's other links carry none).
     const at = (t: string) => m.html.indexOf(t);
     expect(at('closed (')).toBeLessThan(at('Your neighborhoods'));
     expect(at('Your neighborhoods')).toBeLessThan(at('Most reported'));
     expect(m.html).not.toContain('utm_');
     // The rest of the mail is the shared one, untouched.
-    expect(m.html.replace(/<h3 style="margin:1.2em 0 .3em">Your neighborhoods<\/h3>.*?the city's was 4\.5\.<\/p>/, '')).toBe(weekDigestEmail(s, { base: BASE }).html);
+    expect(m.html.replace(/<h3 style="margin:1.2em 0 .3em">Your neighborhoods<\/h3>.*?the city's was 4\.5 days\.<\/p>/, '')).toBe(weekDigestEmail(s, { base: BASE }).html);
     // The plain-text part (emaillog toText, what the mailer sends as text) reads line by line.
     expect(toText(m.html)).toContain('vs last week)\nYour neighborhoods\nFox Point: nothing this week\nCollege Hill: 3 requests, 2 closed · median 3 days\n'
-      + "Closed requests in College Hill took a median 3 days — the city's was 4.5.\nMost reported\n");
+      + "Closed requests in College Hill took a median 3 days — the city's was 4.5 days.\nMost reported\n");
   });
 
   it('the comparison is the first listed hood WITH a median (not the first hood), only when the city has one, and none when no listed hood has one', () => {
@@ -625,16 +678,16 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
     const m = weekDigestEmail(s, { base: BASE, hoods: ['Downtown', 'Elmhurst', 'College Hill'] });
     expect(m.html).toContain('<b>Downtown</b></a>: 1 request, 0 closed</li>');          // no dated close: no median written
     expect(m.html).toContain('<b>Elmhurst</b></a>: 2 requests, 2 closed · median 6.5 days</li>');
-    expect(m.html).toContain("Closed requests in Elmhurst took a median 6.5 days — the city's was 4.5.");
+    expect(m.html).toContain("Closed requests in Elmhurst took a median 6.5 days — the city's was 4.5 days.");
     expect(m.html).not.toContain('Closed requests in College Hill');
     expect(m.html.match(/Closed requests in/g)).toHaveLength(1);
     expect(weekDigestEmail(s, { base: BASE, hoods: ['Downtown', 'Fox Point'] }).html).not.toContain('Closed requests in');
     expect(weekDigestEmail({ ...s, medianCloseDays: null }, { base: BASE, hoods: ['College Hill'] }).html).not.toContain('Closed requests in');
     // One hood: the heading is singular; a 1-day median says "1 day".
-    const one = weekDigestEmail(weekSummary([closedRow('a', 2, 1)], { now: NOW }), { base: BASE, hoods: ['College Hill'] }).html;
+    const one = weekDigestEmail(wholeWeek([closedRow('a', 2, 1)]), { base: BASE, hoods: ['College Hill'] }).html;
     expect(one).toContain('>Your neighborhood</h3>');
     expect(one).toContain('<b>College Hill</b></a>: 1 request, 1 closed · median 1 day</li>');
-    expect(one).toContain("took a median 1 day — the city's was 1.");
+    expect(one).toContain("took a median 1 day — the city's was 1 day.");
   });
 
   it('at most 3 hoods, the first 3 in saved order', () => {
@@ -648,10 +701,10 @@ describe('"Your neighborhoods" — the Monday mail and push, per reader (2026-10
 
   it('hood names are HTML-escaped in the line, the link and the comparison; the slug is URL-encoded', () => {
     const odd = 'Fox & <Point> "Q"';
-    const s = weekSummary([closedRow('a', 3, 1)], { now: NOW, hoodOf: () => odd });
+    const s = wholeWeek([closedRow('a', 3, 1)], { hoodOf: () => odd });
     const m = weekDigestEmail(s, { base: BASE, hoods: [odd] });
-    expect(m.html).toContain('<a href="https://fixmypvd.org/street?n=fox-%26-%3Cpoint%3E-%22q%22"><b>Fox &amp; &lt;Point&gt; &quot;Q&quot;</b></a>: 1 request, 1 closed · median 2 days</li>');
-    expect(m.html).toContain("Closed requests in Fox &amp; &lt;Point&gt; &quot;Q&quot; took a median 2 days — the city's was 2.");
+    expect(m.html).toContain(`<a href="https://fixmypvd.org/street?n=fox-%26-%3Cpoint%3E-%22q%22${DATES}"><b>Fox &amp; &lt;Point&gt; &quot;Q&quot;</b></a>: 1 request, 1 closed · median 2 days</li>`);
+    expect(m.html).toContain("Closed requests in Fox &amp; &lt;Point&gt; &quot;Q&quot; took a median 2 days — the city's was 2 days.");
     expect(m.html).not.toContain('<Point>');
     expect(toText(m.html)).toContain('Fox & <Point> "Q": 1 request, 1 closed · median 2 days\n');
   });
@@ -705,22 +758,23 @@ describe('runWeekDigest', () => {
     ];
     const rows = [row('a'), closedRow('b', 4, 1)];
     const d = deps(users, rows);
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 5, mailed: 2, pushed: 0, adminMailed: true });
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: MONDAY })).toEqual({ users: 5, mailed: 2, pushed: 0, adminMailed: true });
     expect(d.sent.map((m) => m.to)).toEqual(['me@example.com', 'two@example.com']);
     expect(d.sent[0]).toMatchObject({ subject: 'This week in Providence: 2 requests, 1 closed', kind: 'week_digest' });
-    // NOW is Sunday Oct 25: the mail is the week ending Saturday Oct 24 (00:00 Oct 18 → 23:59:59.999 Oct 24 EDT) and links it.
-    expect(d.sent[0].html).toContain('Oct 18 – Oct 24, from Providence 311');
-    expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">See the whole week</a>');
+    // MONDAY is Oct 26: the mail is the week that ended yesterday (Mon Oct 19 00:00 → Sun Oct 25 23:59:59.999 EDT) and links it.
+    expect(d.sent[0].html).toContain('Oct 19 – Oct 25, from Providence 311');
+    expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
     expect((d.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
-    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(NOW).toISOString(), users: 5, mailed: 2, pushed: 0, total: 2, adminMailed: true }]);
-    // Rob's post: ONE admin mail after the residents', with the exact shared Markdown for the mailed week and its dated link.
+    expect((d.store.setMeta as any).mock.calls[0]).toEqual(['weekDigest', { at: new Date(MONDAY).toISOString(), users: 5, mailed: 2, pushed: 0, total: 2, adminMailed: true }]);
+    // Rob's post: ONE admin mail after the residents', with the exact shared Markdown for the mailed week and its dated link
+    // (the rows start Oct 21 — that is where the data starts, so no "vs last week").
     expect(d.alerts).toHaveLength(1);
     expect(d.alerts[0]).toMatchObject({ subject: 'Your r/providence post for this week', kind: 'admin_digest' });
-    const md = weekPostMarkdown(weekSummary(rows, { now: NOW, until: '2026-10-24' }), { base: 'https://fixmypvd.org' });
-    expect(md).toContain('**This week in Providence (Oct 18 – Oct 24)**');
-    expect(md).toContain('https://fixmypvd.org/week?until=2026-10-24');
+    const md = weekPostMarkdown(wholeWeek(rows, { firstDay: '2026-10-21' }), { base: 'https://fixmypvd.org' });
+    expect(md).toContain('**This week in Providence (Oct 19 – Oct 25)**\n\n2 requests to 311, 1 closed');
+    expect(md).toContain('https://fixmypvd.org/week?until=2026-10-25');
     expect(toText(d.alerts[0].html)).toContain(md);
-    expect(d.alerts[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-24">Copy it from the week page</a>');
+    expect(d.alerts[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">Copy it from the week page</a>');
     expect((d.mailer.alert as any).mock.invocationCallOrder[0]).toBeGreaterThan((d.mailer.sendTo as any).mock.invocationCallOrder[1]);
     expect((d.store.addEvent as any).mock.calls[0][0]).toMatchObject({ kind: 'week.digest', data: { users: 5, mailed: 2, pushed: 0, total: 2, adminMailed: true } });
   });
@@ -740,8 +794,9 @@ describe('runWeekDigest', () => {
     expect(d.sent[0].subject).toBe('This week in Providence: 3 requests, 1 closed');
     expect(d.sent[0].html).toContain('Oct 19 – Oct 25, from Providence 311');
     expect(d.sent[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">See the whole week</a>');
-    // Rob's post is the same Mon–Sun week, titled by its calendar days and linked by its Sunday.
-    expect(toText(d.alerts[0].html)).toContain('**This week in Providence (Oct 19 – Oct 25)**\n\n3 requests to 311 (');
+    // Rob's post is the same Mon–Sun week, titled by its calendar days and linked by its Sunday (the rows start Oct 15,
+    // mid-way through the week before: no "vs last week").
+    expect(toText(d.alerts[0].html)).toContain('**This week in Providence (Oct 19 – Oct 25)**\n\n3 requests to 311, 1 closed');
     expect(d.alerts[0].html).toContain('<a href="https://fixmypvd.org/week?until=2026-10-25">Copy it from the week page</a>');
     // The link, opened on Tuesday afternoon, is the same week with the same numbers.
     const tuesday = Date.parse('2026-10-27T19:00:00Z');
@@ -761,15 +816,15 @@ describe('runWeekDigest', () => {
 
   it("with nobody opted in the week is still read once and Rob's post still goes — exactly one admin mail", async () => {
     const nobody = deps([], [row('a')]);
-    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: NOW })).toEqual({ users: 0, mailed: 0, pushed: 0, adminMailed: true });
+    expect(await runWeekDigest(env, nobody.store, nobody.mailer, { now: MONDAY })).toEqual({ users: 0, mailed: 0, pushed: 0, adminMailed: true });
     expect((nobody.store.listCityCasesSince as any).mock.calls).toHaveLength(1);
     expect(nobody.sent).toHaveLength(0);
     expect(nobody.alerts).toHaveLength(1);
     expect(nobody.alerts[0]).toMatchObject({ subject: 'Your r/providence post for this week', kind: 'admin_digest' });
-    expect(toText(nobody.alerts[0].html)).toContain('1 request to 311 (+1 vs last week), 0 closed.');
+    expect(toText(nobody.alerts[0].html)).toContain('1 request to 311, 0 closed.');
     // Opted-in but unverified / no address: no resident mail, still the one post.
     const unverified = deps([user({ emailVerified: false }), user({ uid: 'u4', email: null })], [row('a')]);
-    expect(await runWeekDigest(env, unverified.store, unverified.mailer, { now: NOW })).toEqual({ users: 2, mailed: 0, pushed: 0, adminMailed: true });
+    expect(await runWeekDigest(env, unverified.store, unverified.mailer, { now: MONDAY })).toEqual({ users: 2, mailed: 0, pushed: 0, adminMailed: true });
     expect(unverified.alerts).toHaveLength(1);
   });
 
@@ -785,16 +840,16 @@ describe('runWeekDigest', () => {
     const d = deps(users, rows);
     const getUser = vi.fn(async () => null);
     (d.store as unknown as Record<string, unknown>).getUser = getUser;
-    expect(await runWeekDigest(env, d.store, d.mailer, { now: NOW })).toEqual({ users: 3, mailed: 3, pushed: 0, adminMailed: true });
-    const shared = weekDigestEmail(weekSummary(rows, { now: NOW, until: '2026-10-24' }), { base: 'https://fixmypvd.org' });
+    expect(await runWeekDigest(env, d.store, d.mailer, { now: MONDAY })).toEqual({ users: 3, mailed: 3, pushed: 0, adminMailed: true });
+    const shared = weekDigestEmail(wholeWeek(rows, { firstDay: '2026-10-19' }), { base: 'https://fixmypvd.org' });
     const to = Object.fromEntries(d.sent.map((m) => [m.to, m]));
     expect(to['none@example.com'].html).toBe(shared.html);
     expect(to['away@example.com'].html).toBe(shared.html);
     expect(to['two@example.com'].subject).toBe(shared.subject);
     expect(to['two@example.com'].html).toContain('<h3 style="margin:1.2em 0 .3em">Your neighborhoods</h3><ul style="padding-left:1.2em;margin:0">'
-      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point"><b>Fox Point</b></a>: nothing this week</li>'
-      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill"><b>College Hill</b></a>: 2 requests, 1 closed · median 3 days</li></ul>'
-      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4.</p>`);
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=fox-point&amp;from=2026-10-19&amp;to=2026-10-25"><b>Fox Point</b></a>: nothing this week</li>'
+      + '<li style="margin:0 0 8px"><a href="https://fixmypvd.org/street?n=college-hill&amp;from=2026-10-19&amp;to=2026-10-25"><b>College Hill</b></a>: 2 requests, 1 closed · median 3 days</li></ul>'
+      + `<p style="margin:.4em 0 0">Closed requests in College Hill took a median 3 days — the city's was 4 days.</p>`);
     // No read per recipient: the one users query and the one cases read, nothing else.
     expect(getUser).not.toHaveBeenCalled();
     expect((d.store.listWeekDigestUsers as any).mock.calls).toHaveLength(1);

@@ -286,7 +286,11 @@ describe('relay: city asks in, owner answers out', () => {
     expect(out).toMatchObject({ kind: 'forwarded', caseId: 'PVD2026-90113', recipients: 2 });
     const calls = (d.mailer.sendTo as any).mock.calls;
     expect(calls.map((c: any[]) => c[0]).sort()).toEqual(['fan@example.com', 'owner@example.com']);
-    expect(calls.find((c: any[]) => c[0] === 'fan@example.com')[1]).toMatch(/^Providence 311 on your report PVD2026-90113/);
+    // The follower's copy is worded for a follower: "a report you follow", not "your report".
+    const fan = calls.find((c: any[]) => c[0] === 'fan@example.com');
+    expect(fan[1]).toMatch(/^Providence 311 on a report you follow PVD2026-90113/);
+    expect(fan[2]).toContain('report you follow at');
+    expect(fan[2]).not.toContain('on your ');
     expect(calls.find((c: any[]) => c[0] === 'owner@example.com')[1]).toBe('The city needs more information about your report (PVD2026-90113)');
     expect(d.report!.cityMessages!.at(-1)).toMatchObject({ kind: 'ask', by: 'rule', messageId: '<ask-9@providenceri.gov>' });
     expect(d.report!.cityAsks![0]).toMatchObject({ source: 'email', messageId: '<ask-9@providenceri.gov>' });

@@ -224,6 +224,19 @@ test('city question in Spanish: labels and choices translated, the value sent is
   await expect(page.getByLabel('Nombre y teléfono del dueño o casero (si los sabes)')).toBeVisible();
 });
 
+test('from the map ("Report something here"): lat, lng and q fill in the place, ready to send', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/?lat=41.82820&lng=-71.40050&q=481+Angell+St');
+  await pickType(page, 'trash', 'missed_trash');
+  await expect(page.locator('#address')).toHaveValue('481 Angell St');
+  const submit = page.getByRole('button', { name: 'Send to Providence 311' });
+  await expect(submit).toBeEnabled();
+  const [req] = await Promise.all([page.waitForRequest(`${API}/api/report`), submit.click()]);
+  const body = req.postData() ?? '';
+  expect(body).toMatch(/name="lat"\r?\n\r?\n41\.8282/);
+  expect(body).toContain('481 Angell St');
+});
+
 test('photo-optional category: address → submit → tracking page (no bot check: the sign-in is the check)', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
@@ -560,6 +573,21 @@ test('no sign-in disclosure on compose — the gate appears only at Send', async
   await expect(page.locator('.signin-disclosure')).toHaveCount(0);
   await expect(page.getByText(/sign-in — no password/i)).toHaveCount(0);
 });
+
+// The line above Send agrees with About and Privacy: the city's public list shows the type, the street, the status and
+// the dates — not the description or the photo.
+for (const [lang, line] of [
+  ['en', 'Once filed, the city has your whole report. Its public list of requests shows the type, the street, the status and the dates — not your description or your photo.'],
+  ['es', 'Una vez presentado, la ciudad tiene tu reporte completo. Su lista pública de solicitudes muestra el tipo, la calle, el estado y las fechas, pero no tu descripción ni tu foto.'],
+] as const) {
+  test(`Send screen (${lang}): what the city's public list shows — not the description or the photo`, async ({ page }) => {
+    await page.addInitScript((l) => localStorage.setItem('fixmypvd.lang', l), lang);
+    await mockApi(page);
+    await page.goto('/');
+    await pickType(page, 'trash', 'missed_trash');
+    await expect(page.locator('.public-record')).toHaveText(line);
+  });
+}
 
 test('no human-check step: Send is ready once the photo/address are in, and nothing loads from Cloudflare', async ({ page }) => {
   await mockApi(page);

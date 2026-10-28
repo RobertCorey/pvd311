@@ -11,7 +11,7 @@ const ROUTES: Array<[string, RegExp]> = [
   ['/about', /About|Acerca/],
   ['/privacy', /Privacy|Privacidad/],
   ['/my', /My reports|Mis reportes/],
-  ['/street', /My street|Mi calle/],
+  ['/street', /Map|Mapa/],
   ['/week', /This week in Providence|Esta semana en Providence/],
   ['/account', /Your account|Tu cuenta/],
   ['/account/updates', /Your account|Tu cuenta/], // signed out → /account to sign in first
@@ -50,6 +50,22 @@ for (const lang of ['en', 'es']) {
       await expect(page.locator('main')).toContainText(expected, { timeout: 10_000 });
     }
     expect(errors, errors.join('\n')).toEqual([]);
+  });
+}
+
+// Privacy lists what we keep and who else gets it: the IP address saved on every report (worker api.ts) and Esri ArcGIS,
+// which turns the reporter's position or typed address into an address and back, straight from the browser (lib/geo.ts).
+for (const [lang, ip, esri] of [
+  ['en', 'Your IP address. Saved with each report, and used to limit how many reports one connection can send.', 'Esri ArcGIS (turning a location into an address and back)'],
+  ['es', 'Tu dirección IP. Se guarda con cada reporte y sirve para limitar cuántos reportes puede enviar una misma conexión.', 'Esri ArcGIS (convertir una ubicación en una dirección y al revés)'],
+] as const) {
+  test(`privacy (${lang}) lists the IP address kept with each report, and Esri ArcGIS among the services`, async ({ page }) => {
+    await page.addInitScript((l) => { localStorage.setItem('fixmypvd.lang', l); }, lang);
+    await page.route('https://api.fixmypvd.org/**', (r) => r.abort());
+    await page.goto('/privacy');
+    const items = page.locator('main li');
+    await expect(items.filter({ hasText: ip })).toHaveCount(1);
+    await expect(items.filter({ hasText: esri })).toHaveCount(1);
   });
 }
 

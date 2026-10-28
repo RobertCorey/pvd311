@@ -15,13 +15,20 @@ const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00
 
 /** A busy week: 312 requests (+22 on last week), 114 closed (−16), outcomes summing to 114, ten hoods (eight shown; each
  *  with its own median days to close, Washington Park without one, Smith Hill with 1 close of 1 day),
- *  six types across five groups plus an unknown category, three notable closes (the third unplaced). The current
- *  week (ending now): untilDate = today, a previous week, no next. */
+ *  six types across five groups plus an unknown category, seven type groups (six shown), three notable closes (the third
+ *  unplaced). The week in progress: Mon Oct 19 00:00 EDT → now, untilDate = its Sunday (today), a previous week, no
+ *  next, no "vs last week" (`compare` false). */
 export const WEEK = {
-  days: 7, since: iso(UNTIL - 7 * DAY), until: iso(UNTIL), at: iso(UNTIL),
+  days: 7, since: '2026-10-19T04:00:00.000Z', until: iso(UNTIL), at: iso(UNTIL),
   untilDate: TODAY, prevUntil: addDays(TODAY, -7), nextUntil: null as string | null, current: true,
+  firstDay: null as string | null, compare: false,
   total: 312, open: 198, closed: 114, located: 280,
   prev: { total: 290, closed: 130 },
+  groups: [
+    { group: 'streets', n: 80, prevN: 70 }, { group: 'trash', n: 62, prevN: 60 }, { group: 'lights', n: 44, prevN: 51 },
+    { group: 'property', n: 30, prevN: 25 }, { group: 'traffic', n: 25, prevN: 30 }, { group: 'nuisance', n: 20, prevN: 18 },
+    { group: 'other', n: 9, prevN: 4 },
+  ],
   topTypes: [
     { caseType: 'Pothole', category: 'pothole', n: 61, prevN: 48 },
     { caseType: 'Street Light Out', category: 'street_light', n: 44, prevN: 51 },
@@ -53,11 +60,12 @@ export const WEEK = {
 };
 
 /** The week ending Sunday Oct 18 as the Worker would answer `?until=2026-10-18`: Mon Oct 12 00:00 EDT →
- *  Sun Oct 18 23:59:59.999 EDT, both neighbours present, not current. Same numbers as WEEK apart from the dates. */
+ *  Sun Oct 18 23:59:59.999 EDT, both neighbours present, not current, "vs last week" shown. Same numbers as WEEK apart
+ *  from the dates. */
 export const DATED = datedWeek('2026-10-18');
 
-/** The Worker's answer for `?until=<ymd>` relative to TODAY: today → WEEK itself; a past date → WEEK's numbers in that
- *  calendar window with prev/next by the floor and today. */
+/** The Worker's answer for `?until=<Sunday>` relative to TODAY: today → WEEK itself; a past Sunday → WEEK's numbers in
+ *  that Monday–Sunday window with prev/next by the floor and today, a whole week (compare). */
 export function datedWeek(untilDate: string): typeof WEEK {
   if (untilDate === TODAY) return WEEK;
   const since = Date.parse(`${addDays(untilDate, -6)}T04:00:00Z`);          // 00:00 EDT
@@ -65,12 +73,12 @@ export function datedWeek(untilDate: string): typeof WEEK {
   const prev = addDays(untilDate, -7); const next = addDays(untilDate, 7);
   return {
     ...WEEK, since: iso(since), until: iso(untilX - 1), at: iso(UNTIL),
-    untilDate, prevUntil: prev >= FLOOR ? prev : null, nextUntil: next <= TODAY ? next : null, current: false,
+    untilDate, prevUntil: prev >= FLOOR ? prev : null, nextUntil: next <= TODAY ? next : null, current: false, compare: true,
     busiestDay: { date: addDays(untilDate, -4), n: 61 },
   };
 }
 
-export const QUIET = { ...WEEK, total: 0, open: 0, closed: 0, located: 0, prev: { total: 0, closed: 0 }, topTypes: [], neighborhoods: [], outcomes: { work_done: 0, enforcement: 0, referred: 0, logged_elsewhere: 0, info_only: 0, no_action: 0, cancelled: 0 }, medianCloseDays: null, notable: [], busiestDay: null };
+export const QUIET = { ...WEEK, total: 0, open: 0, closed: 0, located: 0, prev: { total: 0, closed: 0 }, topTypes: [], groups: [], neighborhoods: [], outcomes: { work_done: 0, enforcement: 0, referred: 0, logged_elsewhere: 0, info_only: 0, no_action: 0, cancelled: 0 }, medianCloseDays: null, notable: [], busiestDay: null };
 
 /** Saved places in three neighborhoods (real points, checked against the rings): Hope is 10th of 10 this week (outside
  *  the top 8), College Hill had nothing this week, Fox Point is 4th. Account order: Hope, College Hill, Fox Point. */

@@ -1,9 +1,11 @@
-// "This week in Providence": GET /api/week (worker/src/week.ts) — 7 days of the city's public 311 list against the 7
-// before. One public, cached endpoint; the page (screens/Week.tsx) renders it and the Monday 'week_digest' mail is the
-// same numbers. `?until=YYYY-MM-DD` (a New York calendar date) picks a past week so a shared link keeps its meaning;
-// the body carries `untilDate` / `prevUntil` / `nextUntil` / `current` for the page's stable Share url and week nav.
+// "This week in Providence": GET /api/week (worker/src/week.ts) — a Monday–Sunday week of the city's public 311 list
+// against the one before. One public, cached endpoint; the page (screens/Week.tsx) renders it and the Monday
+// 'week_digest' mail is the same numbers. `?until=YYYY-MM-DD` (a New York calendar date) picks the week holding it so a
+// shared link keeps its meaning; the body carries `untilDate` / `prevUntil` / `nextUntil` / `current` for the page's
+// stable Share url and week nav, `firstDay` / `compare` for where the data starts.
 // Cached here for 5 minutes per week so a tab return or a step back and forth never refetches.
 import { apiFetch, parseError, withTimeout } from './client';
+import { GROUP_ORDER, type GroupKey } from '@shared/categories';
 
 /** classifyResolution / outcomeOf buckets (worker/src/cityinsights.ts) for cases closed this week; fixed order = the
  *  colour slot in Week.css (the admin "How it gets done" palette). 'open' is not a closing outcome and is left out. */
@@ -11,6 +13,7 @@ export type WeekOutcome = 'work_done' | 'enforcement' | 'referred' | 'logged_els
 export const WEEK_OUTCOMES: readonly WeekOutcome[] = ['work_done', 'enforcement', 'referred', 'logged_elsewhere', 'info_only', 'no_action', 'cancelled'];
 
 export interface WeekTopType { caseType: string; category: string; n: number; prevN: number }
+export interface WeekGroup { group: GroupKey; n: number; prevN: number }
 /** `medianCloseDays` (2026-10-27): the hood's own median days to close over this week's closes in it, 1 dp; null when it
  *  had none. Optional — an older Worker leaves it out (decodeWeek then sets null). */
 export interface WeekHood { name: string; slug: string; n: number; open: number; closed: number; medianCloseDays?: number | null }
@@ -22,25 +25,31 @@ export interface WeekNotable {
 /** GET /api/week body (docs/api.md). A case counts for a week when it was created or closed inside the window. */
 export interface WeekSummary {
   days: 7; since: string; until: string; at: string;
-  /** The New York calendar date the window ends on — the stable `/week?until=` for this week. */
+  /** The week's Sunday (a New York calendar date) — the stable `/week?until=` for this week. */
   untilDate: string;
-  /** untilDate − 7 days; null below the 56-day archive floor. */
+  /** untilDate − 7 days; null below the 56-day archive floor or before the week of `firstDay`. */
   prevUntil: string | null;
-  /** untilDate + 7 days; null when that would be after today. */
+  /** untilDate + 7 days; null when that week has not started. */
   nextUntil: string | null;
-  /** True when the window ends now (no `until`, or `until` = today in New York). */
+  /** True for the week in progress (Monday → now). */
   current: boolean;
+  /** The New York day of the first case the Worker holds (when we started reading the city's list); null = earlier. */
+  firstDay: string | null;
+  /** Both weeks are whole, so "vs last week" is shown. */
+  compare: boolean;
   total: number; open: number; closed: number; located: number;
   /** The 7 days before `since`, same rules. */
   prev: { total: number; closed: number };
-  /** Top 6 by n this week. */
+  /** Top 6 by n this week (Copy as post). */
   topTypes: WeekTopType[];
+  /** Every type group with a case this week, n desc: "Most reported". */
+  groups: WeekGroup[];
   /** Every neighborhood that had activity, n desc; located cases only. */
   neighborhoods: WeekHood[];
   outcomes: Record<WeekOutcome, number>;
   /** Median days from created to closed over this week's closes with a known created time. */
   medianCloseDays: number | null;
-  /** Newest 12 closes with a note. */
+  /** Newest 12 closes with a note that says something. */
   notable: WeekNotable[];
   /** By createdAt, America/New_York; null for an empty week. */
   busiestDay: { date: string; n: number } | null;
@@ -84,9 +93,13 @@ export function decodeWeek(d: Partial<WeekSummary> | null | undefined): WeekSumm
     days: 7, since: str(d.since), until: str(d.until), at: str(d.at),
     untilDate: str(d.untilDate), prevUntil: typeof d.prevUntil === 'string' ? d.prevUntil : null, nextUntil: typeof d.nextUntil === 'string' ? d.nextUntil : null,
     current: typeof d.current === 'boolean' ? d.current : true,
+    firstDay: typeof d.firstDay === 'string' ? d.firstDay : null,
+    compare: typeof d.compare === 'boolean' ? d.compare : true,
     total: num(d.total), open: num(d.open), closed: num(d.closed), located: num(d.located),
     prev: { total: num(d.prev?.total), closed: num(d.prev?.closed) },
     topTypes: arr<Partial<WeekTopType>>(d.topTypes).map((x) => ({ caseType: str(x.caseType), category: str(x.category, 'unsure'), n: num(x.n), prevN: num(x.prevN) })),
+    groups: arr<Partial<WeekGroup>>(d.groups).filter((x) => x && GROUP_ORDER.includes(x.group as GroupKey))
+      .map((x) => ({ group: x.group as GroupKey, n: num(x.n), prevN: num(x.prevN) })),
     neighborhoods: arr<Partial<WeekHood>>(d.neighborhoods).filter((x) => x && typeof x.name === 'string')
       .map((x) => ({ name: x.name!, slug: str(x.slug, x.name!.trim().toLowerCase().replace(/\s+/g, '-')), n: num(x.n), open: num(x.open), closed: num(x.closed), medianCloseDays: days(x.medianCloseDays) })),
     outcomes,

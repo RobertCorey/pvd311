@@ -2,8 +2,8 @@ import { BRAND } from '../brand';
 import { useT } from '../i18n';
 import './Prose.css';
 
-const COLLECT = ['report', 'contact', 'device', 'offline'] as const;
-const WHO = ['city', 'infra', 'team'] as const;
+const COLLECT = ['report', 'ip', 'account', 'streets', 'emails', 'push', 'offline', 'usage', 'errors'] as const;
+const WHO = ['city', 'services', 'ai', 'team'] as const;
 const RETENTION = ['photo', 'record', 'city'] as const;
 const CHOICES = ['anon', 'delete'] as const;
 
@@ -36,9 +36,6 @@ export default function Privacy() {
 
       <h2>{t('privacy.token.h')}</h2>
       <p>{t('privacy.token.p1')}</p>
-
-      <h2>{t('privacy.storage.h')}</h2>
-      <p>{t('privacy.storage.p1')}</p>
 
       <h2>{t('privacy.who.h')}</h2>
       {list('who', WHO)}

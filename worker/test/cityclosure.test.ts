@@ -119,6 +119,12 @@ describe('status-change email wording', () => {
     expect(m.html).toContain(`${NOTE} &lt;ok&gt; &amp; &quot;fine&quot;`);
     expect(`${m.subject} ${m.html}`).not.toMatch(/resolved by the city|marked resolved|crew/i);
   });
+  it('a follower is told about "a report you follow", never "your request"', () => {
+    const m = statusChangeEmail({ ...base, status: 'Resolved', resolution: null, follower: true });
+    expect(m.subject).toBe('The city closed a report you follow (PVD2026-90091)');
+    expect(m.html).toContain('The city closed a report you follow: the construction no permit report at 12 Example St (city case <b>PVD2026-90091</b>).');
+    expect(`${m.subject} ${m.html}`).not.toMatch(/\byour (request|construction)/);
+  });
   it('no note when the city left none', () => {
     const m = statusChangeEmail({ ...base, status: 'Resolved', resolution: null });
     expect(m.html).not.toContain("The city's note");

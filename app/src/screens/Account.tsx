@@ -72,6 +72,7 @@ function SignedOut() {
         <li>{t('account.perk.follow')}</li>
         <li>{t('account.perk.edit')}</li>
         <li>{t('account.perk.addresses')}</li>
+        <li>{t('account.perk.monday')}</li>
       </ul>
 
       {phase === 'sent' ? (

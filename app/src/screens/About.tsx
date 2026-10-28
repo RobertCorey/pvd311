@@ -20,6 +20,7 @@ export default function About() {
 
       <h2>{t('about.what.h')}</h2>
       <p>{t('about.what.p1')}</p>
+      <p>{t('about.what.p2')}</p>
 
       <h2>{t('about.who.h')}</h2>
       <p>{t('about.who.p1')} {portal}.</p>
@@ -49,6 +50,8 @@ export default function About() {
 
       <h2>{t('about.contact.h')}</h2>
       <p>{t('about.contact.p1')} {email}.</p>
+
+      <p className="prose-updated">{t('about.updated')}</p>
     </article>
   );
 }

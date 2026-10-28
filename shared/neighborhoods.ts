@@ -8,6 +8,7 @@
  *
  *   NEIGHBORHOODS            name → rings
  *   hoodOf(lat, lng)         the neighborhood containing the point, or null (bbox reject, then a ray cast over the rings)
+ *   inCity(lat, lng)         inside the city line: in a ring, or within CITY_LINE_TOLERANCE_M of one
  *   hoodSlug(name)           URL slug ("Upper South Providence" → "upper-south-providence"), the app's ?n= and /week's
  */
 
@@ -54,6 +55,29 @@ export function hoodOf(lat: number, lng: number): string | null {
     for (const r of h.rings) if (inRing(lng, lat, r)) return h.name;
   }
   return null;
+}
+
+/** How far outside every ring a point may sit and still be in the city. The rings are simplified (~30 m), so a house
+ *  on the city line can land just outside them; a street the geocoder put in North Providence or Cranston lands
+ *  hundreds of metres out ("150 Friendship St" at 41.862, -71.444 — 2026-10-28 audit). */
+export const CITY_LINE_TOLERANCE_M = 150;
+
+/** Inside the city line: in a neighborhood's ring, or within CITY_LINE_TOLERANCE_M of a ring's edge (metres on a flat
+ *  projection around the point — exact enough at this scale). */
+export function inCity(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (hoodOf(lat, lng)) return true;
+  const kx = 111_320 * Math.cos((lat * Math.PI) / 180), ky = 110_540;
+  for (const h of INDEX) for (const ring of h.rings) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const ax = (ring[j][0] - lng) * kx, ay = (ring[j][1] - lat) * ky;
+      const dx = (ring[i][0] - lng) * kx - ax, dy = (ring[i][1] - lat) * ky - ay;
+      const len = dx * dx + dy * dy;
+      const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+      if (Math.hypot(ax + t * dx, ay + t * dy) <= CITY_LINE_TOLERANCE_M) return true;
+    }
+  }
+  return false;
 }
 
 /** URL slug: lower-case, runs of whitespace → "-" ("Upper South Providence" → "upper-south-providence"). */

@@ -3,40 +3,46 @@
  * the owner's phones) says.
  *   reporterEmail (unless the owning account turned email updates off)
  *   + followerUids → users/{uid}.email when that account's prefs.emailUpdates is on
- * De-duplicated, lowercase. Never throws (a broken user doc just drops that recipient).
+ * De-duplicated, lowercase. Never throws (a broken user doc just drops that recipient). A mail can be worded twice:
+ * the owner's ("your request") and the followers' ("a report you follow") — notifyReport's `followers`.
  * Every resident mail's footer links to Account → Updates (updatesLine), the one place to change what we send.
  */
 import type { ReportDoc, Store, Mailer } from './contracts.js';
 import type { EmailKind } from './emaillog.js';
 import type { PushPayload } from './push.js';
 
-export async function recipientsFor(store: Store, report: ReportDoc, opts: { excludeOwner?: boolean } = {}): Promise<string[]> {
-  const out = new Set<string>();
-  const add = (e: string | null | undefined) => { if (e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.add(e.toLowerCase()); };
+/** Who gets a report's mail, each marked `follower` unless it is the reporter's own address. */
+export async function recipientsFor(store: Store, report: ReportDoc, opts: { excludeOwner?: boolean } = {}): Promise<{ to: string; follower: boolean }[]> {
+  const out = new Map<string, boolean>();
+  const add = (e: string | null | undefined, follower: boolean) => { if (e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && !out.has(e.toLowerCase())) out.set(e.toLowerCase(), follower); };
   try {
     let ownerOptedOut = false;
     if (report.ownerUid && !opts.excludeOwner) {
       const owner = await store.getUser(report.ownerUid).catch(() => null);
       ownerOptedOut = owner?.prefs?.emailUpdates === false;
     }
-    if (!ownerOptedOut && !opts.excludeOwner) add(report.reporterEmail);
+    if (!ownerOptedOut && !opts.excludeOwner) add(report.reporterEmail, false);
     const ownerEmail = opts.excludeOwner ? report.reporterEmail?.toLowerCase() ?? null : null;
     for (const uid of (report.followerUids ?? []).slice(0, 200)) {
       if (uid === report.ownerUid) continue;
       const u = await store.getUser(uid).catch(() => null);
-      if (u?.email && u.prefs?.emailUpdates !== false && u.email.toLowerCase() !== ownerEmail) add(u.email);
+      if (u?.email && u.prefs?.emailUpdates !== false && u.email.toLowerCase() !== ownerEmail) add(u.email, true);
     }
   } catch (e) {
     console.error('[notify] recipients failed', e);
   }
-  return [...out];
+  return [...out].map(([to, follower]) => ({ to, follower }));
 }
 
-/** Send one reporter-facing email to everyone who should hear about this report. Gated inside mailer.sendTo. */
-export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string; excludeOwner?: boolean; kind?: EmailKind }): Promise<number> {
+/** Send one reporter-facing email to everyone who should hear about this report — followers get `followers`' wording
+ *  when given. Gated inside mailer.sendTo. */
+export async function notifyReport(store: Store, mailer: Mailer, report: ReportDoc, subject: string, html: string, opts?: { replyTo?: string; excludeOwner?: boolean; kind?: EmailKind; followers?: { subject: string; html: string } }): Promise<number> {
   const to = await recipientsFor(store, report, { excludeOwner: opts?.excludeOwner });
   const meta = { kind: opts?.kind, reportId: report.id, caseId: report.portalCaseId ?? report.cityCaseId ?? null };
-  for (const addr of to) await mailer.sendTo(addr, subject, html, { ...(opts?.replyTo ? { replyTo: opts.replyTo } : {}), ...meta });
+  for (const r of to) {
+    const m = r.follower && opts?.followers ? opts.followers : { subject, html };
+    await mailer.sendTo(r.to, m.subject, m.html, { ...(opts?.replyTo ? { replyTo: opts.replyTo } : {}), ...meta });
+  }
   return to.length;
 }
 
@@ -58,6 +64,8 @@ const STATUS_PHRASE: Record<string, string> = {
   Merged: 'The city merged your request with another one',
 };
 export const statusPhrase = (status: string): string => STATUS_PHRASE[status] ?? 'The city updated your request';
+/** The same phrase for someone who follows the request: "The city closed a report you follow". */
+const followerPhrase = (status: string): string => statusPhrase(status).replace(/\byour request\b/, 'a report you follow');
 
 /** Account → Updates in the app, where people change what they hear from us (Rob, 2026-10-28: settings live only there). */
 export const updatesUrl = (base: string): string => `${base.replace(/\/+$/, '')}/account/updates`;
@@ -65,13 +73,14 @@ export const updatesUrl = (base: string): string => `${base.replace(/\/+$/, '')}
 /** The sentence every resident mail's footer carries (report status, filed, city copy, city follow, both Monday digests). */
 export const updatesLine = (base: string): string => `Change or stop these emails under <a href="${esc(updatesUrl(base))}">Account → Updates</a>.`;
 
-/** Subject + HTML for the watcher's "city status changed" email. `resolution` = the city's Resolution Message, verbatim. */
-export function statusChangeEmail(o: { category: string; address: string; caseId: string; status: string; trackUrl: string; resolution: string | null; base: string }): { subject: string; html: string } {
-  const phrase = statusPhrase(o.status);
+/** Subject + HTML for the watcher's "city status changed" email. `resolution` = the city's Resolution Message, verbatim.
+ *  `follower`: the wording for someone who follows the report rather than filed it. */
+export function statusChangeEmail(o: { category: string; address: string; caseId: string; status: string; trackUrl: string; resolution: string | null; base: string; follower?: boolean }): { subject: string; html: string } {
+  const phrase = o.follower ? followerPhrase(o.status) : statusPhrase(o.status);
   const note = o.resolution
     ? `<p style="margin-bottom:4px">The city's note:</p><blockquote style="margin:0 0 1em;padding:8px 12px;border-left:3px solid #ccc;white-space:pre-wrap">${esc(o.resolution)}</blockquote>`
     : '';
-  const html = `<p>${esc(phrase)}: your ${esc(o.category.replace(/_/g, ' '))} report at ${esc(o.address)} (city case <b>${esc(o.caseId)}</b>).</p>`
+  const html = `<p>${esc(phrase)}: ${o.follower ? 'the' : 'your'} ${esc(o.category.replace(/_/g, ' '))} report at ${esc(o.address)} (city case <b>${esc(o.caseId)}</b>).</p>`
     + `<p>City status: <b>${esc(o.status)}</b></p>${note}`
     + `<p><a href="${esc(o.trackUrl)}">Track it here</a>.</p><p style="color:#888">FixMyPVD is an independent project, not affiliated with the City of Providence. ${updatesLine(o.base)}</p>`;
   return { subject: `${phrase} (${o.caseId})`, html };

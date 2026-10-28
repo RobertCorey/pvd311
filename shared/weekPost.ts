@@ -8,9 +8,11 @@
  * Pure — no React, no window, no JSON imports (the app's Playwright runner and the Worker's vitest both load it as plain
  * TS). The post is English whatever language the app is in (it goes to an English-language forum; only the button is
  * i18n), so the two label families it needs — what closing meant, and a group's name for a case with no city type —
- * are inlined here (OUTCOME_LABELS_EN / GROUP_LABELS_EN, the app dictionary's `week.outcome.*` / `street.g.*` values;
+ * are inlined here (OUTCOME_LABELS_EN / GROUP_LABELS_EN, the app dictionary's `week.outcome.*` / `group.*` values;
  * worker/test/week.test.ts checks they still match it) unless the caller passes its own `t`. Lines that have nothing
- * to say (no median, no closes with a note, no neighborhoods) are left out rather than written as zeros.
+ * to say (no median, no closes with a note, no neighborhoods) are left out rather than written as zeros, and so is
+ * "vs last week" when either week is not a whole one (`compare` false: the week in progress, or a week of data that
+ * starts mid-week).
  */
 import { CATEGORIES, type GroupKey } from './categories.js';
 
@@ -29,6 +31,8 @@ export interface WeekPostSummary {
   current: boolean;
   total: number; closed: number;
   prev: { total: number };
+  /** Both weeks are whole, so the change is worth saying (GET /api/week `compare`); missing = true. */
+  compare?: boolean;
   topTypes: WeekPostType[];
   neighborhoods: WeekPostHood[];
   outcomes: Record<WeekPostOutcome, number>;
@@ -42,7 +46,7 @@ export type PostT = (key: string, vars?: Record<string, string | number>) => str
 export interface WeekPostOpts {
   /** Site origin for the link line, no trailing slash (https://fixmypvd.org in production). */
   base: string;
-  /** Labels for `week.outcome.<o>` and `street.g.<group>`; the inlined English ones when omitted. */
+  /** Labels for `week.outcome.<o>` and `group.<group>`; the inlined English ones when omitted. */
   t?: PostT;
 }
 
@@ -58,12 +62,13 @@ export const OUTCOME_LABELS_EN: Record<WeekPostOutcome, string> = {
   cancelled: 'Cancelled or merged',
 };
 export const GROUP_LABELS_EN: Record<GroupKey, string> = {
-  trash: 'Trash', streets: 'Streets', traffic: 'Traffic', trees: 'Trees', property: 'Property',
-  lights: 'Lights', nuisance: 'Nuisance', water: 'Water', animals: 'Animals', other: 'Other',
+  trash: 'Trash & recycling', streets: 'Streets & sidewalks', traffic: 'Traffic, signs & parking', trees: 'Trees, parks & yards',
+  property: 'Buildings & property', lights: 'Lights & wires', nuisance: 'Noise & neighborhood', water: 'Water, sewer & gas',
+  animals: 'Animals & pests', other: 'Something else',
 };
 const LABELS_EN: Record<string, string> = {
   ...Object.fromEntries(Object.entries(OUTCOME_LABELS_EN).map(([k, v]) => [`week.outcome.${k}`, v])),
-  ...Object.fromEntries(Object.entries(GROUP_LABELS_EN).map(([k, v]) => [`street.g.${k}`, v])),
+  ...Object.fromEntries(Object.entries(GROUP_LABELS_EN).map(([k, v]) => [`group.${k}`, v])),
 };
 /** `{var}` substitution, as the app's t() does it. */
 export const substitute = (s: string, vars?: Record<string, string | number>): string => {
@@ -99,8 +104,8 @@ const dayOfYmd = (ymd: string): string => { const m = YMD.exec(ymd); return m ? 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
 
-/** "Oct 18 – Oct 25": the page's own range — since/until (Providence days) for the current week, the seven calendar
- *  days ending untilDate for a dated one; '' when neither is usable. */
+/** "Oct 19 – Oct 25": the page's own range — Monday to today (since/until, Providence days) for the week in progress,
+ *  Monday to Sunday (the seven calendar days ending untilDate) for a past one; '' when neither is usable. */
 export function weekPostRange(s: Pick<WeekPostSummary, 'since' | 'until' | 'untilDate' | 'current'>): string {
   if (s.current || !s.untilDate) {
     const a = dayOfIso(s.since), b = dayOfIso(s.until);
@@ -113,7 +118,7 @@ export function weekPostRange(s: Pick<WeekPostSummary, 'since' | 'until' | 'unti
 /** The post. Paragraphs separated by blank lines, no trailing newline. */
 export function weekPostMarkdown(s: WeekPostSummary, o: WeekPostOpts): string {
   const t = o.t ?? labelsEn;
-  const typeName = (caseType: string, category: string) => caseType || t(`street.g.${groupOf(category) ?? 'other'}`);
+  const typeName = (caseType: string, category: string) => caseType || t(`group.${groupOf(category) ?? 'other'}`);
   const range = weekPostRange(s);
   const out: string[] = [];
 
@@ -121,8 +126,8 @@ export function weekPostMarkdown(s: WeekPostSummary, o: WeekPostOpts): string {
 
   // 312 requests to 311 (+22 vs last week), 114 closed, median 3.5 days to close.
   const d = s.total - s.prev.total;
-  const delta = d > 0 ? `+${num(d)} vs last week` : d < 0 ? `−${num(-d)} vs last week` : 'same as last week';
-  const parts = [`${num(s.total)} ${s.total === 1 ? 'request' : 'requests'} to 311 (${delta})`, `${num(s.closed)} closed`];
+  const delta = s.compare === false ? '' : d > 0 ? ` (+${num(d)} vs last week)` : d < 0 ? ` (−${num(-d)} vs last week)` : ' (same as last week)';
+  const parts = [`${num(s.total)} ${s.total === 1 ? 'request' : 'requests'} to 311${delta}`, `${num(s.closed)} closed`];
   if (s.medianCloseDays != null) {
     const m = Math.round(s.medianCloseDays * 10) / 10;
     parts.push(`median ${num(m)} ${m === 1 ? 'day' : 'days'} to close`);
@@ -147,7 +152,7 @@ export function weekPostMarkdown(s: WeekPostSummary, o: WeekPostOpts): string {
   const notable = s.notable.slice(0, POST_TOP);
   if (notable.length) out.push(notable.map((x) => notableLine(x, typeName)).join('\n'));
 
-  out.push(`Full week, map and the city's own notes: ${o.base}/week${s.untilDate ? `?until=${s.untilDate}` : ''}`);
+  out.push(`Full week and the city's own notes: ${o.base}/week${s.untilDate ? `?until=${s.untilDate}` : ''}`);
   out.push("From Providence 311's public request list. Not affiliated with the city.");
   return out.join('\n\n');
 }

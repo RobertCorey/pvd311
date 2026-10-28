@@ -85,7 +85,7 @@ test('landing: one feed request, clusters, peek sheet with the city summary, tab
   await expect(title(page)).toHaveText('Providence');
   await expect(sub(page)).toHaveText('1,234 requests · 740 open · 494 closed · last 30 days');
   await expect(page.locator('.street-extra')).toContainText("126 aren't on the map yet");
-  await expect(page.locator('main h1')).toHaveText('My street');
+  await expect(page.locator('main h1')).toHaveText('Map');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const report = page.locator('.tabbar a[href="/"]');
   await expect(report).toBeVisible();
@@ -104,7 +104,8 @@ test('landing half: the grabber cycles detents; Most reported and Latest — no 
   await expect(g).toHaveAttribute('aria-label', 'Show more of the list');
   const top = page.locator('.street-top-item');
   await expect(top).toHaveCount(3);
-  await expect(top.first()).toContainText('Pothole');
+  // By type group — the unit the Type filter picks, so a chip's count is what it shows.
+  await expect(top.first()).toContainText('Streets & sidewalks');
   await expect(top.first().locator('b')).toHaveText(/^\d+$/);
   // The chips flow as a wrapping row (the sheet header's wrapper used to share the .street-top class: column + gap leaked both ways).
   expect(await page.locator('ul.street-top').evaluate((el) => getComputedStyle(el).flexDirection)).toBe('row');
@@ -150,10 +151,11 @@ test('auto-widen: nothing at z16 → one step to z15 with the note; still nothin
   await page.goto(POINT);
   await waitForMap(page);
   await expect.poll(() => zoomOf(page)).toBe(15);
-  await expect(page.locator('.street-widened')).toHaveText("Nothing within a few blocks, so here's the neighborhood.");
+  await expect(page.locator('.street-widened')).toHaveText('Nothing within a few blocks, so we zoomed out a little.');
   const none = page.locator('.street-none');
-  await expect(none).toContainText('Nothing reported within this distance in the last 30 days');
-  await expect(none.locator('a.btn')).toHaveAttribute('href', '/');
+  await expect(none).toContainText('Nothing reported near here in the last 30 days.');
+  // "Report something here" brings the address along (Report.tsx fills it in).
+  await expect(none.locator('a.btn')).toHaveAttribute('href', '/?lat=41.82820&lng=-71.40050&q=481+Angell+St');
   await expect(none.locator('.street-meanwhile .street-h')).toHaveText('Meanwhile, across the city');
   await expect(none.locator('.street-top-item')).toHaveCount(3);
   await expect(none.getByRole('button', { name: 'See the whole city' })).toBeVisible();
@@ -198,12 +200,12 @@ test('filters: Show is one choice of three (All / Open / Closed) with counts, Ty
   // g= the old chips did.
   await expect(typeBtn(page)).toHaveText('All types · 3');
   await typeBtn(page).click();
-  await typeBox(page, /^Streets, 1$/).click();
+  await typeBox(page, /^Streets & sidewalks, 1$/).click();
   await expect(page).toHaveURL(/[?&]g=streets/);
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first()).toContainText('Pothole');
   await expect(page.locator('.map-case')).toHaveCount(1);
-  await expect(typeBtn(page)).toHaveText('Streets · 1');
+  await expect(typeBtn(page)).toHaveText('Streets & sidewalks · 1');
   await expect(typeBox(page, /^All types, 3$/)).not.toBeChecked();
   await typeDlg(page).getByRole('button', { name: 'Done' }).click();
   await expect(typeDlg(page)).toHaveCount(0);
@@ -224,7 +226,7 @@ test('filters: Show is one choice of three (All / Open / Closed) with counts, Ty
   await expect(rows(page)).toHaveCount(3);
   // When: a select labelled "When"; the window alone also counts as a filter for Clear.
   await expect(whenSel(page)).toHaveValue('30');
-  await expect(whenSel(page).locator('option')).toHaveText(['24 hours', 'This week', '30 days', '90 days', 'Custom range…']);
+  await expect(whenSel(page).locator('option')).toHaveText(['24 hours', '7 days', '30 days', '90 days', 'Custom range…']);
   const before = mapCalls(calls).length;
   await whenSel(page).selectOption('7');
   await expect(page).toHaveURL(/[?&]d=7/);
@@ -249,10 +251,10 @@ test('faceted counts: each choice reads what picking it would show; a zero type 
   // Every group, in GROUP_ORDER, with its count under Open (the closed street light makes Lights 0); zeros included.
   await typeBtn(page).click();
   expect(await typeDlg(page).getByRole('checkbox').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual([
-    'All types, 2', 'Trash, 1', 'Streets, 1', 'Traffic, 0', 'Trees, 0', 'Property, 0', 'Lights, 0', 'Nuisance, 0', 'Water, 0', 'Animals, 0', 'Other, 0',
+    'All types, 2', 'Trash & recycling, 1', 'Streets & sidewalks, 1', 'Traffic, signs & parking, 0', 'Trees, parks & yards, 0', 'Buildings & property, 0', 'Lights & wires, 0', 'Noise & neighborhood, 0', 'Water, sewer & gas, 0', 'Animals & pests, 0', 'Something else, 0',
   ]);
   await expect(typeDlg(page).locator('.street-check-n')).toHaveText(['2', '1', '1', '0', '0', '0', '0', '0', '0', '0', '0']);
-  await typeBox(page, /^Trees, 0$/).click();
+  await typeBox(page, /^Trees, parks & yards, 0$/).click();
   await expect(page).toHaveURL(/[?&]g=trees/);
   await page.keyboard.press('Escape');
   await expect(sub(page)).toHaveText('0 in view · 0 open · 0 closed');
@@ -280,16 +282,16 @@ test('filters: old links restore — no s (both statuses) → All, s=open → Op
   await expect(radio(page, /^Closed, 1$/)).toBeChecked();
   await expect(rows(page)).toHaveCount(1);
   await page.goto(`${POINT}&g=trash`);
-  await expect(typeBtn(page)).toHaveText('Trash · 1');
+  await expect(typeBtn(page)).toHaveText('Trash & recycling · 1');
   await typeBtn(page).click();
-  await expect(typeBox(page, /^Trash, 1$/)).toBeChecked();
+  await expect(typeBox(page, /^Trash & recycling, 1$/)).toBeChecked();
   await expect(typeDlg(page).getByRole('checkbox', { checked: true })).toHaveCount(1);
   await expect(radio(page, /^All, 1$/)).toBeChecked();
   await expect(rows(page)).toHaveCount(1);
   await page.goto(`${POINT}&d=7&s=open&g=lights`);
   await expect(whenSel(page)).toHaveValue('7');
   await expect(radio(page, /^Open, 0$/)).toBeChecked();
-  await expect(typeBtn(page)).toHaveText('Lights · 0');
+  await expect(typeBtn(page)).toHaveText('Lights & wires · 0');
   // A value no build ever wrote (s=both, g=nope, d=15) is the default — and Clear has nothing to clear.
   await page.goto(`${POINT}&s=both&g=nope&d=15`);
   await expect(rows(page)).toHaveCount(3);
@@ -299,12 +301,12 @@ test('filters: old links restore — no s (both statuses) → All, s=open → Op
   await expect(clearBtn(page)).toHaveCount(0);
   // A list in any order, with a value no build wrote: the known groups, in GROUP_ORDER.
   await page.goto(`${POINT}&g=streets,nope,trash`);
-  await expect(typeBtn(page)).toHaveText('Trash +1 · 2');
+  await expect(typeBtn(page)).toHaveText('Trash & recycling +1 · 2');
   await expect(rows(page)).toHaveCount(2);
   // /week's "Most reported" rows land on the landing with the type picked.
   await page.goto('/street?g=other');
   await waitForMap(page);
-  await expect(typeBtn(page)).toHaveText(/^Other · \d+$/);
+  await expect(typeBtn(page)).toHaveText(/^Something else · \d+$/);
 });
 
 test('filters: keyboard — one Tab stop for Show, the arrow keys move the choice within it (and wrap), with a visible ring; then When, then the Type button', async ({ page }) => {
@@ -391,7 +393,7 @@ test('filters on the phone: two 44 px rows under the search pill — Show across
   // A /week deep link (?g=animals) shows the picked type on its button, in sight — no sideways scroll needed.
   await page.goto('/street?g=animals');
   await waitForMap(page);
-  await expect(typeBtn(page)).toHaveText(/^Animals · \d+$/);
+  await expect(typeBtn(page)).toHaveText(/^Animals & pests · \d+$/);
   await inside((await typeBtn(page).boundingBox())!);
   await check();
 });
@@ -419,7 +421,7 @@ test('When: 24 hours — reported or closed in the last 24 hours, cut from the 3
   expect(mapCalls(calls).length).toBe(before);
   // The empty state names the window.
   await typeBtn(page).click();
-  await typeBox(page, /^Trees, 0$/).click();
+  await typeBox(page, /^Trees, parks & yards, 0$/).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.street-none')).toContainText('Nothing here in the last 24 hours with these filters.');
   await clearBtn(page).click();
@@ -432,7 +434,7 @@ test('When: 24 hours — reported or closed in the last 24 hours, cut from the 3
   await expect(sub(page)).toHaveText('2 requests · 1 open · 1 closed · last 24 hours');
 });
 
-test('When: Custom range… — From / To (today − 89 … today; first the last 7 days) as from=&to= instead of d; the smallest window that reaches From 00:00 loads (7 / 30 / 90); From ≤ To by their bounds (a date past the other is not applied, nor moves it); a date out of bounds is not applied; the summary and the empty state print the dates; links round-trip; Clear brings back 30 days', async ({ page }) => {
+test('When: Custom range… — From / To (today − 89 … today; first the last 7 days, today included) as from=&to= instead of d; the smallest window that reaches From 00:00 loads (7 / 30 / 90); From ≤ To by their bounds (a date past the other is not applied, nor moves it); a date out of bounds is not applied; the summary and the empty state print the dates; links round-trip; Clear brings back 30 days', async ({ page }) => {
   // The landing (no point): its Latest list is the whole filtered set, so the counts do not depend on the map's band.
   const calls = await setup(page, { items: NEAR });
   await page.goto('/street');
@@ -442,24 +444,24 @@ test('When: Custom range… — From / To (today − 89 … today; first the las
   await expect.poll(() => days(30)).toBe(1);
   await expect(fromIn(page)).toHaveCount(0);
   await whenSel(page).selectOption('custom');
-  await expect(page).toHaveURL(new RegExp(`/street\\?from=${nyDay(-7)}&to=${nyDay(0)}$`));
+  await expect(page).toHaveURL(new RegExp(`/street\\?from=${nyDay(-6)}&to=${nyDay(0)}$`));
   await expect(page.getByRole('group', { name: 'Custom range' })).toBeVisible();
-  await expect(fromIn(page)).toHaveValue(nyDay(-7));
+  await expect(fromIn(page)).toHaveValue(nyDay(-6));
   await expect(toIn(page)).toHaveValue(nyDay(0));
   // Today − 89 … today, each box also bounded by the other date.
   for (const el of [fromIn(page), toIn(page)]) await expect(el).toHaveAttribute('type', 'date');
   await expect(fromIn(page)).toHaveAttribute('min', nyDay(-89));
   await expect(fromIn(page)).toHaveAttribute('max', nyDay(0));
-  await expect(toIn(page)).toHaveAttribute('min', nyDay(-7));
+  await expect(toIn(page)).toHaveAttribute('min', nyDay(-6));
   await expect(toIn(page)).toHaveAttribute('max', nyDay(0));
-  await expect(sub(page)).toHaveText(`3 requests · 2 open · 1 closed · ${shortDay(nyDay(-7))} – ${shortDay(nyDay(0))}`);
-  // 00:00 seven days ago is more than 7 × 24 h back: the 30-day set (already here) covers it — no request.
-  await page.waitForTimeout(300);
-  expect(mapCalls(calls)).toHaveLength(1);
-  // From two days ago: the 7-day set reaches it, and is what loads. c2 (closed yesterday) and c3 (today); not c1.
+  await expect(sub(page)).toHaveText(`3 requests · 2 open · 1 closed · ${shortDay(nyDay(-6))} – ${shortDay(nyDay(0))}`);
+  // Seven dates, today included — the "7 days" /week counts: 00:00 six days ago is inside 7 × 24 h, so the 7-day set loads.
+  await expect.poll(() => days(7)).toBe(1);
+  // From two days ago: the 7-day set (already here) reaches it. c2 (closed yesterday) and c3 (today); not c1.
   await fromIn(page).fill(nyDay(-2));
   await expect(page).toHaveURL(new RegExp(`[?&]from=${nyDay(-2)}&to=${nyDay(0)}$`));
-  await expect.poll(() => days(7)).toBe(1);
+  await page.waitForTimeout(300);
+  expect(days(7)).toBe(1);
   await expect(rows(page)).toHaveCount(2);
   // From ≤ To by the boxes' bounds: From's max is To, To's min is From. A To before From stays on screen unapplied —
   // From is not moved — and goes back on blur.
@@ -506,7 +508,7 @@ test('When: Custom range… — From / To (today − 89 … today; first the las
   await expect(fromIn(page)).toHaveValue(nyDay(-42));
   // The empty state names the dates.
   await typeBtn(page).click();
-  await typeBox(page, /^Trees, 0$/).click();
+  await typeBox(page, /^Trees, parks & yards, 0$/).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.street-none')).toContainText(`Nothing here from ${shortDay(nyDay(-42))} to ${shortDay(nyDay(-1))} with these filters.`);
   // Clear: back to 30 days, the dates gone.
@@ -530,7 +532,19 @@ test('When: Custom range… — From / To (today − 89 … today; first the las
   await waitForMap(page);
   await expect(sub(page)).toHaveText(`2 solicitudes · abiertas: 1 · cerradas: 1 · ${shortDay(nyDay(-3), 'es')} – ${shortDay(nyDay(-1), 'es')}`);
   await expect(page.getByLabel('Desde', { exact: true })).toHaveValue(nyDay(-3));
-  await expect(page.getByLabel('Cuándo', { exact: true }).locator('option')).toHaveText(['24 horas', 'Esta semana', '30 días', '90 días', 'Personalizado…']);
+  await expect(page.getByLabel('Cuándo', { exact: true }).locator('option')).toHaveText(['24 horas', '7 días', '30 días', '90 días', 'Personalizado…']);
+});
+
+test('where the data starts (the feed\'s firstDay): a window reaching back before it reads "since <day>" — 30 and 90 days hold no more than that — and a range starts there; a shorter window keeps its words', async ({ page }) => {
+  await setup(page, { items: NEAR, firstDay: nyDay(-12) });
+  await page.goto('/street');
+  await waitForMap(page);
+  await expect(sub(page)).toHaveText(`3 requests · 2 open · 1 closed · since ${shortDay(nyDay(-12))}`);
+  await whenSel(page).selectOption('7');
+  await expect(sub(page)).toHaveText('3 requests · 2 open · 1 closed · last 7 days');
+  await page.goto(`/street?from=${nyDay(-20)}&to=${nyDay(0)}`);
+  await waitForMap(page);
+  await expect(sub(page)).toHaveText(`3 requests · 2 open · 1 closed · ${shortDay(nyDay(-12))} – ${shortDay(nyDay(0))}`);
 });
 
 test('custom range links from long ago: read inside the bounds — a From past today − 89 raised to it (and the 90-day load), a To past today lowered to it, the address bar rewritten in place; a range wholly outside them falls back to 30 days', async ({ page }) => {
@@ -671,10 +685,10 @@ test('Type: several at once — the button opens a dialog of checkboxes (All typ
   await expect(typeBox(page, /^All types, 3$/)).toBeChecked();
   await expect(typeDlg(page).getByRole('checkbox')).toHaveCount(11);
   // Streets, then Trash: the URL lists them in GROUP_ORDER, with plain commas; the dialog stays open for more.
-  await typeBox(page, /^Streets, 1$/).click();
-  await typeBox(page, /^Trash, 1$/).click();
+  await typeBox(page, /^Streets & sidewalks, 1$/).click();
+  await typeBox(page, /^Trash & recycling, 1$/).click();
   await expect(page).toHaveURL(/[?&]g=trash,streets(&|$)/);
-  await expect(btn).toHaveText('Trash +1 · 2');
+  await expect(btn).toHaveText('Trash & recycling +1 · 2');
   await expect(typeBox(page, /^All types, 3$/)).not.toBeChecked();
   await expect(typeDlg(page)).toBeVisible();
   // The union: the dumpster and the pothole, not the street light; Show counts follow; each box keeps its own count.
@@ -682,7 +696,7 @@ test('Type: several at once — the button opens a dialog of checkboxes (All typ
   await expect(mainPins(page)).toHaveCount(2);
   await expect(radio(page, /^All, 2$/)).toBeChecked();
   await expect(radio(page, /^Closed, 0$/)).toBeVisible();
-  await expect(typeBox(page, /^Lights, 1$/)).not.toBeChecked();
+  await expect(typeBox(page, /^Lights & wires, 1$/)).not.toBeChecked();
   // Escape closes it, focus back on the button.
   await page.keyboard.press('Escape');
   await expect(typeDlg(page)).toHaveCount(0);
@@ -698,7 +712,7 @@ test('Type: several at once — the button opens a dialog of checkboxes (All typ
   await expect(typeBox(page, /^All types, 3$/)).toBeChecked();
   // Tab to Lights, Space; Tab on to Done, Enter: closed, focus on the button.
   for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
-  await expect(typeBox(page, /^Lights, 1$/)).toBeFocused();
+  await expect(typeBox(page, /^Lights & wires, 1$/)).toBeFocused();
   await page.keyboard.press('Space');
   await expect(page).toHaveURL(/[?&]g=lights(&|$)/);
   for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
@@ -706,7 +720,7 @@ test('Type: several at once — the button opens a dialog of checkboxes (All typ
   await page.keyboard.press('Enter');
   await expect(typeDlg(page)).toHaveCount(0);
   await expect(btn).toBeFocused();
-  await expect(btn).toHaveText('Lights · 1');
+  await expect(btn).toHaveText('Lights & wires · 1');
   // Tab past Done closes it, focus where Tab sent it (Clear).
   await page.keyboard.press('Enter');
   await done.focus();
@@ -736,12 +750,12 @@ test('Type: several at once — the button opens a dialog of checkboxes (All typ
   expect(await typeDlg(page).locator('.street-checks').evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   const onTop = (l: ReturnType<Page['locator']>) => l.evaluate((el) => { const q = el.getBoundingClientRect(); const hit = document.elementFromPoint(q.x + q.width / 2, q.y + q.height / 2); return !!hit && el.contains(hit); });
   expect(await onTop(done)).toBe(true);
-  const other = typeBox(page, /^Other, 0$/);
+  const other = typeBox(page, /^Something else, 0$/);
   await other.scrollIntoViewIfNeeded();
   expect(await onTop(other)).toBe(true);
   await other.click();
   await expect(page).toHaveURL(/[?&]g=lights,other(&|$)/);
-  await expect(btn).toHaveText('Lights +1 · 1');
+  await expect(btn).toHaveText('Lights & wires +1 · 1');
   for (const ck of await typeDlg(page).locator('.street-check').all()) expect((await ck.boundingBox())!.height).toBeGreaterThanOrEqual(44 - 0.5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   // Clear closes it and resets the types with the rest.
@@ -872,7 +886,7 @@ test('deep link to a case older than the window (the follow mail, a /my row): fe
   await expect(card2.locator('.street-digest')).toHaveCount(0);
   await expect(card2.locator('.case-addr')).toHaveText('Street not given');
   await expect(card2.locator('.case-stat')).toHaveText([/^Closed after\s*80 days$/, /^Reported\s*[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/]);
-  await expect(card2.locator('.case-tile')).toHaveText([/^Type\s*Streets$/, /^Status\s*Closed$/]);
+  await expect(card2.locator('.case-tile')).toHaveText([/^Type\s*Streets & sidewalks$/, /^Status\s*Closed$/]);
   await expect(selPin(page)).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]case=old2/);
   expect(lookups()).toEqual(['old1', 'old2']);
@@ -1130,7 +1144,7 @@ test('case page on the phone (390×664): the whole screen, tab bar included; a s
   await expect(dlg.locator('.case-stat')).toHaveText([/^Closed after\s*8 days$/, /^Reported\s*[A-Z][a-z]{2} \d{1,2}$/, /^From 481 Angell St\s*56 m$/]);
   // Fact tiles: type group, status, and the two form dates the city has.
   await expect(dlg.locator('.case-tile dt')).toHaveText(['Type', 'Status', 'Sent to the department', 'Work completed']);
-  await expect(dlg.locator('.case-tile dd')).toHaveText(['Lights', 'Closed', /^[A-Z][a-z]{2} \d{1,2}$/, /^[A-Z][a-z]{2} \d{1,2}$/]);
+  await expect(dlg.locator('.case-tile dd')).toHaveText(['Lights & wires', 'Closed', /^[A-Z][a-z]{2} \d{1,2}$/, /^[A-Z][a-z]{2} \d{1,2}$/]);
   // The page scrolls inside; the bar stays on top.
   await dlg.evaluate((el) => { el.scrollTop = 700; });
   await expect.poll(() => dlg.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
@@ -1825,7 +1839,7 @@ test('the in-view list follows the map: an empty corner → zeros, plain empty c
   await expect(page).not.toHaveURL(/[?&][cz]=/);
 });
 
-test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, fits and titles the sheet; a pan clears it; the title follows the map centre', async ({ page }) => {
+test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, fits it above the half sheet, titles the sheet, and counts and lists only the cases inside it; a pan clears it; the title follows the map centre', async ({ page }) => {
   await setup(page);
   await page.goto('/street?n=fox-point');
   await waitForMap(page);
@@ -1833,6 +1847,20 @@ test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, 
   await expect(title(page)).toHaveText('Fox Point');
   await expect(sheet(page)).toHaveAttribute('data-detent', 'half');
   await expect.poll(() => zoomOf(page)).toBeGreaterThanOrEqual(12); // fitted into the HALF band under the two filter rows
+  // The whole outline sits between the filter rows and the HALF sheet (Rob, 2026-10-28).
+  await expect.poll(async () => {
+    const [hood, stage, sh] = await Promise.all(['.map-hood', '.street-stage', '.street-sheet'].map((sel) => page.locator(sel).first().evaluate((e) => e.getBoundingClientRect().toJSON())));
+    return hood.top >= stage.top + 162 - 1 && hood.bottom <= sh.top + 1;
+  }).toBe(true);
+  // "N in Fox Point": the count and the list are the cases inside the outline, not the box the map shows.
+  await expect(sub(page)).toHaveText(/^\d+ in Fox Point · \d+ open · \d+ closed$/);
+  await expect(page.locator('.street-body .street-h').first()).toHaveText('Fox Point');
+  const texts = await rows(page).allTextContents();
+  expect(texts.length).toBeGreaterThan(0);
+  expect(texts.every((t) => t.includes('Fox Point'))).toBe(true);
+  const n = Number(/^(\d+)/.exec((await sub(page).textContent())!)![1]);
+  const more = page.locator('.street-more');
+  expect(texts.length + ((await more.count()) ? Number(/(\d+)/.exec((await more.textContent())!)![1]) : 0)).toBe(n);
   await expect(page.getByLabel('Jump to a neighborhood…')).toHaveCount(0);
   await page.goto('/street?n=elmhurst');
   await waitForMap(page);
@@ -1844,6 +1872,18 @@ test('neighborhoods: a ?n= link (/week\'s neighborhood rows) draws the outline, 
   await expect(page.locator('.map-hood')).toHaveCount(0);
   await setView(page, 41.8268, -71.4025, 15);
   await expect(title(page)).toHaveText('College Hill');
+});
+
+test('a case link framed by a view (c/z — /week, the follow mail, /my): its page names the neighborhood, never "From where you are", and Report brings the place along', async ({ page }) => {
+  await setup(page);
+  await page.goto('/street?case=c1&c=41.8286,-71.4005&z=17');
+  await waitForMap(page);
+  const dlg = caseDialog(page, 'Pothole');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('.case-stat[data-stat="hood"]')).toHaveText(/^Neighborhood\s*College Hill$/);
+  await expect(dlg.locator('.case-stat[data-stat="from"]')).toHaveCount(0);
+  await expect(page.locator('.map-home')).toHaveCount(0);
+  await expect(dlg.locator('.case-report a')).toHaveAttribute('href', '/?lat=41.82856&lng=-71.40050&q=10+Angell+St');
 });
 
 test('search, clear, locate: ArcGIS → point URL + pin + ring; × returns to the city; outside / denied messages', async ({ page, context }) => {
@@ -1870,10 +1910,10 @@ test('search, clear, locate: ArcGIS → point URL + pin + ring; × returns to th
   await expect(page.locator('.street-msg')).toContainText('Location is off for this site');
 });
 
-test('saved places: signed in, the "Your places" chip in the peek sheet jumps the map and sets q', async ({ page }) => {
+test('saved places: signed in, the "Your streets" chip in the peek sheet jumps the map and sets q', async ({ page }) => {
   await landing(page, { signedIn: true, me: { addresses: [{ id: 'a9', label: 'Home', address: '481 Angell St, Providence', lat: PT.lat, lng: PT.lng }] } });
   const places = page.locator('.street-places');
-  await expect(places).toContainText('Your places');
+  await expect(places).toContainText('Your streets');
   await places.getByRole('button', { name: 'Home' }).click();
   await expect(page).toHaveURL(/lat=41\.82820&lng=-71\.40050&q=481\+Angell\+St%2C\+Providence/);
   await expect.poll(() => zoomOf(page)).toBe(16);
@@ -1897,11 +1937,11 @@ const PLACES = [
   { id: 'a4', label: 'Mom', address: 'Somewhere, Providence', lat: null, lng: null },
 ];
 
-test('your places this week: signed in, a card above the week link with a row per saved address that has coordinates — 7-day counts within 300 m from the loaded feed, "nothing new" for a quiet place, no extra request; a row tap opens the address view', async ({ page }) => {
+test('your streets this week: signed in, a card above the week link with a row per saved address that has coordinates — 7-day counts within 300 m from the loaded feed, "nothing new" for a quiet place, no extra request; a row tap opens the address view', async ({ page }) => {
   const calls = await landing(page, { items: [...DEFAULT_ITEMS, ...WORK_CASES], signedIn: true, me: { addresses: PLACES } });
   await grab(page).click();
   const card = page.locator('.street-places-card');
-  await expect(card.getByRole('heading', { name: 'Your places this week' })).toBeVisible();
+  await expect(card.getByRole('heading', { name: 'Your streets this week' })).toBeVisible();
   const places = card.locator('.street-place');
   await expect(places).toHaveCount(3); // Mom has no coordinates
   await expect(places.locator('.street-place-label')).toHaveText(['Home', 'Work', 'Gym']);
@@ -1917,7 +1957,7 @@ test('your places this week: signed in, a card above the week link with a row pe
     const c = document.querySelector('.street-places-card')!; const a = document.querySelector('a.street-week-link')!;
     return c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';
   })).toBe('above');
-  // The header's "Your places" chips stay (all four; the thumb-zone shortcut).
+  // The header's "Your streets" chips stay (all four; the thumb-zone shortcut).
   await expect(page.locator('.street-places .chip')).toHaveCount(4);
   // Everything came from the one feed load and the account: no per-place request.
   expect(calls.filter((c) => /\/api\/street(\?|\/city)|\/api\/week/.test(c.url))).toEqual([]);
@@ -1932,14 +1972,14 @@ test('your places this week: signed in, a card above the week link with a row pe
   await expect(rows(page)).toHaveCount(4); // w1–w4; w5 is outside the z16 band's few blocks
 });
 
-test('your places this week: no card when signed out', async ({ page }) => {
+test('your streets this week: no card when signed out', async ({ page }) => {
   await landing(page);
   await grab(page).click();
   await expect(page.locator('a.street-week-link')).toBeVisible();
   await expect(page.locator('.street-places-card')).toHaveCount(0);
 });
 
-test('your places this week: no card when no saved address has coordinates (the chip still offers the geocode), Spanish singulars', async ({ page }) => {
+test('your streets this week: no card when no saved address has coordinates (the chip still offers the geocode), Spanish singulars', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('fixmypvd.lang', 'es'));
   await landing(page, { signedIn: true, me: { addresses: [PLACES[3]] } });
   await grab(page).click();
@@ -1951,7 +1991,7 @@ test('your places this week: no card when no saved address has coordinates (the 
   await landing(page, { items: [...DEFAULT_ITEMS, ...WORK_CASES], signedIn: true, me: { addresses: [PLACES[1], PLACES[2]] } });
   await grab(page).click();
   const card = page.locator('.street-places-card');
-  await expect(card.getByRole('heading', { name: 'Tus lugares esta semana' })).toBeVisible();
+  await expect(card.getByRole('heading', { name: 'Tus calles esta semana' })).toBeVisible();
   await expect(card.locator('.street-place-n')).toHaveText(['1 nueva · 1 cerrada', 'nada nuevo']);
 });
 
@@ -2479,7 +2519,7 @@ test.describe('desktop', () => {
     const f = page.locator(`.street-panel ${FILTER_ROW}`);
     await expect(whenSel(page)).toHaveValue('custom');
     await expect(f.locator('.street-date-label')).toHaveText(['From', 'To']);
-    await expect(typeBtn(page)).toHaveText('Trash +1 · 2');
+    await expect(typeBtn(page)).toHaveText('Trash & recycling +1 · 2');
     const layout = async () => {
       const when = (await whenSel(page).boundingBox())!, type = (await typeBtn(page).boundingBox())!;
       const from = (await f.locator('.street-date').nth(0).boundingBox())!, to = (await f.locator('.street-date').nth(1).boundingBox())!;
@@ -2498,8 +2538,8 @@ test.describe('desktop', () => {
     expect(d.y).toBeGreaterThanOrEqual(type.y + type.height);
     expect(d.y + d.height).toBeLessThanOrEqual(800);
     expect(d.x + d.width).toBeCloseTo(type.x + type.width, 0);
-    await expect(typeBox(page, /^Trash, 1$/)).toBeChecked();
-    await expect(typeBox(page, /^Streets, 1$/)).toBeChecked();
+    await expect(typeBox(page, /^Trash & recycling, 1$/)).toBeChecked();
+    await expect(typeBox(page, /^Streets & sidewalks, 1$/)).toBeChecked();
     await page.keyboard.press('Escape');
     await expect(typeBtn(page)).toBeFocused();
     await page.setViewportSize({ width: 800, height: 800 });
@@ -2688,7 +2728,7 @@ test('a map unmounted before its full-detail pass gets no layer after map.remove
   page.on('pageerror', (e) => errors.push(e.message));
   await coarsePass(page);
   await page.evaluate(() => { const w = window as unknown as { __streetMap?: unknown; __oldMap?: unknown }; w.__oldMap = w.__streetMap; });
-  await page.getByRole('link', { name: 'Mine', exact: true }).click();
+  await page.locator('.tabbar').getByRole('link', { name: 'My reports', exact: true }).click();
   await expect(page).toHaveURL(/\/my$/);
   await expect(page.locator('.mapview')).toHaveCount(0);
   // Requests the coarse layer had in flight may still finish; count only from a beat later.
@@ -2871,7 +2911,7 @@ test('install nudge: not on the first visit; from the second, with beforeinstall
   await grab(page).click();
   const card = nudge(page);
   await expect(card.getByRole('heading', { name: 'Keep it on your home screen' })).toBeVisible();
-  await expect(card).toContainText('One tap to check your street. Notifications work only from the installed app on iPhone.');
+  await expect(card).toContainText('One tap to check your street. On iPhone, phone notifications need the installed app. Turn them on in Account → Updates.');
   expect(await page.evaluate(() => {
     const c = document.querySelector('.street-install')!; const a = document.querySelector('a.street-week-link')!;
     return c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';

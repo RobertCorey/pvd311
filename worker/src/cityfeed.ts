@@ -17,6 +17,7 @@
  */
 import type { Page } from '@cloudflare/playwright';
 import { CATEGORIES } from '../../shared/categories.js';
+import { inCity } from '../../shared/neighborhoods.js';
 import type { Env, Store } from './contracts.js';
 
 declare const document: any;
@@ -40,8 +41,6 @@ export interface CityFeed {
 export const GRID_CONFIG_META = 'cityGridConfig';
 const MAX_ITEMS = 200;
 const MAX_GEOCODES_PER_RUN = 80; // bound ArcGIS calls on a cold cache; cache makes later runs ~free
-// Loose RI/Providence guard so a bad geocode can't drop a pin in another state.
-const GEO_BOUNDS = { minLat: 41.6, maxLat: 42.05, minLng: -71.7, maxLng: -71.2 };
 
 interface RawRow {
   caseTypeName: string;
@@ -231,7 +230,8 @@ async function geocodeStreet(street: string): Promise<{ lat: number; lng: number
     const lat = c.location.y;
     const lng = c.location.x;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    if (lat < GEO_BOUNDS.minLat || lat > GEO_BOUNDS.maxLat || lng < GEO_BOUNDS.minLng || lng > GEO_BOUNDS.maxLng) return null;
+    // Inside the city line only: "Providence, RI" in the query does not stop a match in North Providence or Cranston.
+    if (!inCity(lat, lng)) return null;
     return { lat, lng };
   } catch {
     return null;

@@ -9,6 +9,7 @@ import type { UserDoc } from './contracts.js';
 import { CLOSED, closedAt, type CaseLike } from './cityinsights.js';
 import { statusPhrase, updatesLine } from './notify.js';
 import { hasPush, type PushPayload } from './push.js';
+import { inCity } from '../../shared/neighborhoods.js';
 
 export const MAX_CITY_FOLLOWING = 100;  // per account
 export const MAX_CASE_FOLLOWERS = 200;  // per case
@@ -33,27 +34,31 @@ const iso = (v: unknown): string | null => {
 };
 
 /** cityCases/{guid} document → the followed-case view. `open` = status outside Resolved/Closed/Cancelled/Merged;
- *  `closedAt` = the city's resolution date, else the close we watched happen (cityinsights.closedAt), closed cases only. */
+ *  `closedAt` = the city's resolution date, else the close we watched happen (cityinsights.closedAt), closed cases only;
+ *  no coordinates for a geocode outside the city line (inCity — street.ts loadCases drops those too). */
 export function followedCaseView(doc: Doc, followedAt?: string | null): FollowedCase {
   const status = str(doc.status);
   const open = !CLOSED.has(status);
   const closed = open ? null : closedAt(doc as unknown as CaseLike);
   const detail = (doc.detail ?? null) as { resolution?: string | null } | null;
+  const lat = num(doc.lat), lng = num(doc.lng);
+  const placed = lat != null && lng != null && inCity(lat, lng);
   return {
     id: str(doc.id), caseType: str(doc.caseType), category: str(doc.category) || 'unsure', street: str(doc.street), status, open,
     createdAt: iso(doc.createdAt),
     closedAt: closed != null ? new Date(closed).toISOString() : null,
     resolution: (typeof detail?.resolution === 'string' && detail.resolution.trim()) || null,
-    lat: num(doc.lat), lng: num(doc.lng),
+    lat: placed ? lat : null, lng: placed ? lng : null,
     followedAt: followedAt ?? null,
     updatedAt: iso(doc.statusAt),
   };
 }
 
-/** The case's card on the map: /street?case=<guid>, plus lat/lng when the case is located (the page centres there). */
+/** The case's card on the map: /street?case=<guid>, plus the map view `c=<lat>,<lng>&z=17` when the case is located —
+ *  a view, not lat/lng, which would make the case's own spot "where you are" (2026-10-28 audit). */
 export function caseUrl(base: string, guid: string, lat: number | null, lng: number | null): string {
-  const loc = lat != null && lng != null ? `&lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}` : '';
-  return `${base.replace(/\/+$/, '')}/street?case=${encodeURIComponent(guid)}${loc}`;
+  const view = lat != null && lng != null ? `&c=${lat.toFixed(4)},${lng.toFixed(4)}&z=17` : '';
+  return `${base.replace(/\/+$/, '')}/street?case=${encodeURIComponent(guid)}${view}`;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

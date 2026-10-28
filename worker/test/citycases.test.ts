@@ -217,7 +217,7 @@ describe('syncCityCases', () => {
         expect(sent).toEqual([{ to: 'on@example.com', subject: `City update: ${row.caseType} on ${row.street} — Resolved`, html: expect.any(String), kind: 'city_follow', caseId: ID }]);
         expect(sent[0].html).toContain(`<b>${row.status}</b> → <b>Resolved</b>`);
         expect(sent[0].html).toContain('Light fixed');
-        expect(sent[0].html).toContain(`href="https://fixmypvd.org/street?case=${ID}&amp;lat=41.82820&amp;lng=-71.40050"`);
+        expect(sent[0].html).toContain(`href="https://fixmypvd.org/street?case=${ID}&amp;c=41.8282,-71.4005&amp;z=17"`);
         expect(cases[ID]).toMatchObject({ status: 'Resolved', notifiedStatus: 'Resolved' });
 
         // Same status next run: nothing changed, nothing mailed; even a forced re-check of that change is a no-op.
