@@ -41,7 +41,8 @@ export function mailingStreetAndCity(lines: (string | null | undefined)[]): { st
   const clean = lines.map((l) => (l && l.trim() && l.trim().toUpperCase() !== 'NULL' ? l.trim() : null));
   for (let i = clean.length - 1; i >= 0; i--) {
     const l = clean[i];
-    if (l && /\b[A-Za-z]{2}\.?\s+\d{5}(-\d{4})?\s*$/.test(l)) {
+    // "Providence RI  02904", "Providence  02919" (no state), "NEW YORK NY  100343160" — but not "PO BOX 40247".
+    if (l && /^(?!\s*(\d|p\.?\s*o\.?\s*box\b))[A-Za-z][A-Za-z .,'-]*?\s\d{5}(-?\d{4})?\s*$/i.test(l)) {
       let j = i - 1;
       while (j >= 0 && !clean[j]) j--;
       return { street: j >= 0 ? clean[j] : null, city: l };

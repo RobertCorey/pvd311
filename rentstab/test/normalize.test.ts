@@ -20,6 +20,8 @@ describe('mailingStreetAndCity', () => {
       .toEqual({ street: '3 Constitution Hill St', city: 'Providence RI  02904' });
     expect(mailingStreetAndCity(['PO BOX 40247', 'NULL', 'PROVIDENCE RI  02940', null]))
       .toEqual({ street: 'PO BOX 40247', city: 'PROVIDENCE RI  02940' });
+    expect(mailingStreetAndCity(['16 Maria Ave', 'Providence  02919', null])).toEqual({ street: '16 Maria Ave', city: 'Providence  02919' });
+    expect(mailingStreetAndCity(['4877 BROADWAY', 'APT 3J', 'NEW YORK NY  100343160'])).toEqual({ street: 'APT 3J', city: 'NEW YORK NY  100343160' });
   });
 });
 
