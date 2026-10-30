@@ -107,8 +107,6 @@ export interface AdminCategory {
 export const adminCategories = () => call<{ items: AdminCategory[] }>('/api/admin/categories');
 export interface AdminConfigItem { key: string; value: string | number | boolean | null; what: string }
 export const adminConfig = () => call<{ items: AdminConfigItem[] }>('/api/admin/config');
-export interface ExplainSection { key: string; title: string; summary: string; details: string[]; live?: Record<string, string | number | boolean | null>; links?: { label: string; href: string }[] }
-export const adminExplain = () => call<{ sections: ExplainSection[] }>('/api/admin/explain');
 
 /** GET /api/admin/usage — first-party analytics (Worker ui.ts → Analytics Engine). */
 export interface AdminUsage {

@@ -16,7 +16,6 @@ import AdminAccounts from './AdminAccounts';
 import AdminPortal from './AdminPortal';
 import AdminCityQuestions from './AdminCityQuestions';
 import AdminConfig from './AdminConfig';
-import AdminExplain from './AdminExplain';
 import AdminUsage from './AdminUsage';
 import AdminEngagement from './AdminEngagement';
 import AdminEmail from './AdminEmail';
@@ -26,9 +25,9 @@ import './Admin.css';
 import './AdminMobile.css';
 
 type Gate = 'checking' | 'signedOut' | 'notAdmin' | 'admin';
-const TABS = ['overview', 'usage', 'engagement', 'queue', 'reports', 'cases', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config', 'explain'] as const;
+const TABS = ['overview', 'usage', 'engagement', 'queue', 'reports', 'cases', 'accounts', 'email', 'portal', 'questions', 'events', 'system', 'config'] as const;
 type Tab = typeof TABS[number];
-/** Parse the hash: `#reports?q=x`, `#explain:portal`, `#queue`. Unknown → overview. */
+/** Parse the hash: `#reports?q=x`, `#email:<id>`, `#queue`. Unknown → overview. */
 function parseHash(h: string): { tab: Tab; params: URLSearchParams; anchor: string | null } {
   const m = /^#([a-z]+)(?::([A-Za-z0-9_-]+))?(?:\?(.*))?$/.exec(h);
   const tab = (m && (TABS as readonly string[]).includes(m[1]) ? m[1] : 'overview') as Tab;
@@ -219,7 +218,6 @@ export default function Admin() {
         {tab === 'portal' && <AdminPortal />}
         {tab === 'questions' && <AdminCityQuestions />}
         {tab === 'config' && <AdminConfig />}
-        {tab === 'explain' && <AdminExplain />}
         {tab === 'queue' && (
           <>
             {err && <div className="notice notice-error" role="alert">{t('admin.loadError')} <button type="button" className="btn btn-ghost" onClick={load}>{t('account.retry')}</button></div>}

@@ -16,7 +16,6 @@
  *   GET  /api/admin/city-questions         → per category: seed questions + live record (counts app/ai/blank, last seen live) + flags + demand,
  *                                            ranked by blank count × demand (read-only; docs/city-questions.md phase 1)
  *   GET  /api/admin/config                 → live settings with explanations (no secrets)
- *   GET  /api/admin/explain                → "how it works" sections with live numbers (Learn tabs)
  *   GET  /api/admin/reports/:id/proofs     → [{ name, createdAt, contentType }]  ·  GET …/proofs/:name → image bytes
  *   POST /api/admin/canary/golden/:category/rebaseline → JSON { controls? } replaces the live golden; no body clears it (next live dump re-mints)
  *   POST /api/admin/engine/resume          → clear circuit breaker
@@ -39,7 +38,6 @@ import { approve, reject } from './hitl.js';
 import { createMailer } from './email.js';
 import { logEvent, SUBSYSTEMS, deriveStatus, type HealthRec } from './health.js';
 import { canaryGoldenStatus, rebaselineGolden } from './canary-golden.js';
-import { explainSystem } from './adminexplain.js';
 import { usage } from './ui.js';
 import { buildAdminView } from './cityquestions.js';
 import type { ReportStatus } from '../../shared/types.js';
@@ -369,11 +367,6 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       row('Engine limits', 'lock 12 min · stuck reaper 20 min · retries 2 with backoff · breaker after repeated failures · hourly cap', 'See worker/src/engine.ts constants.'),
       row('Retention', 'photos 30 days after the city closes a case · events 14 days · email log 60 days · HITL links 30 days', 'Daily job at 7 am ET.'),
     ] });
-  }
-
-  if (m === 'GET' && path === '/api/admin/explain') {
-    const [users, submitted, rejected] = await Promise.all([store.countUsers().catch(() => -1), store.countByStatus('submitted').catch(() => -1), store.countByStatus('rejected').catch(() => -1)]);
-    return json({ sections: explainSystem(env, { users, submitted, rejected, categories: Object.keys(CATEGORIES).length }) });
   }
 
   const proof = /^\/api\/admin\/reports\/([A-Za-z0-9_-]{10,64})\/proofs(?:\/([A-Za-z0-9_-]{1,120}))?$/.exec(path);

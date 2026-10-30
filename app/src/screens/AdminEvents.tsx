@@ -43,7 +43,7 @@ export default function AdminEvents({ initialReportId = '' }: { initialReportId?
         <span className="admin-meta">{items ? t('admin.reports.loaded', { n: items.length }) : ''}</span>
         <button type="button" className="btn btn-ghost admin-refresh" onClick={() => load()} disabled={loading}>{t('admin.refresh')}</button>
       </div>
-      <p className="admin-meta">{t('admin.events.what')} <a href="#explain:health">{t('admin.events.learn')}</a></p>
+      <p className="admin-meta">{t('admin.events.what')}</p>
       {err && <div className="notice notice-error" role="alert">{t('admin.loadError')}</div>}
       {items == null ? <p className="muted" aria-busy="true">{t('account.loading')}</p> : items.length === 0 ? <p className="admin-empty">{t('admin.bucket.empty')}</p> : (
         <table className="admin-table sys-events-table">

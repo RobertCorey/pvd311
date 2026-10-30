@@ -72,7 +72,7 @@ test('events: filters + raw data toggle', async ({ page }) => {
   await page.screenshot({ path: 'tests/__screenshots__/admin-events.png' });
 });
 
-for (const tab of ['usage', 'accounts', 'portal', 'config', 'explain'] as const) {
+for (const tab of ['usage', 'accounts', 'portal', 'config'] as const) {
   test(`${tab}: renders with data, no horizontal scroll`, async ({ page }) => {
     await page.goto(`/admin#${tab}`);
     await expect(page.locator('.admin-main')).toBeVisible();
@@ -179,7 +179,7 @@ test('city cases → how it gets done: tiles, outcome bars with counts in text, 
 test('every tab is reachable from the rail and keeps the hash', async ({ page }) => {
   await page.goto('/admin');
   for (const tab of TABS) {
-    await page.getByRole('tab', { name: new RegExp(`^${tab === 'explain' ? 'How it works' : tab === 'questions' ? 'City questions' : tab === 'cases' ? 'City cases' : tab}`, 'i') }).click();
+    await page.getByRole('tab', { name: new RegExp(`^${tab === 'questions' ? 'City questions' : tab === 'cases' ? 'City cases' : tab}`, 'i') }).click();
     await expect(page).toHaveURL(new RegExp(`#${tab}$`));
   }
 });

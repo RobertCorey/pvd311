@@ -40,8 +40,7 @@ export default function AdminPortal() {
       <section className="portal-section">
         <h2>{t('admin.portal.cats.title')}</h2>
         <p className="portal-intro">
-          {t('admin.portal.cats.intro')}{' '}
-          <a href="#explain:portal">{t('admin.portal.explainLink')}</a>
+          {t('admin.portal.cats.intro')}
         </p>
 
         {!cats ? (
@@ -107,8 +106,7 @@ export default function AdminPortal() {
       <section className="portal-section">
         <h2>{t('admin.portal.city.title')}</h2>
         <p className="portal-intro">
-          {t('admin.portal.city.intro')}{' '}
-          <a href="#explain:portal">{t('admin.portal.explainLink')}</a>
+          {t('admin.portal.city.intro')}
         </p>
 
         {!health ? (

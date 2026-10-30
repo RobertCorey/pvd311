@@ -18,18 +18,6 @@ function groupOf(key: string): Group {
   return 'other';
 }
 
-/** Maps a config key to the How-it-works section it belongs to, for the row's "?" deep-link (`#explain:<section>`). */
-function guessSection(key: string): string {
-  const k = key.toUpperCase();
-  if (k.startsWith('HITL') || k.startsWith('ACCOUNT_TRUST')) return 'hitl';
-  if (k.startsWith('PACE') || k.startsWith('RATE') || k.startsWith('INTAKE') || k.startsWith('AI') || k.startsWith('ANTHROPIC')) return 'moderation';
-  if (k.startsWith('PORTAL') || k.startsWith('CANARY') || k.startsWith('GOLDEN')) return 'portal';
-  if (k.startsWith('RESEND') || k.startsWith('EMAIL') || k.startsWith('NOTIFY') || k.startsWith('AUTH_FROM')) return 'email';
-  if (k.startsWith('SYNC') || k.startsWith('RECONCILE') || k.startsWith('WATCHER')) return 'sync';
-  if (k.startsWith('RETENTION') || k.startsWith('DATA') || k.startsWith('FIREBASE') || k.startsWith('STORAGE')) return 'data';
-  return 'health';
-}
-
 type T = ReturnType<typeof useT>;
 
 function ConfigValue({ v, t }: { v: AdminConfigItem['value']; t: T }) {
@@ -104,7 +92,6 @@ export default function AdminConfig() {
                 <th scope="col">{t('admin.config.col.key')}</th>
                 <th scope="col">{t('admin.config.col.value')}</th>
                 <th scope="col">{t('admin.config.col.what')}</th>
-                <th scope="col"><span className="visually-hidden">{t('admin.config.col.help')}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -115,9 +102,6 @@ export default function AdminConfig() {
                       <td className="cfg-key"><code>{it.key}</code></td>
                       <td className="cfg-val"><ConfigValue v={it.value} t={t} /></td>
                       <td className="cfg-what">{it.what}</td>
-                      <td className="cfg-help">
-                        <a href={`#explain:${guessSection(it.key)}`} aria-label={t('admin.config.help')}>?</a>
-                      </td>
                     </tr>
                   ))}
                 </GroupRows>

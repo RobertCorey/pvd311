@@ -96,7 +96,6 @@ export default function AdminOverview({ queue, go }: { queue: Overview | null; g
           </table>
         )}
       </section>
-      <p className="admin-meta">{t('admin.ov.learn')} <a href="#explain:pipeline">{t('admin.ov.learnLink')}</a></p>
     </div>
   );
 }

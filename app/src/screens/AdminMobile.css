@@ -37,7 +37,7 @@
     display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 10px;
   }
   .admin-rail-engine .admin-meta { grid-column: 1; }
-  .admin-rail-engine .admin-meta + .admin-meta { display: none; } /* mode/trust line: Config + How it works have it */
+  .admin-rail-engine .admin-meta + .admin-meta { display: none; } /* mode/trust line: Config has it */
   .admin-rail-btn { grid-column: 2; grid-row: 1 / span 2; margin: 0; min-height: 40px; padding: 6px 14px; width: auto; }
   .admin-shell:not([data-tab="overview"]):not([data-tab="queue"]):not([data-tab="system"]) .admin-rail-engine:not(.is-paused) { display: none; }
 
@@ -132,11 +132,10 @@
   .cq-answered { white-space: normal; }
   .cq-how { grid-template-columns: 1fr; }
 
-  /* Config: key + value on top, what it does below, help link at the end */
-  .cfg-table tr { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  /* Config: key, value, what it does — stacked */
+  .cfg-table tr { grid-template-columns: minmax(0, 1fr); align-items: start; }
   .cfg-table td.cfg-key { grid-column: 1; overflow-wrap: anywhere; white-space: normal; }
   .cfg-table td.cfg-key code { overflow-wrap: anywhere; }
-  .cfg-table td.cfg-help { grid-column: 2; grid-row: 1; }
   .cfg-table td.cfg-val, .cfg-table td.cfg-what { grid-column: 1 / -1; white-space: normal; }
   .cfg-table tr.cfg-group { padding: 6px 2px 0; border: 0; background: none; }
   .cfg-table tr.cfg-group th { background: none; height: auto; padding: 0; }
@@ -153,7 +152,7 @@
   .admin-proofs { grid-template-columns: repeat(2, 1fr); }
   body.is-admin:has(.admin-pane) { overflow: hidden; }
 
-  /* ── Overview / System / Usage / How it works ──────────────────────────── */
+  /* ── Overview / System / Usage ──────────────────────────── */
   .admin-ov-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
   .admin-ov-needs li { min-height: 52px; }
   .sys-banner .btn { min-height: 40px; }
@@ -161,10 +160,4 @@
   .usage-grid { grid-template-columns: 1fr; }
   .usage-bar-cell { width: 22%; }
 
-  .explain-toc { margin: 0 -12px; }
-  .explain-toc ul { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 0 12px 4px; }
-  .explain-toc ul::-webkit-scrollbar { display: none; }
-  .explain-toc li { flex: none; }
-  .explain-toc a { white-space: nowrap; border: 1.5px solid var(--line); border-radius: 999px; padding: 8px 14px; color: var(--ink); }
-  .explain-panel { scroll-margin-top: 68px; }
 }
