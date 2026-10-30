@@ -162,16 +162,20 @@ describe('first-party usage events (POST /api/ui)', () => {
   });
   it('knows every event name the app sends — 25 track() names were silently dropped until 2026-10-30', () => {
     const src = new URL('../../app/src/', import.meta.url);
+    // The whole first argument must be one literal or `cond ? 'a' : 'b'` — anything partly dynamic ('street_' + kind,
+    // on ? 'x' : name) fails here instead of slipping a real name past the UI_EVENTS check.
+    const LITERALS = /^\s*(?:.+\?\s*)?(['"`])([a-z_]+)\1(?:\s*:\s*(['"`])([a-z_]+)\3)?\s*$/s;
     const sent = new Set<string>();
     for (const f of readdirSync(src, { recursive: true, encoding: 'utf8' })) {
       if (!/\.tsx?$/.test(f) || f.endsWith('lib/analytics.ts')) continue; // defines track(); its page_view is in UI_EVENTS
       for (const [, arg] of readFileSync(new URL(f, src), 'utf8').matchAll(/\btrack\(([^,)]*)/g)) {
-        const names = [...arg.matchAll(/'([^']*)'|"([^"]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? m[3]);
-        expect(names.length, `${f}: track(${arg.trim()}…) — keep the name a literal (or a ternary of literals) so this scan sees it`).toBeGreaterThan(0);
-        names.forEach((n) => sent.add(n));
+        const m = arg.match(LITERALS);
+        expect(m, `${f}: track(${arg.trim()}…) — keep the name a literal (or a ternary of two literals) so this scan sees it`).not.toBeNull();
+        [m![2], m![4]].filter(Boolean).forEach((n) => sent.add(n));
       }
     }
-    expect(sent.size).toBeGreaterThan(20); // the scan really read the app
+    // The scan really read the app: a core funnel step, not a count — a later feature cut (e.g. /street's 16 names) must not fail this.
+    expect(sent).toContain('report_submitted');
     expect([...sent].filter((n) => !(UI_EVENTS as readonly string[]).includes(n))).toEqual([]);
   });
 });
