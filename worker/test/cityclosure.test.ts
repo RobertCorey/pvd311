@@ -13,7 +13,7 @@ vi.mock('../src/auth', async (orig) => ({
 }));
 
 import { handleApi } from '../src/api';
-import { statusChangeEmail, statusChangePush, statusPhrase } from '../src/notify';
+import { cityMailCovers, statusChangeEmail, statusChangePush, statusPhrase } from '../src/notify';
 import { cityResolutionMessage } from '../src/casedetail';
 import type { Store, ReportDoc } from '../src/contracts';
 
@@ -155,5 +155,20 @@ describe('status-change email wording', () => {
       tag: `report:${ID}`,
     });
     expect(statusChangePush({ reportId: ID, category: 'pothole', address: '1 Main St', status: 'Assigned', trackUrl: 'https://x/r/1', resolution: null }).body).toBe('pothole at 1 Main St — Assigned');
+  });
+});
+
+describe('cityMailCovers: the city\'s own email stands in for our status email', () => {
+  const now = new Date('2026-10-30T12:00:00Z');
+  const m = (at: string, kind: 'receipt' | 'routed' | 'ask' | 'update' = 'update') => ({ at, from: 'pvd311@providenceri.gov', subject: 's', text: 't', caseId: 'PVD2026-90437', kind });
+  it('a city email since the previous move and within 24 h covers it', () => {
+    expect(cityMailCovers([m('2026-10-30T11:30:00Z')], '2026-10-29T08:00:00Z', now)).toBe(true);
+    expect(cityMailCovers([m('2026-10-30T11:30:00Z')], null, now)).toBe(true);
+  });
+  it('an older email, one before the previous move, an ask, or none does not', () => {
+    expect(cityMailCovers([m('2026-10-29T11:00:00Z')], null, now)).toBe(false);
+    expect(cityMailCovers([m('2026-10-30T09:00:00Z')], '2026-10-30T10:00:00Z', now)).toBe(false);
+    expect(cityMailCovers([m('2026-10-30T11:30:00Z', 'ask')], null, now)).toBe(false);
+    expect(cityMailCovers(null, null, now)).toBe(false);
   });
 });

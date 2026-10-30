@@ -17,7 +17,7 @@ import { createStore, createAuthStore } from './firestore.js';
 import { createPortal, type MyRequestRow } from './portal.js';
 import { createMailer } from './email.js';
 import { needsHumanApproval, requestReview } from './hitl.js';
-import { notifyReport, statusChangeEmail, statusChangePush, updatesLine } from './notify.js';
+import { cityMailCovers, notifyReport, statusChangeEmail, statusChangePush, updatesLine } from './notify.js';
 import { logPushes, pushOwner } from './push.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
@@ -349,9 +349,6 @@ export async function runWatcher(env: Env): Promise<void> {
           changedIds.add(report.id);
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           statusMail.push({ report, caseId, to }); // sent after the detail read below, so a closure email can quote the city's note
-          if (TERMINAL_PORTAL_STATUS.test(to)) {
-            await mailer.alert(`${caseId} is now ${to}`, `<p><b>${escHtml(caseId)}</b> is now <b>${escHtml(to)}</b> (report ${escHtml(report.id)}).</p>`, { reportId: report.id, caseId });
-          }
         }
         // Case detail (routing trail): first sighting + whoever changed status this run. Bounded; non-fatal.
         const targets = pickWatchTargets(tracked, changedIds);
@@ -408,7 +405,8 @@ export async function runWatcher(env: Env): Promise<void> {
 }
 
 /**
- * The watcher's status moves, told: the status email to the reporter + followers (notify.ts), then the same move on the
+ * The watcher's status moves, told: the status email to the reporter + followers (notify.ts) — skipped when the
+ * city's own email on this move was already forwarded (cityMailCovers) — then the same move on the
  * owner's phones (push.ts pushOwner — after the mail, never instead of it); one 'push.sent' log line (source
  * report_status) for the run. Each report is re-read first so the mail and push carry the city's Resolution Message
  * from this run's detail read.
@@ -422,7 +420,12 @@ export async function notifyStatusChanges(env: Env, store: Store, mailer: Mailer
     const resolution = cityResolutionMessage(fresh);
     const mail = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl, resolution, base });
     const followers = statusChangeEmail({ category: report.category, address: report.address, caseId, status: to, trackUrl, resolution, base, follower: true });
-    await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status', followers });
+    const prevStatusAt = report.portalStatusHistory?.[report.portalStatusHistory.length - 1]?.at ?? null;
+    if (cityMailCovers(fresh.cityMessages, prevStatusAt)) {
+      await logEvent(store, { level: 'info', kind: 'watcher.status_mail_skipped', msg: `${caseId} → ${to}: the city's own email already went out`, reportId: report.id, data: { caseId, to } });
+    } else {
+      await notifyReport(store, mailer, fresh, mail.subject, mail.html, { kind: 'status', followers });
+    }
     const p = await pushOwner(store, fresh.ownerUid, statusChangePush({ reportId: report.id, category: report.category, address: report.address, status: to, trackUrl, resolution }));
     pushes.users += p.users; pushes.sent += p.sent;
   }

@@ -86,6 +86,21 @@ export function statusChangeEmail(o: { category: string; address: string; caseId
   return { subject: `${phrase} (${o.caseId})`, html };
 }
 
+/** How recent a forwarded city email must be to stand in for our status email (Rob, 2026-10-30). */
+export const CITY_MAIL_COVERS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True when the reporter already has the city's own words on this status move: a forwarded city email (relay.ts
+ * city_copy; not an ask, which the owner gets as "the city needs more information") that arrived after the previous
+ * status move and within CITY_MAIL_COVERS_MS. Then the status email would repeat it (PVD2026-90437, 2026-10-30:
+ * "Providence 311 on your report…" and "The city closed your request" a few minutes apart), so only the push goes out.
+ * `prevStatusAt` = when the report took its previous status (ISO), null if never.
+ */
+export function cityMailCovers(cityMessages: ReportDoc['cityMessages'], prevStatusAt: string | null, now: Date = new Date()): boolean {
+  const since = Math.max(now.getTime() - CITY_MAIL_COVERS_MS, prevStatusAt ? Date.parse(prevStatusAt) || 0 : 0);
+  return (cityMessages ?? []).some((m) => m.kind !== 'ask' && Date.parse(m.at) > since);
+}
+
 /**
  * The same status move as a push (push.ts) to the report owner's phones: title = the mail's phrase ("The city closed
  * your request"), body "<category> at <address> — <status>" plus " · " and the first 80 characters of the city's note

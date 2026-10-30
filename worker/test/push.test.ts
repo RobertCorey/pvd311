@@ -535,6 +535,19 @@ describe('triggers', () => {
       expect(s.events.filter((e) => e.kind === 'push.sent')).toEqual([]);
     });
 
+    it('a status move the city already emailed about (forwarded since the last move, within 24 h): no status mail, still the push, one skip line', async () => {
+      const s = memStore({ users: people() });
+      const closure = { at: new Date(Date.now() - 60_000).toISOString(), from: 'pvd311@providenceri.gov', subject: 'Your request was closed', text: 'Closed.', caseId: 'PVD2026-90113', kind: 'update' as const };
+      const prev = report({ portalStatusHistory: [{ status: 'Assigned', at: new Date(Date.now() - 3_600_000).toISOString() }] });
+      const { store } = withReport(s, { ...prev, cityMessages: [closure] } as ReportDoc);
+      const posts = stubPushService();
+      const { mailer, sent } = mockMailer();
+      await notifyStatusChanges(env, store, mailer, [{ report: prev, caseId: 'PVD2026-90113', to: 'Resolved' }]);
+      expect(sent).toEqual([]);
+      expect(posts).toHaveLength(2);
+      expect(s.events.filter((e) => e.kind === 'watcher.status_mail_skipped')).toHaveLength(1);
+    });
+
     it('the city asks: the owner\'s mail, then one push per phone opening the answer box; the same ask again or its 48 h reminder push nothing', async () => {
       const s = memStore({ users: people() });
       const { store, current } = withReport(s, report({ cityMessages: [ASK] }));
