@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AuthUser } from '../src/auth';
 
 // The city asks the reporter for more information → the reporter answers (app or email reply) → the answer goes to the
@@ -280,6 +280,9 @@ function raw(o: { from: string; subject: string; text: string; dmarc?: string; m
 const inbound = (r: string, from: string) => ({ from, to: 'cases@fixmypvd.org', headers: new Headers(), raw: r });
 
 describe('relay: city asks in, owner answers out', () => {
+  // Pinned to the day of the ask: the answer window closes 14 days on, and these tests are about the flow, not the clock.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-16T21:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
   it('a city ask: followers get the usual copy, the owner gets "the city needs more information", the ask is recorded', async () => {
     const d = deps(report({ cityMessages: [] }));
     const out = await handleInbound(inbound(raw({ from: 'PVD 311 <pvd311@providenceri.gov>', subject: ASK_SUBJ, text: ASK.replace('submit a service request (', 'submit a service request (PVD2026-90113 ').replace('(PVD2026-90113 PVD2026-90113', '(PVD2026-90113'), messageId: '<ask-9@providenceri.gov>' }), 'pvd311@providenceri.gov'), env, d);
@@ -378,6 +381,9 @@ async function call(d: ReturnType<typeof deps>, method: string, path: string, to
 }
 
 describe('POST /api/reports/:id/answer', () => {
+  // Pinned to the day of the ask: the answer window closes 14 days on, and these tests are about the flow, not the clock.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-16T21:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
   it('owner only', async () => {
     expect((await call(deps(asked()), 'POST', `/api/reports/${ID}/answer`, undefined, { text: 'x' })).status).toBe(401);
     expect((await call(deps(asked()), 'POST', `/api/reports/${ID}/answer`, 'other', { text: 'x' })).body).toEqual({ error: 'not_owner' });
@@ -404,6 +410,9 @@ describe('POST /api/reports/:id/answer', () => {
 });
 
 describe('tracking projection: the progress the city shows', () => {
+  // Pinned to the day of the ask: the answer window closes 14 days on, and these tests are about the flow, not the clock.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-16T21:00:00Z')); });
+  afterEach(() => vi.useRealTimers());
   const WO_FIELDS = {
     cop_workordernumber: { label: 'Work Order Number', value: '0000206909', readonly: true },
     cop_workorderstatus: { label: 'Work Order Status', value: 'Completed', readonly: true },

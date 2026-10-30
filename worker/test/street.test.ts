@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 // push.ts has its own suite; here pushAll is a spy so the digest tests see the payload it hands over (hasPush stays real).
 vi.mock('../src/push.js', async (orig) => ({
@@ -75,7 +75,8 @@ describe('GET /api/street', () => {
 });
 
 describe('citywide overview', () => {
-  beforeEach(() => resetStreetCache());
+  beforeEach(() => { resetStreetCache(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); });
+  afterEach(() => vi.useRealTimers());
   it('counts the week, ranks case types, lists the newest activity, and does not need coordinates', () => {
     const rows = [
       row('a', { lat: null, lng: null }),
