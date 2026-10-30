@@ -37,6 +37,12 @@ function isEmergencyText(text: string): boolean {
   return FIRE_RE.test(s) || EMERGENCY_RE.test(s);
 }
 
+
+/** Types the city mostly closes by telling the reporter to call police (public feed Oct 9–30 2026: parking 7 of 13 closes,
+ *  noise 4 of 6 said "Instructed to call PPD Non-Emergency Line"). Filing still works; the notice just says so up front. */
+const PPD_FIRST = new Set(['parking', 'noise']);
+const PPD_PHONE = '401-272-3121';
+
 export default function Report() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -595,6 +601,11 @@ export default function Report() {
           <CategoryIcon k={cat.key} size={24} />{shortLabel(cat.key, t)}<span className="chip-change">{t('report.change')}</span>
         </button>
       </div>
+      {PPD_FIRST.has(cat.key) && (
+        <div className="notice notice-warn ppd-notice" role="note">
+          <span>{t(`report.ppd.${cat.key}`)} <a href={`tel:${PPD_PHONE}`}>{t('report.ppd.call', { phone: PPD_PHONE })}</a></span>
+        </div>
+      )}
       {restored && (
         <div className="notice notice-ok restored-notice" role="status">
           <span>{t('report.restored')}</span>

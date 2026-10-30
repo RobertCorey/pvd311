@@ -811,3 +811,20 @@ test('quota: a 429 rate_limited (week) shows the same blocked state and keeps th
   await expect(page.locator('#description')).toHaveValue('bins left out since Monday');
   await expect(page).toHaveURL(/\/\?c=missed_trash$/);
 });
+
+test('parking and noise say up front that the city usually points to the police non-emergency line, with a tap-to-call link; other types do not', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await pickType(page, 'traffic', 'parking');
+  const note = page.locator('.ppd-notice');
+  await expect(note).toContainText('parking reports');
+  await expect(note.getByRole('link', { name: 'Call 401-272-3121' })).toHaveAttribute('href', 'tel:401-272-3121');
+  await expect(page.getByRole('button', { name: 'Send to Providence 311' })).toBeVisible();
+  await page.goto('/');
+  await pickType(page, 'nuisance', 'noise');
+  await expect(note).toContainText('noise reports');
+  await page.goto('/');
+  await pickType(page, 'traffic', 'overnight_parking');
+  await expect(page.locator('.chosen')).toBeVisible();
+  await expect(note).toHaveCount(0);
+});
