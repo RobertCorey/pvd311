@@ -26,6 +26,7 @@ export interface Rules {
     apartment_classes: Record<string, string>;
     levy_code_2_classes: string[];
     condo_class: string;
+    condo_accessory_unit_pattern: string;
     single_family_class: string;
     affordable_classes: Record<string, string>;
     tax_stabilization_classes: Record<string, string>;

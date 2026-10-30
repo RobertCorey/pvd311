@@ -63,6 +63,8 @@ data:
     '04-11+': mixed use 11+ units
   levy_code_2_classes: ['04-05U']                  # mixed use: owner-occupancy is on LEVY_CODE_2
   condo_class: '23'
+  # Deeded parking / storage / garage condo units: letter P, S or G in the unit part of the plat-lot-unit id, no units.
+  condo_accessory_unit_pattern: '[PSG]'
   single_family_class: '1'
   affordable_classes:
     '12': "Miscellaneous — every parcel is levy 8LAW (R.I.G.L. § 44-5-13.11 low-income housing assessment)"
@@ -107,6 +109,7 @@ rules:
     status: not_residential_rental
     reason: "{classDesc} parcel — no dwelling units on record"
     note_vacant: "If a building has gone up here since the 2024 assessment, its units are likely new construction (exempt for 10 years)."
+    reason_condo_accessory: "deeded condo parking / storage / garage unit ({id}) — not a dwelling"
 
   - id: transient_lodging
     test: hotel_owner
@@ -235,6 +238,7 @@ rules:
     status_if_match: cant_tell
     reason_if_match: "owner appears to own exactly one other Providence home ({homeAddress}), on the owner-occupied rate → could be exempt as the one additional property if both deeds are in the same name(s)"
     note: "Owner match is a simple normalized-name/mailing-address match — low confidence."
+    note_ambiguous_name: "Several different owner-occupants share this owner's normalized name, so name matching is skipped; only the mailing address is used."
     note_too_many: "Owner's name matches {count} other Providence residential parcels (simple name match, low confidence) — more than the 2 properties the one-additional-property exemption allows."
 
   - id: covered_default
@@ -247,6 +251,7 @@ rules:
     why_apartment: "{classDesc} (more than 4 units, so the owner-occupied exemption can't apply)"
     why_owner_occupied_large: "owner-occupied, but more than 4 units"
     why_entity: "non-owner-occupied tax rate · owned by an entity ({owner})"
+    note_entity_at_property: "The owning entity's mailing address is this property. Whether an LLC member living here counts as an owner-occupant is unresolved (OPEN_QUESTIONS.md)."
     why_default: "non-owner-occupied tax rate · owner mails tax bills elsewhere"
     note_single_unit: "Covered only if actually rented out; a home left vacant or used by the owner's family is not a rental unit."
     note_old_apartments: "If these apartments were created by converting a non-residential building (e.g. a mill) within 5 years before the effective date, they would be exempt as new construction; the assessor's year built is the original structure."

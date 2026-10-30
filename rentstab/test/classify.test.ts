@@ -15,7 +15,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     mailingCity: 'Cranston RI  02920', mailingIsProperty: false, totalAssessment: 400000, totalExempt: 0,
     camaMatched: true, units: 3, yearBuilt: 1920, useCode: '02', useDesc: '2-5 Family', numBuildings: 1,
     bedrooms: 6, bathrooms: 3, lastSaleDate: '2015-06-01', condoBuildingUnits: null,
-    ownerOtherResidentialParcels: 0, ownerOtherResidential: [],
+    ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
     affordableSignals: [],
     ...over,
@@ -67,6 +67,14 @@ describe('not a residential rental', () => {
   });
   it('owner-occupied condo unit = the owner\'s home', () => {
     expect(classify(oo({ taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'OO01', units: null }), RULES).status).toBe('not_residential_rental');
+  });
+  it('deeded condo parking/storage unit is not a dwelling', () => {
+    const r = run({ id: '026-0367-S424', taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'NO01', units: null, yearBuilt: null, bedrooms: 0, bathrooms: 0 });
+    expect(r.status).toBe('not_residential_rental');
+    expect(r.reasons[0]).toMatch(/parking/);
+  });
+  it('a numbered condo unit with a missing unit count is still a home', () => {
+    expect(run({ id: '003-0204-1201', taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'NO01', units: null }).status).toBe('likely_covered');
   });
   it('small commercial "units" with no bedrooms or bathrooms are storefronts', () => {
     const r = run({ taxClass: '6', taxClassDesc: 'Commercial II', levyCode: 'C01', ownerOccupiedTaxRate: null, units: 2, bedrooms: 0, bathrooms: 0, ownerKind: 'entity', owner: 'Shops LLC' });
@@ -209,6 +217,13 @@ describe('one additional property — Sec. 13-78(n) ¶2', () => {
     expect(r.status).toBe('likely_covered');
     expect(r.confidence_notes.join(' ')).toMatch(/matches 2 other Providence residential parcels/);
   });
+  it('a name shared by several owner-occupants is ignored (no "too many", no name match)', () => {
+    const many = [...home, { id: 'x', address: '7 Other St', ownerOccupied: true }, { id: 'y', address: '9 Third St', ownerOccupied: false }];
+    const r = run({ ownerNameAmbiguous: true, ownerOtherResidential: many, ownerOtherResidentialParcels: 3 });
+    expect(r.status).toBe('likely_covered');
+    expect(r.confidence_notes.join(' ')).toMatch(/name matching is skipped/);
+    expect(r.confidence_notes.join(' ')).not.toMatch(/more than the 2 properties/);
+  });
   it('matched by the owner\'s mailing address instead of the name', () => {
     const r = run({ homeParcelId: '002-0002-0000', homeParcelAddress: '5 Home St', homeParcelOwnerOccupied: true, homeParcelSameOwner: false });
     expect(r.status).toBe('cant_tell');
@@ -224,6 +239,11 @@ describe('covered by default — Sec. 13-70(c)', () => {
     const r = run();
     expect(r.status).toBe('likely_covered');
     expect(r.reasons[0]).toBe('3 units · built 1920 · non-owner-occupied tax rate · owner mails tax bills elsewhere → likely covered');
+  });
+  it('LLC-owned house mailed to itself stays covered but carries the open question', () => {
+    const r = run({ taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'NO01', units: 1, ownerKind: 'entity', owner: 'JEJ Construction LLC', mailingIsProperty: true });
+    expect(r.status).toBe('likely_covered');
+    expect(r.confidence_notes.join(' ')).toMatch(/LLC member living here/);
   });
   it('rented single-family is covered, noted as "only if actually rented"', () => {
     const r = run({ taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'NO01', units: 1 });

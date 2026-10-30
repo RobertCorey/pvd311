@@ -16,6 +16,8 @@ type Source =
 export const SOURCES: Source[] = [
   // FY2026 roll (assessment date 12/31/2024, billed Jul 2025). Owner-occupancy levy codes, class, owner + mailing address.
   { name: 'taxroll2026', kind: 'socrata', id: 'p9dd-mw2m', select: '*, :@computed_region_ueqj_g33x, :@computed_region_asue_2ipu' },
+  // Prior-year roll, only to measure how often the owner-occupied flag changes year to year (DATA_REPORT.md).
+  { name: 'taxroll2025', kind: 'socrata', id: '6ub4-iebe', select: 'tax_map, levy_code_1, class' },
   // Neighborhood polygons the roll's computed region column points into (names only).
   { name: 'neighborhoods', kind: 'socrata', id: 'ueqj-g33x', select: '_feature_id, lname' },
   // City GIS parcels joined to the assessor's CAMA extract: unit count, year built, use code.

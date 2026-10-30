@@ -64,6 +64,7 @@ export function buildParcels(): Parcel[] {
       condoBuildingUnits: null,
       ownerOtherResidentialParcels: 0,
       ownerOtherResidential: [],
+      ownerNameAmbiguous: false,
       homeParcelId: null,
       homeParcelAddress: null,
       homeParcelOwnerOccupied: null,
@@ -85,7 +86,10 @@ export function buildParcels(): Parcel[] {
     (byOwner.get(p.ownerKey) ?? byOwner.set(p.ownerKey, []).get(p.ownerKey)!).push(p);
   }
   for (const list of byOwner.values()) {
+    // A person has one principal residence: two owner-occupied parcels under one name means two people.
+    const ambiguous = !list[0].ownerKey!.startsWith('entity:') && list.filter((q) => q.ownerOccupiedTaxRate).length >= 2;
     for (const p of list) {
+      p.ownerNameAmbiguous = ambiguous;
       p.ownerOtherResidential = list.filter((q) => q !== p).map((q) => ({ id: q.id, address: q.address, ownerOccupied: q.ownerOccupiedTaxRate }));
       p.ownerOtherResidentialParcels = p.ownerOtherResidential.length;
     }

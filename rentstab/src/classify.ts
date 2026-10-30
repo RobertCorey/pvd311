@@ -51,6 +51,10 @@ function effectiveDates(rules: Rules) {
 const TESTS: Record<string, Test> = {
   not_residential_class(c, r) {
     const d = c.rules.data;
+    const unitPart = c.p.id.split('-')[2] ?? '';
+    if (c.p.taxClass === d.condo_class && c.p.units == null && re(d.condo_accessory_unit_pattern).test(unitPart)) {
+      return { status: r.status!, reason: fill(r.reason_condo_accessory as string, { ...c.vars, id: c.p.id }) };
+    }
     if (has(d.not_residential_classes, c.p.taxClass)) {
       if (/vacant/i.test(c.p.taxClassDesc)) c.notes.push(r.note_vacant as string);
       return { status: r.status!, reason: fill(r.reason!, c.vars) };
@@ -141,7 +145,9 @@ const TESTS: Record<string, Test> = {
     if (!isSmallRes(c) || c.oo !== false) return null;
     if ((r.excluded_owner_kinds as string[]).includes(c.p.ownerKind)) return null;
     if (c.units == null || c.units > Number(r.max_units)) return null;
-    const others = c.p.ownerOtherResidential;
+    // An ambiguous (shared) name says nothing about this owner's holdings; fall back to the mailing address alone.
+    if (c.p.ownerNameAmbiguous) c.notes.push(r.note_ambiguous_name as string);
+    const others = c.p.ownerNameAmbiguous ? [] : c.p.ownerOtherResidential;
     const maxOthers = Number(r.max_total_properties) - 1;
     if (others.length > maxOthers) {
       c.notes.push(fill(r.note_too_many as string, { ...c.vars, count: String(others.length) }));
@@ -165,6 +171,7 @@ const TESTS: Record<string, Test> = {
       c.vars,
     );
     if (c.p.taxClass === d.single_family_class || c.p.taxClass === d.condo_class) c.notes.push(r.note_single_unit as string);
+    if (c.p.ownerKind === 'entity' && c.p.mailingIsProperty && !isApartment(c)) c.notes.push(r.note_entity_at_property as string);
     if (isApartment(c) && c.p.yearBuilt < 1950) c.notes.push(r.note_old_apartments as string);
     return { status: r.status!, reason: fill(r.reason!, { ...c.vars, why }) };
   },

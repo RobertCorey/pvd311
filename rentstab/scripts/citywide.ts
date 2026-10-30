@@ -21,8 +21,8 @@ export function unitCounts(p: Parcel, c: Classification, rules: Rules): Pick<Row
   const d = rules.data;
   const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
   const oneUnitClass = p.taxClass === d.single_family_class || p.taxClass === d.condo_class;
+  if (c.status === 'not_residential_rental') return { units: p.units ?? 0, rental: 0, rentalIfOwnerAbsent: 0 };
   const units = p.units ?? (oneUnitClass ? 1 : 0);
-  if (c.status === 'not_residential_rental') return { units, rental: 0, rentalIfOwnerAbsent: 0 };
   const ownerHere = d.owner_occupied_levy_codes.includes(levy) ? 1 : 0;
   const rental = Math.max(0, units - ownerHere);
   // Owner may live here (NOO rate, mail = property): rental is units - 1 if they do, units if they don't.
@@ -134,7 +134,7 @@ function main() {
     variant('owner-may-live-here parcels treated as owner-occupied', (rr) => setRule(rr, 'owner_may_live_here', { status: 'likely_exempt' })),
     variant('owner-may-live-here parcels treated as covered', (rr) => setRule(rr, 'owner_may_live_here', { status: 'likely_covered' })),
     variant('one-additional-property matches treated as exempt', (rr) => setRule(rr, 'one_additional_property', { status_if_match: 'likely_exempt' })),
-    variant('effective date 2028-01-01 (shorter look-back reach)', (rr) => { rr.assumed_effective_date = '2028-01-01'; }),
+    variant('effective date 2028-01-01 (look-back starts 2023-01-01)', (rr) => { rr.assumed_effective_date = '2028-01-01'; }),
   ]));
 
   writeFileSync(join(ROOT, 'CITYWIDE.md'), out.join('\n') + '\n');

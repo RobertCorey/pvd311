@@ -57,6 +57,17 @@ table('NOO rate + mailing = property + person owner, by last sale year', all(`
          COUNT(*) parcels FROM parcels WHERE taxClass IN ('1','2') AND ownerOccupiedTaxRate=0 AND mailingIsProperty=1 AND ownerKind='person' GROUP BY 1`));
 table('OO rate by owner type (classes 1, 2, 23)', all(`SELECT ownerKind, SUM(ownerOccupiedTaxRate=1) oo, SUM(ownerOccupiedTaxRate=0) noo FROM parcels WHERE taxClass IN ('1','2','23') GROUP BY 1`));
 
+{
+  const prev = new Map(JSON.parse(readFileSync(join(DATA, 'raw', 'taxroll2025.json'), 'utf8')).map((r: any) => [r.tax_map, String(r.levy_code_1 ?? '')]));
+  const flips: Record<string, number> = {};
+  for (const r of all(`SELECT id, levyCode FROM parcels WHERE taxClass IN ('1','2','23')`)) {
+    const before = prev.get(r.id) as string | undefined;
+    const b = before === undefined ? 'no FY2025 row' : /^OO/.test(before) ? 'OO' : /^NO/.test(before) ? 'NOO' : before;
+    const key = `FY2025 ${b} → FY2026 ${/^OO/.test(r.levyCode) ? 'OO' : 'NOO'}`;
+    flips[key] = (flips[key] ?? 0) + 1;
+  }
+  table('Owner-occupied flag, FY2025 roll → FY2026 roll (classes 1, 2, 23)', Object.entries(flips).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ change: k, parcels: v })));
+}
 table('Year built (residential classes)', all(`
   SELECT CASE WHEN yearBuilt IS NULL THEN 'missing' WHEN yearBuilt < 1900 THEN '<1900' WHEN yearBuilt < 1950 THEN '1900–1949'
               WHEN yearBuilt < 2000 THEN '1950–1999' WHEN yearBuilt < 2010 THEN '2000–2009' WHEN yearBuilt < 2016 THEN '2010–2015'
