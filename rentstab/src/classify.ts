@@ -49,6 +49,30 @@ function effectiveDates(rules: Rules) {
 }
 
 const TESTS: Record<string, Test> = {
+  new_units_permit(c, r) {
+    const ev = c.p.newUnitsPermit;
+    if (!ev) return null;
+    const { lookback } = effectiveDates(c.rules);
+    const lookbackIso = lookback.toISOString().slice(0, 10);
+    const nearStart = new Date(lookback);
+    nearStart.setUTCFullYear(nearStart.getUTCFullYear() - Number(r.near_years ?? 3));
+    if (ev.issued < nearStart.toISOString().slice(0, 10)) return null;
+    const vars = {
+      ...c.vars, permitDate: ev.issued.slice(0, 7), lookbackDate: lookbackIso,
+      permitUnitsText: ev.units ? `${ev.units}-unit` : 'residential', permitDesc: ev.description.replace(/\s+/g, ' ').trim().slice(0, 90),
+    };
+    const ambiguous = r.status_ambiguous as Status;
+    if (ev.kind === 'conversion') return { status: ambiguous, reason: fill(r.reason_conversion as string, { ...vars, permitUnitsText: ev.units ? `${ev.units} units` : 'units' }), note: r.note };
+    // The assessor's building predates the permit and wasn't razed: the new building sits beside older units.
+    const permitYear = Number(ev.issued.slice(0, 4));
+    const razed = c.p.razePermitDate != null && c.p.razePermitDate <= ev.issued;
+    if (c.p.yearBuilt != null && c.p.yearBuilt < permitYear - 1 && !razed) return { status: ambiguous, reason: fill(r.reason_existing_building as string, vars), note: r.note };
+    if (ev.issued >= lookbackIso) return { status: r.status_inside_window as Status, reason: fill(r.reason_inside as string, vars), note: r.note };
+    // The assessor already shows the new building: its year built dates completion better than a pre-look-back permit.
+    if (c.p.yearBuilt != null && c.p.yearBuilt >= permitYear - 1) return null;
+    return { status: ambiguous, reason: fill(r.reason_near as string, vars), note: r.note };
+  },
+
   not_residential_class(c, r) {
     const d = c.rules.data;
     const unitPart = c.p.id.split('-')[2] ?? '';

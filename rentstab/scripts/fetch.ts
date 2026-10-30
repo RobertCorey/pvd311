@@ -1,7 +1,7 @@
 // Download every public source the classifier uses into data/raw/ (gitignored).
 // One command rebuilds from scratch: `npm run rebuild` (fetch → build-db → citywide).
 // No keys needed. Sources and why each matters are in DATA_REPORT.md.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -24,6 +24,12 @@ export const SOURCES: Source[] = [
   { name: 'cama', kind: 'arcgis', service: 'Parcels_with_CAMA' },
   // Providence Housing Authority sites (public housing → regulated affordable).
   { name: 'pha', kind: 'arcgis', service: 'Providence_Housing_Authority', geometry: true, order: 'ObjectId' },
+  // Building permits. Socrata "2009-2018" actually holds Dec 2016 – Jan 2020; the ArcGIS map holds Jan 2019 – Mar 2024.
+  // No certificate-of-occupancy records in either; new-building / conversion permits stand in for CO dates.
+  { name: 'permits_2016_2020', kind: 'socrata', id: 'ufmm-rbej',
+    select: 'permitnum, permittype, permitclass, workclass, pin, originaladdress1, description, estprojectcost, issueddate, completeddate, statuscurrent, proposeduse, totalsqft' },
+  { name: 'permits_2019_2024', kind: 'arcgis', service: 'Interactive_Permitting_Map_(BETA)', order: 'ObjectId',
+    fields: 'Record__,Record_Type,Date_Submitted,Permit_License_Issued_Date,Address,Mbl,Record_Status,Project_Cost,Description_of_Work,Structure_Type,Occupancy_Type' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -62,7 +68,8 @@ async function fetchArcgis(s: Extract<Source, { kind: 'arcgis' }>): Promise<any[
   const base = `${s.base ?? ARCGIS}/${s.service}/FeatureServer/${s.layer ?? 0}/query`;
   const rows: any[] = [];
   const page = 2000;
-  for (let offset = 0; ; offset += page) {
+  // Advance by what came back: some layers cap pages below 2000 (maxRecordCount 1000) and flag exceededTransferLimit.
+  for (let offset = 0; ; ) {
     const q = new URLSearchParams({
       where: s.where ?? '1=1', outFields: s.fields ?? '*', returnGeometry: String(!!s.geometry), outSR: '4326',
       orderByFields: s.order ?? 'OBJECTID', resultOffset: String(offset), resultRecordCount: String(page), f: 'json',
@@ -70,14 +77,20 @@ async function fetchArcgis(s: Extract<Source, { kind: 'arcgis' }>): Promise<any[
     const body = await getJson(`${base}?${q}`);
     if (body.error) throw new Error(`${s.service}: ${JSON.stringify(body.error)}`);
     rows.push(...body.features.map((f: any) => (s.geometry ? { ...f.attributes, _geometry: f.geometry } : f.attributes)));
-    if (!body.exceededTransferLimit && body.features.length < page) return rows;
+    offset += body.features.length;
+    if (!body.features.length || (!body.exceededTransferLimit && body.features.length < page)) return rows;
   }
 }
 
 async function main() {
   mkdirSync(RAW, { recursive: true });
-  const manifest: Record<string, { rows: number; fetchedAt: string; url: string }> = {};
+  // ONLY=name,name refetches a subset and keeps the rest of the manifest.
+  const only = process.env.ONLY?.split(',').map((x) => x.trim());
+  const manifestPath = join(RAW, 'manifest.json');
+  const manifest: Record<string, { rows: number; fetchedAt: string; url: string }> =
+    only && existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
   for (const s of SOURCES) {
+    if (only && !only.includes(s.name)) continue;
     const rows = s.kind === 'socrata' ? await fetchSocrata(s) : await fetchArcgis(s);
     writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
     manifest[s.name] = {
@@ -87,7 +100,7 @@ async function main() {
     };
     console.log(`${s.name}: ${rows.length} rows`);
   }
-  writeFileSync(join(RAW, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
 
 if (import.meta.main) await main();

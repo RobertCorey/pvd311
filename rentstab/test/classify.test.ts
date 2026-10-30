@@ -17,6 +17,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     bedrooms: 6, bathrooms: 3, lastSaleDate: '2015-06-01', condoBuildingUnits: null,
     ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
+    newUnitsPermit: null, razePermitDate: null, permitCostSince2019: 0,
     affordableSignals: [],
     ...over,
   };
@@ -144,6 +145,37 @@ describe('new construction — Sec. 13-78(m), assumed effective 2027-04-15 → l
     later.assumed_effective_date = '2029-01-01'; // look-back starts 2024-01-01: all of 2024 is inside
     expect(run({ ...apt, yearBuilt: 2024 }, later).status).toBe('likely_exempt');
     expect(run({ ...apt, yearBuilt: 2023 }, later).status).toBe('likely_covered');
+  });
+});
+
+describe('new-building permits — Sec. 13-78(m), stand-in for CO dates', () => {
+  const vacant = { taxClass: '13', taxClassDesc: 'Residential Vacant Land', levyCode: 'NO01', units: null, yearBuilt: null };
+  const permit = (issued: string, kind: 'new_residential' | 'conversion' = 'new_residential', units: number | null = 176) =>
+    ({ kind, issued, units, record: 'BLDG-23-1', description: 'Construction of a new 5 story building inclusive of 176 residential units' });
+  it('lot that was vacant in 2024 with a 2023 new-building permit → likely exempt (CO can\'t predate the permit)', () => {
+    const r = run({ ...vacant, newUnitsPermit: permit('2023-11-21') });
+    expect(r.status).toBe('likely_exempt');
+    expect(r.reasons[0]).toMatch(/176-unit building issued 2023-11/);
+  });
+  it('permit issued shortly before the look-back start → can\'t tell', () => {
+    expect(run({ ...vacant, newUnitsPermit: permit('2021-06-01') }).status).toBe('cant_tell');
+  });
+  it('a pre-look-back permit defers to the assessor\'s year built when it shows the new building', () => {
+    expect(run({ yearBuilt: 2020, newUnitsPermit: permit('2019-08-01', 'new_residential', 3) }).rule).not.toBe('new_construction_permit');
+  });
+  it('old permits are ignored', () => {
+    expect(run({ ...vacant, newUnitsPermit: permit('2017-06-01') }).status).toBe('not_residential_rental');
+  });
+  it('new building beside an older one on the same lot → can\'t tell', () => {
+    const r = run({ yearBuilt: 1920, newUnitsPermit: permit('2023-03-01', 'new_residential', 7) });
+    expect(r.status).toBe('cant_tell');
+    expect(r.reasons[0]).toMatch(/older units on the lot would not/);
+  });
+  it('…unless the old building was razed first', () => {
+    expect(run({ yearBuilt: 1920, razePermitDate: '2022-09-01', newUnitsPermit: permit('2023-03-01', 'new_residential', 2) }).status).toBe('likely_exempt');
+  });
+  it('conversion permits → can\'t tell', () => {
+    expect(run({ taxClass: '6', taxClassDesc: 'Commercial II', levyCode: 'C01', ownerOccupiedTaxRate: null, units: 11, newUnitsPermit: permit('2023-01-01', 'conversion', 11) }).status).toBe('cant_tell');
   });
 });
 

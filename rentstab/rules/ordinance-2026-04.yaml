@@ -103,6 +103,19 @@ data:
 # Rules, evaluated in this order; the first rule that returns a verdict wins. Rules that cannot be evaluated from public
 # data are listed under `not_evaluable` so they still surface as confidence notes.
 rules:
+  # Runs first so a lot that read as vacant land in the 2024 assessor extract but has since been built on is caught.
+  - id: new_construction_permit
+    test: new_units_permit
+    section: "Sec. 13-78(m); Sec. 13-69 ('New Construction')"
+    near_years: 3            # permits issued up to 3 years before the look-back start → can't tell
+    status_inside_window: likely_exempt
+    status_ambiguous: cant_tell
+    reason_inside: "permit for a new {permitUnitsText} building issued {permitDate} — its certificate of occupancy can't predate the permit, so it falls inside the 5-year look-back → new-construction exemption (10 years from the CO)"
+    reason_near: "new {permitUnitsText} building permitted {permitDate} — exempt only if its certificate of occupancy came on/after {lookbackDate}"
+    reason_existing_building: "a new residential building was permitted on this lot {permitDate} (\"{permitDesc}\") — units in that building would be exempt as new construction; older units on the lot would not"
+    reason_conversion: "permit {permitDate} to create {permitUnitsText} inside an existing building (\"{permitDesc}\") — exempt as new construction only if it converted nonresidential space and the CO came on/after {lookbackDate}"
+    note: "Building permits are public for Dec 2016 – Mar 2024 only; certificate-of-occupancy dates are not public."
+
   - id: no_dwelling_units
     test: not_residential_class
     section: "Sec. 13-69 ('Dwelling Unit', 'Rental Unit')"

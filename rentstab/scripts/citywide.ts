@@ -22,7 +22,8 @@ export function unitCounts(p: Parcel, c: Classification, rules: Rules): Pick<Row
   const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
   const oneUnitClass = p.taxClass === d.single_family_class || p.taxClass === d.condo_class;
   if (c.status === 'not_residential_rental') return { units: p.units ?? 0, rental: 0, rentalIfOwnerAbsent: 0 };
-  const units = p.units ?? (oneUnitClass ? 1 : 0);
+  // Lots built on after the 2024 assessor extract: take the unit count from the new-building permit.
+  const units = p.units ?? (c.rule === 'new_construction_permit' ? p.newUnitsPermit?.units ?? 0 : oneUnitClass ? 1 : 0);
   const ownerHere = d.owner_occupied_levy_codes.includes(levy) ? 1 : 0;
   const rental = Math.max(0, units - ownerHere);
   // Owner may live here (NOO rate, mail = property): rental is units - 1 if they do, units if they don't.

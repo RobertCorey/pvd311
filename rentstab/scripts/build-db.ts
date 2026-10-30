@@ -3,6 +3,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
+import { newUnitsByParcel, permitKind, permitUnits, type Permit } from '../src/permits.ts';
 import type { Parcel } from '../src/types.ts';
 
 const DATA = join(import.meta.dirname, '..', 'data');
@@ -69,6 +70,9 @@ export function buildParcels(): Parcel[] {
       homeParcelAddress: null,
       homeParcelOwnerOccupied: null,
       homeParcelSameOwner: null,
+      newUnitsPermit: null,
+      razePermitDate: null,
+      permitCostSince2019: 0,
       affordableSignals: levy === '8LAW' ? ['8law'] : [],
     } satisfies Parcel;
   });
@@ -153,7 +157,63 @@ export function buildParcels(): Parcel[] {
   for (const r of raw('hud_public_housing')) count('hud_public_housing', tag('public_housing', r.STD_ADDR?.trim(), r.LAT, r.LON));
   for (const r of raw('pha')) count('pha', tag('pha_site', r.Street_Name, r._geometry?.y ?? null, r._geometry?.x ?? null));
   console.log('affordable-list matches:', JSON.stringify(matchStats));
+
+  // Building permits → normalized table + per-parcel new-units evidence.
+  const permits = loadPermits(new Set(parcels.map((p) => p.id)));
+  const byId = new Map(parcels.map((p) => [p.id, p]));
+  const plotOfId = (id: string) => id.split('-').slice(0, 2).join('-');
+  const byPlot = new Map<string, Parcel[]>();
+  for (const p of parcels) (byPlot.get(plotOfId(p.id)) ?? byPlot.set(plotOfId(p.id), []).get(plotOfId(p.id))!).push(p);
+  // A permit filed on a lot whose parcels are condo units applies to each unit parcel on that lot.
+  const targets = (pid: string) => byId.has(pid) ? [byId.get(pid)!] : (byPlot.get(plotOfId(pid)) ?? []);
+  for (const [pid, ev] of newUnitsByParcel(permits)) for (const p of targets(pid)) if (!p.newUnitsPermit || ev.issued > p.newUnitsPermit.issued) p.newUnitsPermit = ev;
+  for (const pm of permits) {
+    if (!pm.parcelId || !pm.issued) continue;
+    for (const p of targets(pm.parcelId)) {
+      if (pm.kind === 'raze' && (!p.razePermitDate || pm.issued > p.razePermitDate)) p.razePermitDate = pm.issued;
+      if (/building permit/i.test(pm.type) && pm.issued >= '2019-01-01' && byId.has(pm.parcelId)) p.permitCostSince2019 += pm.cost ?? 0;
+    }
+  }
+  const kinds: Record<string, number> = {};
+  for (const pm of permits) kinds[pm.kind] = (kinds[pm.kind] ?? 0) + 1;
+  console.log(`permits: ${permits.length} (${JSON.stringify(kinds)}); parcels with new-units evidence: ${parcels.filter((p) => p.newUnitsPermit).length}`);
+  lastPermits = permits;
   return parcels;
+}
+
+let lastPermits: Permit[] = [];
+
+const isoDay = (v: unknown): string | null => {
+  if (v == null || v === '') return null;
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  return Number.isNaN(d.getTime()) || d.getUTCFullYear() < 1990 ? null : d.toISOString().slice(0, 10);
+};
+
+/** Both permit extracts, normalized and de-duplicated on record number (the 2019 overlap prefers the newer ArcGIS copy). */
+export function loadPermits(parcelIds: Set<string>): Permit[] {
+  const byRecord = new Map<string, Permit>();
+  const add = (p: Omit<Permit, 'kind' | 'units'>) => {
+    const full: Permit = { ...p, kind: permitKind(p), units: permitUnits(p.description) };
+    byRecord.set(p.id, full);
+  };
+  const pid = (v: unknown) => {
+    const s = typeof v === 'string' ? v.trim().toUpperCase() : '';
+    return /^\d{3}-\d{4}-\w{4}$/.test(s) ? s : null;
+  };
+  for (const r of raw('permits_2016_2020')) {
+    add({ id: r.permitnum, source: 'socrata_2016_2020', parcelId: pid(r.pin), type: r.permittype ?? '', permitClass: r.permitclass ?? null,
+      workClass: r.workclass ?? null, description: r.description ?? '', cost: num(r.estprojectcost), issued: isoDay(r.issueddate),
+      completed: isoDay(r.completeddate), status: r.statuscurrent ?? null, address: r.originaladdress1 ?? null });
+  }
+  for (const r of raw('permits_2019_2024')) {
+    add({ id: r.Record__, source: 'arcgis_2019_2024', parcelId: pid(r.Mbl), type: r.Record_Type ?? '', permitClass: r.Structure_Type ?? null,
+      workClass: null, description: r.Description_of_Work ?? '', cost: num(r.Project_Cost), issued: isoDay(r.Permit_License_Issued_Date),
+      completed: null, status: r.Record_Status ?? null, address: r.Address ?? null });
+  }
+  const out = [...byRecord.values()];
+  const matched = out.filter((p) => p.parcelId && parcelIds.has(p.parcelId)).length;
+  console.log(`permits matched to a roll parcel id: ${matched}/${out.length}`);
+  return out;
 }
 
 function main() {
@@ -168,11 +228,18 @@ function main() {
   for (const p of parcels) {
     ins.run(...cols.map((c) => {
       const v = (p as any)[c];
-      return Array.isArray(v) ? JSON.stringify(v) : typeof v === 'boolean' ? Number(v) : v;
+      return Array.isArray(v) || (v && typeof v === 'object') ? JSON.stringify(v) : typeof v === 'boolean' ? Number(v) : v;
     }));
   }
   db.exec('COMMIT');
   db.exec('CREATE INDEX parcels_address ON parcels(address)');
+  const pcols = ['id', 'source', 'parcelId', 'type', 'permitClass', 'workClass', 'description', 'cost', 'issued', 'completed', 'status', 'address', 'kind', 'units'] as const;
+  db.exec(`CREATE TABLE permits (${pcols.map((c) => `"${c}"`).join(', ')}, PRIMARY KEY (id))`);
+  const pins = db.prepare(`INSERT INTO permits VALUES (${pcols.map(() => '?').join(', ')})`);
+  db.exec('BEGIN');
+  for (const pm of lastPermits) pins.run(...pcols.map((c) => (pm as any)[c] ?? null));
+  db.exec('COMMIT');
+  db.exec('CREATE INDEX permits_parcel ON permits(parcelId)');
   db.close();
   console.log(`parcels: ${parcels.length} → ${file}`);
 }
