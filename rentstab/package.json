@@ -1,0 +1,22 @@
+{
+  "name": "pvd-rentstab",
+  "private": true,
+  "type": "module",
+  "description": "Spike: would a Providence apartment be covered by the April 2026 rent stabilization ordinance? Public data + rules → classifier.",
+  "scripts": {
+    "fetch": "node scripts/fetch.ts",
+    "build-db": "node scripts/build-db.ts",
+    "citywide": "node scripts/citywide.ts",
+    "rebuild": "node scripts/fetch.ts && node scripts/build-db.ts && node scripts/citywide.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
