@@ -5,7 +5,8 @@
  *   { paused, consecutiveFailures, submissionTimestamps[], lastSubmissionTime, lock:{until} }
  *
  *   runTick(env, ctx)  — every minute: reaper, rate gates, one submission (with HITL gate)
- *   runWatcher(env)    — every 30 min: diff My Requests vs submitted reports, patch portalStatus
+ *   runWatcher(env)    — every 30 min: diff My Requests vs submitted reports, patch portalStatus (cases past the
+ *                        grid's 12-row window: from the detail read's search row, applyOffGridStatuses)
  *   runDaily(env)      — daily: digest counts + selector canary (drift alert)
  */
 import type { Page } from '@cloudflare/playwright';
@@ -310,7 +311,7 @@ export async function runWatcher(env: Env): Promise<void> {
 
   const auth = createAuthStore(store);
   const portal = createPortal(env, { auth });
-  let changes = 0; let rowCount = 0;
+  let changes = 0; let rowCount = 0; let offGridCount = 0;
   const changedIds = new Set<string>();
   const statusMail: { report: ReportDoc; caseId: string; to: string }[] = [];
   let detailNote = '';
@@ -333,11 +334,12 @@ export async function runWatcher(env: Env): Promise<void> {
         console.warn('[watcher] My Requests returned 0 rows — skipping diff');
       } else {
         const byId = new Map(rows.filter((r) => r.caseId).map((r) => [r.caseId as string, r]));
+        const offGrid: ReportDoc[] = []; // past the grid's 12-row window: status from the detail read below
         for (const report of tracked) {
           const caseId = report.portalCaseId;
           if (!caseId) continue;
           const row = byId.get(caseId);
-          if (!row) continue;
+          if (!row) { offGrid.push(report); continue; }
           const from = report.portalStatus ?? null;
           const to = row.status;
           if (!to || to === from) continue;
@@ -350,11 +352,16 @@ export async function runWatcher(env: Env): Promise<void> {
           await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}`, reportId: report.id, data: { from, to, caseId } });
           statusMail.push({ report, caseId, to }); // sent after the detail read below, so a closure email can quote the city's note
         }
-        // Case detail (routing trail): first sighting + whoever changed status this run. Bounded; non-fatal.
-        const targets = pickWatchTargets(tracked, changedIds);
+        offGridCount = offGrid.length;
+        // Case detail (routing trail): first sighting + whoever changed status this run + a few off-grid open cases,
+        // whose status comes from the read's search row. Bounded; non-fatal.
+        const targets = pickWatchTargets(tracked, changedIds, offGrid);
         if (targets.length) {
           try {
             const sum = await captureCaseDetails(store, portal, targets, { max: DETAIL_PER_WATCH, selfName: env.APP_NAME, reason: changedIds.size ? 'status_change' : 'first' });
+            const caught = await applyOffGridStatuses(store, targets.filter((t) => offGrid.includes(t)), sum.statuses);
+            changes += caught.changed;
+            statusMail.push(...caught.mail);
             // A city question can first show up as a portal note (relay missed the mail): pick it up now, not in 30 min.
             await syncAsks(env, store, mailer, (await Promise.all(targets.map((t) => store.fetchReport(t.id).catch(() => null)))).filter((x): x is ReportDoc => !!x));
             detailNote = `, detail ${sum.checked} read/${sum.changed} changed${sum.unavailable ? `/${sum.unavailable} missing` : ''}${sum.failed ? `/${sum.failed} failed` : ''}`;
@@ -395,13 +402,44 @@ export async function runWatcher(env: Env): Promise<void> {
       console.error('[watcher] city feed failed:', e instanceof Error ? e.message : e);
       await markError(store, 'cityfeed', e);
     }
-    await markOk(store, 'watcher', `${tracked.length} tracked, ${rowCount} rows, ${changes} change${changes === 1 ? '' : 's'}${detailNote}`);
+    await markOk(store, 'watcher', `${tracked.length} tracked, ${rowCount} rows${offGridCount ? `, ${offGridCount} past them` : ''}, ${changes} change${changes === 1 ? '' : 's'}${detailNote}`);
   } catch (e) {
     await markError(store, 'watcher', e);
     throw e;
   } finally {
     await portal.close().catch(() => {});
   }
+}
+
+/**
+ * Status for tracked cases past My Requests' window. The grid shows only its newest 12 rows (2026-10-30: 6 of our 17
+ * cases froze — PVD2026-90092 still "Assigned" though the city resolved it 10-23). The detail read finds any case
+ * through the grid's search box; `statuses` is the Status Reason of that search row — the CASE status, never the work
+ * order's (casedetail.workOrderOf), never read from city emails. A move is patched like a grid move and logged as
+ * `watcher.status` with data.via 'detail'. A report's first such read (portalOffGridAt unset) is its backlog, caught up
+ * silently: no status mail, no push. Later moves are returned for notifyStatusChanges, like grid moves.
+ */
+export async function applyOffGridStatuses(store: Store, reports: ReportDoc[], statuses: Record<string, string>, now = new Date()): Promise<{ changed: number; mail: { report: ReportDoc; caseId: string; to: string }[] }> {
+  const mail: { report: ReportDoc; caseId: string; to: string }[] = [];
+  let changed = 0;
+  for (const report of reports) {
+    const caseId = report.portalCaseId;
+    const to = statuses[report.id];
+    if (!caseId || !to) continue;
+    const backlog = !report.portalOffGridAt;
+    const marker = backlog ? { portalOffGridAt: now.toISOString() } : {};
+    const from = report.portalStatus ?? null;
+    if (to === from) {
+      if (backlog) await store.patchReport(report.id, marker);
+      continue;
+    }
+    await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: now, portalStatusHistory: appendStatusHistory(report.portalStatusHistory, to, now), ...marker });
+    console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to} (search row${backlog ? ', backlog' : ''})`);
+    changed++;
+    await logEvent(store, { level: 'info', kind: 'watcher.status', msg: `${caseId}: ${from ?? '—'} → ${to}${backlog ? ' (caught up from the search row, no mail)' : ' (search row)'}`, reportId: report.id, data: { from, to, caseId, via: 'detail', silent: backlog } });
+    if (!backlog) mail.push({ report, caseId, to });
+  }
+  return { changed, mail };
 }
 
 /**
@@ -458,9 +496,9 @@ export interface ReconcileSummary {
   at: string;              // ISO of this pass
   adopted: string[];       // PVD case numbers we bound to a report and set 'submitted' this pass
   stranded: string[];      // PVD case numbers (or GUID/report-id fallback) of stale Drafts tied to failed/rejected reports — undeletable
-  missing: string[];       // PVD case numbers of 'submitted' reports that no longer appear in My Requests
+  missing: string[];       // PVD case numbers of 'submitted' reports the portal no longer has (see (c) in runReconcile)
   scanned: number;         // My Requests rows scanned this pass
-  complete: boolean;       // false when the grid pager hit the page cap — 'missing' is then only trusted within the scanned window
+  complete: boolean;       // false when the grid pager hit the page cap; advisory (readMyRequestsPaged) — 'missing' does not rely on it
   error: string | null;    // set when the pass threw (health shows it); null on a clean pass
 }
 
@@ -477,7 +515,8 @@ const isDraftStatus = (s: string): boolean => /^draft$/i.test((s || '').trim());
  *   (a) ADOPT   — a report we don't know as submitted whose captured PVD number now shows as a live
  *                 (non-Draft) case in My Requests: bind the number, set 'submitted', record a `review`.
  *   (b) STRANDED — a Draft row > 24h old whose report is failed/rejected: list it (drafts are undeletable).
- *   (c) MISSING  — a 'submitted' case whose number is no longer in the grid: flag it.
+ *   (c) MISSING  — a 'submitted' case inside the grid's window that is not in it, or an older one the detail
+ *                 read's search could not find either: flag it.
  *
  * Rows key on the PVD number, never a GUID (My Requests exposes none); the `ref:<report.id>` marker the
  * wizard stamps into every description is the guarantee a numbered row is ours, and each candidate report
@@ -487,8 +526,8 @@ const isDraftStatus = (s: string): boolean => /^draft$/i.test((s || '').trim());
  * missing per-report events fire only when a case first enters the set (diffed against the prior summary).
  *
  * `scan` reuses the watcher's already-fetched grid (rows + whether the pager was exhausted); when omitted
- * the pass fetches its own. When the scan is INCOMPLETE (grid truncated at the page cap) the 'missing'
- * check is limited to cases within the scanned window — older cases may simply have scrolled past it.
+ * the pass fetches its own. Every scan is a WINDOW for the 'missing' check, complete or not — older cases
+ * may simply have scrolled past it.
  */
 export async function runReconcile(store: Store, portal: Portal, scan?: { rows: MyRequestRow[]; complete: boolean }): Promise<ReconcileSummary> {
   const at = new Date().toISOString();
@@ -562,20 +601,19 @@ export async function runReconcile(store: Store, portal: Portal, scan?: { rows: 
     }
   }
 
-  // (c) MISSING: a case we hold as submitted that the grid no longer returns. Flag only; never write 'failed'.
-  // Truncation guard: readMyRequests caps at 20 pages. On an INCOMPLETE scan, a case absent from the grid may
-  // simply have scrolled past the horizon — so only trust "missing" for cases newer than the oldest row we saw.
-  const scannedTimes = rows.map((r) => Date.parse(r.createdOn)).filter((n) => !Number.isNaN(n));
-  const oldestScannedMs = scannedTimes.length ? Math.min(...scannedTimes) : null;
+  // (c) MISSING: a case we hold as submitted that the portal no longer has. Flag only; never write 'failed'.
+  // The grid is a WINDOW, not the whole list: live it shows the newest 12 rows and the scan still reads complete
+  // (readMyRequestsPaged), so the 6 older of our 17 cases were flagged missing every run and held /admin's System
+  // sync light red for 14 days (2026-10-30). So absence from the grid counts only for a case numbered after the
+  // oldest numbered row (PVD numbers are given in order at draft creation, the order the grid lists; our filing time
+  // is not comparable with its local-time Created On). An older case counts only when the detail read's search box,
+  // which finds any age, could not find it either (portalSearchMissAt, casedetail.ts).
+  const horizon = Math.min(...rows.map((r) => caseSeq(r.caseId) ?? Infinity));
   let partialSkipped = 0;
   for (const report of await store.listSubmittedWithCaseId().catch(() => [] as ReportDoc[])) {
     const caseId = report.portalCaseId;
     if (!caseId || numbersPresent.has(caseId)) continue;
-    if (!complete) {
-      // Beyond the scanned window (or we can't place it), absence is unreliable → skip, don't flag.
-      const repMs = reportFiledMs(report);
-      if (oldestScannedMs == null || repMs == null || repMs <= oldestScannedMs) { partialSkipped++; continue; }
-    }
+    if (!((caseSeq(caseId) ?? -Infinity) > horizon) && !report.portalSearchMissAt) { partialSkipped++; continue; }
     missing.push(caseId);
     if (!prevMissing.has(caseId)) {
       newMissing++;
@@ -583,7 +621,7 @@ export async function runReconcile(store: Store, portal: Portal, scan?: { rows: 
     }
   }
   if (!complete && partialSkipped > 0) {
-    await logEvent(store, { level: 'warn', kind: 'reconcile.partial_scan', msg: `My Requests grid truncated at the ${scanned}-row page cap; skipped ${partialSkipped} older 'submitted' case(s) for the missing check`, data: { scanned, skipped: partialSkipped, oldestScannedMs } });
+    await logEvent(store, { level: 'warn', kind: 'reconcile.partial_scan', msg: `My Requests grid truncated at the ${scanned}-row page cap; skipped ${partialSkipped} older 'submitted' case(s) for the missing check`, data: { scanned, skipped: partialSkipped } });
   }
 
   // Reappearances: anything flagged missing last tick that is back → note it once (it drops out of the summary below).
@@ -601,11 +639,10 @@ export async function runReconcile(store: Store, portal: Portal, scan?: { rows: 
   return summary;
 }
 
-/** When the city filed the case, as ms — our creation timestamp (≈ portal Created On), else the last status update. */
-function reportFiledMs(report: ReportDoc): number | null {
-  if (report.timestamp?.seconds) return report.timestamp.seconds * 1000;
-  if (report.statusUpdatedAt?.seconds) return report.statusUpdatedAt.seconds * 1000;
-  return null;
+/** PVD2026-90092 → a number that sorts in the city's own case order (year, then sequence); null if not a case number. */
+function caseSeq(id: string | null | undefined): number | null {
+  const m = /^PVD(\d{4})-(\d+)$/.exec(id ?? '');
+  return m ? Number(m[1]) * 1e9 + Number(m[2]) : null;
 }
 
 /** Best available age of a Draft: the ISO we saved it at, else the grid's Created On, else the report's last update. */

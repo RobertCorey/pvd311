@@ -118,10 +118,10 @@ describe('reconcile: stranded drafts', () => {
 });
 
 describe('reconcile: missing', () => {
-  it('flags a submitted case whose number vanished from My Requests', async () => {
+  it('flags a submitted case whose number vanished from inside the grid\'s window', async () => {
     const r = report({ id: 'rep-missing', status: 'submitted', portalCaseId: 'PVD2026-300', portalStatus: 'Assigned' });
     const { store, events } = makeStore([r]);
-    const s = await runReconcile(store, makePortal([row({ caseId: 'PVD2026-999', status: 'Assigned' })])); // some other row: scanned > 0
+    const s = await runReconcile(store, makePortal([row({ caseId: 'PVD2026-299', status: 'Assigned' })])); // an older row is still shown
 
     expect(s.missing).toEqual(['PVD2026-300']);
     expect(r.status).toBe('submitted'); // untouched
@@ -148,40 +148,48 @@ describe('reconcile: missing', () => {
   });
 });
 
-describe('reconcile: truncated grid guard', () => {
-  it('on an INCOMPLETE scan, flags missing only for cases newer than the oldest scanned row', async () => {
-    // Horizon = the oldest row we actually saw (Aug 15). Older cases may have scrolled past the page cap.
-    const older = report({ id: 'old', status: 'submitted', portalCaseId: 'PVD2026-OLD', timestamp: ts('2026-08-10T00:00:00Z') as any });
-    const newer = report({ id: 'new', status: 'submitted', portalCaseId: 'PVD2026-NEW', timestamp: ts('2026-08-20T00:00:00Z') as any });
+describe('reconcile: the grid is a window', () => {
+  it('on an INCOMPLETE scan, flags missing only for cases numbered after the oldest scanned row', async () => {
+    // Horizon = the oldest row we actually saw. Older cases may have scrolled past the page cap.
+    const older = report({ id: 'old', status: 'submitted', portalCaseId: 'PVD2026-80000' });
+    const newer = report({ id: 'new', status: 'submitted', portalCaseId: 'PVD2026-90000' });
     const { store, events } = makeStore([older, newer]);
-    const scan = { rows: [row({ caseId: 'PVD2026-HORIZON', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: false };
+    const scan = { rows: [row({ caseId: 'PVD2026-85000', status: 'Assigned', createdOn: '8/15/2026 9:00 AM' })], complete: false };
     const s = await runReconcile(store, makePortal([]), scan);
 
     expect(s.complete).toBe(false);
-    expect(s.missing).toEqual(['PVD2026-NEW']); // OLD is beyond the horizon → not flagged
+    expect(s.missing).toEqual(['PVD2026-90000']); // 80000 is beyond the horizon → not flagged
     expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(true);
-    expect(events.some((e) => e.kind === 'reconcile.missing' && (e.data as any)?.caseId === 'PVD2026-OLD')).toBe(false);
+    expect(events.some((e) => e.kind === 'reconcile.missing' && (e.data as any)?.caseId === 'PVD2026-80000')).toBe(false);
   });
 
-  it('on a COMPLETE scan, flags every absent submitted case regardless of age', async () => {
-    const older = report({ id: 'old', status: 'submitted', portalCaseId: 'PVD2026-OLD', timestamp: ts('2026-08-10T00:00:00Z') as any });
-    const { store, events } = makeStore([older]);
-    const scan = { rows: [row({ caseId: 'PVD2026-HORIZON', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: true };
+  it('a COMPLETE-looking scan is a window too: the live 12-row grid no longer flags the older cases (2026-10-30)', async () => {
+    // Live: 12 rows, complete: true, 17 cases tracked → the 6 older ones were "missing" every run and the sync light
+    // stayed red for 14 days. Now an older case counts only once the detail read's search could not find it either.
+    const gridded = Array.from({ length: 12 }, (_, i) => `PVD2026-${90100 + i}`);
+    const reports = [...gridded, 'PVD2026-90089', 'PVD2026-90092', 'PVD2026-90094', 'PVD2026-90095', 'PVD2026-90097'].map((caseId) => report({ id: caseId, status: 'submitted', portalCaseId: caseId }));
+    const { store, events } = makeStore(reports);
+    const scan = { rows: gridded.map((caseId) => row({ caseId, status: 'Assigned' })), complete: true };
     const s = await runReconcile(store, makePortal([]), scan);
-    expect(s.missing).toEqual(['PVD2026-OLD']);
-    expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(false);
+    expect(s.missing).toEqual([]);
+    expect(events.some((e) => e.kind === 'reconcile.missing')).toBe(false);
+    expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(false); // a full-looking grid is normal, not a warning
+
+    (reports.find((r) => r.id === 'PVD2026-90092') as any).portalSearchMissAt = '2026-10-30T12:00:00Z';
+    const s2 = await runReconcile(store, makePortal([]), scan);
+    expect(s2.missing).toEqual(['PVD2026-90092']); // searched by number and not found at any age → really gone
   });
 
   it('reuses a provided scan and never scrapes the grid again', async () => {
-    const r = report({ id: 'p', status: 'submitted', portalCaseId: 'PVD2026-1' });
+    const r = report({ id: 'p', status: 'submitted', portalCaseId: 'PVD2026-2' });
     const { store } = makeStore([r]);
-    const portal = makePortal([row({ caseId: 'PVD2026-1', status: 'Assigned' })]); // if it scraped, PVD2026-1 would be present
-    const scan = { rows: [row({ caseId: 'PVD2026-OTHER', status: 'Assigned', createdOn: '2026-08-15T00:00:00Z' })], complete: true };
+    const portal = makePortal([row({ caseId: 'PVD2026-2', status: 'Assigned' })]); // if it scraped, PVD2026-2 would be present
+    const scan = { rows: [row({ caseId: 'PVD2026-1', status: 'Assigned', createdOn: '8/15/2026 9:00 AM' })], complete: true };
     const s = await runReconcile(store, portal, scan);
 
     expect((portal.readMyRequestsPaged as any)).not.toHaveBeenCalled();
     expect(s.scanned).toBe(1);
-    expect(s.missing).toEqual(['PVD2026-1']); // proves the provided scan (which lacks PVD2026-1) was used, not the portal's rows
+    expect(s.missing).toEqual(['PVD2026-2']); // proves the provided scan (which lacks PVD2026-2) was used, not the portal's rows
   });
 });
 

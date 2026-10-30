@@ -265,6 +265,7 @@ describe('portal simulator — happy path', () => {
     expect(detail!.notes.map((n) => [n.from, n.to])).toEqual([['PVD 311', 'RI Energy'], ['PVD 311', 'Verizon'], ['PVD 311', 'test@pvdsnow.org']]);
     expect(detail!.notes[0]).toMatchObject({ modifiedOn: '8/18/2026 11:35 AM' });
     expect(detail!.notes[0].text).toContain('PVD311:0100002');
+    expect(detail!.rowStatus).toBe('Assigned'); // the row's Status Reason (the case's), read with the grid parser
     // Non-mutating: no posts, and the grid is back to its full, unfiltered state.
     const after = sim.snapshot();
     expect(after.submitPosts).toBe(before.submitPosts);
@@ -286,6 +287,23 @@ describe('portal simulator — happy path', () => {
     const detail = await portal.readCaseDetail('PVD2026-00098');
     expect(detail).toBeTruthy();
     expect(detail!.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
+    await portal.close();
+  });
+
+  it('a case past the grid\'s window (grid-window): not in the scan, which still reads complete; readCaseDetail finds it by search, with its status', async () => {
+    // 2026-10-30: My Requests shows its newest 12 rows and readMyRequestsPaged calls that complete; 6 of 17 cases froze.
+    sim.mutate('grid-window', { n: '2' }); // the Draft + PVD2026-00099 render; PVD2026-00098 only through the search box
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
+    await portal.launch();
+    await portal.ensureLoggedIn();
+    const scan = await portal.readMyRequestsPaged();
+    expect(scan.rows.map((r) => r.caseId)).toEqual([null, 'PVD2026-00099']);
+    expect(scan.complete).toBe(true);
+    const detail = await portal.readCaseDetail('PVD2026-00098');
+    expect(detail?.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
+    expect(detail?.rowStatus).toBe('Assigned');
+    expect(await portal.readCaseDetail('PVD2026-99999')).toBeNull(); // searched, no such case: the only null
+    expect((await portal.readMyRequestsPaged()).rows).toHaveLength(2); // search cleared: back to the window
     await portal.close();
   });
 

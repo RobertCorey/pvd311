@@ -24,7 +24,8 @@
  *   GET  /_sim/reset                               reset state to the golden seed
  *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows;
  *                                                  slow-postback&ms=N: Step-3 Submit is a real form POST answered after N ms;
- *                                                  sticky-detail-modal: a case-detail modal covers the grid and will not close)
+ *                                                  sticky-detail-modal: a case-detail modal covers the grid and will not close;
+ *                                                  grid-window&n=N: the grid renders only its newest N rows, the search box finds older ones)
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
  *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
  *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
@@ -466,12 +467,12 @@ function myRequestsUnauthedHtml(): string {
   return page('My Requests', `<h1>Please sign in</h1><a href="/SignIn">Sign in</a>`);
 }
 
-function gridRowHtml(r: GridRow): string {
+function gridRowHtml(r: GridRow, offWindow = false): string {
   // Draft rows render NO PVD number (only the entity GUID via data-id), matching the live grid; the
   // number appears in the title only once the draft converts. This is why the driver keys drafts by GUID.
   const isDraft = /^draft$/i.test(r.status);
   const title = isDraft ? `Draft — ${esc(r.caseType)}` : `${esc(r.pvd)} ${esc(r.caseType)}`;
-  return `<div role="row" data-id="${esc(r.entityId)}">
+  return `<div role="row" data-id="${esc(r.entityId)}"${offWindow ? ' data-sim-offwindow' : ''}>
     <span role="gridcell"><button type="button" class="sim-open" data-id="${esc(r.entityId)}">${title}</button></span>
     <span role="gridcell">${esc(r.street)}</span>
     <span role="gridcell">${esc(r.status)}</span>
@@ -480,8 +481,8 @@ function gridRowHtml(r: GridRow): string {
   </div>`;
 }
 
-function myRequestsGridHtml(cases: GridRow[], opts: { stickyModal?: boolean } = {}): string {
-  const rows = cases.map(gridRowHtml).join('\n');
+function myRequestsGridHtml(cases: GridRow[], opts: { stickyModal?: boolean; window?: number } = {}): string {
+  const rows = cases.map((c, i) => gridRowHtml(c, opts.window != null && i >= opts.window)).join('\n');
   return page('My Requests', `${opts.stickyModal ? '<script>window.__SIM_STICKY_MODAL = true;</script>' : ''}
     <div class="username">test@pvdsnow.org</div>
     <h1>My Requests</h1>
@@ -516,15 +517,18 @@ const GRID_MODAL_JS = `
   // row is there at once). Mirror that: hold the data rows back, then re-attach them with the search box.
   var grid = document.querySelector('[role="grid"]');
   var held = Array.prototype.slice.call(grid.querySelectorAll('[role="row"][data-id]'));
+  // grid-window fault (live 2026-10-30): only the newest rows ever render; the search box still finds older ones.
+  var off = held.filter(function(r){ return r.hasAttribute('data-sim-offwindow'); });
   var search = document.createElement('input');
   search.type = 'text'; search.placeholder = 'Search'; search.setAttribute('role','menuitem');
   setTimeout(function(){
-    held.forEach(function(r){ grid.appendChild(r); });
+    held.forEach(function(r){ if (off.indexOf(r) < 0) grid.appendChild(r); });
     document.querySelector('.entitylist').insertBefore(search, grid);
   }, ${SIM_GRID_RENDER_MS});
   search.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter') return;
     var q = search.value.trim().toLowerCase();
+    off.forEach(function(r){ if (q && r.textContent.toLowerCase().indexOf(q) >= 0) grid.appendChild(r); else r.remove(); });
     document.querySelectorAll('[role="grid"] [role="row"][data-id]').forEach(function(row){
       row.style.display = (!q || row.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
     });
@@ -678,7 +682,8 @@ export async function startSim(): Promise<Sim> {
 
       // ── My Requests grid ──
       if (path === '/my-requests/' || path === '/my-requests') {
-        return send(res, 200, authed ? myRequestsGridHtml(state.cases, { stickyModal: state.mutations.has('sticky-detail-modal') }) : myRequestsUnauthedHtml());
+        const win = state.mutations.get('grid-window');
+        return send(res, 200, authed ? myRequestsGridHtml(state.cases, { stickyModal: state.mutations.has('sticky-detail-modal'), window: win ? Number(win.params.n) : undefined }) : myRequestsUnauthedHtml());
       }
 
       // ── Case-detail modal body (iframe): form fields + .notes timeline ──

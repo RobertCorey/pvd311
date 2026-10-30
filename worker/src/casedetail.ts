@@ -9,17 +9,20 @@
  * the city's own "Resolution Message" form field (adx_resolution), verbatim — see cityResolutionMessage.
  * Everything else stays in /admin's raw JSON.
  *
- * Cadence (engine.ts): the watcher captures on first sighting and whenever the grid status changes
- * (≤ DETAIL_PER_WATCH per run); runDaily refreshes open (non-terminal) cases oldest-checked first
+ * Cadence (engine.ts): the watcher captures on first sighting and whenever the grid status changes, plus
+ * ≤ OFF_GRID_PER_WATCH open cases past the grid's 12-row window, whose status only this read's search row
+ * gives (≤ DETAIL_PER_WATCH per run in all); runDaily refreshes open (non-terminal) cases oldest-checked first
  * (≤ DETAIL_PER_DAY). Cost is bounded by the open set, not by lifetime volume. Read-only against
  * the portal: readCaseDetail never clicks Submit / Add comment / Upload.
  */
 
-import type { CaseDetailRaw, Portal, ReportDoc, Store } from './contracts.js';
+import { TERMINAL_PORTAL_STATUS, type CaseDetailRaw, type Portal, type ReportDoc, type Store } from './contracts.js';
 import type { PortalCaseDetail, PortalCaseNote, PortalRouting, WorkOrderSighting } from '../../shared/types.js';
 import { logEvent } from './health.js';
 
 export const DETAIL_PER_WATCH = 10;
+/** Open cases past the grid's window read per watcher run: 48 runs a day cover ~96 of them daily (6 on 2026-10-30). */
+export const OFF_GRID_PER_WATCH = 2;
 export const DETAIL_PER_DAY = 30;
 export const DETAIL_NOTE_CAP = 40;
 export const DETAIL_TEXT_CAP = 6_000;
@@ -123,11 +126,12 @@ export function deriveRouting(notes: PortalCaseNote[], selfName: string): Portal
 }
 
 export interface CaptureOptions { max: number; selfName: string; reason: 'first' | 'status_change' | 'daily'; now?: () => Date }
-export interface CaptureSummary { checked: number; changed: number; unavailable: number; failed: number }
+/** `statuses`: the Status Reason of the grid row each read opened, by report id (engine.ts applyOffGridStatuses). */
+export interface CaptureSummary { checked: number; changed: number; unavailable: number; failed: number; statuses: Record<string, string> }
 
 /** Portal must already be launched + logged in. Non-fatal per case; never throws for one bad modal. */
 export async function captureCaseDetails(store: Store, portal: Portal, reports: ReportDoc[], opts: CaptureOptions): Promise<CaptureSummary> {
-  const sum: CaptureSummary = { checked: 0, changed: 0, unavailable: 0, failed: 0 };
+  const sum: CaptureSummary = { checked: 0, changed: 0, unavailable: 0, failed: 0, statuses: {} };
   const now = opts.now ?? (() => new Date());
   for (const report of reports.slice(0, opts.max)) {
     const caseId = report.portalCaseId;
@@ -145,15 +149,18 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
       continue;
     }
     if (!raw) {
+      // The search found no such case at any age: reconcile's evidence that a case past the grid's window is gone.
       sum.unavailable++;
-      await store.patchReport(report.id, { portalDetailCheckedAt: at });
+      await store.patchReport(report.id, { portalDetailCheckedAt: at, portalSearchMissAt: at });
       await logEvent(store, { level: 'warn', kind: 'watcher.detail_unavailable', msg: `${caseId}: not found in My Requests`, reportId: report.id, data: { caseId, reason: opts.reason } });
       continue;
     }
+    if (raw.rowStatus) sum.statuses[report.id] = raw.rowStatus;
+    const found = report.portalSearchMissAt ? { portalSearchMissAt: null } : {};
     const next = buildDetail(raw, now());
     const prev = report.portalDetail ?? null;
     if (prev && prev.hash === next.hash) {
-      await store.patchReport(report.id, { portalDetailCheckedAt: at });
+      await store.patchReport(report.id, { portalDetailCheckedAt: at, ...found });
       continue;
     }
     const { newNotes, changedFields } = diffDetail(prev, next);
@@ -161,7 +168,7 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
     const prevRouting = report.portalRouting ?? [];
     const newDepts = routing.filter((r) => !prevRouting.some((p) => p.dept === r.dept && p.ticket === r.ticket)).map((r) => r.dept);
     const workOrderHistory = nextWorkOrderHistory(report.workOrderHistory, next.fields, next.capturedAt);
-    await store.patchReport(report.id, { portalDetail: next, portalDetailCheckedAt: at, portalRouting: routing, ...(workOrderHistory ? { workOrderHistory } : {}) });
+    await store.patchReport(report.id, { portalDetail: next, portalDetailCheckedAt: at, portalRouting: routing, ...(workOrderHistory ? { workOrderHistory } : {}), ...found });
     sum.changed++;
     const cityNotes = newNotes.filter((n) => !isOwnNote(n, opts.selfName));
     const preview = newNotes.slice(0, 5).map((n) => ({ from: n.from, to: n.to, at: n.modifiedOn, text: n.text.slice(0, 160), attachments: n.attachments.length }));
@@ -179,9 +186,19 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
   return sum;
 }
 
-/** Which tracked reports the watcher should (re)read this run: status changed now, or never captured. */
-export function pickWatchTargets(tracked: ReportDoc[], changedIds: Set<string>): ReportDoc[] {
-  return tracked.filter((r) => r.portalCaseId && (changedIds.has(r.id) || !r.portalDetail));
+/**
+ * Which tracked reports the watcher should (re)read this run: status changed now, or never captured — then up to
+ * OFF_GRID_PER_WATCH open cases from `offGrid` (tracked, not in this run's grid rows), least-recently-checked first.
+ * My Requests shows only its newest 12 rows (2026-10-30: 6 of 17 cases froze there), so for those the read's search
+ * row is the only status we get. Ones never read off the grid go first: their first read is caught up silently, so
+ * a case that just dropped off should get it next run, not hours later.
+ */
+export function pickWatchTargets(tracked: ReportDoc[], changedIds: Set<string>, offGrid: ReportDoc[] = []): ReportDoc[] {
+  const picked = tracked.filter((r) => r.portalCaseId && (changedIds.has(r.id) || !r.portalDetail));
+  const ids = new Set(picked.map((r) => r.id));
+  const rotation = pickDailyTargets(offGrid.filter((r) => !ids.has(r.id)), (s) => TERMINAL_PORTAL_STATUS.test(s))
+    .sort((a, b) => Number(!!a.portalOffGridAt) - Number(!!b.portalOffGridAt));
+  return [...picked, ...rotation.slice(0, OFF_GRID_PER_WATCH)];
 }
 
 /** Which reports the daily job refreshes: open (non-terminal) cases, least-recently-checked first. */

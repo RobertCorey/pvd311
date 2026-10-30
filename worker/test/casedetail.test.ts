@@ -3,7 +3,7 @@
  * No browser, no city traffic: portal.readCaseDetail is a vi.fn returning canned modal dumps.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { buildDetail, captureCaseDetails, deriveRouting, diffDetail, hashDetail, pickDailyTargets, pickWatchTargets } from '../src/casedetail';
+import { buildDetail, captureCaseDetails, deriveRouting, diffDetail, hashDetail, pickDailyTargets, pickWatchTargets, OFF_GRID_PER_WATCH } from '../src/casedetail';
 import { TERMINAL_PORTAL_STATUS, type CaseDetailRaw, type Portal, type ReportDoc, type Store } from '../src/contracts';
 
 const dispatch = (dept: string, ticket: string, at = '9/29/2026 11:27 AM') => ({
@@ -67,6 +67,21 @@ describe('pure helpers', () => {
     expect(pickWatchTargets([a, b, c], new Set(['c'])).map((r) => r.id)).toEqual(['a', 'c']);
     expect(pickDailyTargets([a, b, c, d], (s) => TERMINAL_PORTAL_STATUS.test(s)).map((r) => r.id)).toEqual(['a', 'd', 'b']);
   });
+  it('the watcher also reads off-grid open cases: ≤ OFF_GRID_PER_WATCH, least-recently-checked first, never a closed one', () => {
+    // 2026-10-30: My Requests shows its newest 12 rows; cases past them only get a status through this read's search row.
+    const seen = (id: string, at: string | null, over: Partial<ReportDoc> = {}) => makeReport({ id, portalDetail: buildDetail(raw1), portalDetailCheckedAt: at, ...over });
+    const fresh = makeReport({ id: 'fresh' }); // never captured → read anyway (first sighting)
+    const o1 = seen('o1', '2026-10-29T10:00:00Z');
+    const o2 = seen('o2', '2026-10-28T10:00:00Z');
+    const o3 = seen('o3', '2026-10-27T10:00:00Z');
+    const closed = seen('closed', '2026-10-01T00:00:00Z', { portalStatus: 'Resolved' });
+    const picked = pickWatchTargets([fresh, o1, o2, o3, closed], new Set(), [fresh, o1, o2, o3, closed]).map((r) => r.id);
+    expect(OFF_GRID_PER_WATCH).toBe(2);
+    expect(picked).toEqual(['fresh', 'o3', 'o2']); // fresh is not counted twice; o1 waits for the next run; closed is never re-read
+    // A case that just dropped off the grid (never read off it) jumps the rotation: its first read is the silent one.
+    o3.portalOffGridAt = '2026-10-27T10:00:00Z'; o2.portalOffGridAt = '2026-10-28T10:00:00Z';
+    expect(pickWatchTargets([o1, o2, o3], new Set(), [o1, o2, o3]).map((r) => r.id)).toEqual(['o1', 'o3']);
+  });
 });
 
 describe('captureCaseDetails', () => {
@@ -74,7 +89,7 @@ describe('captureCaseDetails', () => {
     const r = makeReport();
     const { store, events } = makeStore([r]);
     const sum = await captureCaseDetails(store, portalWith(async () => raw1), [r], opts);
-    expect(sum).toEqual({ checked: 1, changed: 1, unavailable: 0, failed: 0 });
+    expect(sum).toEqual({ checked: 1, changed: 1, unavailable: 0, failed: 0, statuses: {} });
     expect(r.portalDetail?.notes.length).toBe(3);
     expect(r.portalDetail?.capturedAt).toBe('2026-09-30T20:00:00.000Z');
     expect(r.portalRouting?.map((x) => x.dept)).toEqual(['Verizon', 'RI Energy']);
@@ -116,9 +131,19 @@ describe('captureCaseDetails', () => {
     const { store, events } = makeStore([a, b, c]);
     const portal = portalWith(async (id) => { if (id === 'PVD2026-1') return null; throw new Error('modal timeout'); });
     const sum = await captureCaseDetails(store, portal, [a, b, c], { ...opts, max: 2 });
-    expect(sum).toEqual({ checked: 2, changed: 0, unavailable: 1, failed: 1 });
+    expect(sum).toEqual({ checked: 2, changed: 0, unavailable: 1, failed: 1, statuses: {} });
     expect(a.portalDetailCheckedAt).toBeTruthy();
+    expect(a.portalSearchMissAt).toBe(a.portalDetailCheckedAt); // the search found no such case: reconcile's evidence it is gone
+    expect(b.portalSearchMissAt).toBeUndefined();                // a failed read proves nothing
     expect(events.map((e) => e.kind)).toEqual(['watcher.detail_unavailable', 'watcher.detail_failed']);
     expect((portal.readCaseDetail as any).mock.calls.length).toBe(2);
+  });
+  it('the row status each read opened comes back by report id; a read that finds the case clears an earlier search miss', async () => {
+    const r = makeReport({ portalDetail: buildDetail(raw1), portalRouting: deriveRouting(raw1.notes, 'FixMyPVD'), portalSearchMissAt: '2026-09-29T00:00:00Z' });
+    const { store } = makeStore([r]);
+    const sum = await captureCaseDetails(store, portalWith(async () => ({ ...raw1, rowStatus: 'Resolved' })), [r], opts);
+    expect(sum.statuses).toEqual({ r1: 'Resolved' });
+    expect(r.portalDetail?.hash).toBe(buildDetail(raw1).hash); // the row status is not part of the snapshot
+    expect(store.patchReport).toHaveBeenCalledWith('r1', { portalDetailCheckedAt: '2026-09-30T20:00:00.000Z', portalSearchMissAt: null });
   });
 });

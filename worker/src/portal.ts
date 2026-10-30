@@ -686,8 +686,12 @@ class WorkerPortal implements Portal {
 
   /**
    * Like readMyRequests, but also reports whether the pager was exhausted. `complete` is false when the
-   * scan stopped because it hit the page cap (MAX_PAGES) while more pages remained — the reconcile pass
-   * uses this so it never infers a case is "missing" just because it scrolled past the scanned window.
+   * scan stopped because it hit the page cap (MAX_PAGES) while more pages remained.
+   * Live 2026-10-30: 12 rows with 17 cases tracked, and `complete: true`. gotoNextGridPage only knows the
+   * legacy entity-list `.pagination` pager; the Fluent grid's paging (if any) is not matched, so "no pager
+   * found" reads as "last page". Not fixed blind (no live DOM to write a selector against). So `complete`
+   * is advisory: reconcile treats every scan as a window, and the watcher reads cases past it through the
+   * grid's search box (readCaseDetail → applyOffGridStatuses).
    */
   async readMyRequestsPaged(opts: { maxPages?: number } = {}): Promise<{ rows: MyRequestRow[]; complete: boolean }> {
     const page = this.getPage();
@@ -737,9 +741,11 @@ class WorkerPortal implements Portal {
    * Case detail (read-only). The My Requests grid opens a record in a modal whose body is an iframe
    * (/_portal/modal-form-template-path/…): the case form (mostly read-only) + a `.notes` timeline that
    * holds the constituent's comments AND the city's outbound dispatch emails ("PVD 311 → RI Energy").
-   * Finds the row via the grid's own search box (one request, any age — no paging), clicks the title
-   * button, dumps the iframe, closes the modal, clears the search. Touches nothing else: the modal's
-   * Submit / Add comment / Upload are never clicked.
+   * Finds the row via the grid's own search box (one request, any age — no paging), reads the row's Status
+   * Reason, clicks the title button, dumps the iframe, closes the modal, clears the search. Touches nothing
+   * else: the modal's Submit / Add comment / Upload are never clicked.
+   * Null means the search ran and found no such case — reconcile trusts it (portalSearchMissAt) — so a grid
+   * that never rendered or a modal that never loaded throws instead (watcher.detail_failed).
    */
   async readCaseDetail(caseId: string): Promise<CaseDetailRaw | null> {
     const page = this.getPage();
@@ -772,7 +778,16 @@ class WorkerPortal implements Portal {
       await page.waitForTimeout(1_500);
     };
     const btn = rowBtn();
-    if (!(await btn.isVisible().catch(() => false))) { await clearSearch(); return null; }
+    if (!(await btn.isVisible().catch(() => false))) {
+      await clearSearch();
+      if (!filtered) throw new Error(`${caseId}: My Requests showed neither the row nor its search box`);
+      return null;
+    }
+    // The row's own Status Reason, through the same grid parser as readMyRequestsPaged: for a case past the grid's
+    // 12-row window this search result is the only place its CASE status shows (2026-10-30, PVD2026-90092).
+    const rowStatus = await this.dumpGrid()
+      .then(({ headers, rows }) => rows.map((r) => parseRow(headers, r)).find((p) => p?.caseId === caseId)?.status || null)
+      .catch(() => null);
     await btn.click();
     const closeModal = async () => {
       await page.locator('.modal.in button.close, .modal.in .close, .modal button[aria-label="Close"]').first().click({ timeout: 5_000 }).catch(() => {});
@@ -783,8 +798,8 @@ class WorkerPortal implements Portal {
       await inFrame.locator('.notes .note, .notes-empty, .notes-access-denied, .notes-error, #title').first().waitFor({ state: 'visible', timeout: 25_000 }).catch(() => {});
       await page.waitForTimeout(1_500); // notes load async after the form
       const frame = page.frames().find((f) => /modal-form/.test(f.url()));
-      if (!frame) return null;
-      return await frame.evaluate(() => {
+      if (!frame) throw new Error(`${caseId}: the case-detail modal did not load`);
+      const dump = await frame.evaluate(() => {
         const norm = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim();
         const fields: Record<string, { label: string; value: string; readonly: boolean }> = {};
         const radios: Record<string, { label: string; value: string; readonly: boolean }> = {};
@@ -830,6 +845,7 @@ class WorkerPortal implements Portal {
         });
         return { fields, notes };
       });
+      return { ...dump, rowStatus };
     } finally {
       await closeModal();
       await clearSearch();

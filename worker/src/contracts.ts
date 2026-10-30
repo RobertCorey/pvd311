@@ -205,7 +205,7 @@ export interface Portal {
   resumeAndDumpControls(entityId: string): Promise<PortalControl[] | null>;
   /** resumeAndDumpControls + the page's own validation/visibility logic (Page_Validators, inline and same-origin scripts, form HTML). Read-only. */
   inspectStep3Page(entityId: string): Promise<Step3PageDump | null>;
-  /** Read-only: open one case's detail modal from My Requests (grid search by PVD number → row → iframe) and dump its form fields + timeline. Null if the case is not in the grid. Never clicks Submit/Add comment. */
+  /** Read-only: open one case's detail modal from My Requests (grid search by PVD number → row → iframe) and dump its form fields + timeline + the row's status. Null only when the search ran and found no such case; throws when it could not look. Never clicks Submit/Add comment. */
   readCaseDetail(caseId: string): Promise<CaseDetailRaw | null>;
 }
 
@@ -213,6 +213,9 @@ export interface Portal {
 export interface CaseDetailRaw {
   fields: Record<string, { label: string; value: string; readonly: boolean }>;
   notes: { postedOn: string; modifiedOn: string | null; from: string; to: string | null; createdBy: string | null; text: string; attachments: string[] }[];
+  /** Status Reason of the grid row the read opened (the search result for a case past the grid's 12-row window) — the
+   *  CASE status, never the work order's (casedetail.workOrderOf). Not part of the snapshot hash; null when unparsed. */
+  rowStatus?: string | null;
 }
 
 /** City statuses that end a case. Drives retention, "resolved" mail, and the admin terminal filter. */
