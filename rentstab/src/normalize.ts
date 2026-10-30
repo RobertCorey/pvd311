@@ -9,6 +9,21 @@ const SUFFIX: Record<string, string> = {
 };
 const DIRECTION: Record<string, string> = { north: 'n', south: 's', east: 'e', west: 'w' };
 
+// The tax roll spells numbered streets out ("Twelfth St"); people and mailing addresses write "12th".
+const ORDINAL_WORDS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth',
+  'eleventh', 'twelfth', 'thirteenth', 'fourteenth', 'fifteenth', 'sixteenth', 'seventeenth', 'eighteenth', 'nineteenth', 'twentieth'];
+export function ordinalToWord(token: string): string {
+  const m = token.toLowerCase().match(/^(\d{1,2})(st|nd|rd|th)$/);
+  return m && Number(m[1]) >= 1 && Number(m[1]) <= 20 ? ORDINAL_WORDS[Number(m[1]) - 1] : token;
+}
+
+/** Search text → what the roll stores: "12th Street" → "twelfth", "135 brook st" → "135 brook" (suffix dropped; the roll often omits it). */
+export function normalizeQuery(q: string): string {
+  let toks = q.toLowerCase().replace(/[.,]/g, ' ').trim().split(/\s+/).filter(Boolean).map(ordinalToWord);
+  if (toks.length > 1 && SUFFIX[toks[toks.length - 1]]) toks = toks.slice(0, -1);
+  return toks.join(' ');
+}
+
 export interface StreetAddress {
   lo: number;
   hi: number;
@@ -25,7 +40,7 @@ export function parseAddress(raw: string | null | undefined): StreetAddress | nu
   const lo = Number(m[1]);
   let hi = m[2] ? Number(m[2]) : lo;
   if (hi < lo || hi - lo > 40) hi = lo;
-  let toks = m[3].split(' ').map((t) => DIRECTION[t] ?? t);
+  let toks = m[3].split(' ').map((t) => DIRECTION[t] ?? ordinalToWord(t));
   if (toks.length > 1 && SUFFIX[toks[toks.length - 1]]) toks = toks.slice(0, -1);
   return { lo, hi, street: toks.join(' ') };
 }

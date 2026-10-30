@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress } from '../src/normalize.ts';
+import { mailingStreetAndCity, normalizeQuery, ownerKey, ownerKind, parseAddress, sameAddress } from '../src/normalize.ts';
 
 describe('parseAddress / sameAddress', () => {
   it('parses ranges and drops suffixes', () => {
@@ -11,6 +11,15 @@ describe('parseAddress / sameAddress', () => {
     expect(sameAddress(parseAddress('13-15 Payton St'), parseAddress('15 Payton Street'))).toBe(true);
     expect(sameAddress(parseAddress('13 Payton St'), parseAddress('17 Payton St'))).toBe(false);
     expect(sameAddress(parseAddress('13 Payton St'), parseAddress('13 Peyton St'))).toBe(false);
+  });
+});
+
+describe('numbered streets', () => {
+  it('"12th" and "Twelfth" are the same street', () => {
+    expect(normalizeQuery('12th St')).toBe('twelfth');
+    expect(normalizeQuery('16 12th Street')).toBe('16 twelfth');
+    expect(normalizeQuery('135 Brook St')).toBe('135 brook');
+    expect(sameAddress(parseAddress('187 Tenth St'), parseAddress('187  10TH ST'))).toBe(true);
   });
 });
 

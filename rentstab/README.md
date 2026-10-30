@@ -19,7 +19,7 @@ Requires Node 24 (runs `.ts` directly; `node:sqlite` is built in). No API keys.
 ```sh
 npm install
 npm run rebuild     # fetch public data → data/parcels.sqlite → CITYWIDE.md (~1 min)
-npm test            # 56 classifier/normalizer tests
+npm test            # 57 classifier/normalizer tests
 npm run serve       # bare lookup page on http://localhost:4173
 npm run profile     # field fill-rate tables behind DATA_REPORT.md
 npm run spot-checks # the seeded spot-check sample

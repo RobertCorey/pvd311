@@ -21,9 +21,9 @@
 
    | | rental units | parcels |
    |---|---:|---:|
-   | likely covered | 19,233 | 6,836 |
+   | likely covered | 19,218 | 6,826 |
    | likely exempt | 13,051 | 8,112 |
-   | can't tell | 10,338–15,947 | 7,675 |
+   | can't tell | 10,343–15,962 | 7,685 |
 
    So **40–73% of rental units would be covered**: 19k if every can't-tell is exempt, 35k if every one is covered.
 3. **The fiscal note's 48,000 of 80,000 doesn't hold up.**

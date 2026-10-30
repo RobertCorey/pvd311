@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { classify } from '../src/classify.ts';
 import { DB_PATH, rowToParcel } from '../src/db.ts';
+import { normalizeQuery } from '../src/normalize.ts';
 import { loadRules } from '../src/rules.ts';
 
 const rules = loadRules(join(import.meta.dirname, '..', 'rules', 'ordinance-2026-04.yaml'));
@@ -73,7 +74,7 @@ createServer((req, res) => {
   if (url.pathname === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(PAGE); }
   if (url.pathname === '/api/meta') return json(res, 200, { disclaimer: rules.disclaimer, rules: rules.id, effective: rules.assumed_effective_date });
   if (url.pathname === '/api/search') {
-    const q = (url.searchParams.get('q') ?? '').trim().replace(/[\\%_]/g, (c) => '\\' + c);
+    const q = normalizeQuery(url.searchParams.get('q') ?? '').replace(/[\\%_]/g, (c) => '\\' + c);
     return json(res, 200, q.length < 2 ? [] : search.all(`${q}%`, `% ${q}%`)); // "135 Brook" or just "Brook" 
   }
   if (url.pathname === '/api/classify') {
