@@ -16,7 +16,7 @@ We want to make the city's job easier. We use its systems gently, follow its pro
 We help reporters send something the city can act on: the right category, the right location, a clear photo, and a plain description. A report asks for a fix; it isn't a place to vent.
 
 ### 4. We're not a spam platform.
-One problem gets one report. We check for duplicates, limit how fast reports go out, and have a person read new accounts' first reports. Volume isn't the goal. Fixed problems are.
+One problem gets one report. We check for duplicates, limit how fast reports go out, and have a person read any report that looks off before it goes out. Volume isn't the goal. Fixed problems are.
 
 ### 5. We don't enable harassment.
 FixMyPVD is for problems with the city's streets and services. It is not a tool for targeting neighbors, businesses, or city workers, and we won't file a report whose purpose is to go after a person instead of fixing a problem.

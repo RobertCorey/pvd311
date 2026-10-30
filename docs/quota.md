@@ -17,7 +17,7 @@ One tier for everyone (no admin-raised limits — Rob, 2026-10-16: "we'll deal w
 - **What counts.** Every accepted `POST /api/report`, including reports later rejected (in review or by moderation). That's Rob's call: rejection must not be a way around the quota.
 - **Refund.** A report the reporter cancels (`POST /api/reports/:id/cancel`) before it's filed gives its slot back, for both the day and the week it was counted in.
 - **Not in scope now.** Server-side duplicate detection; the client's nearby-duplicate prompt is unchanged. The engine's global `MAX_PER_HOUR = 15` portal pacing stays as the backstop above all users.
-- **New accounts.** Unchanged: the HITL ramp (ACCOUNT_TRUST_N=1) still sends the first report to review.
+- **New accounts.** Unchanged by the quota: the HITL ramp (ACCOUNT_TRUST_N=1) decides review. Since 2026-10-30 it sends a first report to review only when it looks off ("Not sure", nearly empty, or flagged).
 
 ## API
 

@@ -3,7 +3,8 @@
  *
  * Modes (env.HITL_MODE):
  *   review — every report needs a tap before it goes to the city (launch mode)
- *   ramp   — an account's first ACCOUNT_TRUST_N reports need taps; after that a clean history auto-approves
+ *   ramp   — a new account's report waits for a tap only when it looks off (flagged, "Not sure", or nearly empty);
+ *            after ACCOUNT_TRUST_N filed with a clean history it auto-approves; any rejection → every report reviewed
  *   auto   — nothing waits for a human (goal state; unanswered city questions are left blank)
  *
  * Approvals arrive as signed HTTP GETs to /hitl/approve|reject (see index.ts) — no polling.
@@ -13,7 +14,7 @@ import { CATEGORIES } from '../../shared/categories.js';
 import { actionUrl } from './email.js';
 import { moderate } from './moderation.js';
 import { logEvent } from './health.js';
-import { accountTrusted } from './me.js';
+import { accountStanding } from './me.js';
 
 /** Decide whether this report can go straight to the portal. */
 export async function needsHumanApproval(store: Store, env: Env, report: ReportDoc): Promise<boolean> {
@@ -25,19 +26,36 @@ export async function needsHumanApproval(store: Store, env: Env, report: ReportD
   const flags = await ensureModerated(store, env, report);
   if (flags.length) return true;
   if (mode === 'auto') return false;
-  // ramp: per ACCOUNT — the first ACCOUNT_TRUST_N reports of an account are reviewed; after that, a clean
-  // history (0 rejected — or admin `trusted`) auto-approves. Accounts are mandatory, so every report has an owner.
+  // ramp: per ACCOUNT. Accounts are mandatory, so every report has an owner. Trusted (admin `trusted`, or
+  // ACCOUNT_TRUST_N filed with 0 rejected) → auto. Any rejection is the brake: every report of that account waits for
+  // a person, as before. A new clean account → held only when the report looks off (2026-10-30, below).
   if (!report.ownerUid) return true;
-  return !(await accountTrusted(store, report.ownerUid, accountTrustN(env)).catch(() => false));
+  const standing = await accountStanding(store, report.ownerUid, accountTrustN(env)).catch(() => null);
+  if (standing === 'trusted') return false;
+  if (standing !== 'new') return true; // 'rejected', or the lookup failed → reviewed
+  return looksOff(report);
 }
 
-/** Run moderation server-side if it hasn't run yet; merge with client flags; persist. Fails SAFE: a model error → treat as flagged. */
+/** A new account's report that a person should read first. Until 2026-10-30 every first report waited: 12 in 15 days,
+ *  0 rejected, median wait 1.46 h, 5 of 11 parked 8+ h overnight. The one junk one ("PEMA": "Not sure", 4 chars, no
+ *  photo) passed moderation, so the catch-all category and a near-empty report without a photo are held on their own. */
+function looksOff(report: ReportDoc): boolean {
+  return report.category === 'unsure' || ((report.description ?? '').trim().length < 10 && !report.photo);
+}
+
+/** Run moderation server-side if it hasn't run yet; merge with client flags; persist. Fails SAFE: a model error (after one retry) → treat as flagged. */
 async function ensureModerated(store: Store, env: Env, report: ReportDoc): Promise<string[]> {
   const client = report.intakeFlags ?? [];
   if (report.moderatedAt) return client;
   let merged: string[];
+  const input = { category: report.category, description: report.description ?? '', address: report.address, extra: report.extra ?? {}, hasPhoto: !!report.photo };
   try {
-    const m = await moderate(env, { category: report.category, description: report.description ?? '', address: report.address, extra: report.extra ?? {}, hasPhoto: !!report.photo }, store);
+    // One immediate retry before the fail-safe (2026-10-30): the only server "flag" in the first 15 days was this
+    // fallback after a one-off Anthropic 403, which parked a clean report. The SDK already retries 429/5xx/network.
+    const m = await moderate(env, input, store).catch((e) => {
+      console.warn('[hitl] moderation failed; retrying once:', e instanceof Error ? e.message : e);
+      return moderate(env, input, store);
+    });
     merged = [...new Set([...client, ...m.flags])];
   } catch (e) {
     console.error('[hitl] moderation failed; forcing review:', e);

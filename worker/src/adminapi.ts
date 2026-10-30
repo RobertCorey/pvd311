@@ -245,10 +245,10 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       const [submitted, rejected, pending] = await Promise.all([
         store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0), store.countOwnerByStatus(u.uid, 'awaiting_review').catch(() => 0),
       ]);
-      const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
+      // Since 2026-10-30 a new clean account auto-files too (only a report that looks off waits, hitl.ts); a rejection is the brake.
       return { uid: u.uid, email: u.email, displayName: u.displayName ?? null, provider: u.provider, emailVerified: !!u.emailVerified, createdAt: u.createdAt, lastSeenAt: u.lastSeenAt ?? null,
         trusted: !!u.trusted, emailUpdates: u.prefs?.emailUpdates !== false, following: (u.following ?? []).length, addresses: (u.addresses ?? []).length,
-        submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) };
+        submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || rejected === 0 };
     }));
     return json({ items, next: users.length >= limit ? users[users.length - 1].createdAt : null });
   }
@@ -314,9 +314,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       u.email ? store.findEmails({ addr: u.email, limit: 300 }).catch(() => [] as EmailRecord[]) : Promise.resolve([] as EmailRecord[]),
       store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0),
     ]);
-    const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
     return json({
-      user: { ...userRow(u), submitted, rejected, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) },
+      user: { ...userRow(u), submitted, rejected, autoFiles: !!u.trusted || rejected === 0 }, // same rule as /api/admin/users
       reports: reports.map(adminProjection), emails: emails.map(emailSummary),
     });
   }
@@ -352,8 +351,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
   if (m === 'GET' && path === '/api/admin/config') {
     const row = (key: string, value: unknown, what: string) => ({ key, value, what });
     return json({ items: [
-      row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = first ACCOUNT_TRUST_N per account, then auto unless flagged; auto = nothing to you (flags still force review).'),
-      row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before it auto-files.'),
+      row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = a new account\'s report comes to you only if it looks off ("Not sure", or under 10 characters with no photo), an account with any rejection always does, the rest auto-file unless flagged; auto = nothing to you (flags still force review).'),
+      row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before even a report that looks off auto-files.'),
       row('RECONCILE_ENABLED', env.RECONCILE_ENABLED ?? '0', 'Watcher compares the whole My Requests list to our DB every 30 min (adopt / stranded / missing).'),
       row('DRIFT_CANARY_ENABLED', env.DRIFT_CANARY_ENABLED ?? '0', 'Nightly Step-3 control diff on the designated canary draft; alerts when the city changes the form.'),
       row('ADMIN_EMAILS', env.ADMIN_EMAILS ?? '', 'Google accounts allowed into /admin.'),
@@ -363,7 +362,7 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       row('NOTIFY_FROM', env.NOTIFY_FROM ?? null, 'From address for all mail (Resend, domain verified).'),
       row('BLOCKED_ADDRESSES', (env as unknown as { BLOCKED_ADDRESSES?: string }).BLOCKED_ADDRESSES ?? '(default)', 'Addresses the engine auto-rejects (substring match).'),
       row('Reporter quota', '5/day + 15/week per mailbox · 60 s gap · 30/day per IP', 'Days reset at midnight ET, weeks Monday midnight ET. Every accepted report counts (rejected ones too); a reporter cancel refunds. Enforced in POST /api/report via Firestore counters (worker/src/quota.ts).'),
-      row('Intake AI limits', '10/min per IP, 1,500/day global', 'Caps Anthropic spend; server-side moderation runs once per report regardless.'),
+      row('Intake AI limits', '10/min per IP, 1,500/day global', 'Caps Anthropic spend; server-side moderation runs once per report regardless (one retry on an error, then the report comes to you).'),
       row('Engine limits', 'lock 12 min · stuck reaper 20 min · retries 2 with backoff · breaker after repeated failures · hourly cap', 'See worker/src/engine.ts constants.'),
       row('Retention', 'photos 30 days after the city closes a case · events 14 days · email log 60 days · HITL links 30 days', 'Daily job at 7 am ET.'),
     ] });
