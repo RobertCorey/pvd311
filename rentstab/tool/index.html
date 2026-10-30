@@ -1,0 +1,188 @@
+<title>Rent Stabilization Builder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/*LEAFLET_CSS*/
+/* Layout: policy controls in a left rail, the city in the main column (summary → map + detail → tables); phones stack a lighter version.
+   Palette: FixMyPVD "Ember & Harbor" — harbor ink on paper; ember marks rent-stabilized homes. Light only, like FixMyPVD. */
+:root {
+  --paper: #F7F1E6;
+  --surface: #FFFCF7;
+  --ink: #16213A;
+  --muted: #5A6275;
+  --line: #E3DACB;
+  --ember: #F4652A;
+  --ember-text: #BD3F12;
+  --river: #1D5C99;
+  --owned: #A7AEBE;
+  --market: #1D5C99;
+  --subsidized: #1B6B45;
+  --unclear: #D8CDB9;
+  --controlled: #F4652A;
+  --font-display: 'Bricolage Grotesque', 'Avenir Next', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --radius: 12px;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; max-width: 1480px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(26px, 3.2vw, 38px); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 19px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+header.top { display: grid; gap: 6px; margin-bottom: 18px; max-width: 72ch; }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 899px) { .layout { gap: 18px; } }
+@media (max-width: 899px) { .layout { grid-template-columns: minmax(0, 1fr); } .desk { display: none !important; } }
+@media (min-width: 900px) { .phone { display: none !important; } }
+
+/* Policy rail */
+.rail { position: sticky; top: env(safe-area-inset-top, 0px); max-height: calc(100vh - 16px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; }
+button.more { font: inherit; font-weight: 600; font-size: 14px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; cursor: pointer; min-height: 44px; }
+.rail details > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.rail details > summary::-webkit-details-marker { display: none; }
+.group { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.group:first-of-type { border-top: 0; padding-top: 0; }
+.group.alt { background: color-mix(in srgb, var(--paper) 70%, var(--surface)); margin-inline: -16px; padding-inline: 16px; padding-bottom: 12px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.help { font-size: 12.5px; color: var(--muted); }
+.cite { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+select, input[type="search"] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; min-height: 36px; }
+select:focus-visible, input:focus-visible, button:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--river); outline-offset: 2px; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch span { width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background .15s; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(22,33,58,.25); transition: transform .15s; }
+.switch input:checked + span { background: var(--ink); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
+.inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.off .inline, .off .check { opacity: .45; pointer-events: none; }
+.preset-desc { font-size: 12.5px; color: var(--muted); }
+button.reset { font: inherit; font-size: 13px; background: none; border: 0; color: var(--river); cursor: pointer; padding: 0; text-decoration: underline; }
+
+/* Summary */
+.main { display: grid; gap: 22px; min-width: 0; }
+.summary { display: grid; gap: 14px; }
+.headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.big { font-family: var(--font-display); font-weight: 700; font-size: clamp(40px, 6vw, 64px); line-height: 1; color: var(--ember-text); font-variant-numeric: tabular-nums; }
+.delta { font-weight: 600; font-size: 14px; padding: 2px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.stack { display: flex; height: 26px; border-radius: 6px; overflow: hidden; background: var(--line); }
+.stack i { display: block; height: 100%; transition: flex-grow .3s ease; }
+@media (prefers-reduced-motion: reduce) { .stack i { transition: none; } }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 16px; font-size: 13px; }
+.legend div { display: flex; gap: 8px; align-items: baseline; }
+.sw { width: 11px; height: 11px; border-radius: 3px; flex: none; transform: translateY(1px); }
+.sw.owned { background: var(--owned); } .sw.controlled { background: var(--controlled); } .sw.market { background: var(--market); } .sw.subsidized { background: var(--subsidized); } .sw.unclear { background: var(--unclear); }
+.legend b { font-variant-numeric: tabular-nums; }
+
+/* Map + detail */
+.mapgrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 1199px) { .mapgrid { grid-template-columns: minmax(0, 1fr); } }
+.mapbox { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+#map { height: 600px; background: var(--surface); }
+@media (max-width: 899px) { #map { height: 380px; } }
+.maptools { position: absolute; z-index: 500; top: 10px; left: 10px; display: flex; gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.maptools button { font: inherit; font-size: 13px; padding: 6px 10px; border: 0; background: none; color: var(--ink); cursor: pointer; }
+.maptools button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.maplegend { position: absolute; z-index: 500; bottom: 10px; left: 10px; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; display: grid; gap: 4px; max-width: calc(100% - 20px); }
+.ramp { display: flex; height: 10px; width: 180px; max-width: 100%; border-radius: 3px; overflow: hidden; }
+.ramp i { flex: 1; }
+.ramplabels { display: flex; justify-content: space-between; width: 180px; max-width: 100%; color: var(--muted); font-variant-numeric: tabular-nums; }
+.leaflet-container { font: inherit; background: var(--surface); }
+.leaflet-control-zoom a { color: var(--ink) !important; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.searchbox { position: relative; }
+.searchbox input { width: 100%; }
+#sugg { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); position: absolute; left: 0; right: 0; z-index: 600; max-height: 300px; overflow: auto; box-shadow: 0 6px 18px rgba(22,33,58,.08); }
+#sugg:empty { display: none; }
+#sugg li { padding: 8px 10px; cursor: pointer; border-top: 1px solid var(--line); font-size: 14px; }
+#sugg li:first-child { border-top: 0; }
+#sugg li:hover, #sugg li[aria-selected="true"] { background: var(--paper); }
+#sugg small { color: var(--muted); }
+.pill { display: inline-block; font-weight: 600; font-size: 13px; padding: 3px 10px; border-radius: 999px; }
+.pill.likely_covered { background: var(--controlled); color: var(--ink); }
+.pill.likely_exempt { background: var(--market); color: var(--surface); }
+.pill.likely_exempt.subsidized { background: var(--subsidized); }
+.pill.cant_tell { background: var(--unclear); color: var(--ink); }
+.pill.not_residential_rental { background: var(--owned); color: var(--ink); }
+.result ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.result details { font-size: 13px; color: var(--muted); }
+.result details ul { margin-top: 6px; }
+.was { font-size: 13px; color: var(--muted); }
+.minibar { display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.minibar i { display: block; height: 100%; }
+
+/* Tables */
+.tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; border-top: 0; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.bar { width: 34%; min-width: 90px; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--paper); }
+footer { margin-top: 28px; font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; max-width: 90ch; }
+.loading { padding: 40px 0; color: var(--muted); }
+/* Phones: headline first, then the (collapsed) policy controls, then the map and lookup. Last so it wins the cascade. */
+@media (max-width: 899px) {
+  .rail { position: static; max-height: none; order: 2; }
+  .main { display: contents; }
+  #summary { order: 1; }
+  .mapgrid { order: 3; }
+  .rail:not(.open) > .group:not(:first-child) { display: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">Providence · rent stabilization</span>
+    <h1>Who would a rent cap cover?</h1>
+    <p class="muted">Start from the ordinance the City Council passed in April 2026 (vetoed), then change the exemptions and watch which homes the 4% cap would reach. Built from city tax and assessor records.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="rail" id="rail" aria-label="Policy controls">
+      <p class="loading">Loading 44,000 parcels…</p>
+    </aside>
+
+    <main class="main" id="main">
+      <section class="summary" id="summary" aria-live="polite"></section>
+
+      <div class="mapgrid">
+        <div class="mapbox">
+          <div id="map" role="img" aria-label="Map of Providence neighborhoods shaded by share of homes rent-stabilized"></div>
+          <div class="maptools desk" role="group" aria-label="Map view">
+            <button type="button" id="mode-hood" aria-pressed="true">Neighborhoods</button>
+            <button type="button" id="mode-dots" aria-pressed="false">Every building</button>
+          </div>
+          <div class="maplegend" id="maplegend"></div>
+        </div>
+        <div class="panel" id="detail">
+          <div class="searchbox">
+            <label for="q" class="eyebrow">Look up an address</label>
+            <input id="q" type="search" placeholder="e.g. 135 Brook St" autocomplete="off" role="combobox" aria-controls="sugg" aria-expanded="false">
+            <ul id="sugg" role="listbox"></ul>
+          </div>
+          <div id="detailbody" class="result"></div>
+        </div>
+      </div>
+
+      <section class="tables desk" id="tables"></section>
+    </main>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>

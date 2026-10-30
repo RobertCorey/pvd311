@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit -p .",
     "serve": "node scripts/serve.ts",
     "spot-checks": "node scripts/spot-checks.ts",
-    "profile": "node scripts/profile.ts"
+    "profile": "node scripts/profile.ts",
+    "build-tool": "node scripts/build-tool.ts"
   },
   "dependencies": {
     "yaml": "^2.8.1"
