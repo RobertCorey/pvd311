@@ -42,6 +42,8 @@ export interface Parcel {
   /** How many other residential parcels the same normalized owner name holds (low confidence). */
   ownerOtherResidentialParcels: number;
   ownerOtherResidential: { id: string; address: string; ownerOccupied: boolean | null }[];
+  /** Dwelling units across all residential parcels under this owner's normalized name (incl. this one). */
+  ownerPortfolioUnits: number;
   /** The normalized name covers 2+ owner-occupied parcels — several different people share it, so name matching is off. */
   ownerNameAmbiguous: boolean;
   /** The parcel at the owner's mailing address when that is a different Providence residential parcel (the owner's likely home). */

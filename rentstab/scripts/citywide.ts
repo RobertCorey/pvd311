@@ -5,6 +5,7 @@ import { classify, type Classification } from '../src/classify.ts';
 import { loadParcels } from '../src/db.ts';
 import { loadRules, type Rules, type Status } from '../src/rules.ts';
 import type { Parcel } from '../src/types.ts';
+import { unitCounts } from '../src/units.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const RULES_PATH = join(ROOT, 'rules', 'ordinance-2026-04.yaml');
@@ -15,21 +16,6 @@ const ACS = { year: 'ACS 2020–2024 5-year', housingUnits: 79423, renterOccupie
 const FISCAL_NOTE = { date: '2026-02-15', author: 'Tom Sgouros', rentalUnits: 80000, covered: 48000, draft: 'January 2026 draft' };
 
 export interface Row { p: Parcel; c: Classification; units: number; rental: number; rentalIfOwnerAbsent: number }
-
-/** Dwelling units on the parcel and how many are (or could be) rented: an owner-occupant's own unit isn't a rental. */
-export function unitCounts(p: Parcel, c: Classification, rules: Rules): Pick<Row, 'units' | 'rental' | 'rentalIfOwnerAbsent'> {
-  const d = rules.data;
-  const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
-  const oneUnitClass = p.taxClass === d.single_family_class || p.taxClass === d.condo_class;
-  if (c.status === 'not_residential_rental') return { units: p.units ?? 0, rental: 0, rentalIfOwnerAbsent: 0 };
-  // Lots built on after the 2024 assessor extract: take the unit count from the new-building permit.
-  const units = p.units ?? (c.rule === 'new_construction_permit' ? p.newUnitsPermit?.units ?? 0 : oneUnitClass ? 1 : 0);
-  const ownerHere = d.owner_occupied_levy_codes.includes(levy) ? 1 : 0;
-  const rental = Math.max(0, units - ownerHere);
-  // Owner may live here (NOO rate, mail = property): rental is units - 1 if they do, units if they don't.
-  const maybeOwner = c.rule === 'owner_may_live_here' ? 1 : 0;
-  return { units, rental: Math.max(0, rental - maybeOwner), rentalIfOwnerAbsent: rental };
-}
 
 export function classifyAll(rules: Rules, parcels = loadParcels()): Row[] {
   return parcels.map((p) => {

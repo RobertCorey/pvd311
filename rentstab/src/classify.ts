@@ -40,9 +40,12 @@ function signalsOf(c: Ctx): string[] {
   return s;
 }
 
+/** Earliest CO date that still qualifies: the look-back, capped by the exemption length (an older CO's exemption has run out). */
 function effectiveDates(rules: Rules) {
   const eff = new Date(rules.assumed_effective_date + 'T00:00:00Z');
-  const lookbackYears = Number(rules.rules.find((r) => r.test === 'new_construction')?.lookback_years ?? 5);
+  const nc = rules.rules.find((r) => r.test === 'new_construction');
+  const exemptionYears = Number(nc?.exemption_years ?? 10);
+  const lookbackYears = nc?.lookback_years == null ? exemptionYears : Math.min(Number(nc.lookback_years), exemptionYears);
   const lookback = new Date(eff);
   lookback.setUTCFullYear(eff.getUTCFullYear() - lookbackYears);
   return { eff, lookback };
@@ -88,6 +91,26 @@ const TESTS: Record<string, Test> = {
       return { status: r.status!, reason: fill(r.reason!, c.vars) };
     }
     return null;
+  },
+
+  small_building(c, r) {
+    if (!(isSmallRes(c) || isApartment(c)) || c.units == null || c.units > Number(r.max_units)) return null;
+    return { status: r.status!, reason: fill(r.reason!, { ...c.vars, maxUnits: String(r.max_units) }) };
+  },
+
+  single_family_condo(c, r) {
+    const d = c.rules.data;
+    if (c.p.taxClass !== d.single_family_class && c.p.taxClass !== d.condo_class) return null;
+    return { status: r.status!, reason: fill(r.reason!, c.vars) };
+  },
+
+  small_portfolio(c, r) {
+    if (!(isSmallRes(c) || isApartment(c))) return null;
+    const max = Number(r.max_portfolio_units);
+    const vars = { ...c.vars, maxPortfolio: String(max), portfolioUnits: String(c.p.ownerPortfolioUnits) };
+    if (c.p.ownerNameAmbiguous) return { status: 'cant_tell', reason: fill(r.reason_ambiguous as string, vars), note: r.note };
+    if (c.p.ownerPortfolioUnits > max) return null;
+    return { status: r.status!, reason: fill(r.reason!, vars), note: r.note };
   },
 
   hotel_owner(c, r) {
@@ -149,11 +172,15 @@ const TESTS: Record<string, Test> = {
     return { status: r.status!, reason: fill(r.reason!, c.vars) };
   },
 
+  owner_home(c, r) {
+    if (!isSmallRes(c) || c.oo !== true || c.units !== 1) return null;
+    return { status: r.status!, reason: fill(r.reason!, c.vars), note: r.note };
+  },
+
   owner_occupied_small(c, r) {
     if (!isSmallRes(c) || c.oo !== true) return null;
     const max = Number(r.max_units), adu = Number(r.adu_allowance ?? 0);
     if (c.units == null) return { status: 'cant_tell', reason: fill(r.reason_units_missing as string, c.vars), note: r.note };
-    if (c.units === 1) return { status: r.status_single_unit_owner_home as Status, reason: fill(r.reason_single_unit_owner_home as string, c.vars), note: r.note };
     if (c.units <= max) return { status: r.status!, reason: fill(r.reason!, c.vars), note: r.note };
     if (c.units <= max + adu) return { status: 'cant_tell', reason: fill(r.reason_adu as string, c.vars), note: r.note };
     return null; // owner-occupied but too big: falls through to covered
@@ -182,7 +209,7 @@ const TESTS: Record<string, Test> = {
     const home = byName ?? byMail;
     if (!home) return null;
     const how = byName && byMail && byName.id === byMail.id ? 'same name and mailing address' : byName ? 'same name' : 'owner mails tax bills there';
-    return { status: r.status_if_match as Status, reason: fill(r.reason_if_match as string, { ...c.vars, homeAddress: `${home.address}; ${how}` }), note: r.note };
+    return { status: r.status_if_match as Status, reason: fill(r.reason_if_match as string, { ...c.vars, homeHow: how }), note: r.note };
   },
 
   residential_rental(c, r) {
@@ -210,9 +237,11 @@ export function classify(p: Parcel, rules: Rules): Classification {
   const notes: string[] = [];
   if (p.units == null && oneUnitClass) notes.push(d_notes(rules).units_assumed_one);
 
+  const ooRule = rules.rules.find((r) => r.id === 'owner_occupied_small_building');
   const c: Ctx = {
     p, rules, units, oo, notes,
     vars: {
+      ooLimit: ooRule && ooRule.enabled !== false ? `1–${ooRule.max_units} units` : 'no buildings (switched off)',
       classDesc: p.taxClassDesc,
       owner: p.owner,
       units: units == null ? '?' : String(units),
@@ -223,6 +252,7 @@ export function classify(p: Parcel, rules: Rules): Classification {
   };
 
   for (const rule of rules.rules) {
+    if (rule.enabled === false) continue;
     const test = TESTS[rule.test];
     if (!test) throw new Error(`rules: unknown test "${rule.test}" (rule ${rule.id})`);
     const v = test(c, rule);

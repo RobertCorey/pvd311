@@ -1,0 +1,17 @@
+# Policy-builder presets: overrides on top of rules/ordinance-2026-04.yaml (src/policy.ts maps each key onto rules).
+# The first preset is the default the tool opens on.
+- id: april_2026
+  label: April 2026 ordinance (passed, vetoed)
+  description: The text the City Council passed on April 16, 2026. The mayor vetoed it.
+  policy: {}
+
+- id: january_2026_draft
+  label: January 2026 draft
+  description: >-
+    As introduced in January. Owner-occupied buildings up to 3 units, trusts excluded from the extra-property rule,
+    new buildings exempt 15 years from first occupancy with no look-back limit. (It also exempted voucher units, which
+    public data can't see.)
+  policy:
+    ownerOccupied: { maxUnits: 3, adu: false }
+    additionalProperty: { maxUnits: 3, trustsExcluded: true }
+    newConstruction: { years: 15, lookbackYears: null }

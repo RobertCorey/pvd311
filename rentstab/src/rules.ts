@@ -6,6 +6,8 @@ export type Status = 'likely_covered' | 'likely_exempt' | 'cant_tell' | 'not_res
 export interface Rule {
   id: string;
   test: string;
+  label?: string; // short name for summaries
+  enabled?: boolean; // false = skipped (alternative designs, or a policy-builder switch)
   section: string;
   quote?: string;
   status?: Status;

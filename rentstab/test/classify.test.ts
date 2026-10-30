@@ -15,7 +15,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     mailingCity: 'Cranston RI  02920', mailingIsProperty: false, totalAssessment: 400000, totalExempt: 0,
     camaMatched: true, units: 3, yearBuilt: 1920, useCode: '02', useDesc: '2-5 Family', numBuildings: 1,
     bedrooms: 6, bathrooms: 3, lastSaleDate: '2015-06-01', condoBuildingUnits: null,
-    ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false,
+    ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false, ownerPortfolioUnits: 3,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
     newUnitsPermit: null, razePermitDate: null, permitCostSince2019: 0,
     affordableSignals: [],
@@ -36,7 +36,7 @@ describe('result shape', () => {
     }
   });
   it('every YAML rule cites a section and uses a known test', () => {
-    for (const r of RULES.rules) expect(r.section).toMatch(/Sec\. 13-/);
+    for (const r of RULES.rules) expect(r.section).toMatch(r.enabled === false ? /not in the April 2026 ordinance/ : /Sec\. 13-/);
     const broken = structuredClone(RULES);
     broken.rules[0].test = 'no_such_test';
     expect(() => classify(parcel(), broken)).toThrow(/unknown test/);
@@ -64,7 +64,7 @@ describe('not a residential rental', () => {
   it('owner-occupied single-family = the owner\'s home, no rental unit', () => {
     const r = classify(oo({ taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'OO01', units: 1 }), RULES);
     expect(r.status).toBe('not_residential_rental');
-    expect(r.reasons[0]).toMatch(/rented room here would be exempt/);
+    expect(r.rule).toBe('owner_own_home');
   });
   it('owner-occupied condo unit = the owner\'s home', () => {
     expect(classify(oo({ taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'OO01', units: null }), RULES).status).toBe('not_residential_rental');
@@ -196,7 +196,7 @@ describe('owner-occupied 1–4 units — Sec. 13-78(n) ¶1', () => {
   it('6 units → covered even with the owner living there', () => {
     const r = classify(oo({ units: 6 }), RULES);
     expect(r.status).toBe('likely_covered');
-    expect(r.reasons[0]).toMatch(/more than 4 units/);
+    expect(r.reasons[0]).toMatch(/covers 1–4 units/);
   });
   it('unit count missing → can\'t tell', () => {
     expect(classify(oo({ units: null }), RULES).status).toBe('cant_tell');
@@ -232,7 +232,8 @@ describe('one additional property — Sec. 13-78(n) ¶2', () => {
   it('owner\'s only other Providence parcel is owner-occupied → can\'t tell (low-confidence match, must be claimed)', () => {
     const r = run({ ownerOtherResidential: home, ownerOtherResidentialParcels: 1 });
     expect(r.status).toBe('cant_tell');
-    expect(r.reasons[0]).toMatch(/5 Home St; same name/);
+    expect(r.reasons[0]).toMatch(/same name/);
+    expect(r.reasons[0]).not.toMatch(/5 Home St/); // no other-home addresses in reasons
     expect(r.confidence_notes.join(' ')).toMatch(/low confidence/);
   });
   it('a trust owner still qualifies (trusts were dropped from the excluded list)', () => {
@@ -263,6 +264,44 @@ describe('one additional property — Sec. 13-78(n) ¶2', () => {
   });
   it('the additional property must have ≤4 units', () => {
     expect(run({ units: 6, taxClass: '2', ownerOtherResidential: home, ownerOtherResidentialParcels: 1 }).status).toBe('likely_covered');
+  });
+});
+
+describe('alternative designs (off by default)', () => {
+  const on = (id: string, patch: object = {}) => {
+    const r = structuredClone(RULES);
+    Object.assign(r.rules.find((x) => x.id === id)!, { enabled: true, ...patch });
+    return r;
+  };
+  it('are off in the as-passed rules', () => {
+    expect(run({ taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'NO01', units: 1 }).status).toBe('likely_covered');
+  });
+  it('small-building exemption exempts a non-owner-occupied 3-family', () => {
+    const r = run({}, on('small_building_exemption'));
+    expect(r.status).toBe('likely_exempt');
+    expect(r.reasons[0]).toMatch(/4 or fewer units/);
+  });
+  it('single-family / condo exemption', () => {
+    expect(run({ taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'NO01', units: 1 }, on('single_family_condo_exemption')).status).toBe('likely_exempt');
+  });
+  it('small-portfolio exemption counts the owner\'s units, and can\'t tell for shared names', () => {
+    const rules = on('small_portfolio_exemption', { max_portfolio_units: 4 });
+    expect(run({ ownerPortfolioUnits: 3 }, rules).status).toBe('likely_exempt');
+    expect(run({ ownerPortfolioUnits: 9 }, rules).status).toBe('likely_covered');
+    expect(run({ ownerPortfolioUnits: 3, ownerNameAmbiguous: true }, rules).status).toBe('cant_tell');
+  });
+  it('switching off an exemption makes it stop applying, but the owner\'s own home stays not-a-rental', () => {
+    const rules = structuredClone(RULES);
+    rules.rules.find((x) => x.id === 'owner_occupied_small_building')!.enabled = false;
+    expect(classify(oo({ units: 3 }), rules).status).toBe('likely_covered');
+    expect(classify(oo({ taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'OO01', units: 1 }), rules).status).toBe('not_residential_rental');
+  });
+  it('no look-back limit + 15-year exemption (January draft) reaches a 2014 building', () => {
+    const rules = structuredClone(RULES);
+    Object.assign(rules.rules.find((x) => x.id === 'new_construction')!, { exemption_years: 15, lookback_years: null });
+    const apt = { taxClass: '03-11+', taxClassDesc: 'apt 11+ units', levyCode: 'C11', ownerOccupiedTaxRate: null, units: 40, ownerKind: 'entity' as const, owner: 'X LLC' };
+    expect(run({ ...apt, yearBuilt: 2014 }, rules).status).toBe('likely_exempt');
+    expect(run({ ...apt, yearBuilt: 2014 }).status).toBe('likely_covered');
   });
 });
 

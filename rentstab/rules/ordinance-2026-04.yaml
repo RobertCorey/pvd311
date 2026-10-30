@@ -103,8 +103,18 @@ data:
 # Rules, evaluated in this order; the first rule that returns a verdict wins. Rules that cannot be evaluated from public
 # data are listed under `not_evaluable` so they still surface as confidence notes.
 rules:
-  # Runs first so a lot that read as vacant land in the 2024 assessor extract but has since been built on is caught.
+  # The owner's own home (1 unit, owner-occupied rate) is not a rental under any policy; kept apart from the exemption.
+  - id: owner_own_home
+    label: "Owner's own home"
+    test: owner_home
+    section: "Sec. 13-69 ('Rental Unit')"
+    status: not_residential_rental
+    reason: "{classDesc} on the owner-occupied tax rate — the owner's own home, no rental unit on record"
+    note: "Owner-occupied status is the tax assessor's classification as of 12/31/2024."
+
+  # Runs early so a lot that read as vacant land in the 2024 assessor extract but has since been built on is caught.
   - id: new_construction_permit
+    label: "New building (permit)"
     test: new_units_permit
     section: "Sec. 13-78(m); Sec. 13-69 ('New Construction')"
     near_years: 3            # permits issued up to 3 years before the look-back start → can't tell
@@ -117,6 +127,7 @@ rules:
     note: "Building permits are public for Dec 2016 – Mar 2024 only; certificate-of-occupancy dates are not public."
 
   - id: no_dwelling_units
+    label: "No homes on the parcel"
     test: not_residential_class
     section: "Sec. 13-69 ('Dwelling Unit', 'Rental Unit')"
     status: not_residential_rental
@@ -125,6 +136,7 @@ rules:
     reason_condo_accessory: "deeded condo parking / storage / garage unit ({id}) — not a dwelling"
 
   - id: transient_lodging
+    label: "Hotel"
     test: hotel_owner
     section: "Sec. 13-78(d)"
     quote: '"Occupancy in a hotel, motel, or other lodging subject to state sales and use tax or lodgings tax"'
@@ -132,7 +144,37 @@ rules:
     reason: "owner name looks like a hotel ({owner}) → transient lodging, exempt"
     note: "Hotel detected from the owner's name only; the roll has no hotel class."
 
+  # ── Alternative designs (not in the April 2026 text; off by default, switched on by the policy builder) ──
+  - id: small_building_exemption
+    label: "Small building (any owner)"
+    enabled: false
+    test: small_building
+    section: "not in the April 2026 ordinance (policy-builder option)"
+    max_units: 4
+    status: likely_exempt
+    reason: "{unitsText} — buildings with {maxUnits} or fewer units are exempt under this policy, whoever owns them"
+
+  - id: single_family_condo_exemption
+    label: "Single-family home or condo"
+    enabled: false
+    test: single_family_condo
+    section: "not in the April 2026 ordinance (policy-builder option)"
+    status: likely_exempt
+    reason: "{classDesc} — single-family homes and condo units are exempt under this policy"
+
+  - id: small_portfolio_exemption
+    label: "Small landlord"
+    enabled: false
+    test: small_portfolio
+    section: "not in the April 2026 ordinance (policy-builder option)"
+    max_portfolio_units: 4
+    status: likely_exempt
+    reason: "owner holds about {portfolioUnits} dwelling unit(s) in Providence — landlords with {maxPortfolio} or fewer are exempt under this policy"
+    reason_ambiguous: "exempt if the owner holds {maxPortfolio} or fewer units citywide — this owner's name is shared by several people, so their holdings can't be counted"
+    note: "Portfolio size comes from a simple owner-name match (low confidence); LLCs under different names aren't linked."
+
   - id: public_and_subsidized_housing
+    label: "Subsidized or deed-restricted housing"
     test: affordable_strong
     section: "Sec. 13-78(i) deed-restricted affordable; Sec. 13-78(j) public housing / project-based subsidy"
     quote: >-
@@ -153,12 +195,14 @@ rules:
       pha_site: "Providence Housing Authority site"
 
   - id: affordable_partial_or_nearby
+    label: "Possibly subsidized"
     test: affordable_weak
     section: "Sec. 13-78(i), (j)"
     status: cant_tell
     reason: "possible regulated affordable housing ({signals}) — some or all units may be exempt"
 
   - id: cooperative
+    label: "Possible co-op"
     test: cooperative_owner
     section: "Sec. 13-78(f)"
     quote: '"Occupancy by a holder of a proprietary lease in a cooperative"'
@@ -166,6 +210,7 @@ rules:
     reason: "owner name suggests a housing cooperative ({owner}) — proprietary-lease holders are exempt, other tenants are not"
 
   - id: institution
+    label: "Institution (dorm, hospital, charity)"
     test: institution_class
     section: "Sec. 13-78(a)"
     quote: '"Residence in an institution, public or private, if incidental to detention or the provision of medical, geriatric, educational, counseling, religious, or similar service"'
@@ -173,12 +218,14 @@ rules:
     reason: "{classDesc} property with {unitsText} — exempt if residence is incidental to the institution's service (e.g. a dormitory), covered if leased like an ordinary apartment"
 
   - id: government_owned
+    label: "Government-owned"
     test: government_class
     section: "Sec. 13-78(a), (j)"
     status: cant_tell
     reason: "government-owned ({classDesc}) with {unitsText} — may be public housing or institutional"
 
   - id: new_construction
+    label: "New building (year built)"
     test: new_construction
     section: "Sec. 13-78(m); Sec. 13-69 ('New Construction')"
     quote: >-
@@ -192,7 +239,7 @@ rules:
       units."
     exemption_years: 10
     prevailing_wage_exemption_years: 20
-    lookback_years: 5
+    lookback_years: 5          # null = no look-back limit (the January draft exempted any unit still inside its exemption period)
     # Year built stands in for the certificate-of-occupancy year (no CO dates are public). A year inside the window is
     # "likely"; the boundary year is "can't tell"; older is not eligible.
     status_inside_window: likely_exempt
@@ -202,6 +249,7 @@ rules:
     note: "Year built is the assessor's figure, not the certificate-of-occupancy date."
 
   - id: tax_stabilization_or_commercial_units
+    label: "Big commercial or tax-deal building"
     test: tsa_or_commercial_with_units
     section: "Sec. 13-78(d), (m); Sec. 13-70(c)"
     status: cant_tell
@@ -213,20 +261,20 @@ rules:
     note_storefront: "If someone does live here, treat this as can't tell."
 
   - id: owner_occupied_small_building
+    label: "Owner lives in a small building"
     test: owner_occupied_small
     section: "Sec. 13-78(n), first paragraph"
     quote: '"This article shall not apply to rental units in a housing accommodation containing one to four (1-4) dwelling units where the owner occupies one unit as their principal residence." An accessory dwelling unit does not disqualify (13-78(n), last paragraph).'
     max_units: 4
     adu_allowance: 1        # a 5th unit is allowed only if it is an ADU — data can't tell, so 5 units → can't tell
     status: likely_exempt
-    status_single_unit_owner_home: not_residential_rental
-    reason: "{unitsText} · {builtText} · owner-occupied tax rate on file → likely exempt (owner-occupied 1–4 units)"
-    reason_single_unit_owner_home: "{classDesc} on the owner-occupied tax rate — the owner's own home, no rental unit on record (a rented room here would be exempt as owner-occupied)"
-    reason_units_missing: "{classDesc} on the owner-occupied tax rate, but the unit count is missing — exempt if it has 1–4 units"
-    reason_adu: "{unitsText} on the owner-occupied tax rate — exempt only if one of the units is an accessory dwelling unit (1–4 units + 1 ADU)"
+    reason: "{unitsText} · {builtText} · owner-occupied tax rate on file → likely exempt (owner-occupied {ooLimit})"
+    reason_units_missing: "{classDesc} on the owner-occupied tax rate, but the unit count is missing — exempt if it has {ooLimit}"
+    reason_adu: "{unitsText} on the owner-occupied tax rate — exempt only if one of the units is an accessory dwelling unit ({ooLimit} + 1 ADU)"
     note: "Owner-occupied status is the tax assessor's homestead classification as of 12/31/2024; the ordinance's test is principal residence (185+ days/yr)."
 
   - id: owner_may_live_here
+    label: "Owner may live there"
     test: owner_mailing_is_property
     section: "Sec. 13-78(n); Sec. 13-69 ('Principal Residence')"
     max_units: 4
@@ -235,6 +283,7 @@ rules:
     note: "Owner-occupied tax status is claimed by application; an owner who lives here but never applied, or bought after 12/31/2024, shows the non-owner rate."
 
   - id: one_additional_property
+    label: "Owner's one extra property"
     test: additional_property
     section: "Sec. 13-78(n), second paragraph, conditions 1–6"
     quote: >-
@@ -249,12 +298,13 @@ rules:
     excluded_owner_kinds: [entity]   # trusts were dropped from the list on 2026-04-01 — see OPEN_QUESTIONS.md
     # Name matching is low confidence and the exemption must be claimed with documents, so a match is never "likely exempt".
     status_if_match: cant_tell
-    reason_if_match: "owner appears to own exactly one other Providence home ({homeAddress}), on the owner-occupied rate → could be exempt as the one additional property if both deeds are in the same name(s)"
+    reason_if_match: "owner appears to own exactly one other Providence home, on the owner-occupied rate ({homeHow}) → could be exempt as the one additional property if both deeds are in the same name(s)"
     note: "Owner match is a simple normalized-name/mailing-address match — low confidence."
     note_ambiguous_name: "Several different owner-occupants share this owner's normalized name, so name matching is skipped; only the mailing address is used."
     note_too_many: "Owner's name matches {count} other Providence residential parcels (simple name match, low confidence) — more than the 2 properties the one-additional-property exemption allows."
 
   - id: covered_default
+    label: "Covered rental"
     test: residential_rental
     section: "Sec. 13-70(c)"
     status: likely_covered
@@ -262,7 +312,7 @@ rules:
     reason_units_missing: "{classDesc} with no unit count on record — the owner-occupied exemption depends on having 1–4 units"
     reason_year_missing: "{unitsText} · year built missing — can't rule out the new-construction exemption"
     why_apartment: "{classDesc} (more than 4 units, so the owner-occupied exemption can't apply)"
-    why_owner_occupied_large: "owner-occupied, but more than 4 units"
+    why_owner_occupied_large: "the owner lives here, but the owner-occupied exemption covers {ooLimit}"
     why_entity: "non-owner-occupied tax rate · owned by an entity ({owner})"
     note_entity_at_property: "The owning entity's mailing address is this property. Whether an LLC member living here counts as an owner-occupant is unresolved (OPEN_QUESTIONS.md)."
     why_default: "non-owner-occupied tax rate · owner mails tax bills elsewhere"

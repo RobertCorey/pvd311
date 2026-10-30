@@ -66,6 +66,7 @@ export function buildParcels(): Parcel[] {
       ownerOtherResidentialParcels: 0,
       ownerOtherResidential: [],
       ownerNameAmbiguous: false,
+      ownerPortfolioUnits: 0,
       homeParcelId: null,
       homeParcelAddress: null,
       homeParcelOwnerOccupied: null,
@@ -92,12 +93,16 @@ export function buildParcels(): Parcel[] {
   for (const list of byOwner.values()) {
     // A person has one principal residence: two owner-occupied parcels under one name means two people.
     const ambiguous = !list[0].ownerKey!.startsWith('entity:') && list.filter((q) => q.ownerOccupiedTaxRate).length >= 2;
+    const portfolio = list.reduce((a, q) => a + (q.units ?? (['1', '23'].includes(q.taxClass) ? 1 : 0)), 0);
     for (const p of list) {
       p.ownerNameAmbiguous = ambiguous;
+      p.ownerPortfolioUnits = portfolio;
       p.ownerOtherResidential = list.filter((q) => q !== p).map((q) => ({ id: q.id, address: q.address, ownerOccupied: q.ownerOccupiedTaxRate }));
       p.ownerOtherResidentialParcels = p.ownerOtherResidential.length;
     }
   }
+
+  for (const p of parcels) if (!p.ownerPortfolioUnits) p.ownerPortfolioUnits = p.units ?? (['1', '23'].includes(p.taxClass) ? 1 : 0);
 
   // The owner's likely home: a different Providence residential parcel at the owner's mailing address.
   const resByStreet = new Map<string, { p: Parcel; a: StreetAddress }[]>();
