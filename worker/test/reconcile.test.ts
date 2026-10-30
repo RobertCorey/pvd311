@@ -165,7 +165,7 @@ describe('reconcile: the grid is a window', () => {
 
   it('a COMPLETE-looking scan is a window too: the live 12-row grid no longer flags the older cases (2026-10-30)', async () => {
     // Live: 12 rows, complete: true, 17 cases tracked → the 6 older ones were "missing" every run and the sync light
-    // stayed red for 14 days. Now an older case counts only once the detail read's search could not find it either.
+    // stayed red for 14 days. Now an older case counts only once the detail read's search could not find it either, twice.
     const gridded = Array.from({ length: 12 }, (_, i) => `PVD2026-${90100 + i}`);
     const reports = [...gridded, 'PVD2026-90089', 'PVD2026-90092', 'PVD2026-90094', 'PVD2026-90095', 'PVD2026-90097'].map((caseId) => report({ id: caseId, status: 'submitted', portalCaseId: caseId }));
     const { store, events } = makeStore(reports);
@@ -175,9 +175,12 @@ describe('reconcile: the grid is a window', () => {
     expect(events.some((e) => e.kind === 'reconcile.missing')).toBe(false);
     expect(events.some((e) => e.kind === 'reconcile.partial_scan')).toBe(false); // a full-looking grid is normal, not a warning
 
-    (reports.find((r) => r.id === 'PVD2026-90092') as any).portalSearchMissAt = '2026-10-30T12:00:00Z';
+    const gone = reports.find((r) => r.id === 'PVD2026-90092')!;
+    gone.portalSearchMisses = 1;
+    expect((await runReconcile(store, makePortal([]), scan)).missing).toEqual([]); // one miss may be a slow search
+    gone.portalSearchMisses = 2;
     const s2 = await runReconcile(store, makePortal([]), scan);
-    expect(s2.missing).toEqual(['PVD2026-90092']); // searched by number and not found at any age → really gone
+    expect(s2.missing).toEqual(['PVD2026-90092']); // searched by number twice running, not found at any age → really gone
   });
 
   it('reuses a provided scan and never scrapes the grid again', async () => {

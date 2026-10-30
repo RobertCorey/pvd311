@@ -307,6 +307,19 @@ describe('portal simulator — happy path', () => {
     await portal.close();
   });
 
+  it('a slow search (slow-search, 5 s) still finds a case past the window: the driver waits for the row, not a fixed 3 s', async () => {
+    // A null here is reconcile's evidence the case is gone; the old fixed 3 s wait turned a slow answer into one.
+    sim.mutate('grid-window', { n: '2' });
+    sim.mutate('slow-search', { ms: '5000' });
+    const portal = createPortal(makeEnv(sim.url), { auth: memAuthStore() });
+    await portal.launch();
+    await portal.ensureLoggedIn();
+    const detail = await portal.readCaseDetail('PVD2026-00098');
+    expect(detail?.fields.title.value).toBe('PVD2026-00098 Report Street Light Issue');
+    expect(detail?.rowStatus).toBe('Assigned');
+    await portal.close();
+  });
+
   it('readCaseDetail reads every case in a run even when a detail modal will not close (sticky-detail-modal)', async () => {
     // 2026-10-16: each watcher run read its first case, then every later row click timed out at 30 s ("visible,
     // enabled and stable") — the first case's modal was still over the grid. Each read now starts on a fresh grid.

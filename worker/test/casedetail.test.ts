@@ -67,7 +67,7 @@ describe('pure helpers', () => {
     expect(pickWatchTargets([a, b, c], new Set(['c'])).map((r) => r.id)).toEqual(['a', 'c']);
     expect(pickDailyTargets([a, b, c, d], (s) => TERMINAL_PORTAL_STATUS.test(s)).map((r) => r.id)).toEqual(['a', 'd', 'b']);
   });
-  it('the watcher also reads off-grid open cases: ≤ OFF_GRID_PER_WATCH, least-recently-checked first, never a closed one', () => {
+  it('the watcher also reads off-grid cases: ≤ OFF_GRID_PER_WATCH, least-recently-checked first, a closed one only with a search miss', () => {
     // 2026-10-30: My Requests shows its newest 12 rows; cases past them only get a status through this read's search row.
     const seen = (id: string, at: string | null, over: Partial<ReportDoc> = {}) => makeReport({ id, portalDetail: buildDetail(raw1), portalDetailCheckedAt: at, ...over });
     const fresh = makeReport({ id: 'fresh' }); // never captured → read anyway (first sighting)
@@ -77,10 +77,10 @@ describe('pure helpers', () => {
     const closed = seen('closed', '2026-10-01T00:00:00Z', { portalStatus: 'Resolved' });
     const picked = pickWatchTargets([fresh, o1, o2, o3, closed], new Set(), [fresh, o1, o2, o3, closed]).map((r) => r.id);
     expect(OFF_GRID_PER_WATCH).toBe(2);
-    expect(picked).toEqual(['fresh', 'o3', 'o2']); // fresh is not counted twice; o1 waits for the next run; closed is never re-read
-    // A case that just dropped off the grid (never read off it) jumps the rotation: its first read is the silent one.
-    o3.portalOffGridAt = '2026-10-27T10:00:00Z'; o2.portalOffGridAt = '2026-10-28T10:00:00Z';
-    expect(pickWatchTargets([o1, o2, o3], new Set(), [o1, o2, o3]).map((r) => r.id)).toEqual(['o1', 'o3']);
+    expect(picked).toEqual(['fresh', 'o3', 'o2']); // fresh is not counted twice; o1 waits for the next run; closed is not re-read
+    // A closed case carrying a search miss (one slow search) is re-read, or reconcile would call it missing for good.
+    closed.portalSearchMisses = 1;
+    expect(pickWatchTargets([o1, o2, o3, closed], new Set(), [o1, o2, o3, closed]).map((r) => r.id)).toEqual(['closed', 'o3']);
   });
 });
 
@@ -124,26 +124,30 @@ describe('captureCaseDetails', () => {
     expect(events[0]).toMatchObject({ kind: 'watcher.detail_changed', level: 'info' });
     expect(r.portalRouting?.length).toBe(2);
   });
-  it('missing row → detail_unavailable + checkedAt; throw → detail_failed; both non-fatal; max respected', async () => {
+  it('missing row → detail_unavailable + a counted miss; throw → detail_failed, still checked; both non-fatal; max respected', async () => {
     const a = makeReport({ id: 'a', portalCaseId: 'PVD2026-1' });
     const b = makeReport({ id: 'b', portalCaseId: 'PVD2026-2' });
     const c = makeReport({ id: 'c', portalCaseId: 'PVD2026-3' });
     const { store, events } = makeStore([a, b, c]);
     const portal = portalWith(async (id) => { if (id === 'PVD2026-1') return null; throw new Error('modal timeout'); });
-    const sum = await captureCaseDetails(store, portal, [a, b, c], { ...opts, max: 2 });
+    const reason = (r: ReportDoc) => (r.id === 'a' ? 'off_grid' as const : 'status_change' as const);
+    const sum = await captureCaseDetails(store, portal, [a, b, c], { ...opts, max: 2, reason });
     expect(sum).toEqual({ checked: 2, changed: 0, unavailable: 1, failed: 1, statuses: {} });
     expect(a.portalDetailCheckedAt).toBeTruthy();
-    expect(a.portalSearchMissAt).toBe(a.portalDetailCheckedAt); // the search found no such case: reconcile's evidence it is gone
-    expect(b.portalSearchMissAt).toBeUndefined();                // a failed read proves nothing
-    expect(events.map((e) => e.kind)).toEqual(['watcher.detail_unavailable', 'watcher.detail_failed']);
+    expect(a.portalSearchMisses).toBe(1);                              // the search found no such case: one miss, not proof yet
+    expect(b.portalSearchMisses).toBeUndefined();                      // a failed read proves nothing…
+    expect(b.portalDetailCheckedAt).toBe('2026-09-30T20:00:00.000Z');  // …but counts as checked, so the rotation moves on
+    expect(events.map((e) => [e.kind, e.data.reason])).toEqual([['watcher.detail_unavailable', 'off_grid'], ['watcher.detail_failed', 'status_change']]);
     expect((portal.readCaseDetail as any).mock.calls.length).toBe(2);
+    await captureCaseDetails(store, portal, [a], opts);
+    expect(a.portalSearchMisses).toBe(2);                              // the second running: reconcile's evidence it is gone
   });
-  it('the row status each read opened comes back by report id; a read that finds the case clears an earlier search miss', async () => {
-    const r = makeReport({ portalDetail: buildDetail(raw1), portalRouting: deriveRouting(raw1.notes, 'FixMyPVD'), portalSearchMissAt: '2026-09-29T00:00:00Z' });
+  it('the row status each read opened comes back by report id; a read that finds the case clears earlier search misses', async () => {
+    const r = makeReport({ portalDetail: buildDetail(raw1), portalRouting: deriveRouting(raw1.notes, 'FixMyPVD'), portalSearchMisses: 1 });
     const { store } = makeStore([r]);
     const sum = await captureCaseDetails(store, portalWith(async () => ({ ...raw1, rowStatus: 'Resolved' })), [r], opts);
     expect(sum.statuses).toEqual({ r1: 'Resolved' });
     expect(r.portalDetail?.hash).toBe(buildDetail(raw1).hash); // the row status is not part of the snapshot
-    expect(store.patchReport).toHaveBeenCalledWith('r1', { portalDetailCheckedAt: '2026-09-30T20:00:00.000Z', portalSearchMissAt: null });
+    expect(store.patchReport).toHaveBeenCalledWith('r1', { portalDetailCheckedAt: '2026-09-30T20:00:00.000Z', portalSearchMisses: null });
   });
 });

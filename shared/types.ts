@@ -125,12 +125,13 @@ export interface Report {
   portalDetail?: PortalCaseDetail | null;
   /** ISO of the last detail read attempt (changed or not) */
   portalDetailCheckedAt?: string | null;
-  /** ISO of the watcher's first status read from the detail read's search row, for a case past My Requests' 12-row window
-   *  (engine.ts applyOffGridStatuses, 2026-10-30). That first catch-up is the backlog and is silent; later moves mail as usual. */
-  portalOffGridAt?: string | null;
-  /** ISO of the last detail read whose grid search found no such case; cleared by the next read that finds it. Reconcile
-   *  counts a case older than the grid's window as missing only while this is set. */
-  portalSearchMissAt?: string | null;
+  /** ISO the watcher first had this case's status in hand after 2026-10-30: a My Requests grid row, else the detail read's
+   *  search row for a case past the grid's 12-row window (engine.ts applyOffGridStatuses). Unset = it froze past the window
+   *  before then, so its first search-row catch-up is the backlog and is silent; every later move mails as usual. */
+  portalStatusLiveAt?: string | null;
+  /** Consecutive detail reads whose grid search found no such case; null once a read finds it. Reconcile counts a case
+   *  older than the grid's window as missing only at SEARCH_MISSES_TO_FLAG (casedetail.ts) — one slow search proves nothing. */
+  portalSearchMisses?: number | null;
   /** Departments the city dispatched this case to, derived from the timeline (PVD 311 → <dept> emails); oldest first */
   portalRouting?: PortalRouting[] | null;
   /** City emails about this case relayed to the reporter (relay.ts); newest last, capped at 20.

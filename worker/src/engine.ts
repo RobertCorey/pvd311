@@ -22,7 +22,7 @@ import { cityMailCovers, notifyReport, statusChangeEmail, statusChangePush, upda
 import { logPushes, pushOwner } from './push.js';
 import { markOk, markError, logEvent } from './health.js';
 import { fetchCityFeed } from './cityfeed.js';
-import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY } from './casedetail.js';
+import { captureCaseDetails, cityResolutionMessage, pickWatchTargets, pickDailyTargets, DETAIL_PER_WATCH, DETAIL_PER_DAY, SEARCH_MISSES_TO_FLAG } from './casedetail.js';
 import { syncCityAsks, ASK_SETTLE_MS } from './cityask.js';
 import { EMAIL_RETENTION_DAYS, syncFromResend } from './emaillog.js';
 import { CATEGORIES, isCategory } from '../../shared/categories.js';
@@ -342,10 +342,14 @@ export async function runWatcher(env: Env): Promise<void> {
           if (!row) { offGrid.push(report); continue; }
           const from = report.portalStatus ?? null;
           const to = row.status;
-          if (!to || to === from) continue;
+          if (!to) continue;
+          // Seen live in the grid: if it later drops past the window, its first search-row read is an ordinary move,
+          // not a backlog to catch up silently (applyOffGridStatuses). One write per report, ever.
+          const live = report.portalStatusLiveAt ? null : { portalStatusLiveAt: new Date().toISOString() };
+          if (to === from) { if (live) await store.patchReport(report.id, live); continue; }
 
           const seenAt = new Date();
-          await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: seenAt, portalStatusHistory: appendStatusHistory(report.portalStatusHistory, to, seenAt) });
+          await store.patchReport(report.id, { portalStatus: to, portalStatusUpdatedAt: seenAt, portalStatusHistory: appendStatusHistory(report.portalStatusHistory, to, seenAt), ...live });
           console.log(`[watcher] ${caseId}: ${from ?? '—'} → ${to}`);
           changes++;
           changedIds.add(report.id);
@@ -358,8 +362,12 @@ export async function runWatcher(env: Env): Promise<void> {
         const targets = pickWatchTargets(tracked, changedIds, offGrid);
         if (targets.length) {
           try {
-            const sum = await captureCaseDetails(store, portal, targets, { max: DETAIL_PER_WATCH, selfName: env.APP_NAME, reason: changedIds.size ? 'status_change' : 'first' });
-            const caught = await applyOffGridStatuses(store, targets.filter((t) => offGrid.includes(t)), sum.statuses);
+            const offGridIds = new Set(offGrid.map((r) => r.id));
+            const sum = await captureCaseDetails(store, portal, targets, {
+              max: DETAIL_PER_WATCH, selfName: env.APP_NAME,
+              reason: (r) => (changedIds.has(r.id) ? 'status_change' : offGridIds.has(r.id) ? 'off_grid' : 'first'),
+            });
+            const caught = await applyOffGridStatuses(store, targets.filter((t) => offGridIds.has(t.id)), sum.statuses);
             changes += caught.changed;
             statusMail.push(...caught.mail);
             // A city question can first show up as a portal note (relay missed the mail): pick it up now, not in 30 min.
@@ -416,8 +424,10 @@ export async function runWatcher(env: Env): Promise<void> {
  * cases froze — PVD2026-90092 still "Assigned" though the city resolved it 10-23). The detail read finds any case
  * through the grid's search box; `statuses` is the Status Reason of that search row — the CASE status, never the work
  * order's (casedetail.workOrderOf), never read from city emails. A move is patched like a grid move and logged as
- * `watcher.status` with data.via 'detail'. A report's first such read (portalOffGridAt unset) is its backlog, caught up
- * silently: no status mail, no push. Later moves are returned for notifyStatusChanges, like grid moves.
+ * `watcher.status` with data.via 'detail'. Only a case that froze past the window before this existed — never seen live
+ * since (portalStatusLiveAt unset: the grid diff sets it on any grid sighting) — has a backlog: its first read catches
+ * up silently, no status mail, no push. Every other move, including the first read of a case that just dropped off the
+ * grid, is returned for notifyStatusChanges like a grid move.
  */
 export async function applyOffGridStatuses(store: Store, reports: ReportDoc[], statuses: Record<string, string>, now = new Date()): Promise<{ changed: number; mail: { report: ReportDoc; caseId: string; to: string }[] }> {
   const mail: { report: ReportDoc; caseId: string; to: string }[] = [];
@@ -426,8 +436,8 @@ export async function applyOffGridStatuses(store: Store, reports: ReportDoc[], s
     const caseId = report.portalCaseId;
     const to = statuses[report.id];
     if (!caseId || !to) continue;
-    const backlog = !report.portalOffGridAt;
-    const marker = backlog ? { portalOffGridAt: now.toISOString() } : {};
+    const backlog = !report.portalStatusLiveAt;
+    const marker = backlog ? { portalStatusLiveAt: now.toISOString() } : {};
     const from = report.portalStatus ?? null;
     if (to === from) {
       if (backlog) await store.patchReport(report.id, marker);
@@ -516,7 +526,7 @@ const isDraftStatus = (s: string): boolean => /^draft$/i.test((s || '').trim());
  *                 (non-Draft) case in My Requests: bind the number, set 'submitted', record a `review`.
  *   (b) STRANDED — a Draft row > 24h old whose report is failed/rejected: list it (drafts are undeletable).
  *   (c) MISSING  — a 'submitted' case inside the grid's window that is not in it, or an older one the detail
- *                 read's search could not find either: flag it.
+ *                 read's search could not find either, twice running: flag it.
  *
  * Rows key on the PVD number, never a GUID (My Requests exposes none); the `ref:<report.id>` marker the
  * wizard stamps into every description is the guarantee a numbered row is ours, and each candidate report
@@ -607,13 +617,14 @@ export async function runReconcile(store: Store, portal: Portal, scan?: { rows: 
   // sync light red for 14 days (2026-10-30). So absence from the grid counts only for a case numbered after the
   // oldest numbered row (PVD numbers are given in order at draft creation, the order the grid lists; our filing time
   // is not comparable with its local-time Created On). An older case counts only when the detail read's search box,
-  // which finds any age, could not find it either (portalSearchMissAt, casedetail.ts).
+  // which finds any age, could not find it either — twice running (portalSearchMisses, casedetail.ts): one slow
+  // search is not proof.
   const horizon = Math.min(...rows.map((r) => caseSeq(r.caseId) ?? Infinity));
   let partialSkipped = 0;
   for (const report of await store.listSubmittedWithCaseId().catch(() => [] as ReportDoc[])) {
     const caseId = report.portalCaseId;
     if (!caseId || numbersPresent.has(caseId)) continue;
-    if (!((caseSeq(caseId) ?? -Infinity) > horizon) && !report.portalSearchMissAt) { partialSkipped++; continue; }
+    if (!((caseSeq(caseId) ?? -Infinity) > horizon) && (report.portalSearchMisses ?? 0) < SEARCH_MISSES_TO_FLAG) { partialSkipped++; continue; }
     missing.push(caseId);
     if (!prevMissing.has(caseId)) {
       newMissing++;

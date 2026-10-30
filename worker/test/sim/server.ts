@@ -25,7 +25,8 @@
  *   GET  /_sim/mutate?name=...&from=...&to=...      arm a drift/fault mutation (lookup-pager-stall: modal page 2+ never renders rows;
  *                                                  slow-postback&ms=N: Step-3 Submit is a real form POST answered after N ms;
  *                                                  sticky-detail-modal: a case-detail modal covers the grid and will not close;
- *                                                  grid-window&n=N: the grid renders only its newest N rows, the search box finds older ones)
+ *                                                  grid-window&n=N: the grid renders only its newest N rows, the search box finds older ones;
+ *                                                  slow-search&ms=N: the grid's search box answers Enter after N ms)
  *   GET  /_sim/state                               JSON snapshot (submitPosts, casesCreated, step1Posts, step2Posts, mutations, cases)
  *   GET  /_sim/note?id=&from=&to=&text=&at=         prepend a timeline note to a case's detail modal
  *   GET  /_portal/modal-form-template-path/*?id=    the case-detail modal body (iframe): read-only form + .notes timeline
@@ -481,9 +482,9 @@ function gridRowHtml(r: GridRow, offWindow = false): string {
   </div>`;
 }
 
-function myRequestsGridHtml(cases: GridRow[], opts: { stickyModal?: boolean; window?: number } = {}): string {
+function myRequestsGridHtml(cases: GridRow[], opts: { stickyModal?: boolean; window?: number; searchMs?: number } = {}): string {
   const rows = cases.map((c, i) => gridRowHtml(c, opts.window != null && i >= opts.window)).join('\n');
-  return page('My Requests', `${opts.stickyModal ? '<script>window.__SIM_STICKY_MODAL = true;</script>' : ''}
+  return page('My Requests', `${opts.stickyModal ? '<script>window.__SIM_STICKY_MODAL = true;</script>' : ''}${opts.searchMs ? `<script>window.__SIM_SEARCH_MS = ${Number(opts.searchMs)};</script>` : ''}
     <div class="username">test@pvdsnow.org</div>
     <h1>My Requests</h1>
     <div class="entitylist">
@@ -528,10 +529,14 @@ const GRID_MODAL_JS = `
   search.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter') return;
     var q = search.value.trim().toLowerCase();
-    off.forEach(function(r){ if (q && r.textContent.toLowerCase().indexOf(q) >= 0) grid.appendChild(r); else r.remove(); });
-    document.querySelectorAll('[role="grid"] [role="row"][data-id]').forEach(function(row){
-      row.style.display = (!q || row.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
-    });
+    var answer = function(){
+      off.forEach(function(r){ if (q && r.textContent.toLowerCase().indexOf(q) >= 0) grid.appendChild(r); else r.remove(); });
+      document.querySelectorAll('[role="grid"] [role="row"][data-id]').forEach(function(row){
+        row.style.display = (!q || row.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+      });
+    };
+    // slow-search fault: the answer comes after a server round trip, past the driver's old fixed 3 s wait.
+    if (window.__SIM_SEARCH_MS) setTimeout(answer, window.__SIM_SEARCH_MS); else answer();
   });
   document.querySelectorAll('button.sim-open').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -683,7 +688,8 @@ export async function startSim(): Promise<Sim> {
       // ── My Requests grid ──
       if (path === '/my-requests/' || path === '/my-requests') {
         const win = state.mutations.get('grid-window');
-        return send(res, 200, authed ? myRequestsGridHtml(state.cases, { stickyModal: state.mutations.has('sticky-detail-modal'), window: win ? Number(win.params.n) : undefined }) : myRequestsUnauthedHtml());
+        const slow = state.mutations.get('slow-search');
+        return send(res, 200, authed ? myRequestsGridHtml(state.cases, { stickyModal: state.mutations.has('sticky-detail-modal'), window: win ? Number(win.params.n) : undefined, searchMs: slow ? Number(slow.params.ms ?? 5_000) : undefined }) : myRequestsUnauthedHtml());
       }
 
       // ── Case-detail modal body (iframe): form fields + .notes timeline ──

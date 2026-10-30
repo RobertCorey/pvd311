@@ -744,7 +744,7 @@ class WorkerPortal implements Portal {
    * Finds the row via the grid's own search box (one request, any age — no paging), reads the row's Status
    * Reason, clicks the title button, dumps the iframe, closes the modal, clears the search. Touches nothing
    * else: the modal's Submit / Add comment / Upload are never clicked.
-   * Null means the search ran and found no such case — reconcile trusts it (portalSearchMissAt) — so a grid
+   * Null means the search ran and found no such case — reconcile trusts it once repeated (portalSearchMisses) — so a grid
    * that never rendered or a modal that never loaded throws instead (watcher.detail_failed).
    */
   async readCaseDetail(caseId: string): Promise<CaseDetailRaw | null> {
@@ -768,7 +768,9 @@ class WorkerPortal implements Portal {
     if (!(await rowBtn().isVisible().catch(() => false)) && hasSearch) {
       await search.fill(caseId);
       await search.press('Enter');
-      await page.waitForTimeout(3_000);
+      // Wait for the row itself, not a fixed 3 s: a null below is reconcile's evidence the case is gone, and the grid
+      // takes ~2-3 s to render, so a slow search must run out the wait before it counts as "no such case".
+      await rowBtn().waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
       filtered = true;
     }
     const clearSearch = async () => {

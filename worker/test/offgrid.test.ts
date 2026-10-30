@@ -37,6 +37,7 @@ const rep = (caseId: string, portalStatus: string): ReportDoc => ({
 } as ReportDoc);
 
 const GRID = ['PVD2026-90110', 'PVD2026-90111']; // the newest cases: still in the grid
+const gridRow = (caseId: string) => ({ caseId, entityId: null, status: 'Assigned', street: '25 Dorrance St', createdOn: '10/28/2026 9:00 AM' });
 let reports: ReportDoc[];
 let events: any[];
 let meta: Record<string, any>;
@@ -63,7 +64,7 @@ beforeEach(() => {
   h.portal = {
     launch: vi.fn(async () => {}), ensureLoggedIn: vi.fn(async () => {}), close: vi.fn(async () => {}),
     // Live shape: the window only, and the scan still says complete.
-    readMyRequestsPaged: vi.fn(async () => ({ rows: GRID.map((caseId) => ({ caseId, entityId: null, status: 'Assigned', street: '25 Dorrance St', createdOn: '10/28/2026 9:00 AM' })), complete: true })),
+    readMyRequestsPaged: vi.fn(async () => ({ rows: GRID.map(gridRow), complete: true })),
     readCaseDetail: vi.fn(async (caseId: string) => ({ ...raw, rowStatus: city[caseId] })),
   };
   h.mailer = { send: vi.fn(async () => 'm'), sendTo: vi.fn(async () => 'm'), alert: vi.fn(async () => {}) };
@@ -77,7 +78,8 @@ describe('cases past the 12-row grid', () => {
     await runWatcher(env);
 
     expect(h.portal.readCaseDetail.mock.calls.map((c: string[]) => c[0]).sort()).toEqual(['PVD2026-90089', 'PVD2026-90092']);
-    expect(report('PVD2026-90089')).toMatchObject({ portalStatus: 'In Progress', portalOffGridAt: expect.any(String) });
+    expect(report('PVD2026-90089')).toMatchObject({ portalStatus: 'In Progress', portalStatusLiveAt: expect.any(String) });
+    expect(report('PVD2026-90110').portalStatusLiveAt).toEqual(expect.any(String)); // seen in the grid: it has no backlog
     expect(report('PVD2026-90092').portalStatus).toBe('Resolved');
     expect(report('PVD2026-90092').portalStatusHistory?.map((x) => x.status)).toEqual(['Assigned', 'Resolved']);
     expect(statusEvents().map((e) => [e.data.caseId, e.data.from, e.data.to, e.data.via, e.data.silent])).toEqual([
@@ -108,7 +110,7 @@ describe('cases past the 12-row grid', () => {
   it('the same status on the first read only sets the marker, so the next real move is not swallowed', async () => {
     city['PVD2026-90089'] = 'Submitted';
     await runWatcher(env);
-    expect(report('PVD2026-90089')).toMatchObject({ portalStatus: 'Submitted', portalOffGridAt: expect.any(String) });
+    expect(report('PVD2026-90089')).toMatchObject({ portalStatus: 'Submitted', portalStatusLiveAt: expect.any(String) });
     expect(statusEvents().map((e) => e.data.caseId)).toEqual(['PVD2026-90092']);
 
     city['PVD2026-90089'] = 'Assigned';
@@ -129,15 +131,47 @@ describe('cases past the 12-row grid', () => {
     expect(body.sync.status).toBe('ok');
   });
 
-  it('one the search cannot find at any age is missing, and stops being missing once a read finds it', async () => {
+  it('one the search cannot find at any age twice running is missing (one slow search is not), until a read finds it', async () => {
     h.portal.readCaseDetail.mockImplementation(async (caseId: string) => (caseId === 'PVD2026-90089' ? null : { ...raw, rowStatus: city[caseId] }));
     await runWatcher(env);
-    expect(report('PVD2026-90089').portalSearchMissAt).toEqual(expect.any(String));
+    expect(report('PVD2026-90089').portalSearchMisses).toBe(1);
+    expect(meta.reconcile.missing).toEqual([]); // the light stays green on a single miss
+    await runWatcher(env);
+    expect(report('PVD2026-90089').portalSearchMisses).toBe(2);
     expect(meta.reconcile.missing).toEqual(['PVD2026-90089']);
 
     h.portal.readCaseDetail.mockImplementation(async (caseId: string) => ({ ...raw, rowStatus: city[caseId] }));
     await runWatcher(env);
-    expect(report('PVD2026-90089').portalSearchMissAt).toBeNull();
+    expect(report('PVD2026-90089').portalSearchMisses).toBeNull();
     expect(meta.reconcile.missing).toEqual([]);
+  });
+
+  it('a case seen in the grid that drops past the window has no backlog: its first search-row move mails', async () => {
+    await runWatcher(env); // PVD2026-90110 is in the grid: seen live
+    vi.clearAllMocks();
+    // A newer filing pushes 90110 out of the window, and the city closes it meanwhile.
+    h.portal.readMyRequestsPaged.mockImplementation(async () => ({ rows: [gridRow('PVD2026-90111')], complete: true }));
+    city['PVD2026-90110'] = 'Resolved';
+    await runWatcher(env);
+
+    expect(statusEvents().at(-1).data).toMatchObject({ caseId: 'PVD2026-90110', from: 'Assigned', to: 'Resolved', via: 'detail', silent: false });
+    expect(h.mailer.sendTo.mock.calls.map((c: unknown[]) => c[1])).toEqual(['The city closed your request (PVD2026-90110)']);
+    expect(pushOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it('off-grid reads that keep failing do not hold the rotation: a failed read counts as checked', async () => {
+    reports.push(rep('PVD2026-90094', 'Assigned'));
+    city['PVD2026-90094'] = 'Resolved';
+    h.portal.readCaseDetail.mockImplementation(async (caseId: string) => {
+      if (caseId !== 'PVD2026-90094') throw new Error(`${caseId}: the case-detail modal did not load`);
+      return { ...raw, rowStatus: city[caseId] };
+    });
+    await runWatcher(env); // 90089 + 90092 take both slots and fail
+    await runWatcher(env); // 90094 is least-recently-checked now
+
+    expect(report('PVD2026-90094').portalStatus).toBe('Resolved');
+    expect(events.filter((e) => e.kind === 'watcher.detail_failed').map((e) => [e.data.caseId, e.data.reason])).toEqual([
+      ['PVD2026-90089', 'off_grid'], ['PVD2026-90092', 'off_grid'], ['PVD2026-90089', 'off_grid'],
+    ]);
   });
 });

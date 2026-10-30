@@ -23,6 +23,9 @@ import { logEvent } from './health.js';
 export const DETAIL_PER_WATCH = 10;
 /** Open cases past the grid's window read per watcher run: 48 runs a day cover ~96 of them daily (6 on 2026-10-30). */
 export const OFF_GRID_PER_WATCH = 2;
+/** Consecutive search misses before reconcile calls a case past the grid's window missing: one slow search must not turn
+ *  /admin's System sync light red again (the false alarm the 2026-10-30 window fix removed). */
+export const SEARCH_MISSES_TO_FLAG = 2;
 export const DETAIL_PER_DAY = 30;
 export const DETAIL_NOTE_CAP = 40;
 export const DETAIL_TEXT_CAP = 6_000;
@@ -125,7 +128,9 @@ export function deriveRouting(notes: PortalCaseNote[], selfName: string): Portal
   return out;
 }
 
-export interface CaptureOptions { max: number; selfName: string; reason: 'first' | 'status_change' | 'daily'; now?: () => Date }
+export type CaptureReason = 'first' | 'status_change' | 'off_grid' | 'daily';
+/** `reason` lands in each read's events; per report when one run mixes them (the watcher: first / status_change / off_grid). */
+export interface CaptureOptions { max: number; selfName: string; reason: CaptureReason | ((r: ReportDoc) => CaptureReason); now?: () => Date }
 /** `statuses`: the Status Reason of the grid row each read opened, by report id (engine.ts applyOffGridStatuses). */
 export interface CaptureSummary { checked: number; changed: number; unavailable: number; failed: number; statuses: Record<string, string> }
 
@@ -138,6 +143,7 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
     if (!caseId) continue;
     sum.checked++;
     const at = now().toISOString();
+    const reason = typeof opts.reason === 'function' ? opts.reason(report) : opts.reason;
     let raw: CaseDetailRaw | null;
     try {
       raw = await portal.readCaseDetail(caseId);
@@ -145,18 +151,23 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
       sum.failed++;
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[detail] ${caseId} failed: ${msg}`);
-      await logEvent(store, { level: 'warn', kind: 'watcher.detail_failed', msg: `${caseId}: ${msg}`, reportId: report.id, data: { caseId, reason: opts.reason } });
+      // The attempt still counts: the off-grid rotation and the daily refresh go least-recently-checked first, so a case
+      // whose read keeps throwing would otherwise hold a slot every run and freeze the others again.
+      await store.patchReport(report.id, { portalDetailCheckedAt: at });
+      await logEvent(store, { level: 'warn', kind: 'watcher.detail_failed', msg: `${caseId}: ${msg}`, reportId: report.id, data: { caseId, reason } });
       continue;
     }
     if (!raw) {
-      // The search found no such case at any age: reconcile's evidence that a case past the grid's window is gone.
+      // The search found no such case at any age: reconcile's evidence that a case past the grid's window is gone,
+      // once it repeats (SEARCH_MISSES_TO_FLAG).
       sum.unavailable++;
-      await store.patchReport(report.id, { portalDetailCheckedAt: at, portalSearchMissAt: at });
-      await logEvent(store, { level: 'warn', kind: 'watcher.detail_unavailable', msg: `${caseId}: not found in My Requests`, reportId: report.id, data: { caseId, reason: opts.reason } });
+      const misses = (report.portalSearchMisses ?? 0) + 1;
+      await store.patchReport(report.id, { portalDetailCheckedAt: at, portalSearchMisses: misses });
+      await logEvent(store, { level: 'warn', kind: 'watcher.detail_unavailable', msg: `${caseId}: not found in My Requests`, reportId: report.id, data: { caseId, reason, misses } });
       continue;
     }
     if (raw.rowStatus) sum.statuses[report.id] = raw.rowStatus;
-    const found = report.portalSearchMissAt ? { portalSearchMissAt: null } : {};
+    const found = report.portalSearchMisses ? { portalSearchMisses: null } : {};
     const next = buildDetail(raw, now());
     const prev = report.portalDetail ?? null;
     if (prev && prev.hash === next.hash) {
@@ -180,7 +191,7 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
       kind: prev ? 'watcher.detail_changed' : 'watcher.detail_captured',
       msg: `${caseId}: ${what}${newDepts.length ? ` — routed to ${newDepts.join(', ')}` : ''}`,
       reportId: report.id,
-      data: { caseId, reason: opts.reason, newNotes: preview, changedFields, routing, newDepts, hash: next.hash },
+      data: { caseId, reason, newNotes: preview, changedFields, routing, newDepts, hash: next.hash },
     });
   }
   return sum;
@@ -188,16 +199,18 @@ export async function captureCaseDetails(store: Store, portal: Portal, reports: 
 
 /**
  * Which tracked reports the watcher should (re)read this run: status changed now, or never captured — then up to
- * OFF_GRID_PER_WATCH open cases from `offGrid` (tracked, not in this run's grid rows), least-recently-checked first.
- * My Requests shows only its newest 12 rows (2026-10-30: 6 of 17 cases froze there), so for those the read's search
- * row is the only status we get. Ones never read off the grid go first: their first read is caught up silently, so
- * a case that just dropped off should get it next run, not hours later.
+ * OFF_GRID_PER_WATCH cases from `offGrid` (tracked, not in this run's grid rows), least-recently-checked first (a read
+ * that failed counts as checked, so it cannot hold a slot). My Requests shows only its newest 12 rows (2026-10-30: 6 of
+ * 17 cases froze there), so for those the read's search row is the only status we get. Open cases, plus a closed one
+ * with a search miss on it: nothing else re-reads a closed case, so a miss from one slow search would keep it
+ * "missing" in reconcile for good.
  */
 export function pickWatchTargets(tracked: ReportDoc[], changedIds: Set<string>, offGrid: ReportDoc[] = []): ReportDoc[] {
   const picked = tracked.filter((r) => r.portalCaseId && (changedIds.has(r.id) || !r.portalDetail));
   const ids = new Set(picked.map((r) => r.id));
-  const rotation = pickDailyTargets(offGrid.filter((r) => !ids.has(r.id)), (s) => TERMINAL_PORTAL_STATUS.test(s))
-    .sort((a, b) => Number(!!a.portalOffGridAt) - Number(!!b.portalOffGridAt));
+  const rotation = offGrid
+    .filter((r) => r.portalCaseId && !ids.has(r.id) && (!TERMINAL_PORTAL_STATUS.test(r.portalStatus ?? '') || !!r.portalSearchMisses))
+    .sort((a, b) => (a.portalDetailCheckedAt ?? '').localeCompare(b.portalDetailCheckedAt ?? ''));
   return [...picked, ...rotation.slice(0, OFF_GRID_PER_WATCH)];
 }
 
