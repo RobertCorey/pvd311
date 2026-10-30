@@ -5,6 +5,7 @@
  *   review — every report needs a tap before it goes to the city (launch mode)
  *   ramp   — a new account's report waits for a tap only when it looks off (flagged, "Not sure", or nearly empty);
  *            after ACCOUNT_TRUST_N filed with a clean history it auto-approves; any rejection → every report reviewed
+ *            unless an admin marks the account `trusted`
  *   auto   — nothing waits for a human (goal state; unanswered city questions are left blank)
  *
  * Approvals arrive as signed HTTP GETs to /hitl/approve|reject (see index.ts) — no polling.

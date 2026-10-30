@@ -245,10 +245,10 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       const [submitted, rejected, pending] = await Promise.all([
         store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0), store.countOwnerByStatus(u.uid, 'awaiting_review').catch(() => 0),
       ]);
-      // Since 2026-10-30 a new clean account auto-files too (only a report that looks off waits, hitl.ts); a rejection is the brake.
+      const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
       return { uid: u.uid, email: u.email, displayName: u.displayName ?? null, provider: u.provider, emailVerified: !!u.emailVerified, createdAt: u.createdAt, lastSeenAt: u.lastSeenAt ?? null,
         trusted: !!u.trusted, emailUpdates: u.prefs?.emailUpdates !== false, following: (u.following ?? []).length, addresses: (u.addresses ?? []).length,
-        submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || rejected === 0 };
+        submitted, rejected, awaitingReview: pending, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) };
     }));
     return json({ items, next: users.length >= limit ? users[users.length - 1].createdAt : null });
   }
@@ -314,8 +314,9 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
       u.email ? store.findEmails({ addr: u.email, limit: 300 }).catch(() => [] as EmailRecord[]) : Promise.resolve([] as EmailRecord[]),
       store.countOwnerByStatus(u.uid, 'submitted').catch(() => 0), store.countOwnerByStatus(u.uid, 'rejected').catch(() => 0),
     ]);
+    const n = Number(env.ACCOUNT_TRUST_N ?? '3') || 3;
     return json({
-      user: { ...userRow(u), submitted, rejected, autoFiles: !!u.trusted || rejected === 0 }, // same rule as /api/admin/users
+      user: { ...userRow(u), submitted, rejected, autoFiles: !!u.trusted || (submitted >= n && rejected === 0) },
       reports: reports.map(adminProjection), emails: emails.map(emailSummary),
     });
   }
@@ -351,8 +352,8 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
   if (m === 'GET' && path === '/api/admin/config') {
     const row = (key: string, value: unknown, what: string) => ({ key, value, what });
     return json({ items: [
-      row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = a new account\'s report comes to you only if it looks off ("Not sure", or under 10 characters with no photo), an account with any rejection always does, the rest auto-file unless flagged; auto = nothing to you (flags still force review).'),
-      row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before even a report that looks off auto-files.'),
+      row('HITL_MODE', env.HITL_MODE, 'review = every report to you; ramp = a new account\'s report comes to you only if it looks off ("Not sure", or under 10 characters with no photo), an account with any rejection sends you every report unless you mark it trusted, the rest auto-file unless flagged; auto = nothing to you (flags still force review).'),
+      row('ACCOUNT_TRUST_N', env.ACCOUNT_TRUST_N ?? '3', 'Reports an account must get filed (with 0 human/auto rejections) before its "Not sure" / near-empty reports auto-file too (flags always hold).'),
       row('RECONCILE_ENABLED', env.RECONCILE_ENABLED ?? '0', 'Watcher compares the whole My Requests list to our DB every 30 min (adopt / stranded / missing).'),
       row('DRIFT_CANARY_ENABLED', env.DRIFT_CANARY_ENABLED ?? '0', 'Nightly Step-3 control diff on the designated canary draft; alerts when the city changes the form.'),
       row('ADMIN_EMAILS', env.ADMIN_EMAILS ?? '', 'Google accounts allowed into /admin.'),

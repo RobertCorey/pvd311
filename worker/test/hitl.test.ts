@@ -80,6 +80,12 @@ describe('needsHumanApproval — ramp, new account', () => {
     expect(moderate).not.toHaveBeenCalled();
   });
 
+  it('with ACCOUNT_TRUST_N=3 an account with one filed report is still new: "Not sure" waits, a clean report files', async () => {
+    const env3 = { HITL_MODE: 'ramp', ACCOUNT_TRUST_N: '3' } as unknown as Env;
+    expect(await needsHumanApproval(memStore([owned('submitted')]).store, env3, report({ category: 'unsure' }))).toBe(true);
+    expect(await needsHumanApproval(memStore([owned('submitted')]).store, env3, report())).toBe(false);
+  });
+
   it('a report with no owner, or an account lookup that fails, is reviewed', async () => {
     expect(await needsHumanApproval(memStore().store, env(), report({ ownerUid: null }))).toBe(true);
     expect(await needsHumanApproval(memStore([], null, { lookupFails: true }).store, env(), report())).toBe(true);
