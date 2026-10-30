@@ -9,7 +9,10 @@
     "citywide": "node scripts/citywide.ts",
     "rebuild": "node scripts/fetch.ts && node scripts/build-db.ts && node scripts/citywide.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "serve": "node scripts/serve.ts",
+    "spot-checks": "node scripts/spot-checks.ts",
+    "profile": "node scripts/profile.ts"
   },
   "dependencies": {
     "yaml": "^2.8.1"
