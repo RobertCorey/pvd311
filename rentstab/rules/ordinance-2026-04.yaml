@@ -1,0 +1,277 @@
+# Providence Rent Stabilization Act — coverage + exemption rules, final text as passed by the City Council
+# (second passage April 16, 2026; the brief's "April 17" is the date of the mayor's veto, same text).
+# NOT LAW: Mayor Smiley vetoed it 2026-04-17; the override failed and the veto was sustained 2026-05-15.
+# This file models what a near-identical 2027 ordinance would cover. Every rule cites the section it comes from;
+# anything the text leaves open is in OPEN_QUESTIONS.md.
+#
+# The classifier (src/classify.ts) implements a fixed vocabulary of tests (`test:` below). Thresholds, tax-class and
+# levy-code mappings, owner-name patterns, statuses, and the order rules run in all live here, so a revised ordinance is
+# a YAML edit, not a code change.
+
+id: providence-rso-2026-04
+title: The Providence Rent Stabilization Act (Ch. 13, new article, Secs. 13-69 – 13-93)
+source:
+  version: >-
+    File ORD-2026-11 (legislation record 52231), "AN ORDINANCE AMENDING CHAPTER 13 'HOUSING' … THE PROVIDENCE RENT
+    STABILIZATION ACT". Official printout generated 2026-04-14 for the April 16 agenda; matches the signed copy stamped
+    "FINAL READING READ AND PASSED APR 16 2026" and "VETO … Brett P. Smiley … 4/17/2026". Sec. 13-78 is word-for-word
+    identical to the council website's April 1, 2026 "Updated" PDF.
+  urls:
+    legislation_record: https://providenceri.iqm2.com/Citizens/Detail_LegiFile.aspx?ID=52231
+    final_text_printout: https://providenceri.iqm2.com/Citizens/FileOpen.aspx?Type=30&ID=65714
+    signed_copy_with_veto: https://providenceri.iqm2.com/Citizens/FileOpen.aspx?Type=4&ID=113662
+    veto_record: https://providenceri.iqm2.com/Citizens/Detail_LegiFile.aspx?ID=53260
+    council_pdf_040126: https://council.providenceri.gov/wp-content/uploads/2026/04/Rent-Stabilization-Ordinance-Updated-040126.pdf
+    january_draft: https://council.providenceri.gov/wp-content/uploads/2026/01/Rent-Stabilization-Ordinance.pdf
+  history:
+    - "2026-01-22 introduced. Jan draft: owner-occupied 1–3 units; additional property ≤3 units; trusts excluded; new construction 15 yrs from first occupancy, retroactive; voucher units exempt"
+    - "2026-03-12 sponsor amendments: 1–4 units; additional property ≤4 units; new construction 10 yrs from certificate of occupancy + 5-year look-back; 20-yr labor-standards path"
+    - "2026-03-26 HOPE committee 'APPROVED, AS AMENDED' (last amendment): College Student Residential Overlay carve-out; ADU sentence; 'trust' dropped from the entity list"
+    - "2026-04-02 passed first reading 9–6; 2026-04-16 passed second reading 9–6, no amendment"
+    - "2026-04-17 vetoed; 2026-05-15 override failed (9 of 10 needed) — veto sustained"
+  rent_cap: "flat 4% of current lawful rent per 12 months (Sec. 13-69 'Standard Increase'; Sec. 13-71(b)); vacancy control (Sec. 13-72(a))"
+
+# The ordinance takes effect "upon passage" (Section 2). The 5-year new-construction look-back is measured from the
+# effective date, so classification depends on when a re-enacted ordinance would pass. Assumption, not text:
+assumed_effective_date: 2027-04-15  # ~100 days after a January 2027 inauguration (the leading candidate's 100-day pledge)
+
+statuses: [likely_covered, likely_exempt, cant_tell, not_residential_rental]
+
+coverage:
+  section: "Sec. 13-70(c); Sec. 13-69 ('Covered Unit', 'Rental Unit', 'Dwelling Unit')"
+  quote: >-
+    "This article applies to all rental dwelling units in the City except as expressly exempted in Sec. 13-78. Coverage
+    shall be construed broadly … All dwelling units not expressly exempt under Sec. 13-78 shall be considered covered
+    units." Rental Unit includes "apartments, rooms, or single-family homes". Covered Unit applies "whether or not the
+    unit is lawfully registered or licensed". Exemptions "shall be construed narrowly" (Sec. 13-78, preamble).
+  # Consequence for the classifier: a residential rental is covered unless the data shows an exemption.
+
+# ---------------------------------------------------------------------------------------------------------------------
+# How public data maps onto the ordinance's concepts. Codes are the FY2026 tax roll's CLASS and LEVY_CODE_1/2.
+data:
+  owner_occupied_levy_codes: [OO01, OO2-5]        # owner-occupied (homestead) tax rate — ~half the non-owner rate
+  non_owner_occupied_levy_codes: [NO01, NOO2-5]
+  small_residential_classes:                       # buildings that can be 1–4 units
+    '1': single family
+    '2': 2–5 family
+    '23': residential condo (one parcel per unit)
+    '04-05U': mixed use, ≤5 residential units (owner-occupancy is on LEVY_CODE_2)
+  apartment_classes:                               # 6+ units: never eligible for the owner-occupied exemption
+    '03-610': apartments 6–10 units
+    '03-11+': apartments 11+ units
+    '04-610': mixed use 6–10 units
+    '04-11+': mixed use 11+ units
+  levy_code_2_classes: ['04-05U']                  # mixed use: owner-occupancy is on LEVY_CODE_2
+  condo_class: '23'
+  single_family_class: '1'
+  affordable_classes:
+    '12': "Miscellaneous — every parcel is levy 8LAW (R.I.G.L. § 44-5-13.11 low-income housing assessment)"
+  tax_stabilization_classes:
+    '83': "44-3-9 tax stabilization agreement (TSA) — new development, rehab/conversion, or hotel"
+  commercial_classes:                              # 'units' here can be apartments over stores, hotel rooms, or offices
+    '5': commercial I
+    '6': commercial II
+    '24': commercial condo
+    '7': industrial
+  institution_classes:                             # tax-exempt owners; residence there may be institutional (Sec. 13-78(a))
+    '79': {name: school / university, status: cant_tell}
+    '75': {name: hospital, status: likely_exempt}
+    '71': {name: charitable, status: cant_tell}
+    '72': {name: church, status: cant_tell}
+    '73': {name: exempt by charter, status: cant_tell}
+  government_classes: ['78', '80', '74', '82']     # municipal, state, federal, vote of city
+  not_residential_classes:                         # no dwelling units by definition
+    '13': residential vacant land
+    '14': commercial/industrial vacant land
+    '10': utility
+    '70': cemetery
+    '76': library
+    '84': Amtrak / railroad
+    '33': farm / forest
+  # Owner-name patterns (case-insensitive regex). Heuristics — every match is noted as such in the result.
+  hotel_owner_pattern: '\bhotel\b|\binns?\b|hospitality|lodging|\bmotel\b|marriott|hilton|hyatt|\bomni\b|\baloft\b|hampton|courtyard|residence inn|\bgraduate\b'
+  cooperative_owner_pattern: 'cooperative|co-op\b|housing corp'
+  housing_authority_owner_pattern: 'housing authority|dept of housing'
+  # Affordable-housing signals attached by build-db (see DATA_REPORT.md §5).
+  affordable_signals_strong: [8law, lihtc, hud_assisted, public_housing, housing_authority_owner, pha_site]
+  affordable_signals_partial: [lihtc_partial, hud_assisted_partial]  # some units unrestricted
+  affordable_signals_weak: [lihtc_nearby, hud_assisted_nearby, public_housing_nearby, pha_site_nearby, lihtc_partial_nearby, hud_assisted_partial_nearby]
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Rules, evaluated in this order; the first rule that returns a verdict wins. Rules that cannot be evaluated from public
+# data are listed under `not_evaluable` so they still surface as confidence notes.
+rules:
+  - id: no_dwelling_units
+    test: not_residential_class
+    section: "Sec. 13-69 ('Dwelling Unit', 'Rental Unit')"
+    status: not_residential_rental
+    reason: "{classDesc} parcel — no dwelling units on record"
+    note_vacant: "If a building has gone up here since the 2024 assessment, its units are likely new construction (exempt for 10 years)."
+
+  - id: transient_lodging
+    test: hotel_owner
+    section: "Sec. 13-78(d)"
+    quote: '"Occupancy in a hotel, motel, or other lodging subject to state sales and use tax or lodgings tax"'
+    status: not_residential_rental
+    reason: "owner name looks like a hotel ({owner}) → transient lodging, exempt"
+    note: "Hotel detected from the owner's name only; the roll has no hotel class."
+
+  - id: public_and_subsidized_housing
+    test: affordable_strong
+    section: "Sec. 13-78(i) deed-restricted affordable; Sec. 13-78(j) public housing / project-based subsidy"
+    quote: >-
+      (i) "low or moderate income housing as defined in R.I. Gen. Laws § 45-53-3 … (1) receives assistance … (2) …
+      incomes do not exceed 80% of area median income; and (3) is subject to a recorded deed restriction or regulatory
+      agreement limiting rents". (j) "a public housing development operated by a housing authority … or … project-based
+      rental assistance … Project-Based Section 8, HUD-assisted multifamily housing … Dwelling units occupied by holders
+      of tenant-based rental assistance vouchers … shall not be exempt".
+    status: likely_exempt
+    reason: "regulated affordable housing on record ({signals}) → exempt"
+    note: "Exemption is per unit: a market-rate unit inside a subsidized building is still covered. Housing Choice Voucher tenants in private housing are covered."
+    signal_labels:
+      8law: "8% low-income housing tax assessment (R.I.G.L. § 44-5-13.11)"
+      lihtc: "HUD LIHTC project"
+      hud_assisted: "HUD project-based assisted multifamily"
+      public_housing: "HUD public housing building"
+      housing_authority_owner: "owned by a housing authority"
+      pha_site: "Providence Housing Authority site"
+
+  - id: affordable_partial_or_nearby
+    test: affordable_weak
+    section: "Sec. 13-78(i), (j)"
+    status: cant_tell
+    reason: "possible regulated affordable housing ({signals}) — some or all units may be exempt"
+
+  - id: cooperative
+    test: cooperative_owner
+    section: "Sec. 13-78(f)"
+    quote: '"Occupancy by a holder of a proprietary lease in a cooperative"'
+    status: cant_tell
+    reason: "owner name suggests a housing cooperative ({owner}) — proprietary-lease holders are exempt, other tenants are not"
+
+  - id: institution
+    test: institution_class
+    section: "Sec. 13-78(a)"
+    quote: '"Residence in an institution, public or private, if incidental to detention or the provision of medical, geriatric, educational, counseling, religious, or similar service"'
+    # status comes from data.institution_classes[class].status
+    reason: "{classDesc} property with {unitsText} — exempt if residence is incidental to the institution's service (e.g. a dormitory), covered if leased like an ordinary apartment"
+
+  - id: government_owned
+    test: government_class
+    section: "Sec. 13-78(a), (j)"
+    status: cant_tell
+    reason: "government-owned ({classDesc}) with {unitsText} — may be public housing or institutional"
+
+  - id: new_construction
+    test: new_construction
+    section: "Sec. 13-78(m); Sec. 13-69 ('New Construction')"
+    quote: >-
+      "Newly constructed dwelling units, including dwelling units created through lawful conversion or adaptive reuse of
+      a nonresidential structure, shall be exempt … for a period of ten (10) years from the date of issuance of a
+      certificate of occupancy … twenty (20) year exemption if … all workers were paid [prevailing] wages … and at least
+      10% of the total hours … by registered apprentices … This exemption shall apply to units for which a certificate of
+      occupancy is issued on or after the effective date …, and to units for which a certificate of occupancy was issued
+      not more than five (5) years prior to the effective date." Not in a College Student Residential Overlay District.
+      New construction "does not include additions to existing residential buildings or subdivision of existing dwelling
+      units."
+    exemption_years: 10
+    prevailing_wage_exemption_years: 20
+    lookback_years: 5
+    # Year built stands in for the certificate-of-occupancy year (no CO dates are public). A year inside the window is
+    # "likely"; the boundary year is "can't tell"; older is not eligible.
+    status_inside_window: likely_exempt
+    status_boundary_year: cant_tell
+    reason_inside: "{unitsText} · built {yearBuilt}, inside the 5-year look-back before a {effectiveYear} effective date → new-construction exemption (10 years from its certificate of occupancy)"
+    reason_boundary: "{unitsText} · built {yearBuilt}, the edge of the 5-year look-back — exempt only if its certificate of occupancy came on/after {lookbackDate}"
+    note: "Year built is the assessor's figure, not the certificate-of-occupancy date."
+
+  - id: tax_stabilization_or_commercial_units
+    test: tsa_or_commercial_with_units
+    section: "Sec. 13-78(d), (m); Sec. 13-70(c)"
+    status: cant_tell
+    reason: "{classDesc} with {unitsText} recorded — could be apartments (covered), a hotel or senior living (exempt), or a recent conversion (exempt as new construction)"
+    # Small commercial parcels whose 'units' have no bedrooms and no bathrooms on record are storefronts/offices.
+    max_units_storefront: 4
+    status_storefront: not_residential_rental
+    reason_storefront: "{classDesc} with {unitsText} but no bedrooms or bathrooms on record — commercial space, not dwellings"
+    note_storefront: "If someone does live here, treat this as can't tell."
+
+  - id: owner_occupied_small_building
+    test: owner_occupied_small
+    section: "Sec. 13-78(n), first paragraph"
+    quote: '"This article shall not apply to rental units in a housing accommodation containing one to four (1-4) dwelling units where the owner occupies one unit as their principal residence." An accessory dwelling unit does not disqualify (13-78(n), last paragraph).'
+    max_units: 4
+    adu_allowance: 1        # a 5th unit is allowed only if it is an ADU — data can't tell, so 5 units → can't tell
+    status: likely_exempt
+    status_single_unit_owner_home: not_residential_rental
+    reason: "{unitsText} · {builtText} · owner-occupied tax rate on file → likely exempt (owner-occupied 1–4 units)"
+    reason_single_unit_owner_home: "{classDesc} on the owner-occupied tax rate — the owner's own home, no rental unit on record (a rented room here would be exempt as owner-occupied)"
+    reason_units_missing: "{classDesc} on the owner-occupied tax rate, but the unit count is missing — exempt if it has 1–4 units"
+    reason_adu: "{unitsText} on the owner-occupied tax rate — exempt only if one of the units is an accessory dwelling unit (1–4 units + 1 ADU)"
+    note: "Owner-occupied status is the tax assessor's homestead classification as of 12/31/2024; the ordinance's test is principal residence (185+ days/yr)."
+
+  - id: owner_may_live_here
+    test: owner_mailing_is_property
+    section: "Sec. 13-78(n); Sec. 13-69 ('Principal Residence')"
+    max_units: 4
+    status: cant_tell
+    reason: "{unitsText}, not on the owner-occupied tax rate, but the owner's tax bill goes to this address — exempt if the owner actually lives here"
+    note: "Owner-occupied tax status is claimed by application; an owner who lives here but never applied, or bought after 12/31/2024, shows the non-owner rate."
+
+  - id: one_additional_property
+    test: additional_property
+    section: "Sec. 13-78(n), second paragraph, conditions 1–6"
+    quote: >-
+      "one (1) additional residential property may be exempt … if all of the following conditions are met: 1. … held in
+      the same name(s) as the owner-occupied property on the recorded deed. 2. The owner-occupied property is the owner's
+      principal residence. 3. … no more than one additional property, and that property contains no more than four (4)
+      dwelling units. 4. The owner or owners own no more than two (2) residential properties in total within the City of
+      Providence … 5. The property is not owned by a corporation, limited liability company, partnership, or other legal
+      entity. 6. The property owner submits documentation sufficient to demonstrate eligibility".
+    max_units: 4
+    max_total_properties: 2
+    excluded_owner_kinds: [entity]   # trusts were dropped from the list on 2026-04-01 — see OPEN_QUESTIONS.md
+    # Name matching is low confidence and the exemption must be claimed with documents, so a match is never "likely exempt".
+    status_if_match: cant_tell
+    reason_if_match: "owner appears to own exactly one other Providence home ({homeAddress}), on the owner-occupied rate → could be exempt as the one additional property if both deeds are in the same name(s)"
+    note: "Owner match is a simple normalized-name/mailing-address match — low confidence."
+    note_too_many: "Owner's name matches {count} other Providence residential parcels (simple name match, low confidence) — more than the 2 properties the one-additional-property exemption allows."
+
+  - id: covered_default
+    test: residential_rental
+    section: "Sec. 13-70(c)"
+    status: likely_covered
+    reason: "{unitsText} · {builtText} · {why} → likely covered"
+    reason_units_missing: "{classDesc} with no unit count on record — the owner-occupied exemption depends on having 1–4 units"
+    reason_year_missing: "{unitsText} · year built missing — can't rule out the new-construction exemption"
+    why_apartment: "{classDesc} (more than 4 units, so the owner-occupied exemption can't apply)"
+    why_owner_occupied_large: "owner-occupied, but more than 4 units"
+    why_entity: "non-owner-occupied tax rate · owned by an entity ({owner})"
+    why_default: "non-owner-occupied tax rate · owner mails tax bills elsewhere"
+    note_single_unit: "Covered only if actually rented out; a home left vacant or used by the owner's family is not a rental unit."
+    note_old_apartments: "If these apartments were created by converting a non-residential building (e.g. a mill) within 5 years before the effective date, they would be exempt as new construction; the assessor's year built is the original structure."
+
+# Caveats about the data itself, attached to results they apply to.
+data_notes:
+  units_assumed_one: "Unit count missing; assumed 1 for a single-family / condo parcel."
+  sold_after_roll: "Sold {saleDate}, after the tax roll's 12/31/2024 assessment date — the owner-occupancy status may describe the previous owner."
+  roll_assessment_date: '2024-12-31'
+  no_cama: "No assessor building record matched this parcel; unit count and year built are unknown."
+  assessor_units: "Unit count and year built are the assessor's records (legal units as of 2024); unpermitted units are not counted."
+  rarer_exemptions: "Rarer exemptions (employee, transitional, diplomatic or fraternal housing; an owner's temporary absence; sale-to-occupant) can't be checked from public data."
+  unknown_class: "unrecognized tax class {taxClass} ({classDesc})"
+
+not_evaluable:
+  - {section: "Sec. 13-78(b)", name: sale-to-occupant, note: "occupant buying the unit under a contract of sale"}
+  - {section: "Sec. 13-78(c)", name: fraternal or social organization housing, note: "members living in a portion operated for the organization"}
+  - {section: "Sec. 13-78(e)", name: employee housing, note: "paid employee housed as a condition of employment in a building with more than 11 units"}
+  - {section: "Sec. 13-78(g)", name: commercial lettings (R.I.G.L. § 34-18.1)}
+  - {section: "Sec. 13-78(h)", name: transitional housing, note: "nonprofit transitional housing with income and service requirements"}
+  - {section: "Sec. 13-78(k)", name: temporary owner absence, note: "owner of a ≤4-unit (+1 ADU) building renting their own home during a limited absence"}
+  - {section: "Sec. 13-78(l)", name: diplomatic residence}
+  - {section: "Sec. 13-78(m)", name: "College Student Residential Overlay District carve-out", note: "no such district appears in the city's public zoning layers"}
+  - {section: "Sec. 13-78(m)", name: "20-year prevailing-wage exemption", note: "payroll/apprenticeship records are not public"}
+
+disclaimer: >-
+  Based on the Providence Rent Stabilization Act as passed by the City Council on April 17, 2026. It was vetoed and is
+  not law. This is an informational estimate from public tax and assessor records, not legal advice.

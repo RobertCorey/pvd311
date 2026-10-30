@@ -32,6 +32,8 @@ export interface Parcel {
   useCode: string | null; // MuniUseCode
   useDesc: string | null;
   numBuildings: number | null;
+  bedrooms: number | null; // CAMA NumBedRooms (unreliable on big buildings, but 0 beds + 0 baths = no dwelling space)
+  bathrooms: number | null; // CAMA NumBathrooms (on apartment buildings this tracks the unit count)
   lastSaleDate: string | null; // ISO date
 
   // Derived
@@ -39,7 +41,13 @@ export interface Parcel {
   condoBuildingUnits: number | null;
   /** How many other residential parcels the same normalized owner name holds (low confidence). */
   ownerOtherResidentialParcels: number;
-  ownerOtherResidentialIds: string[];
+  ownerOtherResidential: { id: string; address: string; ownerOccupied: boolean | null }[];
+  /** The parcel at the owner's mailing address when that is a different Providence residential parcel (the owner's likely home). */
+  homeParcelId: string | null;
+  homeParcelAddress: string | null;
+  homeParcelOwnerOccupied: boolean | null;
+  /** Home parcel's owner normalizes to the same name as this parcel's owner. */
+  homeParcelSameOwner: boolean | null;
   /** Regulated-affordable signals: '8LAW' levy, HUD LIHTC / assisted multifamily / public housing, PHA site, housing-authority owner. */
   affordableSignals: string[];
 }

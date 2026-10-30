@@ -58,10 +58,16 @@ export function buildParcels(): Parcel[] {
       useCode: c?.MuniUseCode ?? null,
       useDesc: c?.MuniUseCodeDesc ?? null,
       numBuildings: num(c?.NumBldgs),
+      bedrooms: num(c?.NumBedRooms),
+      bathrooms: num(c?.NumBathrooms),
       lastSaleDate: sale ? new Date(sale).toISOString().slice(0, 10) : null,
       condoBuildingUnits: null,
       ownerOtherResidentialParcels: 0,
-      ownerOtherResidentialIds: [],
+      ownerOtherResidential: [],
+      homeParcelId: null,
+      homeParcelAddress: null,
+      homeParcelOwnerOccupied: null,
+      homeParcelSameOwner: null,
       affordableSignals: levy === '8LAW' ? ['8law'] : [],
     } satisfies Parcel;
   });
@@ -80,9 +86,29 @@ export function buildParcels(): Parcel[] {
   }
   for (const list of byOwner.values()) {
     for (const p of list) {
-      p.ownerOtherResidentialIds = list.filter((q) => q !== p).map((q) => q.id);
-      p.ownerOtherResidentialParcels = p.ownerOtherResidentialIds.length;
+      p.ownerOtherResidential = list.filter((q) => q !== p).map((q) => ({ id: q.id, address: q.address, ownerOccupied: q.ownerOccupiedTaxRate }));
+      p.ownerOtherResidentialParcels = p.ownerOtherResidential.length;
     }
+  }
+
+  // The owner's likely home: a different Providence residential parcel at the owner's mailing address.
+  const resByStreet = new Map<string, { p: Parcel; a: StreetAddress }[]>();
+  for (const p of parcels) {
+    const a = parseAddress(p.address);
+    if (a && RESIDENTIAL_CLASSES.has(p.taxClass)) (resByStreet.get(a.street) ?? resByStreet.set(a.street, []).get(a.street)!).push({ p, a });
+  }
+  for (const p of parcels) {
+    if (!RESIDENTIAL_CLASSES.has(p.taxClass) || p.mailingIsProperty || !/providence/i.test(p.mailingCity ?? '')) continue;
+    const m = parseAddress(p.mailingStreet);
+    if (!m) continue;
+    const hits = (resByStreet.get(m.street) ?? []).filter((x) => x.p !== p && sameAddress(x.a, m));
+    // Prefer an owner-occupied match (condo buildings share a street address across many unit parcels).
+    const home = hits.find((x) => x.p.ownerOccupiedTaxRate && x.p.ownerKey === p.ownerKey) ?? hits.find((x) => x.p.ownerOccupiedTaxRate) ?? hits[0];
+    if (!home) continue;
+    p.homeParcelId = home.p.id;
+    p.homeParcelAddress = home.p.address;
+    p.homeParcelOwnerOccupied = home.p.ownerOccupiedTaxRate;
+    p.homeParcelSameOwner = !!p.ownerKey && p.ownerKey === home.p.ownerKey;
   }
 
   // Housing-authority owners.
@@ -111,8 +137,15 @@ export function buildParcels(): Parcel[] {
   };
   const matchStats: Record<string, Record<string, number>> = {};
   const count = (src: string, how: string) => ((matchStats[src] ??= {})[how] = (matchStats[src][how] ?? 0) + 1);
-  for (const r of raw('hud_lihtc')) count('hud_lihtc', tag('lihtc', r.STD_ADDR?.trim() || r.PROJ_ADD, r.LAT, r.LON));
-  for (const r of raw('hud_multifamily')) count('hud_multifamily', tag('hud_assisted', r.STD_ADDR?.trim() || r.ADDRESS_LINE1_TEXT, r.LAT, r.LON));
+  // Projects where only some units are income-restricted get a *_partial signal (the rest of the building is covered).
+  for (const r of raw('hud_lihtc')) {
+    const partial = num(r.LI_UNITS) != null && num(r.N_UNITS) != null && num(r.LI_UNITS)! < num(r.N_UNITS)!;
+    count('hud_lihtc', tag(partial ? 'lihtc_partial' : 'lihtc', r.STD_ADDR?.trim() || r.PROJ_ADD, r.LAT, r.LON));
+  }
+  for (const r of raw('hud_multifamily')) {
+    const partial = num(r.TOTAL_ASSISTED_UNIT_COUNT) != null && num(r.TOTAL_UNIT_COUNT) != null && num(r.TOTAL_ASSISTED_UNIT_COUNT)! < num(r.TOTAL_UNIT_COUNT)!;
+    count('hud_multifamily', tag(partial ? 'hud_assisted_partial' : 'hud_assisted', r.STD_ADDR?.trim() || r.ADDRESS_LINE1_TEXT, r.LAT, r.LON));
+  }
   for (const r of raw('hud_public_housing')) count('hud_public_housing', tag('public_housing', r.STD_ADDR?.trim(), r.LAT, r.LON));
   for (const r of raw('pha')) count('pha', tag('pha_site', r.Street_Name, r._geometry?.y ?? null, r._geometry?.x ?? null));
   console.log('affordable-list matches:', JSON.stringify(matchStats));
