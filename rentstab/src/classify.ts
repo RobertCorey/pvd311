@@ -104,7 +104,9 @@ const TESTS: Record<string, Test> = {
     const { eff, lookback } = effectiveDates(c.rules);
     const vars = { ...c.vars, effectiveYear: String(eff.getUTCFullYear()), lookbackDate: lookback.toISOString().slice(0, 10) };
     const note = `${r.note} If built to prevailing-wage + apprenticeship standards the exemption runs 20 years instead of 10. Does not apply inside a College Student Residential Overlay District.`;
-    if (yb > lookback.getUTCFullYear()) return { status: r.status_inside_window as Status, reason: fill(r.reason_inside as string, vars), note };
+    // A look-back starting on Jan 1 takes in its whole first year; otherwise that year is the uncertain boundary.
+    const firstFullYear = lookback.getUTCMonth() === 0 && lookback.getUTCDate() === 1 ? lookback.getUTCFullYear() : lookback.getUTCFullYear() + 1;
+    if (yb >= firstFullYear) return { status: r.status_inside_window as Status, reason: fill(r.reason_inside as string, vars), note };
     if (yb === lookback.getUTCFullYear()) return { status: r.status_boundary_year as Status, reason: fill(r.reason_boundary as string, vars), note };
     return null;
   },
