@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
 import { handleApi, paceIdentity, notFiledReason } from '../src/api';
+import { UI_EVENTS } from '../src/ui';
 import { isAdmin } from '../src/adminapi';
 import type { Store, ReportDoc } from '../src/contracts';
 
@@ -148,6 +150,7 @@ describe('first-party usage events (POST /api/ui)', () => {
     for (const [body, o] of [
       [{ e: 'evil', v: 'v' }, {}], [{ e: 'page_view' }, {}], [{ e: 'page_view', v: 'v' }, { ua: 'Googlebot/2.1' }],
       [{ e: 'page_view', v: 'v' }, { origin: 'https://evil.example' }], [{ e: 'page_view', v: 'v' }, { origin: '' }], ['not json', {}], ['x'.repeat(3000), {}],
+      [{ e: 'page_view', v: 'v' }, { ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/131.0.0.0 Safari/537.36' }], // our own automation
     ] as const) {
       const { p, writeDataPoint } = ui(body, o);
       expect((await p)!.status).toBe(204);
@@ -156,5 +159,19 @@ describe('first-party usage events (POST /api/ui)', () => {
   });
   it('is a no-op without the binding (tests/dev)', async () => {
     expect((await ui({ e: 'page_view', v: 'v' }, { dataset: false }).p)!.status).toBe(204);
+  });
+  it('knows every event name the app sends — 25 track() names were silently dropped until 2026-10-30', () => {
+    const src = new URL('../../app/src/', import.meta.url);
+    const sent = new Set<string>();
+    for (const f of readdirSync(src, { recursive: true, encoding: 'utf8' })) {
+      if (!/\.tsx?$/.test(f) || f.endsWith('lib/analytics.ts')) continue; // defines track(); its page_view is in UI_EVENTS
+      for (const [, arg] of readFileSync(new URL(f, src), 'utf8').matchAll(/\btrack\(([^,)]*)/g)) {
+        const names = [...arg.matchAll(/'([^']*)'|"([^"]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+        expect(names.length, `${f}: track(${arg.trim()}…) — keep the name a literal (or a ternary of literals) so this scan sees it`).toBeGreaterThan(0);
+        names.forEach((n) => sent.add(n));
+      }
+    }
+    expect(sent.size).toBeGreaterThan(20); // the scan really read the app
+    expect([...sent].filter((n) => !(UI_EVENTS as readonly string[]).includes(n))).toEqual([]);
   });
 });

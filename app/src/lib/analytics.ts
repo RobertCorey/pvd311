@@ -2,7 +2,10 @@
 //  1. Firebase Analytics (GA4 stream G-KKLML5QH3L on pvd-snow-report) via plain gtag.js — no Firebase SDK.
 //  2. First-party POST /api/ui on our own API host (Worker → Analytics Engine; /admin Usage tab). Content
 //     blockers stub gtag.js but can't block the API the app needs, so this one counts everyone.
-// Production hosts only, so dev servers and Playwright never send hits. Page URLs are redacted before they
+// Production hosts only, so dev servers and local Playwright never send hits — and never from an automated browser
+// (navigator.webdriver: Playwright, Puppeteer, chrome-devtools), because by 2026-10-30 our own agent/deploy-check sessions
+// on the live site were ~16% of page views and 56 of 69 /street views. The Worker also drops HeadlessChrome user agents
+// (worker/src/ui.ts) for automation that hides webdriver. Page URLs are redacted before they
 // leave: tracking links (/r/<token>) are secrets and email sign-in links carry a one-time oobCode, so we send
 // the route pattern and keep only utm_* params (launch-channel attribution).
 import { apiFetch } from '../api/client';
@@ -49,7 +52,7 @@ function redact(loc: Location): { page_location: string; page_path: string } {
 }
 
 export function initAnalytics(): void {
-  if (gtag || !PROD_HOSTS.test(location.hostname)) return;
+  if (gtag || !PROD_HOSTS.test(location.hostname) || navigator.webdriver) return;
   firstParty = true;
   const w = window as unknown as { dataLayer: unknown[]; gtag: Gtag };
   w.dataLayer = w.dataLayer || [];

@@ -5,12 +5,28 @@
  *   GET  /api/admin/usage   → usage() via the Analytics Engine SQL API (adminapi.ts routes it)
  * Data point: index1 = visitor id (random, localStorage) · blob1 event · blob2 path (already redacted client-side) ·
  * blob3 category · blob4 meta · blob5 country · blob6 device · blob7 utm_source · blob8 referrer host · blob9 session id · blob10 lang.
+ * Dropped (still 204): names not in UI_EVENTS, no visitor id, foreign Origin, junk, and BOT user agents. BOT's `headless`
+ * covers HeadlessChrome (Playwright/Puppeteer's default headless shell) — belt and braces behind the app skipping both
+ * sinks when navigator.webdriver is set (lib/analytics.ts): by 2026-10-30 our own agent/deploy-check sessions on the live
+ * site were ~16% of page views and 56 of 69 /street views.
  */
 import type { Env } from './contracts.js';
 
 const DATASET = 'fixmypvd_ui';
-/** Funnel order first (page → category → photo → gate → link → login → sent), then side events. */
-export const UI_EVENTS = ['page_view', 'select_category', 'photo_added', 'sign_in_gate_shown', 'sign_in_link_sent', 'login', 'report_submitted', 'report_error', 'share'] as const;
+/**
+ * Every name the app sends (track() + trackPageView); recordUi drops anything else. Until 2026-10-30 only the first 9 were
+ * here, so the 25 newer-feature names reached GA only and we couldn't tell if anyone used them — api.test.ts now scans
+ * app/src for track('…') and fails on a name missing here. Funnel order first (page → category → photo → gate → link →
+ * login → sent), then side events, then per-feature events (counts only; the Usage tab picks its funnel steps by name).
+ */
+export const UI_EVENTS = [
+  'page_view', 'select_category', 'photo_added', 'sign_in_gate_shown', 'sign_in_link_sent', 'login', 'report_submitted', 'report_error', 'share',
+  // /street map (Street.tsx, MapKey, StreetDigestCard — street_digest_* also from AccountUpdates) + home's week strip (HomeWeekStrip)
+  'street_view', 'street_pin', 'street_filter', 'street_sheet', 'street_case', 'street_share', 'street_follow', 'street_key', 'street_places_view',
+  'street_install_shown', 'street_install_tap', 'street_install_later', 'street_digest_on', 'street_digest_off', 'home_week_map', 'home_week_week',
+  // /week + its Monday digest (Week.tsx), phone notifications (PushCard), the tracking page's nearby-cases line (TrackNear)
+  'week_view', 'week_share', 'week_post', 'week_digest_on', 'week_digest_off', 'push_on', 'push_off', 'track_near_view', 'track_near_map',
+] as const;
 const BOT = /bot|crawl|spider|slurp|headless|lighthouse|preview|facebookexternalhit|embedly|monitor/i;
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -84,7 +100,7 @@ export async function usage(env: Env, days: number): Promise<Usage> {
   return {
     configured: true, days,
     totals: { visitors: num(totals[0]?.visitors), sessions: num(totals[0]?.sessions), pageViews: num(totals[0]?.pageViews) },
-    funnel: UI_EVENTS.map((e) => ({ event: e, visitors: num(ev.get(e)?.visitors), count: num(ev.get(e)?.count) })), // UI_EVENTS is in funnel order
+    funnel: UI_EVENTS.map((e) => ({ event: e, visitors: num(ev.get(e)?.visitors), count: num(ev.get(e)?.count) })), // every known event, funnel order first; AdminUsage reads its steps by name
     daily: daily.map((r) => ({ day: String(r.day).slice(0, 10), visitors: num(r.visitors), reports: num(r.reports) })),
     pages: pages.map((r) => ({ path: String(r.path) || '(none)', views: num(r.views) })),
     sources: sources.map((r) => ({ source: String(r.source), visitors: num(r.visitors) })),
