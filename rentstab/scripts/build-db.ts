@@ -407,6 +407,30 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     table('flood_zone', ['parcelId', 'zone'], [...zone]);
   }
 
+  // Sales history from the assessor's 2013 and 2019 extracts (APRA 20-209): up to six sales per parcel each, de-duplicated.
+  // Price 0 marks a non-arm's-length transfer; `qualified` is the assessor's Q/U. Lots only (the extracts carry no condo unit).
+  {
+    const seen = new Set<string>(), rows: unknown[][] = [];
+    for (const file of ['sales_history_2019', 'sales_history_2013']) for (const r of rawIf(file)) {
+      const id = `${String(r.Map).trim().padStart(3, '0')}-${String(r.Lot).trim().padStart(4, '0')}-0000`;
+      for (let i = 1; i <= 6; i++) {
+        const date = excelDate(r[`SALE DATE ${i}`] ?? ''), price = num(r[`SALE PRICE ${i}`]);
+        if (!date || (date === '2012-07-07' && !price)) continue; // 14,813 unpriced records share 2012-07-07: a conversion placeholder
+        const key = `${id}|${date}|${price}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push([date, price, r[`SALE CODE ${i}`] || null, r[`QUALIFIED ${i}`] || null, r[`IMPROVED ${i}`] || null, `${r['STREET NUM']} ${r['STREET NAME']}`.trim(), ids.has(id) ? id : null]);
+      }
+    }
+    table('sales_history', ['sale_date', 'price', 'sale_code', 'qualified', 'improved', 'address', 'parcelId'], rows);
+  }
+  // Code cases with lead-hazard violations, active and released (APRA 22-1323, 2022).
+  // The house number sits in the "Number" column; "Address" is the street.
+  table('lead_violations_2022', ['status', 'house_number', 'address', 'complaint_date', 'complaint_reason', 'inspection_date', 'nov1_issued', 'violations', 'lead_added', 'released', 'parcelId'],
+    [...rawIf('lead_violations_2022'), ...rawIf('lead_violations_2022_released')].map((r) => [r.Status, r.Number, `${r.Number ?? ''} ${r.Address ?? ''}`.trim(), excelDate(r['Complaint Date'] ?? ''),
+      r['Complaint Reason'] || null, excelDate(r['Inspection Date'] ?? ''), excelDate(r['1st NOV Issue Date'] ?? ''), num(r['# Violations (1st)']), r['Lead Added'] || null,
+      excelDate(r['1st NOV Release Date'] ?? ''), match(`${r.Number ?? ''} ${r.Address ?? ''}`)]));
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
@@ -415,7 +439,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
       lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires,
       COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing,
-      COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date, fz.zone AS flood_zone
+      COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date, fz.zone AS flood_zone,
+      COALESCE(lv.n, 0) AS lead_violations_2022, sh.last_date AS last_arms_length_sale, sh.n AS arms_length_sales_since_2000
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -431,7 +456,9 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_history GROUP BY parcelId) ch ON ch.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_service_lines GROUP BY parcelId) ls ON ls.parcelId = p.id
     LEFT JOIN (SELECT parcelId, MAX(price) price, MAX(sale_date) sale_date FROM sales_2024 GROUP BY parcelId) sa ON sa.parcelId = p.id
-    LEFT JOIN flood_zone fz ON fz.parcelId = p.id`);
+    LEFT JOIN flood_zone fz ON fz.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_violations_2022 GROUP BY parcelId) lv ON lv.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, MAX(sale_date) last_date, COUNT(*) n FROM sales_history WHERE price > 1000 AND sale_date >= '2000-01-01' GROUP BY parcelId) sh ON sh.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

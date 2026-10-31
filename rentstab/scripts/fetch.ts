@@ -181,6 +181,17 @@ export const SOURCES: Source[] = [
   // evictions tracker (court data: filings, hearings, judgments, money awards; cases per renter by ZIP).
   { name: 'rihousing_rent_survey', kind: 'tableau', workbook: 'RentSurveyDashboard', views: ['RentSurveyDashboard'] },
   { name: 'rihousing_evictions', kind: 'tableau', workbook: 'EvictionsTrackingDashboard', views: ['EvictionsDashboardpage1', 'EvictionsDashboardpage2'] },
+  // Assessor (Vision) extracts released for city APRA 20-209: every parcel's last six sales (date, price, sale code, qualified,
+  // improved). 2013 and 2019 together reach back to the 1990s. Owner, grantee and mailing columns are not kept.
+  { name: 'sales_history_2019', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'VISION ID', stream: { column: 'Map' },
+    url: 'https://providenceri.nextrequest.com/documents/4804481/download', keep: ['Map', 'Lot', 'Unit', 'STREET NUM', 'STREET NAME', 'SALE DATE 1', 'SALE PRICE 1', 'SALE CODE 1', 'QUALIFIED 1', 'IMPROVED 1', 'SALE DATE 2', 'SALE PRICE 2', 'SALE CODE 2', 'QUALIFIED 2', 'IMPROVED 2', 'SALE DATE 3', 'SALE PRICE 3', 'SALE CODE 3', 'QUALIFIED 3', 'IMPROVED 3', 'SALE DATE 4', 'SALE PRICE 4', 'SALE CODE 4', 'QUALIFIED 4', 'IMPROVED 4', 'SALE DATE 5', 'SALE PRICE 5', 'SALE CODE 5', 'QUALIFIED 5', 'IMPROVED 5', 'SALE DATE 6', 'SALE PRICE 6', 'SALE CODE 6', 'QUALIFIED 6', 'IMPROVED 6', 'STYLE', 'ACTUAL YEAR BUILT'] },
+  { name: 'sales_history_2013', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'VISION ID', stream: { column: 'Map' },
+    url: 'https://providenceri.nextrequest.com/documents/4804482/download', keep: ['Map', 'Lot', 'Unit', 'STREET NUM', 'STREET NAME', 'SALE DATE 1', 'SALE PRICE 1', 'SALE CODE 1', 'QUALIFIED 1', 'IMPROVED 1', 'SALE DATE 2', 'SALE PRICE 2', 'SALE CODE 2', 'QUALIFIED 2', 'IMPROVED 2', 'SALE DATE 3', 'SALE PRICE 3', 'SALE CODE 3', 'QUALIFIED 3', 'IMPROVED 3', 'SALE DATE 4', 'SALE PRICE 4', 'SALE CODE 4', 'QUALIFIED 4', 'IMPROVED 4', 'SALE DATE 5', 'SALE PRICE 5', 'SALE CODE 5', 'QUALIFIED 5', 'IMPROVED 5', 'SALE DATE 6', 'SALE PRICE 6', 'SALE CODE 6', 'QUALIFIED 6', 'IMPROVED 6', 'STYLE', 'ACTUAL YEAR BUILT'] },
+  // Code cases with lead-hazard violations (LHMA 42-128.1-8), active and released, APRA 22-1323 (2022). Owner not kept.
+  { name: 'lead_violations_2022', kind: 'records', format: 'xlsx', browserUA: true, sheets: 1, url: 'https://providenceri.nextrequest.com/documents/16739719/download',
+    keep: ['Status', 'Number', 'Address', 'Complaint Date', 'Complaint Reason', 'Inspection Date', '1st NOV Issue Date', '# Violations (1st)', 'Lead Added', '2nd NOV Issue Date'] },
+  { name: 'lead_violations_2022_released', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/16739720/download',
+    keep: ['Status', 'Number', 'Address', 'Complaint Date', 'Complaint Reason', 'Inspection Date', '1st NOV Issue Date', '# Violations (1st)', 'Lead Added', '2nd NOV Issue Date', '1st NOV Release Date'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -291,7 +302,7 @@ async function main() {
         if (s.stream) {
           const { column, startsWith, inSource } = s.stream;
           const allowed = inSource ? new Set(JSON.parse(readFileSync(join(RAW, `${inSource.name}.json`), 'utf8')).map((r: any) => String(r[inSource.column]).trim())) : null;
-          const keepRow = (v: string) => (startsWith == null || v.startsWith(startsWith)) && (!allowed || allowed.has(v.trim()));
+          const keepRow = (v: string) => (startsWith == null || v.startsWith(startsWith)) && (!allowed || allowed.has(v.trim())); // no filter → every row
           let head: string[] | null = null, at = -1;
           streamXlsxRows(buf, (r) => {
             if (!head) { if (r.some((c) => c.trim() === (s.headerHint ?? s.keep[0]))) { head = r.map((c) => c.trim()); at = head.indexOf(column); } return; }
