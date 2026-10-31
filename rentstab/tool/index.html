@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Inter:wght@400;500;600&display=swap">
 <style>
 /*MAPLIBRE_CSS*/
-/* Layout: the city fills the screen; one side panel carries the numbers, the search, and whatever you picked.
+/* Layout: the city fills the screen; a narrow side panel carries the legend (the report panel is off for now, 2026-10-31).
    Palette: FixMyPVD "Ember & Harbor" — harbor ink on paper; ember is a home the cap would reach. Light only, like FixMyPVD. */
 :root {
   --paper: #F7F1E6;
@@ -43,7 +43,7 @@ p { margin: 0; }
 .num { font-variant-numeric: tabular-nums; }
 .eyebrow { font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
-.app { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: 100%; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: 100%; }
 .mapwrap { position: relative; min-width: 0; }
 #map { position: absolute; inset: 0; background: var(--land); }
 .panel { background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; padding-block: 18px 28px; padding-left: 20px; padding-right: max(20px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; align-content: start; }
@@ -102,8 +102,11 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--river); out
 .sortbar button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 footer { font-size: 11.5px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
 
-.maplegend { position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); bottom: 12px; background: color-mix(in srgb, var(--surface) 94%, transparent); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font-size: 12px; display: grid; gap: 4px; pointer-events: none; }
-.maplegend .row { display: flex; gap: 6px; align-items: center; }
+.legend { display: grid; gap: 14px; font-size: 13.5px; }
+.legend .row { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.legend .row .sw { width: 11px; height: 11px; }
+.legend .what { display: grid; gap: 1px; }
+.legend .help { font-size: 12.5px; color: var(--muted); }
 .maplibregl-ctrl-group { border-radius: 8px !important; box-shadow: none !important; border: 1px solid var(--line); }
 .maplibregl-canvas:focus { outline: none; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; background: var(--land); z-index: 5; }
@@ -113,20 +116,10 @@ footer { font-size: 11.5px; color: var(--muted); display: grid; gap: 6px; border
   <div class="mapwrap">
     <div id="map" role="img" aria-label="Map of Providence with one dot per home, colored by whether the April 2026 rent cap would cover it"></div>
     <div class="loading" id="loading">Loading 77,000 homes…</div>
-    <div class="maplegend desk" id="maplegend"></div>
   </div>
-  <aside class="panel" id="panel" aria-label="Details">
-    <header style="display:grid;gap:6px">
-      <span class="eyebrow">Providence · April 2026 rent stabilization (vetoed)</span>
-      <h1>Who the 4% rent cap would likely have covered</h1>
-    </header>
-    <div class="searchbox">
-      <label for="q" class="eyebrow">Find an address</label>
-      <input id="q" type="search" placeholder="e.g. 135 Brook St" autocomplete="off" role="combobox" aria-controls="sugg" aria-expanded="false">
-      <ul id="sugg" role="listbox"></ul>
-    </div>
-    <div id="body"></div>
-    <footer id="footer"></footer>
+  <aside class="panel" id="panel" aria-label="Legend">
+    <div class="legend" id="legend"></div>
+    <p class="note">Based on Providence’s April 2026 rent stabilization ordinance, which was vetoed. It is not law.</p>
   </aside>
 </div>
 

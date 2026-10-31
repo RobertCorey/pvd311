@@ -38,6 +38,7 @@ const HELP: Record<Cat, string> = {
   unclear: 'big or unusual buildings, owners’ second properties',
 };
 const OWNER_MAY_LIVE = 'owner_may_live_here';
+const REPORT_PANEL = false; // headline, search, neighborhoods and parcel cards; off for now
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : '–');
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
@@ -313,11 +314,12 @@ function initMap(basemap: any) {
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.on('load', () => $('loading').remove());
-  map.on('mouseenter', 'homes', () => (map.getCanvas().style.cursor = 'pointer'));
+  if (REPORT_PANEL) map.on('mouseenter', 'homes', () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', 'homes', () => (map.getCanvas().style.cursor = ''));
-  map.on('mouseenter', 'bldg', () => (map.getCanvas().style.cursor = 'pointer'));
+  if (REPORT_PANEL) map.on('mouseenter', 'bldg', () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', 'bldg', () => (map.getCanvas().style.cursor = ''));
   map.on('click', (e: any) => {
+    if (!REPORT_PANEL) return; // nothing to show a selection in while the report panel is off
     if (map.getZoom() >= 15.2) {
       const b = map.queryRenderedFeatures(e.point, { layers: ['bldg'] })[0];
       if (b) return pickBuilding(b.properties.b);
@@ -436,17 +438,17 @@ async function boot() {
   const size = new Map<number, number>();
   bldg.buildings.forEach(([lots, q], i) => { for (const lot of lots) if (q.length > (size.get(lot) ?? 0)) { size.set(lot, q.length); buildingOf.set(lot, i); } });
   initMap(basemap);
-  wireSearch();
-  renderCity();
-  $('maplegend').innerHTML = `<b style="font-weight:600">Each dot is one home</b>
-    ${(['controlled', 'market', 'subsidized', 'owned', 'unclear'] as Cat[]).map((k) => `<div class="row"><span class="sw ${k}"></span>${LABEL[k]}</div>`).join('')}
-    <div class="row"><span class="sw owned light"></span><span class="sw market light"></span>Lighter: probably (the owner seems to live there)</div>
-    <div class="row"><span class="sw sq nohomes"></span>Lot with no homes (offices, shops, campuses, vacant)</div>
-    <span class="muted">Zoom in to see buildings, colored by their result. Click one for details.</span>`;
-  $('footer').innerHTML = `<p>${esc(rules.disclaimer)}</p>
+  // The report panel (headline, search, neighborhoods, parcel cards, sources) is off for now (Rob, 2026-10-31): the side panel
+  // holds only the legend. renderCity / renderParcel / wireSearch stay in this file for when it returns.
+  $('legend').innerHTML = `<b style="font-weight:600">Each dot is one home</b>
+    ${(['controlled', 'market', 'subsidized', 'owned', 'unclear'] as Cat[]).map((k) => `<div class="row"><span class="sw ${k}"></span><span class="what">${LABEL[k]}<span class="help">${HELP[k]}</span></span></div>`).join('')}
+    <div class="row"><span class="sw owned light"></span><span class="what">Lighter dot<span class="help">probably: the owner gets the tax bill at the building but isn’t on the owner-occupied tax rate</span></span></div>
+    <div class="row"><span class="sw sq nohomes"></span><span class="what">Lot with no homes<span class="help">offices, shops, campuses, vacant land</span></span></div>
+    <span class="help">Zoom in to see buildings, colored by their homes.</span>`;
+  if (REPORT_PANEL) { wireSearch(); renderCity(); $('footer').innerHTML = `<p>${esc(rules.disclaimer)}</p>
     <p>Homes are the assessor’s legal units, placed at each parcel. Owner-occupancy comes from the city’s owner-occupied tax rate (as of 12/31/2024). The Census counts ${fmt(data.acs.housingUnits)} housing units and ${fmt(data.acs.renterOccupied)} renter households (${esc(data.acs.label)}), and about 29,600 owner-occupied homes, more than the tax rate shows, which is why owners who get their tax bill at the building are counted as probably living there.</p>
     <p>Not modeled: who actually lives in a home, unpermitted units, voucher holders (covered under the April text), short-term rentals, employee or transitional housing, an owner’s temporary absence, and the 20-year exemption for buildings built to prevailing-wage standards.</p>
-    <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Sep 2026, HUD LIHTC / assisted / public housing / Section 8 contract lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`;
+    <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Sep 2026, HUD LIHTC / assisted / public housing / Section 8 contract lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`; }
 }
 
 boot().catch((err) => {
