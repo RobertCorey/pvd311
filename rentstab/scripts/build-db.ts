@@ -427,6 +427,35 @@ function main() {
   // Released datasets (rental registry, short-term rentals, housing court, tax sale), each joined to a parcel.
   writeSignals(db, parcels);
 
+  // Owner-occupied tax rate per parcel per roll year, FY2016 and FY2020–FY2026 (assessment dates a year earlier).
+  db.exec('CREATE TABLE owner_occupancy_history (parcelId, roll_year, owner_occupied, PRIMARY KEY (parcelId, roll_year))');
+  {
+    const ins = db.prepare('INSERT OR REPLACE INTO owner_occupancy_history VALUES (?,?,?)');
+    const ids = new Set(parcels.map((p) => p.id));
+    db.exec('BEGIN');
+    for (const p of parcels) if (p.ownerOccupiedTaxRate != null) ins.run(p.id, 2026, p.ownerOccupiedTaxRate ? 1 : 0);
+    for (const [year, file, idCol, levyCol] of [[2025, 'taxroll2025', 'tax_map', 'levy_code_1'], [2024, 'taxroll2024', 'tax_map', 'levy_code_1'], [2023, 'taxroll2023', 'tax_map', 'levy_code_1'],
+      [2022, 'taxroll2022', 'tax_map', 'levy_code_1'], [2021, 'taxroll2021', 'tax_map', 'levy_code_1'], [2020, 'taxroll2020', 'tax_map', 'levy_code_1'], [2016, 'taxroll2016', 'plat_lot_unit', 'levy_code']] as const) {
+      for (const r of rawIf(file)) {
+        const id = String(r[idCol] ?? '').trim();
+        const levy = String(r[levyCol] ?? '');
+        if (!ids.has(id) || !/^(OO|NO)/.test(levy)) continue;
+        ins.run(id, year, /^OO/.test(levy) ? 1 : 0);
+      }
+    }
+    db.exec('COMMIT');
+  }
+  // HUD Small Area FMRs for Providence ZIPs.
+  db.exec('CREATE TABLE safmr_fy27 (zip PRIMARY KEY, br0, br1, br2, br3, br4)');
+  {
+    const ins = db.prepare('INSERT OR REPLACE INTO safmr_fy27 VALUES (?,?,?,?,?,?)');
+    for (const r of rawIf('hud_safmr_fy27')) {
+      const zip = String(r['ZIP Code']).padStart(5, '0');
+      if (!/^029(0[2-9]|1[0-2])$/.test(zip)) continue;
+      ins.run(zip, ...['SAFMR 0BR', 'SAFMR 1BR', 'SAFMR 2BR', 'SAFMR 3BR', 'SAFMR 4BR'].map((k) => Number(r[k]) || null));
+    }
+  }
+
   // ACS tract table: one row per Providence tract, the few measures a coverage-equity comparison needs.
   const acsPath = join(DATA, 'raw', 'acs_tracts.json');
   if (existsSync(acsPath)) {
@@ -434,14 +463,16 @@ function main() {
     const shapes = existsSync(join(DATA, 'raw', 'acs_tract_shapes.json')) ? JSON.parse(readFileSync(join(DATA, 'raw', 'acs_tract_shapes.json'), 'utf8')).features as any[] : [];
     const nameOf = new Map(shapes.map((f) => [f.properties.geoid, f.properties.name]));
     db.exec(`CREATE TABLE tracts (geoid PRIMARY KEY, name, households, renter_households, median_income, renter_median_income,
-      white_nh_share, black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, release)`);
-    const ins = db.prepare('INSERT INTO tracts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      white_nh_share, black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, release, hcv_households)`);
+    const ins = db.prepare('INSERT INTO tracts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const hcv = new Map(rawIf('hud_vouchers_tract').map((r) => [`14000US${r.GEOID}`, r.HCV_PUBLIC ?? null]));
     for (const [geoid, t] of Object.entries(acs.data) as [string, any][]) {
       const e = (table: string, col: string) => t[table]?.estimate?.[col] ?? null;
       const pop = e('B03002', 'B03002001');
       const share = (col: string) => (pop ? Math.round((1000 * (e('B03002', col) ?? 0)) / pop) / 1000 : null);
       ins.run(geoid, nameOf.get(geoid) ?? null, e('B25003', 'B25003001'), e('B25003', 'B25003003'), e('B19013', 'B19013001'), e('B25119', 'B25119003'),
-        share('B03002003'), share('B03002004'), share('B03002012'), share('B03002006'), e('B25064', 'B25064001'), e('B25071', 'B25071001'), acs.release?.name ?? null);
+        share('B03002003'), share('B03002004'), share('B03002012'), share('B03002006'), e('B25064', 'B25064001'), e('B25071', 'B25071001'), acs.release?.name ?? null,
+        hcv.get(geoid) ?? null);
     }
   }
   db.close();

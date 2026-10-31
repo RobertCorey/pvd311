@@ -18,7 +18,7 @@ type Source =
   | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
-  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number }
+  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number; browserUA?: boolean }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -33,6 +33,8 @@ export const SOURCES: Source[] = [
   { name: 'taxroll2023', kind: 'socrata', id: 'fd8d-n74v', select: 'tax_map, levy_code_1, first_name, last_name, company' },
   { name: 'taxroll2022', kind: 'socrata', id: 'c3q4-f95q', select: 'tax_map, levy_code_1, first_name, last_name, company' },
   { name: 'taxroll2021', kind: 'socrata', id: 'fawc-z8zq', select: 'tax_map, levy_code_1, owner_first_name, owner_last_name, owner_company' },
+  { name: 'taxroll2020', kind: 'socrata', id: 'y9h5-fefu', select: 'tax_map, levy_code_1' },
+  { name: 'taxroll2016', kind: 'socrata', id: 'czje-unnn', select: 'plat_lot_unit, levy_code' },
   // Neighborhood polygons the roll's computed region column points into (names + outlines for the map).
   { name: 'neighborhoods', kind: 'socrata', id: 'ueqj-g33x', select: '_feature_id, lname, the_geom' },
   // City GIS parcels joined to the assessor's CAMA extract: unit count, year built, use code.
@@ -86,6 +88,10 @@ export const SOURCES: Source[] = [
   { name: 'code_cases_active', kind: 'records', format: 'xlsx', headerHint: 'Record #',
     url: 'https://providenceri.nextrequest.com/documents/64624609/download', // city APRA 26-1279 pt 1: active code cases 2023 → 2026-06
     keep: ['Record #', 'Occupancy Type', 'Mbl', 'Address', 'Date Submitted', 'Last Record Activity', 'Record Status'] },
+  // HUD Small Area Fair Market Rents FY2027 (whole US; Providence ZIPs kept at build time). huduser.gov wants a browser UA.
+  { name: 'hud_safmr_fy27', kind: 'records', format: 'xlsx', headerHint: 'HUD Area Code', browserUA: true,
+    url: 'https://www.huduser.gov/portal/datasets/fmr/fmr2027/FY27_safmrs.xlsx',
+    keep: ['ZIP Code', 'HUD Area Code', 'SAFMR 0BR', 'SAFMR 1BR', 'SAFMR 2BR', 'SAFMR 3BR', 'SAFMR 4BR'] },
   { name: 'str_city_permits', kind: 'records', format: 'csv',
     url: 'https://providenceri.nextrequest.com/documents/69800665/download', // city APRA 26-2245, 2024-09 → 2026-09
     keep: ['Record #', 'Record Type', 'Date Submitted', 'Address', 'Record Status'] },
@@ -95,6 +101,8 @@ export const SOURCES: Source[] = [
   { name: 'airbnb_listings', kind: 'records', format: 'csv',
     url: 'https://data.insideairbnb.com/united-states/ri/rhode-island/2026-09-28/visualisations/listings.csv', // Inside Airbnb, CC BY 4.0
     keep: ['id', 'neighbourhood', 'room_type', 'price', 'minimum_nights', 'number_of_reviews_ltm', 'availability_365', 'license', 'latitude', 'longitude'] },
+  // HUD Housing Choice Voucher households per tract (current HUD extract).
+  { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -175,7 +183,7 @@ async function main() {
     if (s.kind === 'records') {
       let recs: Record<string, string>[];
       if (s.format === 'xlsx') {
-        const res = await fetch(s.url, { headers: { 'user-agent': 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
+        const res = await fetch(s.url, { headers: { 'user-agent': s.browserUA ? BROWSER_UA : 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
         if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         recs = [];
@@ -183,11 +191,11 @@ async function main() {
           recs.push(...xlsxRecords(readXlsx(buf, sheet), s.headerHint ?? s.keep[0]).map((r) => ({ ...r, sheet: String(sheet) })));
         }
       } else {
-        recs = readCsv((await getText(s.url)).replace(/^\uFEFF/, ''));
+        recs = readCsv((await getText(s.url, s.browserUA)).replace(/^\uFEFF/, ''));
       }
-      // Headers in these files carry stray spaces ("PLAT ", " Expiration Date"): match on trimmed names.
+      // Headers carry stray spaces and line breaks ("PLAT ", "ZIP\nCode"): match on whitespace-collapsed names.
       const kept = recs.map((r) => {
-        const byTrim = new Map(Object.entries(r).map(([k, v]) => [k.trim(), v]));
+        const byTrim = new Map(Object.entries(r).map(([k, v]) => [k.replace(/\s+/g, ' ').trim(), v]));
         return Object.fromEntries(s.keep.map((k) => [k, byTrim.get(k) ?? '']));
       });
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(kept));

@@ -36,9 +36,10 @@ export function readXlsx(buf: Uint8Array, sheet = 1): string[][] {
 
 /** Rows → objects keyed by the first row that contains `headerHint`. */
 export function xlsxRecords(rows: string[][], headerHint: string): Record<string, string>[] {
-  const h = rows.findIndex((r) => r.some((c) => c.trim() === headerHint));
+  const norm = (c: string) => c.replace(/\s+/g, ' ').trim();
+  const h = rows.findIndex((r) => r.some((c) => norm(c) === headerHint));
   if (h < 0) return [];
-  const head = rows[h].map((c) => c.trim());
+  const head = rows[h].map(norm);
   return rows.slice(h + 1).filter((r) => r.some((c) => c && c.trim())).map((r) => Object.fromEntries(head.map((k, i) => [k, (r[i] ?? '').trim()])));
 }
 
