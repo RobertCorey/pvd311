@@ -1,68 +1,103 @@
 # Data sources
 
-This catalog serves a Providence real-estate map with a rent-stabilization angle. It has four parts:
+This is the catalog for a Providence real-estate map with a rent-stabilization angle. It has four parts:
 1. what we already pull
 2. what is online but not pulled yet
-3. what has to be requested
+3. what needs a records request
 4. what would help but isn't public
 
-Everything in part 1 rebuilds with `npm run rebuild` (`scripts/fetch.ts` → `scripts/build-db.ts` → `data/parcels.sqlite`). Checked 2026-10-31.
+Checked 2026-10-31. Every part-1 source rebuilds with `npm run rebuild` (`scripts/fetch.ts` → `scripts/build-db.ts` → `data/parcels.sqlite`). The full research notes, with every URL, request number, column list and caveat, are in [CATALOG_RESEARCH.md](CATALOG_RESEARCH.md).
 
-Records-request basics (R.I. Access to Public Records Act, R.I.G.L. 38-2):
-- **Response time:** 10 business days, extendable 20 more for good cause.
-- **Cost:** the first hour of search is free, then up to $15/hour; copies up to $0.15/page.
-- **Court case records are not APRA records.** They have their own request process (see Evictions below).
+## Before filing any records request: search the portals
+
+**Many "by request" datasets have already been released to someone else, and the releases are public.**
+- **City of Providence:** https://providenceri.nextrequest.com/
+- **RIDOH and other state health and human services agencies:** https://healthandhumanservicesdepts-ri.nextrequest.com/
+
+Both share a keyless JSON API:
+- search: `/client/requests?search_term=…`
+- released files for a request: `/client/request_documents?request_id=…`
+- download a file: `/documents/<id>/download`
+
+City requests for OpenGov exports have come back the same week with no fee.
+
+**APRA basics (R.I.G.L. 38-2):**
+- 10 business days to respond, plus 20 more for good cause.
+- The first hour of search is free, then up to $15/hour; copies up to $0.15/page.
+- City requests go by portal, mail or drop box. Email and fax are not accepted.
+- Court case records are not APRA records (see Evictions in part 3).
 
 ## 1. Have: pulled automatically
 
 | Dataset | Source | Coverage | Used for |
 |---|---|---|---|
-| Tax rolls FY2026 (+ FY2021–FY2025 for history) | data.providenceri.gov (Socrata `p9dd-mw2m`, `6ub4-iebe`, `xvti-7dtw`, `fd8d-n74v`, `c3q4-f95q`, `fawc-z8zq`) | every parcel; assessment as of 12/31 of the prior year | owner-occupied tax rate, class, owner, mailing address, owner-occupancy churn |
-| Parcels + assessor records (CAMA) | city ArcGIS `Parcels_with_CAMA` | 44k parcels, roll year 2024 | unit count, year built, beds/baths, last sale, lot centers, lot outlines |
-| Building permits | Socrata `ufmm-rbej` (Dec 2016–Jan 2020) + ArcGIS `Interactive_Permitting_Map_(BETA)` (Jan 2019–Mar 2024) | 121k permits | new-building and conversion permits, stand-ins for certificate-of-occupancy dates |
-| Building outlines | city ArcGIS `Buildings_layer` | 52,362 footprints | building-level map |
-| Street addresses | RIGIS E-911 address points (2026) | 47,428 Providence addresses | search by any door address, e.g. 221 Medway St → the 280 Waterman St lot |
-| Streets, parks, water, neighborhoods | city ArcGIS `City_Maintained_Roads`, `Labelled_Streets`, `Parks_And_Open_Space`; Socrata `ueqj-g33x` | citywide | basemap (the page host allows no outside map tiles) |
-| Subsidized housing | HUD LIHTC, Multifamily Assisted, Public Housing Buildings; city `Providence_Housing_Authority` layer | Providence projects | exemptions (i)/(j) |
-| Census tracts | ACS 2020–2024 5-year via Census Reporter (no key) | 42 tracts | income overall and for renters, race/ethnicity, tenure, rent, rent burden; a tract on every parcel |
-| Eviction filings | Eviction Lab ETS CSV (data from RIHousing / the courts) | filings per tract per month, Jan 2020 → Oct 2026 (2,382 in Oct 2025–Sep 2026) | eviction pressure by area. No addresses; filings, not judgments. |
-| Asking rents | Zillow ZORI city + ZIP CSVs | Providence since 2015; 7 ZIPs (most since 2022) | rent trend. Asking rents for listed units, skewed to professional listings. |
-| Ordinance text, fiscal note, veto | IQM2 ORD-2026-11 / record 52231; council site | final text as passed 2026-04-16 | `rules/ordinance-2026-04.yaml` |
+| Tax rolls FY2026, plus FY2021–FY2025 for history | data.providenceri.gov (Socrata `p9dd-mw2m`, `6ub4-iebe`, `xvti-7dtw`, `fd8d-n74v`, `c3q4-f95q`, `fawc-z8zq`) | every parcel | owner-occupied tax rate, class, owner, mailing address, owner-occupancy churn |
+| Parcels + assessor records (CAMA) | city ArcGIS `Parcels_with_CAMA` | 44k parcels, roll year 2024 | units, year built, beds/baths, last sale, lot centers, lot outlines |
+| **Building permits, Dec 2016 → 2026-09-15** | public release of city request **26-2355** (OpenGov export, `providenceri.nextrequest.com/documents/70401717/download`), plus the older Socrata and ArcGIS extracts | 40,378 permits, 99.5% matched to parcels by address | new-building and conversion permits with dwelling-unit counts, standing in for certificate-of-occupancy dates; catches 2024–26 buildings |
+| Building outlines | city ArcGIS `Buildings_layer` | 52,362 | building-level map |
+| Street addresses | RIGIS E-911 address points (2026) | 47,428 Providence addresses | search by any door address; permit-to-parcel matching |
+| Streets, parks, water, neighborhoods | city ArcGIS layers; Socrata `ueqj-g33x` | citywide | basemap |
+| Subsidized housing | HUD LIHTC, Multifamily Assisted, Public Housing Buildings; city PHA layer | Providence projects | exemptions (i)/(j) |
+| Census tracts | ACS 2020–2024 5-year via Census Reporter | 42 tracts | income overall and for renters, race/ethnicity, tenure, rent, rent burden; a tract on every parcel |
+| Eviction filings | Eviction Lab ETS CSV (data from RIHousing / the courts) | per tract per month, Jan 2020 → Oct 2026 | eviction pressure by area. Filings, not judgments; no addresses. |
+| Asking rents | Zillow ZORI city + ZIP | Providence since 2015; 7 ZIPs | rent trend. Listed units only. |
+| Researched big buildings | `manual/big-buildings.csv` (hand research, with sources) | 66 buildings | hotels, senior care, co-ops, new and converted buildings |
+| Ordinance text, fiscal note, veto | IQM2 ORD-2026-11 / record 52231 | final text, passed 2026-04-16 | `rules/ordinance-2026-04.yaml` |
 
-SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`. Manual input: `manual/big-buildings.csv`, hand-researched labels for big ambiguous buildings, with sources.
+SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`.
 
-## 2. Online, not pulled yet
+## 2. Online, not pulled yet (ranked)
 
-| Dataset | Where | Why it'd help | Notes |
-|---|---|---|---|
-| HUD Small Area Fair Market Rents by ZIP | huduser.gov `FY27_safmrs.xlsx` | official rent benchmark by ZIP and bedroom count; voucher payment standards | xlsx only; needs a browser user agent |
-| RIHousing evictions dashboard | rihousing.com/evictions-dashboard (Tableau Public) | judgments and money awards, which Eviction Lab lacks | municipal level; crosstab download unconfirmed |
-| RIHousing rent survey | rihousing.com/rent-survey (memo + Tableau) | average rent by municipality, 2015–2025 | drawn from CoStar's big professionally managed buildings, so it misses the 2–4-unit stock the cap mostly covers |
-| HousingWorks RI Fact Book 2026 | PDF | municipal context (cost burden, affordable-housing share) | PDF only |
-| Older tax rolls 2002–2020 | Socrata (one dataset per year) | 20-year owner-occupancy and investor-ownership trends | same pipeline, more years |
-| Permits after Mar 2024 | city OpenGov portal (providenceri.portal.opengov.com) | new construction 2024–26, which the assessor extract can't see yet | record search exists; bulk access unconfirmed |
-| City 311 cases (housing complaints) | FixMyPVD already syncs the city's case feed (`cityCases` in Firestore) | complaints per building or block | our own data; join via E-911 addresses |
-| Census ACS via the Census API | api.census.gov | block-group detail and more tables | now requires a free key |
+| # | Dataset | Where | Why | Notes |
+|---|---|---|---|---|
+| 1 | **RIDOH statewide rental registry export** | public release of RIDOH request **26-278** (`healthandhumanservicesdepts-ri.nextrequest.com/documents/62808486/download`) | 15,169 registrations / 49,585 units statewide, ~3,000 in Providence: "this address is a registered rental", with unit counts and lead status | snapshot ~2026-05; no town column, so match by street address. **Owner and manager phone/email columns: do not ingest or publish.** |
+| 2 | **RIDOH lead-certificate records** | RIDOH lead Power BI report; the underlying data is publicly queryable and refreshed daily | 64,621 Providence certificate records with address, units, year built, type and dates: a history of pre-1978 rental addresses | rows are certificates, not properties; dirty dates; page through politely |
+| 3 | **Short-term rentals** | state DBR active roster CSV (daily, 412 in Providence); city permit CSV (request 26-2245, 252 permits); Inside Airbnb RI 2026-09-28 (1,066 Providence listings, CC BY 4.0) | units taken off the long-term market; ties to exemption (d) | join Airbnb to parcels via the state registration number, not coordinates (Airbnb jitters them ~150 m) |
+| 4 | **Code distress** | Housing Court cases 1998–2026 (request 26-521, 5,193 cases, by plat/lot, receivership flag); active code-enforcement cases (request 26-1279, 1,269); 2026 tax-sale results CSV (214 parcels) | building-level distress and turnover | code cases include owner names; keep them out of any public map |
+| 5 | HUD Picture of Subsidized Households 2025 | huduser.gov tract xlsx (70 MB) | vouchers per tract: about 2,750 Housing Choice Voucher households in Providence. The April text gives voucher units no exemption of their own, so they're covered unless the building is exempt for another reason. | tract level only |
+| 6 | Vacant/abandoned registry | request 25-339 (5 sheets, 2017–2025) | vacancy | street numbers partly redacted; plat/lot survive |
+| 7 | HUD Small Area FMRs FY27 | huduser.gov `FY27_safmrs.xlsx` | official ZIP rent benchmark | xlsx |
+| 8 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock |
+| 9 | Older tax rolls 2002–2020 | Socrata | 20-year owner-occupancy and investor-ownership trend | same pipeline |
+| 10 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
+| 11 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
+| — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
 
-## 3. By request
+## 3. By request (ranked)
 
-| Dataset | Who holds it | How | Why it matters |
-|---|---|---|---|
-| Case-level eviction records (filing, parties, address, outcome) | R.I. Judiciary | **not APRA.** Form Supreme-19, "Request for Electronic Information or Report (Non-APRA)", to Community Outreach & PR, 250 Benefit St, (401) 222-4580; the Judiciary's discretion, possible fees. Alternative: an APRA request to RIHousing for the monthly court extract it receives (untested). | building-level eviction pressure; the public court portal blocks scraping |
-| Certificates of occupancy (2019→) | Providence Dept of Inspections & Standards | APRA request to the City of Providence | settles the new-construction exemption exactly (it runs from the CO date) |
-| Owner-occupied certification records | Providence Tax Assessor | APRA request; also ask how many owner-occupants lack the rate | sizes the "probably owner-occupied" bucket, the biggest uncertainty |
-| *(more pending: lead-safe certificates, short-term-rental registrations, code enforcement, deeds, business entities; catalog research still running)* | | | |
+| # | Dataset | Who holds it | How | Why it matters |
+|---|---|---|---|---|
+| 1 | **Certificates of occupancy** | Dept of Inspections & Standards | city NextRequest: "CSV export of all OpenGov 'Certificate of Occupancy' records, all statuses, with address, plat-lot, issued date, dwelling units, linked permit #" | settles the new-construction exemption exactly; permit request 26-2355 came back the same day |
+| 2 | **Assessor package** | Tax Assessor | one request asking for: (a) owner-occupied certification records and how many owner-occupants lack the rate; (b) landlord fire-insurance declarations (R.I.G.L. 34-43-1: every non-owner-occupied 3+-household building must file one, so effectively a list of 3+-unit rentals); (c) active tax-stabilization agreements; (d) the assessor's valid/invalid sales file | (a) is our biggest uncertainty; (b) is a rental list the city already holds |
+| 3 | **Case-level eviction records** | R.I. Judiciary (not APRA) | form Supreme-19, "Request for Electronic Information or Report (Non-APRA)", to Community Outreach & PR, 250 Benefit St, (401) 222-4580. Alternative: APRA request to RIHousing for the monthly court extract it receives | building-level eviction pressure; the public portal blocks scraping |
+| 4 | **Code-enforcement history** | Inspections & Standards | full export, all statuses since 2016: type, violation codes, notice and condemnation dates, closed date; plus the vacant registry without redaction | building condition and enforcement |
+| 5 | **Affordable-housing inventory by property** | RIHousing (recordsrequests@rihousing.com) / Executive Office of Housing | the low- and moderate-income housing database for Providence: property, plat-lot, units, program, affordability end date | per-unit precision for exemptions (i)/(j) |
+| — | **Buy instead:** RI corporate database | Dept of State (corp_tech@sos.ri.gov) | one-time extract: active $250 + inactive $50 | group owner LLCs into landlord portfolios via shared agents and addresses; ask first whether managers and officers are included |
+| — | Nonresident-landlord agent designations | City Clerk (and SOS PDFs) | NextRequest | out-of-state landlords |
 
 ## 4. Would help, not public
 
-- **Actual rents per unit.** The April ordinance would have created a registry for new units; nothing citywide exists. CoStar per-property data is commercial.
-- **Who lives where.** Occupancy is private. The ordinance's own test (principal residence) needs voter registration or tax-filing address, which aren't available to us for this use.
-- **Housing Choice Voucher locations.** HUD protects tenant addresses; only tract-level counts are public (HUD "Picture of Subsidized Households").
+- **Actual rents per unit.** No registry exists. The April ordinance would have created one for new units. CoStar is commercial.
+- **Who lives where.** Occupancy is private. The ordinance's own principal-residence test leans on voter registration and tax-filing address, which aren't available to us for this use.
+- **Voucher holder addresses.** HUD/PHA privacy; tract counts only (part 2, #5).
 - **Unpermitted units.** The assessor counts legal units only.
+- **USPS vacancy data by tract.** HUD gives it only to governments and nonprofits.
+- **University master leases.** Private contracts.
+- **A city rental registry.** None exists. The city answered request 26-1082 in 2026 with "does not maintain".
+
+## Settled questions from the research
+
+- **The College Student Residential Overlay District isn't law.** It was drafted July 2026 (Referral 3619), sent to the City Plan Commission, with no Council passage found. The 2015 rule still applies: at most 3 students in a non-owner-occupied single-family house in R-1 and R-1A zones. So the new-construction carve-out in Sec. 13-78(m) currently applies nowhere.
+- **Owner-occupied 2–3-unit buildings were exempt from lead certificates until 2024.** A 2024 amendment removed that exemption for the rental units, so the certificate history under-represents those buildings before 2024.
 
 ## Access notes
 
-- health.ri.gov and dbr.ri.gov sit behind a Cloudflare browser challenge. Reading them needs a real browser.
-- The court public portal (Tyler Odyssey) uses a bot challenge, so no scraping.
-- NEREVAL (assessor property cards) returns 403 to this server.
-- Listing sites (Zillow listings, Apartments.com, Craigslist) prohibit scraping in their terms.
+- **health.ri.gov and dbr.ri.gov** use a Cloudflare challenge. Headless Firefox (Playwright) gets through; plain curl doesn't.
+- **The court public portal** uses a bot challenge, so no scraping.
+- **NEREVAL** (assessor property cards) returns 403 here.
+- **OpenCorporates** sits behind a reCAPTCHA.
+- **Eviction Lab's CDN** accepts only browser user agents.
+- **Census Reporter** asks for a project-specific user agent.
+- **The Census API** now needs a free key.
+- **Listing sites** (Zillow listings, Apartments.com, Craigslist) prohibit scraping.
+- **Privacy rule for anything published:** no individuals' names, phone numbers, emails, or an owner's other addresses. The state Health Department's 2025 "suspected rental" map drew pushback for exactly that.
