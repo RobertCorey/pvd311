@@ -294,6 +294,35 @@ function main() {
   for (const pm of lastPermits) pins.run(...pcols.map((c) => (pm as any)[c] ?? null));
   db.exec('COMMIT');
   db.exec('CREATE INDEX permits_parcel ON permits(parcelId)');
+  // Eviction filings per tract-month (Eviction Lab ETS) — Providence city tracts only.
+  const etsPath = join(DATA, 'raw', 'evictions_tracts.csv');
+  if (existsSync(etsPath)) {
+    db.exec('CREATE TABLE evictions_tract_month (geoid, month, filings, baseline_avg, racial_majority, PRIMARY KEY (geoid, month))');
+    const ins = db.prepare('INSERT OR REPLACE INTO evictions_tract_month VALUES (?,?,?,?,?)');
+    let n = 0;
+    // The file covers all of Providence County; keep the city's tracts (the ACS tract outlines).
+    const cityTracts = new Set((existsSync(join(DATA, 'raw', 'acs_tract_shapes.json')) ? JSON.parse(readFileSync(join(DATA, 'raw', 'acs_tract_shapes.json'), 'utf8')).features : []).map((f: any) => f.properties.geoid));
+    for (const r of readCsv(readFileSync(etsPath, 'utf8'))) {
+      if (r.type !== 'Census Tract' || !cityTracts.has(`14000US${r.GEOID}`)) continue;
+      const [mm, yyyy] = r.month.split('/');
+      ins.run(`14000US${r.GEOID}`, `${yyyy}-${mm}`, Number(r.filings_2020) || 0, Number(r.filings_avg_prepandemic_baseline) || null, r.racial_majority || null);
+      n++;
+    }
+    console.log(`eviction tract-months: ${n}`);
+  }
+  // Zillow asking-rent index for Providence (city) and its ZIPs, long format.
+  db.exec('CREATE TABLE zori_month (region, region_type, month, rent, PRIMARY KEY (region, month))');
+  const zins = db.prepare('INSERT OR REPLACE INTO zori_month VALUES (?,?,?,?)');
+  for (const [file, keep] of [['zori_city', (r: Record<string, string>) => r.RegionName === 'Providence' && r.State === 'RI'],
+    ['zori_zip', (r: Record<string, string>) => r.State === 'RI' && /^029(0[3-9])$/.test(r.RegionName)]] as const) {
+    const path = join(DATA, 'raw', `${file}.csv`);
+    if (!existsSync(path)) continue;
+    for (const r of readCsv(readFileSync(path, 'utf8'))) {
+      if (!keep(r)) continue;
+      for (const [k, v] of Object.entries(r)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v) zins.run(r.RegionName, r.RegionType, k.slice(0, 7), Math.round(Number(v)));
+    }
+  }
+
   // ACS tract table: one row per Providence tract, the few measures a coverage-equity comparison needs.
   const acsPath = join(DATA, 'raw', 'acs_tracts.json');
   if (existsSync(acsPath)) {

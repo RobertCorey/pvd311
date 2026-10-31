@@ -13,6 +13,7 @@ const RIGIS = 'https://services2.arcgis.com/S8zZg9pg23JUEexQ/arcgis/rest/service
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
   | { name: string; kind: 'json'; url: string }
+  | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -57,6 +58,12 @@ export const SOURCES: Source[] = [
   // tenure, median gross rent, rent burden — plus tract outlines. For who-is-covered comparisons by area.
   { name: 'acs_tracts', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013,B25119,B03002,B25003,B25064,B25071&geo_ids=140|16000US4459000' },
   { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },
+  // Eviction filings by tract and month, Jan 2020 → now (Eviction Lab ETS; data from RIHousing / the courts).
+  // Their CDN refuses non-browser user agents for this public CSV.
+  { name: 'evictions_tracts', kind: 'csv', url: 'https://evictionlab.org/uploads/providence_monthly_2020_2021.csv', browserUA: true },
+  // Zillow Observed Rent Index (asking rents), monthly: city and ZIP files (we keep the Providence rows).
+  { name: 'zori_city', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/City_zori_uc_sfrcondomfr_sm_month.csv' },
+  { name: 'zori_zip', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/Zip_zori_uc_sfrcondomfr_sm_month.csv' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -111,6 +118,20 @@ async function fetchArcgis(s: Extract<Source, { kind: 'arcgis' }>): Promise<any[
   }
 }
 
+const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
+async function getText(url: string, browserUA = false): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { 'user-agent': browserUA ? BROWSER_UA : 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    } catch (err) {
+      if (attempt >= 5) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    }
+  }
+}
+
 async function main() {
   mkdirSync(RAW, { recursive: true });
   // ONLY=name,name refetches a subset and keeps the rest of the manifest.
@@ -120,6 +141,14 @@ async function main() {
     only && existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
   for (const s of SOURCES) {
     if (only && !only.includes(s.name)) continue;
+    if (s.kind === 'csv') {
+      const text = await getText(s.url, s.browserUA);
+      if (!/^[^<]/.test(text) || !text.includes(',')) throw new Error(`${s.name}: expected CSV, got ${text.slice(0, 80)}`);
+      writeFileSync(join(RAW, `${s.name}.csv`), text);
+      manifest[s.name] = { rows: text.split('\n').length - 2, fetchedAt: new Date().toISOString(), url: s.url };
+      console.log(`${s.name}: ${manifest[s.name].rows} rows`);
+      continue;
+    }
     const rows = s.kind === 'socrata' ? await fetchSocrata(s) : s.kind === 'json' ? await getJson(s.url) : await fetchArcgis(s);
     writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
     manifest[s.name] = {
