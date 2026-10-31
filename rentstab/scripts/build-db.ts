@@ -431,6 +431,14 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       r['Complaint Reason'] || null, excelDate(r['Inspection Date'] ?? ''), excelDate(r['1st NOV Issue Date'] ?? ''), num(r['# Violations (1st)']), r['Lead Added'] || null,
       excelDate(r['1st NOV Release Date'] ?? ''), match(`${r.Number ?? ''} ${r.Address ?? ''}`)]));
 
+  // RIDOH's suspected unregistered rentals (2025-05-01): Providence rows carry "PROV M:10 L:104 U:3" → 010-0104-0003.
+  table('ridoh_suspected_rentals', ['address', 'zip', 'parcelId'], rawIf('ridoh_suspected_rentals').flatMap((r) => {
+    const m = String(r.alt_parcel_id ?? '').match(/^PROV M:(\d+) L:(\d+)(?: U:(\w+))?/);
+    if (!m) return [];
+    const id = `${m[1].padStart(3, '0')}-${m[2].padStart(4, '0')}-${(m[3] ?? '0').padStart(4, '0')}`;
+    return [[r.street_address, r.zip_code, ids.has(id) ? id : match(String(r.street_address ?? ''))]];
+  }));
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
@@ -440,7 +448,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires,
       COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing,
       COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date, fz.zone AS flood_zone,
-      COALESCE(lv.n, 0) AS lead_violations_2022, sh.last_date AS last_arms_length_sale, sh.n AS arms_length_sales_since_2000
+      COALESCE(lv.n, 0) AS lead_violations_2022, sh.last_date AS last_arms_length_sale, sh.n AS arms_length_sales_since_2000,
+      CASE WHEN sus.parcelId IS NULL THEN 0 ELSE 1 END AS ridoh_suspected_rental
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -458,7 +467,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, MAX(price) price, MAX(sale_date) sale_date FROM sales_2024 GROUP BY parcelId) sa ON sa.parcelId = p.id
     LEFT JOIN flood_zone fz ON fz.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_violations_2022 GROUP BY parcelId) lv ON lv.parcelId = p.id
-    LEFT JOIN (SELECT parcelId, MAX(sale_date) last_date, COUNT(*) n FROM sales_history WHERE price > 1000 AND sale_date >= '2000-01-01' GROUP BY parcelId) sh ON sh.parcelId = p.id`);
+    LEFT JOIN (SELECT parcelId, MAX(sale_date) last_date, COUNT(*) n FROM sales_history WHERE price > 1000 AND sale_date >= '2000-01-01' GROUP BY parcelId) sh ON sh.parcelId = p.id
+    LEFT JOIN (SELECT DISTINCT parcelId FROM ridoh_suspected_rentals WHERE parcelId IS NOT NULL) sus ON sus.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

@@ -192,6 +192,10 @@ export const SOURCES: Source[] = [
     keep: ['Status', 'Number', 'Address', 'Complaint Date', 'Complaint Reason', 'Inspection Date', '1st NOV Issue Date', '# Violations (1st)', 'Lead Added', '2nd NOV Issue Date'] },
   { name: 'lead_violations_2022_released', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/16739720/download',
     keep: ['Status', 'Number', 'Address', 'Complaint Date', 'Complaint Reason', 'Inspection Date', '1st NOV Issue Date', '# Violations (1st)', 'Lead Added', '2nd NOV Issue Date', '1st NOV Release Date'] },
+  // RIDOH's list of properties it suspects are rented but not registered (as of 2025-05-01), public release of RIDOH APRA
+  // 26-225; it drove the winter 2025 enforcement letters. Owner names and addresses are never downloaded.
+  { name: 'ridoh_suspected_rentals', kind: 'records', format: 'xlsx', browserUA: true,
+    url: 'https://healthandhumanservicesdepts-ri.nextrequest.com/documents/61611122/download', keep: ['parcel_id', 'alt_parcel_id', 'street_address', 'city', 'zip_code'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
