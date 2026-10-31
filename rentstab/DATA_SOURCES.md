@@ -59,7 +59,7 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 | # | Dataset | Where | Why | Notes |
 |---|---|---|---|---|
-| 1 | **RIDOH lead-certificate records** | RIDOH lead Power BI report; the underlying data is publicly queryable and refreshed daily (grouped-count queries proven; a full row pull needs Power BI's paging format decoded) | 64,621 Providence certificate records with address, units, year built, type and dates: a history of pre-1978 rental addresses | rows are certificates, not properties; dirty dates; page through politely |
+| 1 | **RIDOH lead-certificate records** | RIDOH lead Power BI report; the underlying data is publicly queryable and refreshed daily (grouped counts worked in research; a 2026-10-31 address-level query was rejected because column names have changed, so rediscover the schema via the report's conceptual-schema call first, then page through rows) | 64,621 Providence certificate records with address, units, year built, type and dates: a history of pre-1978 rental addresses | rows are certificates, not properties; dirty dates; page through politely |
 | 2 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
 | 3 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock |
 | 4 | Older tax rolls 2002–2015, 2017–2019 | Socrata | a longer owner-occupancy series | same pipeline; check each year's levy codes |
