@@ -15,20 +15,28 @@ APRA (R.I.G.L. 38-2) applies to the city, RIHousing and state agencies: 10 busin
 
 ---
 
-## 2. Assessor package (Tax Assessor)
+## 2. Assessor (Tax Assessor): three separate requests
 
-**Send:** https://providenceri.nextrequest.com/ (department: Tax Assessor)
-**Why:** (a) is the biggest uncertainty in the coverage estimate: about 5,600 small buildings whose owner seems to live there but isn't on the owner-occupied rate, and an unusual loss of the rate across FY2020→FY2024 (DATA_REPORT.md §2). (b) is a list of 3+-unit rentals the city already holds.
+**Send:** https://providenceri.nextrequest.com/ (department: Tax Assessor), one request each, so each stays within the free first hour and comes back on its own.
+**Why:** 2a is the biggest open question in the coverage count: about 5,600 small buildings (9,157 homes) where the owner's tax bill goes to the property but the owner-occupied rate isn't on file, plus an unusual loss of the rate around the FY2021 switch (DATA_REPORT.md §2). 2b is a list of 3+-household rentals the city already holds. 2c settles the tax-stabilization buildings.
 
-> Under the Access to Public Records Act, I request the following records in electronic form (CSV or Excel):
+### 2a. Owner-occupied (homestead) status
+
+> Under the Access to Public Records Act, I request the following records in electronic form (CSV or Excel where the records are data):
 >
-> 1. Statistical data on owner-occupied (homestead) status changes for tax years 2020 through 2026: for each year, the number of residential parcels granted, renewed, revoked or not renewed for the owner-occupied rate or homestead exemption, and any recertification or re-application notice the Assessor sent around the FY2021 change from the owner-occupied levy code to the homestead exemption. (Request 25-1068 asked for similar data; no files were posted publicly.)
-> 2. A list, by plat/lot and property address, of residential properties for which a non-owner-occupied landlord filed the fire insurance declaration required by state law for buildings of three or more households, with the number of units declared and the filing year. Owner names are not needed.
-> 3. A list of all tax stabilization agreements (TSAs) currently in effect: plat/lot, address, ordinance or agreement number, start and end tax years, and number of residential units if recorded.
-> 4. The Assessor's sales file for calendar years 2019 through 2023 used in the 2021 and 2024 revaluations, valid and invalid sales, with plat/lot, sale date, sale price, validity code, land use and number of units. Buyer and seller names are not needed.
-> 5. The number of dwelling units and bedrooms per unit for each taxable residential property (as asked in request 24-1460, which shows no public files).
+> 1. Any notice, letter or public instruction the Tax Assessor issued to property owners about applying again, recertifying or renewing the owner-occupied tax rate or homestead exemption in connection with the change from the owner-occupied levy code to the homestead exemption for tax year 2021.
+> 2. For each tax year 2020 through 2027, the number of residential parcels for which the owner-occupied rate or homestead exemption was granted, renewed, denied, revoked or not renewed. (Request 25-1068 asked for similar data; no files were posted publicly.)
+> 3. A list by plat/lot, without owner names, of owner-occupied or homestead applications received from January 1, 2025 to the present, with application date and status (approved, pending, denied).
 >
-> Please release each part as it is ready rather than waiting for all five. Please contact me if any part would incur a fee over $30.
+> Please release each item as it is ready. If any part would incur a fee over $30, please contact me with an estimate first.
+
+### 2b. Landlord fire-insurance declarations (R.I.G.L. § 34-43-1)
+
+> Under the Access to Public Records Act, I request, in electronic form (CSV or Excel), a list of the written fire-insurance declarations filed with the Tax Assessor under R.I. Gen. Laws § 34-43-1 for residential properties, with plat/lot, property address, number of households or units declared, and filing date or year. Owner names and insurance policy details are not needed. If this would incur a fee over $30, please contact me with an estimate first.
+
+### 2c. Tax stabilization agreements
+
+> Under the Access to Public Records Act, I request, in electronic form (CSV or Excel), a list of all tax stabilization agreements currently in effect: plat/lot, property address, ordinance or agreement number, first and last tax year, and number of residential units if recorded. If this would incur a fee over $30, please contact me with an estimate first.
 
 ---
 
