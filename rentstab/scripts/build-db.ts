@@ -428,19 +428,33 @@ function main() {
   writeSignals(db, parcels);
 
   // Owner-occupied tax rate per parcel per roll year, FY2016 and FY2020–FY2026 (assessment dates a year earlier).
-  db.exec('CREATE TABLE owner_occupancy_history (parcelId, roll_year, owner_occupied, PRIMARY KEY (parcelId, roll_year))');
+  // FY2021–23 had a single residential code; there the homestead exemption (≥30% of assessed value) marks owner-occupants.
+  // Checked on FY2022: 95% of parcels owner-occupied in both FY2020 and FY2024 carry it, 98% of parcels investor-owned in
+  // both carry no exemption, and ~99% of parcels with it were owner-occupied on both sides. method = 'levy' | 'homestead'.
+  db.exec('CREATE TABLE owner_occupancy_history (parcelId, roll_year, owner_occupied, method, PRIMARY KEY (parcelId, roll_year))');
   {
-    const ins = db.prepare('INSERT OR REPLACE INTO owner_occupancy_history VALUES (?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO owner_occupancy_history VALUES (?,?,?,?)');
     const ids = new Set(parcels.map((p) => p.id));
     db.exec('BEGIN');
-    for (const p of parcels) if (p.ownerOccupiedTaxRate != null) ins.run(p.id, 2026, p.ownerOccupiedTaxRate ? 1 : 0);
-    for (const [year, file, idCol, levyCol] of [[2025, 'taxroll2025', 'tax_map', 'levy_code_1'], [2024, 'taxroll2024', 'tax_map', 'levy_code_1'], [2023, 'taxroll2023', 'tax_map', 'levy_code_1'],
-      [2022, 'taxroll2022', 'tax_map', 'levy_code_1'], [2021, 'taxroll2021', 'tax_map', 'levy_code_1'], [2020, 'taxroll2020', 'tax_map', 'levy_code_1'], [2016, 'taxroll2016', 'plat_lot_unit', 'levy_code']] as const) {
+    for (const p of parcels) if (p.ownerOccupiedTaxRate != null) ins.run(p.id, 2026, p.ownerOccupiedTaxRate ? 1 : 0, 'levy');
+    const levyYears = [[2025, 'taxroll2025', 'tax_map', 'levy_code_1'], [2024, 'taxroll2024', 'tax_map', 'levy_code_1'], [2020, 'taxroll2020', 'tax_map', 'levy_code_1'],
+      [2019, 'taxroll2019', 'plat_lot_unit', 'levy_code'], [2018, 'taxroll2018', 'plat_lot_unit', 'levy_code'], [2017, 'taxroll2017', 'plat_lot_unit', 'levy_code'],
+      [2016, 'taxroll2016', 'plat_lot_unit', 'levy_code'], [2015, 'taxroll2015', 'plat_lot_unit', 'levy_code'], [2014, 'taxroll2014', 'plat_lot_unit', 'levy_code'],
+      [2013, 'taxroll2013', 'plat_lot_unit', 'levy_code']] as const;
+    for (const [year, file, idCol, levyCol] of levyYears) {
       for (const r of rawIf(file)) {
         const id = String(r[idCol] ?? '').trim();
         const levy = String(r[levyCol] ?? '');
         if (!ids.has(id) || !/^(OO|NO)/.test(levy)) continue;
-        ins.run(id, year, /^OO/.test(levy) ? 1 : 0);
+        ins.run(id, year, /^OO/.test(levy) ? 1 : 0, 'levy');
+      }
+    }
+    for (const [year, file] of [[2021, 'taxroll2021_values'], [2022, 'taxroll2022_values'], [2023, 'taxroll2023_values']] as const) {
+      for (const r of rawIf(file)) {
+        const id = String(r.tax_map ?? '').trim();
+        const assessed = Number(r.total_assmt), exempt = Number(r.total_exempt) || 0;
+        if (!ids.has(id) || r.levy_code_1 !== 'R01' || !(assessed > 0)) continue;
+        ins.run(id, year, exempt / assessed >= 0.3 ? 1 : 0, 'homestead');
       }
     }
     db.exec('COMMIT');

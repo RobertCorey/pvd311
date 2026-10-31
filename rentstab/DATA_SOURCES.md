@@ -38,7 +38,7 @@ City requests for OpenGov exports have come back the same week with no fee.
 | Street addresses | RIGIS E-911 address points (2026) | 47,428 Providence addresses | search by any door address; permit-to-parcel matching |
 | Streets, parks, water, neighborhoods | city ArcGIS layers; Socrata `ueqj-g33x` | citywide | basemap |
 | Subsidized housing | HUD LIHTC, Multifamily Assisted, Public Housing Buildings; city PHA layer | Providence projects | exemptions (i)/(j) |
-| Owner-occupancy history | the same rolls: FY2016 (`czje-unnn`), FY2020 (`y9h5-fefu`), FY2024–FY2026 | `owner_occupancy_history`, one row per parcel per year | ten-year owner-occupant vs. investor trend. FY2021–FY2023 rolls have a single residential code (R01) with no owner-occupied split, so those years are missing. Their homestead exemption amounts may fill the gap (not tried). |
+| Owner-occupancy history | tax rolls FY2013–FY2026 (Socrata, one dataset per year) | `owner_occupancy_history`: one row per parcel per year, FY2013–FY2026 | owner-occupant vs. investor trend (54% → ~60% → 57%). FY2013–20 and FY2024–26 use the owner-occupied levy code. FY2021–23 had a single residential code, so owner-occupancy there is inferred from a homestead exemption of 30% or more of assessed value (`method = 'homestead'`); on FY2022 that agrees with the surrounding years about 99% of the time. FY2021 may undercount (the exemption's first year). Before FY2013 there is no owner-occupied split. |
 | HUD voucher households by tract | HUD ArcGIS `Housing_Choice_Vouchers_by_Tract` | 36 Providence tracts, 2,868 households | voucher units are covered unless the building is exempt for another reason (`tracts.hcv_households`) |
 | HUD Small Area FMRs FY2027 | huduser.gov `FY27_safmrs.xlsx` | Providence ZIPs, 0–4 bedrooms (2BR: $1,730 in 02907 to $2,630 in 02903) | official rent benchmark (`safmr_fy27`) |
 | Census tracts | ACS 2020–2024 5-year via Census Reporter | 42 tracts | income overall and for renters, race/ethnicity, tenure, rent, rent burden; a tract on every parcel |
@@ -62,9 +62,8 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 | 1 | **RIDOH lead-certificate records** | RIDOH lead Power BI report; the underlying data is publicly queryable and refreshed daily (grouped counts worked in research; a 2026-10-31 address-level query was rejected because column names have changed, so rediscover the schema via the report's conceptual-schema call first, then page through rows) | 64,621 Providence certificate records with address, units, year built, type and dates: a history of pre-1978 rental addresses | rows are certificates, not properties; dirty dates; page through politely |
 | 2 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
 | 3 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock |
-| 4 | Older tax rolls 2002–2015, 2017–2019 | Socrata | a longer owner-occupancy series | same pipeline; check each year's levy codes |
-| 5 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
-| 6 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
+| 4 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
+| 5 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
 | — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
 
 ## 3. By request (ranked)

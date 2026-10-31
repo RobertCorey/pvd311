@@ -35,6 +35,16 @@ export const SOURCES: Source[] = [
   { name: 'taxroll2021', kind: 'socrata', id: 'fawc-z8zq', select: 'tax_map, levy_code_1, owner_first_name, owner_last_name, owner_company' },
   { name: 'taxroll2020', kind: 'socrata', id: 'y9h5-fefu', select: 'tax_map, levy_code_1' },
   { name: 'taxroll2016', kind: 'socrata', id: 'czje-unnn', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2019', kind: 'socrata', id: 'twey-459r', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2018', kind: 'socrata', id: 'yghh-hsch', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2017', kind: 'socrata', id: 'ku9m-5rhr', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2015', kind: 'socrata', id: 'r8g6-9zdt', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2014', kind: 'socrata', id: 't2vi-f8qs', select: 'plat_lot_unit, levy_code' },
+  { name: 'taxroll2013', kind: 'socrata', id: 'a6uy-vymr', select: 'plat_lot_unit, levy_code' },
+  // FY2021–23 have no owner-occupied levy code; their exemption amounts are the candidate stand-in.
+  { name: 'taxroll2021_values', kind: 'socrata', id: 'fawc-z8zq', select: 'tax_map, levy_code_1, total_assessment AS total_assmt, total_exemption AS total_exempt' },
+  { name: 'taxroll2022_values', kind: 'socrata', id: 'c3q4-f95q', select: 'tax_map, levy_code_1, total_assmt, total_exempt' },
+  { name: 'taxroll2023_values', kind: 'socrata', id: 'fd8d-n74v', select: 'tax_map, levy_code_1, total_assmt, total_exempt' },
   // Neighborhood polygons the roll's computed region column points into (names + outlines for the map).
   { name: 'neighborhoods', kind: 'socrata', id: 'ueqj-g33x', select: '_feature_id, lname, the_geom' },
   // City GIS parcels joined to the assessor's CAMA extract: unit count, year built, use code.
