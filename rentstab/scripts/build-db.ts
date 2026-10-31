@@ -361,13 +361,26 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       r.tracs_status_name, excelDate(r.tracs_effective_date), excelDate(r.tracs_overall_expiration_date), excelDate(r.tracs_current_expiration_date),
       Number(r.contract_term_months_qty) || null, Number(r.assisted_units_count) || null, Number(r.rent_to_FMR_ratio) || null, mfParcel.get(r.property_id) ?? null]));
 
+  // City 311 cases (FixMyPVD's public feed of the city's case grid): matched by the street address the city shows. Cases with
+  // a street but no door number stay unmatched. Times in the feed are minutes since 1970.
+  {
+    const feed = rawIf('city_cases_fixmypvd') as any;
+    const types: [string, string][] = feed?.types ?? [], statuses: string[] = feed?.statuses ?? [];
+    const iso = (min: number) => (min ? new Date(min * 60_000).toISOString() : null);
+    const housing = /housing|building code|no heat|vacant private|rodent/i;
+    table('city_cases', ['guid', 'case_type', 'category', 'status', 'created', 'closed', 'address', 'housing', 'parcelId'],
+      (feed?.items ?? []).map((i: any[]) => [i[0], types[i[1]]?.[0] ?? null, types[i[1]]?.[1] ?? null, statuses[i[2]] ?? null, iso(i[3]), iso(i[4]), i[7],
+        housing.test(types[i[1]]?.[0] ?? '') ? 1 : 0, /^\d/.test(i[7] ?? '') ? match(i[7]) : null]));
+  }
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
       rr.units AS registered_rental_units, COALESCE(sr.n, 0) AS str_registrations, COALESCE(sp.n, 0) AS str_city_permits,
       COALESCE(ab.n, 0) AS airbnb_listings, COALESCE(hc.n, 0) AS housing_court_cases, hc.last AS last_housing_court_case,
       COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
-      lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires
+      lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires,
+      COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -378,7 +391,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM vacant_registry GROUP BY parcelId) vr ON vr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_active GROUP BY parcelId) cc ON cc.parcelId = p.id
     LEFT JOIN (SELECT parcelId, MAX(last_letter) last, MAX(units) units FROM lead_certificates GROUP BY parcelId) lc ON lc.parcelId = p.id
-    LEFT JOIN (SELECT parcelId, SUM(assisted_units) units, MIN(expires) expires FROM hud_mf_contracts WHERE status = 'Active' GROUP BY parcelId) mf ON mf.parcelId = p.id`);
+    LEFT JOIN (SELECT parcelId, SUM(assisted_units) units, MIN(expires) expires FROM hud_mf_contracts WHERE status = 'Active' GROUP BY parcelId) mf ON mf.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n, SUM(housing) housing FROM city_cases GROUP BY parcelId) c3 ON c3.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

@@ -142,6 +142,10 @@ export const SOURCES: Source[] = [
     url: 'https://www.hud.gov/sites/dfiles/Housing/documents/MF-Assistance-Sec8-Contracts1.xlsx',
     keep: ['contract_number', 'property_id', 'tracs_effective_date', 'tracs_overall_expiration_date', 'tracs_current_expiration_date', 'tracs_status_name',
       'contract_term_months_qty', 'assisted_units_count', 'program_type_name', 'program_type_group_name', 'rent_to_FMR_ratio', 'rent_to_FMR_description'] },
+  // City 311 cases from FixMyPVD's public map feed (the city's own public grid shows only 7 days; FixMyPVD has kept every case
+  // since 2026-10-09). Case type, status, dates and the street address the city shows — no reporter, no description.
+  // The feed's longest window is 90 days, so each rebuild sees the last 90 days only (see DATA_SOURCES.md).
+  { name: 'city_cases_fixmypvd', kind: 'json', url: 'https://api.fixmypvd.org/api/street/map?days=90' },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -276,7 +280,7 @@ async function main() {
     const rows = s.kind === 'socrata' ? await fetchSocrata(s) : s.kind === 'json' ? await getJson(s.url) : await fetchArcgis(s);
     writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
     manifest[s.name] = {
-      rows: Array.isArray(rows) ? rows.length : Object.keys(rows.data ?? rows.features ?? {}).length,
+      rows: Array.isArray(rows) ? rows.length : (rows.items?.length ?? Object.keys(rows.data ?? rows.features ?? {}).length),
       fetchedAt: new Date().toISOString(),
       url: s.kind === 'socrata' ? `${SOCRATA}/d/${s.id}` : s.kind === 'json' ? s.url : `${s.base ?? ARCGIS}/${s.service}/FeatureServer/${s.layer ?? 0}`,
     };
