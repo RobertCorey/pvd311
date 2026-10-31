@@ -6,7 +6,7 @@ import { readCsv } from '../src/csv.ts';
 import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
 import { readXlsx, streamXlsxRows, streamZipLines, xlsxRecords } from '../src/xlsx.ts';
 import { tableauView } from '../src/tableau.ts';
-import { acsTracts } from '../src/acssf.ts';
+import { acsTractTables, acsTracts } from '../src/acssf.ts';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -36,6 +36,8 @@ type Source =
   | { name: string; kind: 'chas'; url: string; member: string; county: string; dictUrl: string; dictSheet: number }
   /** ACS 5-year Summary File tract estimates (no API key), cells named → "TABLE_LINE". */
   | { name: string; kind: 'acs_sf'; year: number; cells: Record<string, string> }
+  /** Whole ACS tables from the Summary File, every line, long format with the release's labels. */
+  | { name: string; kind: 'acs_sf_tables'; year: number; tables: string[] }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -135,6 +137,9 @@ export const SOURCES: Source[] = [
     households: 'B25003_001', renter_households: 'B25003_003', median_income: 'B19013_001', renter_median_income: 'B25119_003',
     pop: 'B03002_001', white_nh: 'B03002_003', black_nh: 'B03002_004', hispanic: 'B03002_012', asian_nh: 'B03002_006',
     median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001', ...STRUCTURE_CELLS } })),
+  // Distribution tables, every line (labels shift between releases): year householder moved in by tenure, gross rent, year built.
+  ...[2014, 2019, 2020].map((year) => ({ name: `acs_dist_${year}`, kind: 'acs_sf_tables' as const, year, tables: ['B25038', 'B25063', 'B25034'] })),
+  { name: 'acs_dist_latest', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25038,B25063,B25034&geo_ids=140|16000US4459000' },
   // The same structure tables for the latest release (Census Reporter).
   { name: 'acs_tracts_structure', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25032,B25002,B25077&geo_ids=140|16000US4459000' },
   { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },
@@ -399,6 +404,13 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'https://www2.census.gov/econ/bps/Place/' };
       console.log(`${s.name}: ${rows.length} years`);
+      continue;
+    }
+    if (s.kind === 'acs_sf_tables') {
+      const out = await acsTractTables({ year: s.year, st: 'ri', stateDir: 'RhodeIsland', prefix: '14000US44007', tables: s.tables });
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(out));
+      manifest[s.name] = { rows: out.rows.length, fetchedAt: new Date().toISOString(), url: `https://www2.census.gov/programs-surveys/acs/summary_file/${s.year}/` };
+      console.log(`${s.name}: ${out.rows.length} tract-cells`);
       continue;
     }
     if (s.kind === 'acs_sf') {

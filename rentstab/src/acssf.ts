@@ -10,14 +10,29 @@ const BASE = 'https://www2.census.gov/programs-surveys/acs/summary_file';
 /** A cell id is table + line, e.g. "B25064_001". */
 export interface TableStart { seq: string; start: number }
 
-/** Lookup rows → table id → sequence and start position. */
-export function tableStarts(lookupCsv: string): Map<string, TableStart> {
-  const out = new Map<string, TableStart>();
+/** Lookup rows → table id → sequence, start position, and each line's label ("Moved in 2017 or later"). */
+export function tableStarts(lookupCsv: string): Map<string, TableStart & { labels: string[] }> {
+  const out = new Map<string, TableStart & { labels: string[] }>();
   for (const r of readCsv(lookupCsv)) {
-    const start = Number(r['Start Position']);
-    if (r['Table ID'] && start > 0 && !out.has(r['Table ID'])) out.set(r['Table ID'], { seq: r['Sequence Number'], start });
+    const id = r['Table ID'], start = Number(r['Start Position']), line = Number(r['Line Number']);
+    if (id && start > 0 && !out.has(id)) out.set(id, { seq: r['Sequence Number'], start, labels: [] });
+    if (id && line > 0 && Number.isInteger(line) && out.has(id)) out.get(id)!.labels[line - 1] = (r['Table Title'] ?? '').trim();
   }
   return out;
+}
+
+/** Every line of whole tables for every tract whose GEOID starts with `prefix`, long format, with the release's line labels. */
+export async function acsTractTables(o: { year: number; st: string; stateDir: string; prefix: string; tables: string[] }):
+  Promise<{ labels: Record<string, string>; rows: { geoid: string; cell: string; value: number | null }[] }> {
+  const starts = tableStarts(await (await fetch(`${BASE}/${o.year}/documentation/user_tools/ACS_5yr_Seq_Table_Number_Lookup.txt`)).text());
+  const cells: Record<string, string> = {}, labels: Record<string, string> = {};
+  for (const t of o.tables) {
+    const info = starts.get(t);
+    if (!info) throw new Error(`ACS ${o.year}: no table ${t}`);
+    info.labels.forEach((label, i) => { const c = `${t}_${String(i + 1).padStart(3, '0')}`; cells[c] = c; labels[c] = label; });
+  }
+  const wide = await acsTracts({ ...o, cells });
+  return { labels, rows: wide.flatMap((r) => Object.keys(cells).map((c) => ({ geoid: String(r.geoid), cell: c, value: (r[c] as number | null) ?? null }))) };
 }
 
 /** Estimates for every tract whose GEOID starts with `prefix` ("14000US44007"), one object per tract. */
