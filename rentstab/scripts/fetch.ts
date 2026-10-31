@@ -64,6 +64,9 @@ export const SOURCES: Source[] = [
   // Zillow Observed Rent Index (asking rents), monthly: city and ZIP files (we keep the Providence rows).
   { name: 'zori_city', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/City_zori_uc_sfrcondomfr_sm_month.csv' },
   { name: 'zori_zip', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/Zip_zori_uc_sfrcondomfr_sm_month.csv' },
+  // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
+  // request 26-2355 (providenceri.nextrequest.com). Has "Type of Improvement" and "Number of Dwelling Units"; no parcel id.
+  { name: 'permits_2016_2026', kind: 'csv', url: 'https://providenceri.nextrequest.com/documents/70401717/download' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },

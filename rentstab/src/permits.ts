@@ -5,7 +5,7 @@ export type PermitKind = 'new_residential' | 'conversion' | 'dorm' | 'raze' | 'o
 
 export interface Permit {
   id: string;
-  source: 'socrata_2016_2020' | 'arcgis_2019_2024';
+  source: 'socrata_2016_2020' | 'arcgis_2019_2024' | 'opengov_export_2026';
   parcelId: string | null; // plat-lot-unit as on the tax roll
   type: string; // "Building Permit", "Raze Building Permit", …
   permitClass: string | null; // Socrata permitclass / ArcGIS Structure_Type

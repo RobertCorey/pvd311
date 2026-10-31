@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
-import { inGeometry } from '../src/geo.ts';
+import { inGeometry, lotIndex } from '../src/geo.ts';
 import { newUnitsByParcel, permitKind, permitUnits, type Permit } from '../src/permits.ts';
 import type { Parcel } from '../src/types.ts';
 
@@ -195,8 +195,9 @@ export function buildParcels(): Parcel[] {
   }
   console.log(`parcels with a census tract: ${parcels.filter((p) => p.tract).length}/${parcels.length}`);
 
-  // Building permits → normalized table + per-parcel new-units evidence.
-  const permits = loadPermits(new Set(parcels.map((p) => p.id)));
+  // Building permits → normalized table + per-parcel new-units evidence. The 2016–2026 export has addresses only:
+  // match them to the roll's addresses, then to the state's E-911 address points (which fall inside a lot).
+  const permits = loadPermits(new Set(parcels.map((p) => p.id)), addressMatcher(parcels));
   const byId = new Map(parcels.map((p) => [p.id, p]));
   const plotOfId = (id: string) => id.split('-').slice(0, 2).join('-');
   const byPlot = new Map<string, Parcel[]>();
@@ -243,8 +244,32 @@ const isoDay = (v: unknown): string | null => {
   return Number.isNaN(d.getTime()) || d.getUTCFullYear() < 1990 ? null : d.toISOString().slice(0, 10);
 };
 
-/** Both permit extracts, normalized and de-duplicated on record number (the 2019 overlap prefers the newer ArcGIS copy). */
-export function loadPermits(parcelIds: Set<string>): Permit[] {
+/** Street address → parcel id: the roll's own addresses first, then E-911 address points located inside a lot. */
+function addressMatcher(parcels: Parcel[]): (address: string) => string | null {
+  const byStreet = new Map<string, { a: StreetAddress; id: string }[]>();
+  const put = (street: string, v: { a: StreetAddress; id: string }) => (byStreet.get(street) ?? byStreet.set(street, []).get(street)!).push(v);
+  for (const p of parcels) { const a = parseAddress(p.address); if (a) put(a.street, { a, id: p.id }); }
+  const shapesPath = join(DATA, 'raw', 'parcel_shapes.json'), pointsPath = join(DATA, 'raw', 'address_points.json');
+  if (existsSync(shapesPath) && existsSync(pointsPath)) {
+    const shapes = new Map<string, number[][][]>();
+    for (const r of raw('parcel_shapes')) if (r.PROPID && r._geometry?.rings && !shapes.has(r.PROPID)) shapes.set(r.PROPID, r._geometry.rings);
+    const lotOf = lotIndex(parcels.map((p) => shapes.get(p.id) ?? null));
+    for (const pt of raw('address_points')) {
+      if (!pt._geometry || !pt.addrnum || !pt.fullname) continue;
+      const a = parseAddress(`${pt.addrnum} ${pt.fullname}`);
+      const lots = lotOf(pt._geometry.x, pt._geometry.y);
+      if (a && lots.length) put(a.street, { a, id: parcels[lots[0]].id });
+    }
+  }
+  return (address: string) => {
+    const a = parseAddress(address.split(',')[0]);
+    if (!a) return null;
+    return (byStreet.get(a.street) ?? []).find((x) => sameAddress(x.a, a))?.id ?? null;
+  };
+}
+
+/** All permit extracts, normalized and de-duplicated on record number (the newest extract wins for a record). */
+export function loadPermits(parcelIds: Set<string>, matchAddress: (address: string) => string | null = () => null): Permit[] {
   const byRecord = new Map<string, Permit>();
   const add = (p: Omit<Permit, 'kind' | 'units'>) => {
     const full: Permit = { ...p, kind: permitKind(p), units: permitUnits(p.description) };
@@ -263,6 +288,23 @@ export function loadPermits(parcelIds: Set<string>): Permit[] {
     add({ id: r.Record__, source: 'arcgis_2019_2024', parcelId: pid(r.Mbl), type: r.Record_Type ?? '', permitClass: r.Structure_Type ?? null,
       workClass: null, description: r.Description_of_Work ?? '', cost: num(r.Project_Cost), issued: isoDay(r.Permit_License_Issued_Date),
       completed: null, status: r.Record_Status ?? null, address: r.Address ?? null });
+  }
+  // The 2016–2026 OpenGov export: structured improvement type and dwelling-unit count beat reading descriptions.
+  const exportPath = join(DATA, 'raw', 'permits_2016_2026.csv');
+  if (existsSync(exportPath)) {
+    for (const r of readCsv(readFileSync(exportPath, 'utf8').replace(/^\uFEFF/, ''))) {
+      const description = [r['Description of Work'], r['Approved Permit Language']].filter(Boolean).join(' — ');
+      const improvement = (r['Type of Improvement'] ?? '').trim();
+      const units = Number(r['Number of Dwelling Units']) || null;
+      const base = { id: r['Record #'], source: 'opengov_export_2026' as const, parcelId: matchAddress(r.Address ?? ''), type: r['Record Type'] ?? '',
+        permitClass: (r['Structure Type'] ?? '').trim() || null, workClass: improvement || null, description,
+        cost: null as number | null, issued: isoDay(r['Permit/License Issued Date']), completed: null, status: r['Record Status'] ?? null, address: r.Address ?? null };
+      const prior = byRecord.get(base.id);
+      let kind = permitKind(base);
+      if (/^New (Principal )?Structure/i.test(improvement) && units && !/shed|garage|accessory|deck/i.test(description)) kind = /residence hall|dormitor/i.test(description) ? 'dorm' : 'new_residential';
+      else if (/^Change of Use/i.test(improvement) && units) kind = 'conversion';
+      byRecord.set(base.id, { ...base, parcelId: base.parcelId ?? prior?.parcelId ?? null, cost: prior?.cost ?? null, kind, units: units ?? permitUnits(description) });
+    }
   }
   const out = [...byRecord.values()];
   const matched = out.filter((p) => p.parcelId && parcelIds.has(p.parcelId)).length;

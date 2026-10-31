@@ -6,6 +6,7 @@ import { build } from 'esbuild';
 import { parse } from 'yaml';
 import { loadParcels } from '../src/db.ts';
 import { classify } from '../src/classify.ts';
+import { lotIndex } from '../src/geo.ts';
 import { loadRules } from '../src/rules.ts';
 import { housingMix } from '../src/units.ts';
 import type { Parcel } from '../src/types.ts';
@@ -75,36 +76,6 @@ function basemap(hoods: ReturnType<typeof neighborhoods>) {
       const biggest = h.polygons.reduce((a, b) => (b[0].length > a[0].length ? b : a));
       return { type: 'Feature', properties: { name: h.name.toUpperCase() }, geometry: { type: 'Point', coordinates: centroid(biggest) } };
     }) },
-  };
-}
-
-/** Point → indexes of the lots containing it (grid-bucketed bounding boxes, then ray casting on the outer ring). */
-function lotIndex(rings: (number[][][] | null)[]) {
-  const CELL = 0.002, grid = new Map<string, number[]>();
-  const boxes = rings.map((r) => {
-    if (!r) return null;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const [x, y] of r[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-    return [x0, y0, x1, y1];
-  });
-  boxes.forEach((bx, i) => {
-    if (!bx) return;
-    for (let gx = Math.floor(bx[0] / CELL); gx <= Math.floor(bx[2] / CELL); gx++)
-      for (let gy = Math.floor(bx[1] / CELL); gy <= Math.floor(bx[3] / CELL); gy++) {
-        const k = `${gx},${gy}`; (grid.get(k) ?? grid.set(k, []).get(k)!).push(i);
-      }
-  });
-  const inside = (ring: number[][], x: number, y: number) => {
-    let c = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi, yi] = ring[i], [xj, yj] = ring[j];
-      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
-    }
-    return c;
-  };
-  return (x: number, y: number): number[] => {
-    const cands = grid.get(`${Math.floor(x / CELL)},${Math.floor(y / CELL)}`) ?? [];
-    return cands.filter((i) => { const b = boxes[i]!; return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && inside(rings[i]![0], x, y); });
   };
 }
 
