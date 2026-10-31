@@ -3,6 +3,7 @@
 // No keys needed. Sources and why each matters are in DATA_REPORT.md.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readCsv } from '../src/csv.ts';
+import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
 import { readXlsx, xlsxRecords } from '../src/xlsx.ts';
 import { join } from 'node:path';
 
@@ -15,6 +16,7 @@ const RIGIS = 'https://services2.arcgis.com/S8zZg9pg23JUEexQ/arcgis/rest/service
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
   | { name: string; kind: 'json'; url: string }
+  | { name: string; kind: 'leadcerts' }
   | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
@@ -111,6 +113,9 @@ export const SOURCES: Source[] = [
   { name: 'airbnb_listings', kind: 'records', format: 'csv',
     url: 'https://data.insideairbnb.com/united-states/ri/rhode-island/2026-09-28/visualisations/listings.csv', // Inside Airbnb, CC BY 4.0
     keep: ['id', 'neighbourhood', 'room_type', 'price', 'minimum_nights', 'number_of_reviews_ltm', 'availability_365', 'license', 'latitude', 'longitude'] },
+  // RIDOH lead certificates (public Power BI report, refreshed daily): one row per Providence address with certificate
+  // count, latest letter date and units, from the current and legacy (HRC-era) certificate tables.
+  { name: 'lead_certificates', kind: 'leadcerts' },
   // HUD Housing Choice Voucher households per tract (current HUD extract).
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
@@ -190,6 +195,19 @@ async function main() {
     only && existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
   for (const s of SOURCES) {
     if (only && !only.includes(s.name)) continue;
+    if (s.kind === 'leadcerts') {
+      const rpt = { url: 'https://wabi-us-gov-virginia-api.analysis.usgovcloudapi.net/public/reports/querydata?synchronous=true',
+        resourceKey: '01bdc794-2864-41cd-9f47-dadb84abde12', datasetId: '08d6da19-9904-4cf9-8466-48be8303548b', reportId: '80eec9e1-a841-4def-943d-a18efcb692af', modelId: 550161 };
+      const groups = ['AddressID', 'StrNum', 'StrName', 'StrType', 'Zip', 'YearBuilt'];
+      const rows = [
+        ...(await pbiGroupedRows(rpt, 'New Certificates', groups, [['CaseID', COUNT, 'certs'], ['LetterDate', MAX, 'last'], ['NuMUnits', MAX, 'units']], ['Town', 'Providence'])).map((r) => ({ ...r, era: 'current' })),
+        ...(await pbiGroupedRows(rpt, 'Old Certificates', groups, [['CaseID', COUNT, 'certs'], ['LetterDate', MAX, 'last'], ['NumUnits', MAX, 'units']], ['Town', 'Providence'])).map((r) => ({ ...r, era: 'legacy' })),
+      ];
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
+      manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'RIDOH lead certificate Power BI report (public)' };
+      console.log(`${s.name}: ${rows.length} address rows`);
+      continue;
+    }
     if (s.kind === 'records') {
       let recs: Record<string, string>[];
       if (s.format === 'xlsx') {

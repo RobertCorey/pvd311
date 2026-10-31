@@ -47,23 +47,23 @@ City requests for OpenGov exports have come back the same week with no fee.
 | **Rental registry** (RIDOH) | public release of RIDOH request 26-278 | 15,169 statewide → 3,713 rows / 12,152 units matched to Providence addresses (an upper bound: the file has no town column, so same-named streets elsewhere can match) | "registered rental" per parcel, with units and lead status. Owner and manager contacts are never downloaded. |
 | **Short-term rentals** | state DBR active roster (daily CSV); city permits (request 26-2245); Inside Airbnb 2026-09-28 | 412 state registrations (383 matched), 252 city permits, 1,066 Airbnb listings (373 joined through the registration number) | units taken off the long-term market |
 | **Housing Court cases** | public release of city request 26-521 | 5,130 cases 1998 → 2026-03, 4,943 matched (plat/lot, else address) | building distress, receiverships |
+| **Lead-safe certificates** (RIDOH) | the public Power BI report behind RIDOH's lead-certificate search (refreshed daily; `src/powerbi.ts` pages through it) | 44,760 Providence address records (38,592 current 2004→2026, 6,168 legacy 1994→2019), 42,955 matched; 11,928 parcels with a certificate history | evidence a pre-1978 building has been rented; certificate units and dates |
 | **Active code-enforcement cases** | public release of city request 26-1279 | 1,269 cases 2023 → 2026-06, all matched by plat-lot-unit | building condition. Owner names are never downloaded. |
 | **Vacant/abandoned registry** | public release of city request 25-339 | 327 entries 2017–2025, 276 matched by plat/lot | vacancy |
 | **2026 tax sale** | city Collector CSV, as `manual/tax-sale-2026.csv` (name-free; the site blocks scripted downloads) | 214 parcels, 213 matched | distress and turnover |
 | Researched big buildings | `manual/big-buildings.csv` (hand research, with sources) | 66 buildings | hotels, senior care, co-ops, new and converted buildings |
 | Ordinance text, fiscal note, veto | IQM2 ORD-2026-11 / record 52231 | final text, passed 2026-04-16 | `rules/ordinance-2026-04.yaml` |
 
-SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`. View: `parcel_signals` (one row per parcel with every signal). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
+SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`, `lead_certificates`. View: `parcel_signals` (one row per parcel with every signal). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
 
 ## 2. Online, not pulled yet (ranked)
 
 | # | Dataset | Where | Why | Notes |
 |---|---|---|---|---|
-| 1 | **RIDOH lead-certificate records** | RIDOH lead Power BI report; the underlying data is publicly queryable and refreshed daily (grouped counts worked in research; a 2026-10-31 address-level query was rejected because column names have changed, so rediscover the schema via the report's conceptual-schema call first, then page through rows) | 64,621 Providence certificate records with address, units, year built, type and dates: a history of pre-1978 rental addresses | rows are certificates, not properties; dirty dates; page through politely |
-| 2 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
-| 3 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock |
-| 4 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
-| 5 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
+| 1 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
+| 2 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock |
+| 3 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
+| 4 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
 | — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
 
 ## 3. By request (ranked)

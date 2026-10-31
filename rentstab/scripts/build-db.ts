@@ -280,6 +280,13 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       return [r['Record #'], r['Occupancy Type'], excelDate(r['Date Submitted']) ?? isoDay(r['Date Submitted']), excelDate(r['Last Record Activity']) ?? isoDay(r['Last Record Activity']),
         r['Record Status'], r.Address, ids.has(mbl) ? mbl : match(r.Address ?? '')];
     }));
+  // Lead certificates: one row per address and era (current RIDOH / legacy HRC), matched by street address.
+  table('lead_certificates', ['address', 'zip', 'year_built', 'units', 'certificates', 'last_letter', 'era', 'parcelId'],
+    rawIf('lead_certificates').map((r) => {
+      const address = [r.StrNum, r.StrName, r.StrType].filter(Boolean).join(' ');
+      const last = typeof r.last === 'number' ? new Date(r.last).toISOString().slice(0, 10) : null;
+      return [address, r.Zip, r.YearBuilt ?? null, r.units ?? null, r.certs ?? null, last && last >= '1990' && last <= '2027-12-31' ? last : null, r.era, match(address)];
+    }));
   // Vacant/abandoned registry: street numbers are partly redacted in the release, so join on plat/lot.
   table('vacant_registry', ['address', 'plat', 'lot', 'parcelId'],
     rawIf('vacant_registry').filter((r) => r.ADDRESS || r.PLAT).map((r) => [r.ADDRESS, r.PLAT, r.LOT, byPlatLot(String(r.PLAT ?? ''), String(r.LOT ?? '')) ?? match(r.ADDRESS ?? '')]));
@@ -299,7 +306,9 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       (SELECT MAX(filed) FROM housing_court_cases h WHERE h.parcelId = p.id) AS last_housing_court_case,
       (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026,
       (SELECT COUNT(*) FROM vacant_registry v WHERE v.parcelId = p.id) AS vacant_registry,
-      (SELECT COUNT(*) FROM code_cases_active c WHERE c.parcelId = p.id) AS code_cases_active
+      (SELECT COUNT(*) FROM code_cases_active c WHERE c.parcelId = p.id) AS code_cases_active,
+      (SELECT MAX(last_letter) FROM lead_certificates l WHERE l.parcelId = p.id) AS lead_cert_last_letter,
+      (SELECT MAX(units) FROM lead_certificates l WHERE l.parcelId = p.id) AS lead_cert_units
     FROM parcels p`);
 }
 
