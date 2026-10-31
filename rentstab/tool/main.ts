@@ -1,55 +1,48 @@
-// Rent Stabilization Builder: policy controls → classify every parcel in the browser → summary, map, tables, lookup.
+// Providence Rent Cap Map: the April 2026 ordinance (as passed, vetoed) applied to every parcel, one dot per home.
 import { classify, type Classification } from '../src/classify.ts';
 import { normalizeQuery } from '../src/normalize.ts';
-import { applyPolicy, mergePolicy, policyFromRules, type Policy, type Preset } from '../src/policy.ts';
-import type { Rules, Status } from '../src/rules.ts';
+import type { Rules } from '../src/rules.ts';
 import type { Parcel } from '../src/types.ts';
-import { housingMix, MIX_KEYS, unitCounts, type Mix } from '../src/units.ts';
+import { housingMix } from '../src/units.ts';
 
-declare const L: any;
+declare const maplibregl: any;
 
 interface Hood { name: string; polygons: number[][][][] }
 interface Data {
-  generated: string; fetched: string; rules: Rules; presets: Preset[];
-  acs: { label: string; housingUnits: number; renterOccupied: number; vacantForRent: number };
+  generated: string; fetched: string; rules: Rules;
+  acs: { label: string; housingUnits: number; renterOccupied: number; vacantForRent: number; ownerOccupied?: number };
   neighborhoods: Hood[]; cols: string[]; rows: unknown[][]; dict: Record<string, unknown[]>;
 }
-type MixKey = (typeof MIX_KEYS)[number];
-interface Result { c: Classification; mix: Mix; rental: number; rentalHigh: number }
-interface Agg { mix: Record<MixKey, number> & { units: number }; rental: number; rentalHigh: number }
+type Cat = 'owned' | 'controlled' | 'market' | 'subsidized' | 'unclear';
+const CATS: Cat[] = ['owned', 'controlled', 'market', 'subsidized', 'unclear'];
+/** A parcel's homes, split by category and by whether the records settle it ("sure") or it's our best guess. */
+interface Slice { cat: Cat; sure: boolean; n: number }
+interface Row { p: Parcel; c: Classification; slices: Slice[]; homes: number }
+interface Tally { homes: number; sure: Record<Cat, number>; likely: Record<Cat, number>; exemptBy: Map<string, number> }
 
-const MIX_LABEL: Record<MixKey, string> = {
-  owned: 'Owner-occupied', controlled: 'Rent-stabilized', market: 'Market-rate rental', subsidized: 'Already subsidized', unclear: "Can't tell yet",
-};
-const MIX_HELP: Record<MixKey, string> = {
-  owned: "the owner's own unit",
+const LABEL: Record<Cat, string> = { owned: 'Owner-occupied', controlled: 'Rent-stabilized', market: 'Exempt rental', subsidized: 'Already subsidized', unclear: "Can't tell" };
+const HELP: Record<Cat, string> = {
+  owned: "the owner's own home",
   controlled: 'rentals the 4% cap would reach',
-  market: 'rentals the policy exempts',
-  subsidized: 'rents already limited by a program',
-  unclear: 'records can’t settle it',
+  market: 'mostly small owner-occupied buildings and new construction',
+  subsidized: 'rents already limited by a housing program',
+  unclear: 'big or unusual buildings, owners’ second properties',
 };
-const STATUS_LABEL: Record<Status, string> = {
-  likely_covered: 'Likely rent-stabilized', likely_exempt: 'Likely exempt', cant_tell: "Can't tell", not_residential_rental: 'Not a rental',
-};
+const OWNER_MAY_LIVE = 'owner_may_live_here';
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : '–');
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 const $ = (id: string) => document.getElementById(id)!;
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const isDesk = () => window.matchMedia('(min-width: 900px)').matches;
 
 let data: Data;
-let parcels: Parcel[] = [];
-let baseRules: Rules;
-let basePolicy: Policy;
-let baseAgg: Agg;
-let policy: Policy;
-let rules: Rules;
-let results: Result[] = [];
-let hoodAgg = new Map<string, Agg>();
+let rows: Row[] = [];
+let city: Tally;
+const hoods = new Map<string, Tally>();
+let map: any;
 let selected: number | null = null;
 let selectedHood: string | null = null;
-let mapMode: 'hood' | 'dots' = 'hood';
+let sortBy: 'count' | 'share' = 'count';
 
 // ── data ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function toParcel(cols: string[], row: unknown[], dict: Data['dict']): Parcel {
@@ -66,407 +59,266 @@ function toParcel(cols: string[], row: unknown[], dict: Data['dict']): Parcel {
   } as Parcel;
 }
 
-function emptyAgg(): Agg { return { mix: { units: 0, owned: 0, controlled: 0, market: 0, subsidized: 0, unclear: 0 }, rental: 0, rentalHigh: 0 }; }
-function addTo(a: Agg, r: Result) {
-  for (const k of MIX_KEYS) a.mix[k] += r.mix[k];
-  a.mix.units += r.mix.units; a.rental += r.rental; a.rentalHigh += r.rentalHigh;
-}
-
-function run(rs: Rules): Result[] {
-  return parcels.map((p) => {
-    const c = classify(p, rs);
-    const u = unitCounts(p, c, rs);
-    return { c, mix: housingMix(p, c, rs), rental: u.rental, rentalHigh: u.rentalIfOwnerAbsent };
-  });
-}
-
-function aggregate(rs: Result[]): Agg { const a = emptyAgg(); for (const r of rs) addTo(a, r); return a; }
-
-function recompute() {
-  rules = applyPolicy(baseRules, policy);
-  results = run(rules);
-  hoodAgg = new Map();
-  results.forEach((r, i) => {
-    const h = parcels[i].neighborhood ?? '—';
-    if (!hoodAgg.has(h)) hoodAgg.set(h, emptyAgg());
-    addTo(hoodAgg.get(h)!, r);
-  });
-  renderSummary();
-  renderMap();
-  if (isDesk()) renderTables();
-  renderDetail();
-}
-
-// ── controls ────────────────────────────────────────────────────────────────────────────────────────────────────────
-const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
-function monthOptions(): [string, string][] {
-  const out: [string, string][] = [];
-  for (let y = 2027; y <= 2029; y++) for (let m = 1; m <= 12; m += 1) {
-    const iso = `${y}-${String(m).padStart(2, '0')}-${m === 4 && y === 2027 ? '15' : '01'}`;
-    out.push([iso, new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })]);
+/** Best estimate: an owner who gets the tax bill at the property but lacks the owner-occupied rate probably lives there. */
+function slicesFor(p: Parcel, c: Classification, rules: Rules): { slices: Slice[]; homes: number } {
+  const m = housingMix(p, c, rules);
+  if (!m.units) return { slices: [], homes: 0 };
+  if (c.rule === OWNER_MAY_LIVE) {
+    const out: Slice[] = [{ cat: 'owned', sure: false, n: 1 }];
+    if (m.units > 1) out.push({ cat: 'market', sure: false, n: m.units - 1 });
+    return { slices: out, homes: m.units };
   }
-  return out;
-}
-const sel = (id: string, opts: [string | number, string][], value: unknown) =>
-  `<select id="${id}">${opts.map(([v, t]) => `<option value="${v}"${String(v) === String(value) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-const sw = (id: string, label: string, on: boolean) => `<label class="switch"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span>${esc(label)}</label>`;
-const chk = (id: string, label: string, on: boolean) => `<label class="check"><input type="checkbox" id="${id}"${on ? ' checked' : ''}>${esc(label)}</label>`;
-
-function presetMatch(): string {
-  const same = (a: Policy, b: Policy) => JSON.stringify(a) === JSON.stringify(b);
-  return data.presets.find((pr) => same(mergePolicy(basePolicy, pr.policy), policy))?.id ?? 'custom';
+  return { slices: CATS.filter((k) => m[k] > 0).map((k) => ({ cat: k, sure: true, n: m[k] })), homes: m.units };
 }
 
-let railOpen = false;
-function renderRail() {
-  const p = policy;
-  $('rail').classList.toggle('open', railOpen);
-  const presetId = presetMatch();
-  const preset = data.presets.find((x) => x.id === presetId);
-  const ncLook: [string, string][] = [['0', 'none'], ['3', '3 years'], ['5', '5 years'], ['10', '10 years'], ['null', 'no limit']];
-  $('rail').innerHTML = `
-    <div class="group">
-      <label for="preset" class="eyebrow">Start from</label>
-      ${sel('preset', [...data.presets.map((x) => [x.id, x.label] as [string, string]), ...(presetId === 'custom' ? [['custom', 'Your changes'] as [string, string]] : [])], presetId)}
-      <p class="preset-desc">${esc(preset?.description ?? 'Your own mix of exemptions.')}</p>
-      ${presetId !== 'april_2026' ? '<button class="reset" id="reset" type="button">Back to the April 2026 ordinance</button>' : ''}
-      <button class="more phone" id="more" type="button" aria-expanded="${railOpen}">${railOpen ? 'Hide the exemptions' : 'Change the exemptions'}</button>
-    </div>
+const emptyCats = () => ({ owned: 0, controlled: 0, market: 0, subsidized: 0, unclear: 0 });
+const newTally = (): Tally => ({ homes: 0, sure: emptyCats(), likely: emptyCats(), exemptBy: new Map() });
+function add(t: Tally, r: Row) {
+  t.homes += r.homes;
+  for (const s of r.slices) {
+    (s.sure ? t.sure : t.likely)[s.cat] += s.n;
+    if (s.cat === 'market') {
+      const label = r.c.rule === OWNER_MAY_LIVE ? 'owner probably lives in the building' : data.rules.rules.find((x) => x.id === r.c.rule)?.label ?? r.c.rule;
+      t.exemptBy.set(label, (t.exemptBy.get(label) ?? 0) + s.n);
+    }
+  }
+}
+const all = (t: Tally, k: Cat) => t.sure[k] + t.likely[k];
+const rentals = (t: Tally) => t.homes - all(t, 'owned');
 
-    <div class="group desk">
-      <div class="row"><h3>Takes effect</h3>${sel('eff', monthOptions(), p.effectiveDate)}</div>
-      <p class="help">Matters for new construction: the look-back counts back from this date.</p>
-    </div>
+// ── panel ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+const SEGMENTS: [Cat, boolean][] = [['owned', true], ['owned', false], ['controlled', true], ['market', true], ['market', false], ['subsidized', true], ['unclear', true]];
+function bar(t: Tally, cls: string) {
+  return `<div class="${cls}" aria-hidden="true">${SEGMENTS.map(([k, sure]) => {
+    const n = (sure ? t.sure : t.likely)[k];
+    return n ? `<i style="flex-grow:${n};background:var(--${k});opacity:${sure ? 1 : 0.45}"></i>` : '';
+  }).join('')}</div>`;
+}
 
-    <div class="group${p.ownerOccupied.on ? '' : ' off'}">
-      ${sw('oo', 'Owner-occupied buildings exempt', p.ownerOccupied.on)}
-      <div class="inline">Buildings with up to ${sel('oo-units', range(1, 6).map((n) => [n, `${n} unit${n > 1 ? 's' : ''}`]), p.ownerOccupied.maxUnits)}</div>
-      <span class="desk">${chk('oo-adu', 'Plus one accessory unit (ADU)', p.ownerOccupied.adu)}</span>
-      <p class="help">The owner lives in one of the units. Uses the city’s owner-occupied tax rate.</p>
-      <span class="cite">April text: 1–4 units + ADU · Sec. 13-78(n)</span>
-    </div>
+function keyRows(t: Tally) {
+  const order: Cat[] = ['controlled', 'market', 'subsidized', 'owned', 'unclear'];
+  return `<div class="key">${order.map((k) => `
+    <div><span class="sw ${k}"></span><span>${LABEL[k]} <span class="muted">· ${HELP[k]}</span></span><b>${fmt(t.sure[k])}${t.likely[k] ? `<span class="muted" style="font-weight:400"> +${fmt(t.likely[k])}</span>` : ''}</b></div>`).join('')}
+    <p class="note"><span class="sw owned light" style="display:inline-block;margin-right:4px"></span>The lighter “+” homes are owners who get their tax bill at the building but don’t have the owner-occupied tax rate. They probably live there.</p>
+  </div>`;
+}
 
-    <div class="group desk${p.additionalProperty.on ? '' : ' off'}">
-      ${sw('ap', 'One extra property for owner-occupants', p.additionalProperty.on)}
-      <div class="inline">If it has up to ${sel('ap-units', range(1, 6).map((n) => [n, `${n} unit${n > 1 ? 's' : ''}`]), p.additionalProperty.maxUnits)}</div>
-      ${chk('ap-trust', 'Trust-owned property can’t qualify', p.additionalProperty.trustsExcluded)}
-      <p class="help">Must be claimed with deeds, so the map never counts these as exempt; they show as “can’t tell”.</p>
-      <span class="cite">April text: ≤4 units, trusts allowed · Sec. 13-78(n)</span>
-    </div>
-
-    <div class="group${p.newConstruction.on ? '' : ' off'}">
-      ${sw('nc', 'New construction exempt', p.newConstruction.on)}
-      <div class="inline">For ${sel('nc-years', [5, 10, 15, 20, 30].map((n) => [n, `${n} years`]), p.newConstruction.years)}</div>
-      <div class="inline desk">Look-back ${sel('nc-look', ncLook, p.newConstruction.lookbackYears === null ? 'null' : p.newConstruction.lookbackYears)}</div>
-      <p class="help">From the certificate of occupancy. Mill and office conversions count. The look-back reaches buildings finished before the law starts.</p>
-      <span class="cite">April text: 10 years, 5-year look-back · Sec. 13-78(m)</span>
-    </div>
-
-    <div class="group">
-      ${sw('aff', 'Subsidized and deed-restricted housing exempt', p.affordable)}
-      <p class="help">Public housing, LIHTC, project-based Section 8. Voucher holders in private buildings stay covered.</p>
-      <span class="cite">Sec. 13-78(i), (j)</span>
-    </div>
-
-    <div class="group alt">
-      <span class="eyebrow">Other designs · not in the April text</span>
-      <div class="${p.smallBuilding.on ? '' : 'off'}" style="display:grid;gap:6px">
-        ${sw('sb', 'Exempt small buildings, any owner', p.smallBuilding.on)}
-        <div class="inline">Up to ${sel('sb-units', range(1, 6).map((n) => [n, `${n} unit${n > 1 ? 's' : ''}`]), p.smallBuilding.maxUnits)}</div>
+function renderCity() {
+  const t = city;
+  const upper = t.sure.controlled + t.sure.unclear + t.likely.owned + t.likely.market;
+  $('body').innerHTML = `
+    <section class="headline">
+      <span class="big">${fmt(t.sure.controlled)}</span>
+      <h2>rental homes would have been rent-stabilized</h2>
+      <p class="muted">That’s ${pct(t.sure.controlled, rentals(t))} of the city’s ${fmt(rentals(t))} rentals, and ${pct(t.sure.controlled, t.homes)} of all ${fmt(t.homes)} homes. ${fmt(t.sure.unclear)} more are in buildings the records can’t settle; it could reach ${fmt(upper)} if none of those, and none of the lighter homes, turn out exempt.</p>
+    </section>
+    ${bar(t, 'stack')}
+    ${keyRows(t)}
+    <section style="display:grid;gap:8px">
+      <div class="sortbar"><h3 style="margin-right:auto">Neighborhoods</h3>
+        <button type="button" data-sort="count" aria-pressed="${sortBy === 'count'}">Most stabilized</button>
+        <button type="button" data-sort="share" aria-pressed="${sortBy === 'share'}">Highest share</button>
       </div>
-      ${sw('sfc', 'Exempt single-family homes and condos', p.singleFamilyCondo)}
-      <div class="${p.smallPortfolio.on ? '' : 'off'}" style="display:grid;gap:6px">
-        ${sw('spf', 'Exempt small landlords', p.smallPortfolio.on)}
-        <div class="inline">Owners with up to ${sel('spf-units', [1, 2, 3, 4, 6, 8, 10, 20].map((n) => [n, `${n} unit${n > 1 ? 's' : ''}`]), p.smallPortfolio.maxUnits)} in the city</div>
-        <p class="help">Matched on owner names, so LLCs under different names aren’t linked.</p>
-      </div>
+      <p class="note">Each bar is all of a neighborhood’s homes: gray owners, then rentals.</p>
+      <div class="hoods">${hoodList()}</div>
+    </section>`;
+  $('body').querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) => b.addEventListener('click', () => { sortBy = b.dataset.sort as typeof sortBy; renderCity(); }));
+  $('body').querySelectorAll<HTMLButtonElement>('[data-hood]').forEach((b) => b.addEventListener('click', () => pickHood(b.dataset.hood!, true)));
+}
+
+function hoodList() {
+  const list = [...hoods.entries()].filter(([n, t]) => n !== '—' && t.homes > 50);
+  list.sort((a, b) => (sortBy === 'count' ? b[1].sure.controlled - a[1].sure.controlled : b[1].sure.controlled / rentals(b[1]) - a[1].sure.controlled / rentals(a[1])));
+  return list.map(([n, t]) => `<button type="button" data-hood="${esc(n)}">
+      <span class="top"><b>${esc(n)}</b><span>${pct(rentals(t), t.homes)} rentals · ${pct(t.sure.controlled, rentals(t))} of rentals stabilized</span></span>
+      ${bar(t, 'mini')}
+    </button>`).join('');
+}
+
+function renderHood(name: string) {
+  const t = hoods.get(name);
+  if (!t) return renderCity();
+  const r = rentals(t);
+  const topExempt = [...t.exemptBy.entries()].sort((a, b) => b[1] - a[1])[0];
+  $('body').innerHTML = `
+    <div class="card">
+      <button class="back" type="button" id="back">← All of Providence</button>
+      <div><h2>${esc(name)}</h2><p class="muted small">${fmt(t.homes)} homes on record</p></div>
+      ${bar(t, 'stack')}
+      <p>${pct(all(t, 'owned'), t.homes)} of homes are owner-occupied. Of the ${fmt(r)} rentals, <b>${pct(t.sure.controlled, r)}</b> would be rent-stabilized, ${pct(all(t, 'market'), r)} are exempt${topExempt ? ` (mostly: ${esc(topExempt[0].toLowerCase())})` : ''}, ${pct(t.sure.subsidized, r)} are already subsidized, and ${pct(t.sure.unclear, r)} can’t be settled from the records.</p>
+      ${keyRows(t)}
     </div>`;
-  wireRail();
+  $('back').addEventListener('click', clearSelection);
 }
 
-function wireRail() {
-  const num = (id: string) => Number(($(id) as HTMLSelectElement).value);
-  const checked = (id: string) => ($(id) as HTMLInputElement).checked;
-  const bind = (id: string, ev: string, fn: () => void) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, () => { fn(); changed(); }); };
-  bind('preset', 'change', () => {
-    const pr = data.presets.find((x) => x.id === ($('preset') as HTMLSelectElement).value);
-    if (pr) policy = mergePolicy(basePolicy, pr.policy);
-  });
-  bind('reset', 'click', () => { policy = structuredClone(basePolicy); });
-  document.getElementById('more')?.addEventListener('click', () => { railOpen = !railOpen; renderRail(); document.getElementById('more')?.focus(); });
-  bind('eff', 'change', () => { policy.effectiveDate = ($('eff') as HTMLSelectElement).value; });
-  bind('oo', 'change', () => { policy.ownerOccupied.on = checked('oo'); });
-  bind('oo-units', 'change', () => { policy.ownerOccupied.maxUnits = num('oo-units'); });
-  bind('oo-adu', 'change', () => { policy.ownerOccupied.adu = checked('oo-adu'); });
-  bind('ap', 'change', () => { policy.additionalProperty.on = checked('ap'); });
-  bind('ap-units', 'change', () => { policy.additionalProperty.maxUnits = num('ap-units'); });
-  bind('ap-trust', 'change', () => { policy.additionalProperty.trustsExcluded = checked('ap-trust'); });
-  bind('nc', 'change', () => { policy.newConstruction.on = checked('nc'); });
-  bind('nc-years', 'change', () => { policy.newConstruction.years = num('nc-years'); });
-  bind('nc-look', 'change', () => { const v = ($('nc-look') as HTMLSelectElement).value; policy.newConstruction.lookbackYears = v === 'null' ? null : Number(v); });
-  bind('aff', 'change', () => { policy.affordable = checked('aff'); });
-  bind('sb', 'change', () => { policy.smallBuilding.on = checked('sb'); });
-  bind('sb-units', 'change', () => { policy.smallBuilding.maxUnits = num('sb-units'); });
-  bind('sfc', 'change', () => { policy.singleFamilyCondo = checked('sfc'); });
-  bind('spf', 'change', () => { policy.smallPortfolio.on = checked('spf'); });
-  bind('spf-units', 'change', () => { policy.smallPortfolio.maxUnits = num('spf-units'); });
+const PILL: Record<string, [Cat, string]> = {
+  likely_covered: ['controlled', 'Likely rent-stabilized'],
+  likely_exempt: ['market', 'Likely exempt'],
+  cant_tell: ['unclear', "Can't tell"],
+  not_residential_rental: ['owned', 'Not a rental'],
+};
+function renderParcel(i: number) {
+  const { p, c, slices } = rows[i];
+  let [cat, label] = PILL[c.status];
+  if (c.rule === 'public_and_subsidized_housing') cat = 'subsidized';
+  if (c.rule === OWNER_MAY_LIVE) label = "Can't tell · the owner probably lives here";
+  const homes = slices.map((s) => `${s.n} ${LABEL[s.cat].toLowerCase()}${s.sure ? '' : ' (probably)'}`).join(', ');
+  $('body').innerHTML = `
+    <div class="card">
+      <button class="back" type="button" id="back">← ${p.neighborhood ? esc(p.neighborhood) : 'All of Providence'}</button>
+      <div><h2>${esc(p.address)}</h2><p class="muted small">${esc(p.neighborhood ?? '')} · ${esc(p.taxClassDesc)}${p.units ? ` · ${p.units} unit${p.units > 1 ? 's' : ''}` : ''}${p.yearBuilt ? ` · built ${p.yearBuilt}` : ''}</p></div>
+      <p><span class="pill ${cat}">${esc(label)}</span></p>
+      <ul>${c.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      ${homes ? `<p class="small muted">On the map: ${esc(homes)}.</p>` : ''}
+      ${c.confidence_notes.length ? `<details><summary>How sure is this?</summary><ul>${c.confidence_notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
+      <p class="small muted">Seems wrong? You may know something the records don’t: who lives there, how many units it really has, or a subsidy.</p>
+    </div>`;
+  $('back').addEventListener('click', () => { const h = p.neighborhood; selected = null; updateSelection(); h ? pickHood(h, false) : clearSelection(); });
 }
 
-let pending = 0;
-function changed() {
-  const focusId = document.activeElement?.id;
-  renderRail();
-  if (focusId) document.getElementById(focusId)?.focus();
-  cancelAnimationFrame(pending);
-  pending = requestAnimationFrame(recompute);
-}
-
-// ── summary ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-function stackBar(m: Agg['mix'], cls = 'stack') {
-  return `<div class="${cls}" aria-hidden="true">${MIX_KEYS.map((k) => `<i style="flex-grow:${m[k]};background:var(--${k})"></i>`).join('')}</div>`;
-}
-
-function renderSummary() {
-  const a = aggregate(results);
-  const d = a.mix.controlled - baseAgg.mix.controlled;
-  const differs = presetMatch() !== 'april_2026';
-  const rentals = a.mix.controlled + a.mix.market + a.mix.subsidized;
-  $('summary').innerHTML = `
-    <div class="headline">
-      <span class="big">${fmt(a.mix.controlled)}</span>
-      <h2>rental homes would be rent-stabilized</h2>
-      ${differs ? `<span class="delta">${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))} vs. the April 2026 ordinance</span>` : ''}
-    </div>
-    <p class="muted">That’s ${pct(a.mix.controlled, rentals + a.mix.unclear)}–${pct(a.mix.controlled + a.mix.unclear, rentals + a.mix.unclear)} of rentals and ${pct(a.mix.controlled, a.mix.units)} of all ${fmt(a.mix.units)} homes on record. Another ${fmt(a.mix.unclear)} homes are in buildings the records can’t settle.</p>
-    ${stackBar(a.mix)}
-    <div class="legend">${MIX_KEYS.map((k) => `<div><span class="sw ${k}"></span><span><b>${fmt(a.mix[k])}</b> ${MIX_LABEL[k].toLowerCase()} <span class="muted desk">· ${MIX_HELP[k]}</span></span></div>`).join('')}</div>`;
-}
+function clearSelection() { selected = null; selectedHood = null; updateSelection(); renderCity(); }
 
 // ── map ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-let map: any, hoodLayer: any, dotLayer: any;
-const RAMP_MAX = 0.6;
-const RAMP = ['#F3E9DA', '#F6CBB0', '#F6A882', '#F4865A', '#E5612E', '#BD3F12'];
-const rampColor = (share: number) => RAMP[Math.min(RAMP.length - 1, Math.floor((share / RAMP_MAX) * RAMP.length))];
+/** One point per home, arranged in a sunflower spiral around the parcel point so a 3-family reads as three dots. */
+function homePoints() {
+  const features: any[] = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  rows.forEach((r, i) => {
+    const { p } = r;
+    if (p.lat == null || p.lng == null || !r.homes) return;
+    const spacing = r.homes > 64 ? 48 / Math.sqrt(r.homes) : 6; // metres; big buildings stay within ~48 m
+    const mPerLng = 111320 * Math.cos((p.lat * Math.PI) / 180);
+    let j = 0;
+    for (const s of r.slices) {
+      for (let n = 0; n < s.n; n++, j++) {
+        const rad = r.homes === 1 ? 0 : spacing * Math.sqrt(j + 0.5), th = j * golden;
+        features.push({ type: 'Feature', properties: { p: i, k: CATS.indexOf(s.cat), s: s.sure ? 1 : 0 },
+          geometry: { type: 'Point', coordinates: [p.lng + (rad * Math.cos(th)) / mPerLng, p.lat + (rad * Math.sin(th)) / 111320] } });
+      }
+    }
+  });
+  // Shuffle so no category is always drawn on top of the others.
+  let seed = 311;
+  for (let i = features.length - 1; i > 0; i--) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    const j = seed % (i + 1);
+    [features[i], features[j]] = [features[j], features[i]];
+  }
+  return { type: 'FeatureCollection', features };
+}
 
-function initMap() {
-  map = L.map('map', { zoomSnap: 0.25, attributionControl: false, zoomControl: false, minZoom: 11, maxZoom: 18 });
-  L.control.zoom({ position: 'topright' }).addTo(map);
-  const fc = { type: 'FeatureCollection', features: data.neighborhoods.map((h) => ({ type: 'Feature', properties: { name: h.name }, geometry: { type: 'MultiPolygon', coordinates: h.polygons } })) };
-  hoodLayer = L.geoJSON(fc, {
-    style: () => ({ weight: 1, color: css('--ink'), opacity: 0.35, fillOpacity: 0.9 }),
-    onEachFeature: (f: any, layer: any) => {
-      layer.on('click', () => { selectedHood = f.properties.name; selected = null; renderDetail(); renderMap(); });
-      layer.on('mouseover', () => layer.setStyle({ weight: 2.5, opacity: 0.9 }));
-      layer.on('mouseout', () => layer.setStyle({ weight: selectedHood === f.properties.name ? 2.5 : 1, opacity: selectedHood === f.properties.name ? 0.9 : 0.35 }));
+function initMap(basemap: any) {
+  const base = location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
+  const colors = CATS.map((k) => css(`--${k}`));
+  const bounds = new maplibregl.LngLatBounds();
+  for (const f of basemap.hoods.features) for (const poly of f.geometry.coordinates) for (const [x, y] of poly[0]) bounds.extend([x, y]);
+  map = new maplibregl.Map({
+    container: 'map', bounds, fitBoundsOptions: { padding: 16 }, maxBounds: [[bounds.getWest() - 0.03, bounds.getSouth() - 0.02], [bounds.getEast() + 0.03, bounds.getNorth() + 0.02]],
+    minZoom: 11, maxZoom: 19, dragRotate: false, pitchWithRotate: false, attributionControl: false,
+    style: {
+      version: 8,
+      glyphs: `${base}fonts/{fontstack}/{range}.pbf`,
+      sources: {
+        water: { type: 'geojson', data: basemap.water }, parks: { type: 'geojson', data: basemap.parks },
+        roads: { type: 'geojson', data: basemap.roads }, major: { type: 'geojson', data: basemap.major },
+        hoods: { type: 'geojson', data: basemap.hoods }, hoodLabels: { type: 'geojson', data: basemap.hoodLabels },
+        homes: { type: 'geojson', data: homePoints() },
+        sel: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      },
+      layers: [
+        { id: 'land', type: 'background', paint: { 'background-color': css('--land') } },
+        { id: 'water', type: 'fill', source: 'water', paint: { 'fill-color': '#D3E0E8' } },
+        { id: 'parks', type: 'fill', source: 'parks', paint: { 'fill-color': '#E3E9D4' } },
+        { id: 'hoods-hit', type: 'fill', source: 'hoods', paint: { 'fill-color': '#000', 'fill-opacity': 0 } },
+        { id: 'roads', type: 'line', source: 'roads', layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#FFFFFF', 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 12, 0.4, 15, 2.5, 17, 7, 19, 18] } },
+        { id: 'major', type: 'line', source: 'major', layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#FFFFFF', 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 11, 1, 15, 4.5, 17, 11, 19, 26] } },
+        { id: 'hoods-line', type: 'line', source: 'hoods', paint: { 'line-color': css('--ink'), 'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.35, 16, 0.15], 'line-width': 1, 'line-dasharray': [3, 2] } },
+        { id: 'hood-sel', type: 'line', source: 'hoods', filter: ['==', ['get', 'name'], ''], paint: { 'line-color': css('--ink'), 'line-width': 2.2, 'line-opacity': 0.85 } },
+        { id: 'homes', type: 'circle', source: 'homes',
+          paint: {
+            'circle-color': ['match', ['get', 'k'], 0, colors[0], 1, colors[1], 2, colors[2], 3, colors[3], colors[4]],
+            'circle-opacity': ['case', ['==', ['get', 's'], 1], 0.9, 0.38],
+            'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'], 11, 0.8, 13, 1.3, 15, 2.4, 16, 3.2, 17, 4.4, 18, 6.5, 19, 9],
+          } },
+        { id: 'sel', type: 'circle', source: 'sel',
+          paint: { 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': css('--ink'), 'circle-stroke-width': 2,
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 6, 17, 14, 19, 26] } },
+        { id: 'road-labels', type: 'symbol', source: 'roads', minzoom: 15.5,
+          layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': ['NotoSans-Regular'], 'text-size': 11, 'text-letter-spacing': 0.02 },
+          paint: { 'text-color': css('--muted'), 'text-halo-color': '#FFFFFF', 'text-halo-width': 1.4 } },
+        { id: 'major-labels', type: 'symbol', source: 'major', minzoom: 13.5,
+          layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': ['NotoSans-Medium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 13.5, 10.5, 17, 13] },
+          paint: { 'text-color': css('--ink'), 'text-halo-color': '#FFFFFF', 'text-halo-width': 1.6 } },
+        { id: 'hood-labels', type: 'symbol', source: 'hoodLabels', maxzoom: 14.5,
+          layout: { 'text-field': ['get', 'name'], 'text-font': ['NotoSans-Medium'], 'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9.5, 14, 12.5], 'text-letter-spacing': 0.12, 'text-max-width': 7 },
+          paint: { 'text-color': css('--ink'), 'text-opacity': 0.75, 'text-halo-color': css('--land'), 'text-halo-width': 1.8 } },
+      ],
     },
-  }).addTo(map);
-  map.fitBounds(hoodLayer.getBounds(), { padding: [10, 10] });
-  map.setMaxBounds(hoodLayer.getBounds().pad(0.25));
-  dotLayer = new (dotLayerClass())();
-  $('mode-hood').addEventListener('click', () => setMode('hood'));
-  $('mode-dots').addEventListener('click', () => setMode('dots'));
+  });
+  map.touchZoomRotate.disableRotation();
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+  map.on('load', () => $('loading').remove());
+  map.on('mouseenter', 'homes', () => (map.getCanvas().style.cursor = 'pointer'));
+  map.on('mouseleave', 'homes', () => (map.getCanvas().style.cursor = ''));
   map.on('click', (e: any) => {
-    if (mapMode !== 'dots') return;
-    const pt = map.latLngToContainerPoint(e.latlng);
-    let best = -1, bestD = 12 * 12;
-    parcels.forEach((p, i) => {
-      if (p.lat == null || !results[i].mix.units) return;
-      const q = map.latLngToContainerPoint([p.lat, p.lng]);
-      const dd = (q.x - pt.x) ** 2 + (q.y - pt.y) ** 2;
-      if (dd < bestD) { bestD = dd; best = i; }
-    });
-    if (best >= 0) { selected = best; renderDetail(); dotLayer.draw(); }
-  });
-}
-
-function setMode(m: 'hood' | 'dots') {
-  mapMode = m;
-  $('mode-hood').setAttribute('aria-pressed', String(m === 'hood'));
-  $('mode-dots').setAttribute('aria-pressed', String(m === 'dots'));
-  if (m === 'dots') { dotLayer.addTo(map); hoodLayer.setStyle({ fillOpacity: 0, opacity: 0.5 }); }
-  else { map.removeLayer(dotLayer); }
-  renderMap();
-}
-
-/** Dominant bucket for a parcel's dot. */
-function dotKind(r: Result): MixKey | null {
-  if (!r.mix.units) return null;
-  let best: MixKey = 'owned', v = -1;
-  for (const k of MIX_KEYS) if (r.mix[k] > v) { v = r.mix[k]; best = k; }
-  return best;
-}
-
-function dotLayerClass() {
-  return L.Layer.extend({
-    onAdd(this: any, m: any) {
-      this._canvas = L.DomUtil.create('canvas', 'dots');
-      this._canvas.style.pointerEvents = 'none';
-      m.getPanes().overlayPane.appendChild(this._canvas);
-      m.on('moveend zoomend resize viewreset', this.draw, this);
-      m.on('zoomstart', this._hide, this);
-      this.draw();
-    },
-    onRemove(this: any, m: any) {
-      this._canvas.remove();
-      m.off('moveend zoomend resize viewreset', this.draw, this);
-      m.off('zoomstart', this._hide, this);
-    },
-    _hide(this: any) { this._canvas.style.visibility = 'hidden'; },
-    draw(this: any) {
-      const m = this._map; if (!m) return;
-      const size = m.getSize(), dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cv = this._canvas as HTMLCanvasElement;
-      cv.width = size.x * dpr; cv.height = size.y * dpr; cv.style.width = `${size.x}px`; cv.style.height = `${size.y}px`;
-      L.DomUtil.setPosition(cv, m.containerPointToLayerPoint([0, 0]));
-      cv.style.visibility = 'visible';
-      const ctx = cv.getContext('2d')!;
-      ctx.scale(dpr, dpr);
-      const z = m.getZoom(), base = Math.max(1.2, (z - 11) * 0.9);
-      const colors: Record<MixKey, string> = { owned: css('--owned'), controlled: css('--controlled'), market: css('--market'), subsidized: css('--subsidized'), unclear: css('--unclear') };
-      const order: MixKey[] = ['owned', 'unclear', 'market', 'subsidized', 'controlled'];
-      for (const k of order) {
-        ctx.fillStyle = colors[k];
-        ctx.globalAlpha = k === 'owned' ? 0.55 : 0.9;
-        ctx.beginPath();
-        parcels.forEach((p, i) => {
-          if (p.lat == null || dotKind(results[i]) !== k) return;
-          const q = m.latLngToContainerPoint([p.lat, p.lng]);
-          if (q.x < -10 || q.y < -10 || q.x > size.x + 10 || q.y > size.y + 10) return;
-          const rad = base * Math.sqrt(Math.min(results[i].mix.units, 200)) * 0.8 + 0.6;
-          ctx.moveTo(q.x + rad, q.y); ctx.arc(q.x, q.y, rad, 0, Math.PI * 2);
-        });
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      if (selected != null && parcels[selected].lat != null) {
-        const q = m.latLngToContainerPoint([parcels[selected].lat, parcels[selected].lng]);
-        ctx.strokeStyle = css('--ink'); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(q.x, q.y, 9, 0, Math.PI * 2); ctx.stroke();
-      }
-    },
-  });
-}
-
-function renderMap() {
-  if (!map) return;
-  if (mapMode === 'hood') {
-    hoodLayer.eachLayer((layer: any) => {
-      const name = layer.feature.properties.name;
-      const a = hoodAgg.get(name);
-      const share = a && a.mix.units ? a.mix.controlled / a.mix.units : 0;
-      const on = selectedHood === name;
-      layer.setStyle({ fillColor: rampColor(share), fillOpacity: 0.92, weight: on ? 2.5 : 1, opacity: on ? 0.9 : 0.35 });
-      layer.unbindTooltip();
-      if (isDesk()) layer.bindTooltip(`<b>${esc(name)}</b><br>${pct(a?.mix.controlled ?? 0, a?.mix.units ?? 0)} of homes rent-stabilized`, { sticky: true });
-    });
-    $('maplegend').innerHTML = `<span>Share of all homes rent-stabilized</span>
-      <div class="ramp">${RAMP.map((c) => `<i style="background:${c}"></i>`).join('')}</div>
-      <div class="ramplabels"><span>0%</span><span>30%</span><span>60%+</span></div>`;
-  } else {
-    dotLayer.draw();
-    $('maplegend').innerHTML = `<span>Each dot is a parcel, sized by homes, colored by most of its homes</span>
-      <div class="legend" style="grid-template-columns:repeat(3,auto)">${MIX_KEYS.map((k) => `<div><span class="sw ${k}"></span>${MIX_LABEL[k]}</div>`).join('')}</div>`;
-  }
-}
-
-// ── detail panel (address result or neighborhood) ───────────────────────────────────────────────────────────────────
-function mixRows(m: Agg['mix']) {
-  return `<div class="legend" style="grid-template-columns:1fr">${MIX_KEYS.filter((k) => m[k]).map((k) => `<div><span class="sw ${k}"></span><span><b>${fmt(m[k])}</b> ${MIX_LABEL[k].toLowerCase()} · ${pct(m[k], m.units)}</span></div>`).join('')}</div>`;
-}
-
-function renderDetail() {
-  const body = $('detailbody');
-  if (selected != null) {
-    const p = parcels[selected], r = results[selected];
-    const subsidized = r.c.rule === 'public_and_subsidized_housing';
-    let was = '';
-    if (presetMatch() !== 'april_2026') {
-      const before = classify(p, baseRules);
-      if (before.status !== r.c.status) was = `<p class="was">Under the April 2026 ordinance: ${STATUS_LABEL[before.status]}.</p>`;
+    const pad = 7;
+    const hits = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['homes'] });
+    if (hits.length) {
+      let best = hits[0], bd = Infinity;
+      for (const h of hits) { const q = map.project(h.geometry.coordinates); const d = (q.x - e.point.x) ** 2 + (q.y - e.point.y) ** 2; if (d < bd) { bd = d; best = h; } }
+      return pickParcel(best.properties.p, false);
     }
-    body.innerHTML = `
-      <div><h2>${esc(p.address)}</h2><p class="muted small">${esc(p.neighborhood ?? '')} · ${esc(p.taxClassDesc)}${p.units ? ` · ${p.units} unit${p.units > 1 ? 's' : ''}` : ''}${p.yearBuilt ? ` · built ${p.yearBuilt}` : ''}</p></div>
-      <p><span class="pill ${r.c.status}${subsidized ? ' subsidized' : ''}">${STATUS_LABEL[r.c.status]}</span></p>
-      ${was}
-      <ul>${r.c.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-      ${r.c.confidence_notes.length ? `<details><summary>How sure is this?</summary><ul>${r.c.confidence_notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
-      <p class="small muted">Seems wrong? You may know something the records don’t: who lives there, how many units it really has, or a subsidy.</p>`;
-    return;
-  }
-  if (selectedHood) {
-    const a = hoodAgg.get(selectedHood);
-    if (a) {
-      body.innerHTML = `<div><h2>${esc(selectedHood)}</h2><p class="muted small">${fmt(a.mix.units)} homes on record</p></div>
-        <p><b class="num">${pct(a.mix.controlled, a.mix.units)}</b> of homes would be rent-stabilized.</p>
-        ${stackBar(a.mix, 'minibar')}${mixRows(a.mix)}`;
-      return;
+    const hood = map.queryRenderedFeatures(e.point, { layers: ['hoods-hit'] })[0];
+    if (hood) pickHood(hood.properties.name, false);
+  });
+}
+
+function updateSelection() {
+  if (!map?.getSource('sel')) return;
+  const p = selected != null ? rows[selected].p : null;
+  map.getSource('sel').setData({ type: 'FeatureCollection', features: p && p.lat != null ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }] : [] });
+  map.setFilter('hood-sel', ['==', ['get', 'name'], selectedHood ?? '']);
+}
+
+function pickParcel(i: number, fly: boolean) {
+  selected = i; selectedHood = rows[i].p.neighborhood;
+  const p = rows[i].p;
+  if (fly && p.lat != null) map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 17), speed: 1.6 });
+  updateSelection(); renderParcel(i);
+}
+
+function pickHood(name: string, fly: boolean) {
+  selectedHood = name; selected = null;
+  if (fly) {
+    const h = data.neighborhoods.find((x) => x.name === name);
+    if (h) {
+      const b = new maplibregl.LngLatBounds();
+      for (const poly of h.polygons) for (const [x, y] of poly[0]) b.extend([x, y]);
+      map.fitBounds(b, { padding: 40, maxZoom: 15.5 });
     }
   }
-  body.innerHTML = `<p class="muted small">${isDesk() ? 'Pick an address, a neighborhood, or a building on the map.' : 'Pick an address, or tap a neighborhood on the map.'}</p>`;
+  updateSelection(); renderHood(name);
 }
 
-// ── tables (desktop) ────────────────────────────────────────────────────────────────────────────────────────────────
-function renderTables() {
-  const buckets = ['1', '2', '3', '4', '5', '6–10', '11–49', '50+'];
-  const bucket = (u: number) => (u <= 5 ? String(u) : u <= 10 ? '6–10' : u <= 49 ? '11–49' : '50+');
-  const bySize = new Map(buckets.map((b) => [b, emptyAgg()]));
-  const byRule = new Map<string, { label: string; status: Status; units: number }>();
-  results.forEach((r, i) => {
-    if (!r.mix.units) return;
-    addTo(bySize.get(bucket(r.mix.units))!, r);
-    if (r.c.status === 'not_residential_rental') return;
-    const key = `${r.c.status}|${r.c.rule}`;
-    const rule = rules.rules.find((x) => x.id === r.c.rule);
-    const e = byRule.get(key) ?? { label: rule?.label ?? r.c.rule, status: r.c.status, units: 0 };
-    e.units += r.mix.controlled + r.mix.market + r.mix.subsidized + r.mix.unclear;
-    byRule.set(key, e);
-    void i;
-  });
-  const hoods = [...hoodAgg.entries()].filter(([n]) => n !== '—').sort((a, b) => b[1].mix.controlled / (b[1].mix.units || 1) - a[1].mix.controlled / (a[1].mix.units || 1));
-  const ruleRows = [...byRule.values()].sort((a, b) => ['likely_covered', 'likely_exempt', 'cant_tell'].indexOf(a.status) - ['likely_covered', 'likely_exempt', 'cant_tell'].indexOf(b.status) || b.units - a.units);
-  $('tables').innerHTML = `
-    <div class="panel"><h3>By building size</h3><div class="tablewrap"><table>
-      <thead><tr><th>Homes in building</th><th class="n">Homes</th><th class="n">Stabilized</th><th>Mix</th></tr></thead>
-      <tbody>${buckets.map((b) => { const a = bySize.get(b)!; return `<tr><td>${b}</td><td class="n">${fmt(a.mix.units)}</td><td class="n">${pct(a.mix.controlled, a.mix.units)}</td><td class="bar">${stackBar(a.mix, 'minibar')}</td></tr>`; }).join('')}</tbody>
-    </table></div></div>
-    <div class="panel"><h3>By neighborhood</h3><div class="tablewrap"><table>
-      <thead><tr><th>Neighborhood</th><th class="n">Homes</th><th class="n">Stabilized</th><th>Mix</th></tr></thead>
-      <tbody>${hoods.map(([n, a]) => `<tr class="click" data-hood="${esc(n)}"><td>${esc(n)}</td><td class="n">${fmt(a.mix.units)}</td><td class="n">${pct(a.mix.controlled, a.mix.units)}</td><td class="bar">${stackBar(a.mix, 'minibar')}</td></tr>`).join('')}</tbody>
-    </table></div></div>
-    <div class="panel"><h3>Why rentals land where they do</h3><div class="tablewrap"><table>
-      <thead><tr><th>Reason</th><th>Result</th><th class="n">Homes</th></tr></thead>
-      <tbody>${ruleRows.map((e) => `<tr><td>${esc(e.label)}</td><td><span class="pill ${e.status}" style="font-size:11.5px;padding:1px 7px">${STATUS_LABEL[e.status]}</span></td><td class="n">${fmt(e.units)}</td></tr>`).join('')}</tbody>
-    </table></div></div>`;
-  $('tables').querySelectorAll<HTMLElement>('tr[data-hood]').forEach((tr) => tr.addEventListener('click', () => {
-    selectedHood = tr.dataset.hood!; selected = null;
-    hoodLayer.eachLayer((l: any) => { if (l.feature.properties.name === selectedHood) map.fitBounds(l.getBounds(), { padding: [30, 30] }); });
-    renderMap(); renderDetail();
-    $('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }));
-}
-
-// ── address lookup ──────────────────────────────────────────────────────────────────────────────────────────────────
+// ── address search ──────────────────────────────────────────────────────────────────────────────────────────────────
 function wireSearch() {
   const q = $('q') as HTMLInputElement, sugg = $('sugg');
-  const lower = parcels.map((p) => p.address.toLowerCase());
+  const lower = rows.map((r) => r.p.address.toLowerCase());
   let items: number[] = [], active = -1;
   const show = () => {
-    sugg.innerHTML = items.map((i, n) => `<li role="option" data-i="${i}" aria-selected="${n === active}">${esc(parcels[i].address)} <small>${esc(parcels[i].taxClassDesc)}${parcels[i].units ? ` · ${parcels[i].units} unit${parcels[i].units! > 1 ? 's' : ''}` : ''} · ${esc(parcels[i].neighborhood ?? '')}</small></li>`).join('');
+    sugg.innerHTML = items.map((i, n) => { const p = rows[i].p; return `<li role="option" data-i="${i}" aria-selected="${n === active}">${esc(p.address)} <small>${esc(p.taxClassDesc)}${p.units ? ` · ${p.units} unit${p.units > 1 ? 's' : ''}` : ''} · ${esc(p.neighborhood ?? '')}</small></li>`; }).join('');
     q.setAttribute('aria-expanded', String(items.length > 0));
   };
-  const pick = (i: number) => {
-    selected = i; selectedHood = null; items = []; show(); q.value = parcels[i].address;
-    const p = parcels[i];
-    if (p.lat != null) map.setView([p.lat, p.lng], Math.max(map.getZoom(), 16));
-    renderDetail(); if (mapMode === 'dots') dotLayer.draw();
-  };
+  const pick = (i: number) => { items = []; show(); q.value = rows[i].p.address; q.blur(); pickParcel(i, true); };
   q.addEventListener('input', () => {
     const v = normalizeQuery(q.value);
     active = -1;
     if (v.length < 2) { items = []; return show(); }
     const out: number[] = [];
     for (let i = 0; i < lower.length && out.length < 40; i++) if (lower[i].startsWith(v) || lower[i].includes(' ' + v)) out.push(i);
-    const resi = (i: number) => (results[i].mix.units ? 0 : 1);
-    items = out.sort((a, b) => resi(a) - resi(b) || lower[a].length - lower[b].length || lower[a].localeCompare(lower[b])).slice(0, 10);
+    items = out.sort((a, b) => (rows[a].homes ? 0 : 1) - (rows[b].homes ? 0 : 1) || lower[a].length - lower[b].length || lower[a].localeCompare(lower[b])).slice(0, 10);
     show();
   });
   q.addEventListener('keydown', (e) => {
@@ -480,23 +332,32 @@ function wireSearch() {
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function boot() {
-  data = await (await fetch('data.json')).json();
-  parcels = data.rows.map((r) => toParcel(data.cols, r, data.dict));
-  baseRules = data.rules;
-  basePolicy = policyFromRules(baseRules);
-  policy = structuredClone(basePolicy);
-  baseAgg = aggregate(run(baseRules));
-  renderRail();
-  initMap();
+  const [d, basemap] = await Promise.all([fetch('data.json').then((r) => r.json()), fetch('basemap.json').then((r) => r.json())]);
+  data = d;
+  const rules = data.rules;
+  rows = data.rows.map((raw) => {
+    const p = toParcel(data.cols, raw, data.dict);
+    const c = classify(p, rules);
+    return { p, c, ...slicesFor(p, c, rules) };
+  });
+  city = newTally();
+  for (const r of rows) {
+    add(city, r);
+    const h = r.p.neighborhood ?? '—';
+    if (!hoods.has(h)) hoods.set(h, newTally());
+    add(hoods.get(h)!, r);
+  }
+  initMap(basemap);
   wireSearch();
-  recompute();
-  $('footer').innerHTML = `<p>${esc(data.rules.disclaimer)}</p>
-    <p>Sources: Providence FY2026 tax roll (owner-occupied tax rate, assessment 12/31/2024), assessor building records (2024), building permits Dec 2016 – Mar 2024, HUD LIHTC / assisted housing / public housing lists, Providence Housing Authority sites. Data fetched ${esc(data.fetched)}.
-    “Homes on record” are the assessor’s legal units (${fmt(aggregate(results).mix.units)}); the Census counts ${fmt(data.acs.housingUnits)} housing units and ${fmt(data.acs.renterOccupied)} renter households (${esc(data.acs.label)}).</p>`;
-  let wasDesk = isDesk();
-  window.addEventListener('resize', () => { if (isDesk() !== wasDesk) { wasDesk = isDesk(); renderRail(); recompute(); if (!wasDesk && mapMode === 'dots') setMode('hood'); map.invalidateSize(); } });
+  renderCity();
+  $('maplegend').innerHTML = `<b style="font-weight:600">Each dot is one home</b>
+    ${(['controlled', 'market', 'subsidized', 'owned', 'unclear'] as Cat[]).map((k) => `<div class="row"><span class="sw ${k}"></span>${LABEL[k]}</div>`).join('')}
+    <div class="row"><span class="sw owned light"></span><span class="sw market light"></span>Lighter: probably (owner seems to live there)</div>`;
+  $('footer').innerHTML = `<p>${esc(rules.disclaimer)}</p>
+    <p>Homes are the assessor’s legal units, placed at each parcel. Owner-occupancy comes from the city’s owner-occupied tax rate (as of 12/31/2024). The Census counts ${fmt(data.acs.housingUnits)} housing units and ${fmt(data.acs.renterOccupied)} renter households (${esc(data.acs.label)}), and about 29,600 owner-occupied homes, more than the tax rate shows, which is why owners who get their tax bill at the building are counted as probably living there.</p>
+    <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Mar 2024, HUD LIHTC / assisted / public housing lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`;
 }
 
 boot().catch((err) => {
-  $('rail').innerHTML = `<p>Couldn’t load the parcel data (${esc(err.message)}). Reload the page to try again.</p>`;
+  $('loading').textContent = `Couldn’t load the map data (${err.message}). Reload the page to try again.`;
 });

@@ -25,13 +25,17 @@ export function buildParcels(): Parcel[] {
   const cama = new Map<string, any>();
   for (const c of raw('cama')) if (c.PROPID && !cama.has(c.PROPID)) cama.set(c.PROPID, c); // duplicate rows = multipart polygons, identical attributes
 
+  const centroids = new Map<string, { x: number; y: number }>();
+  for (const c of raw('cama_centroids')) if (c.PROPID && c._centroid && !centroids.has(c.PROPID)) centroids.set(c.PROPID, c._centroid);
   const parcels: Parcel[] = roll.map((r) => {
     const c = cama.get(r.tax_map);
     const mail = mailingStreetAndCity([r.mailing_2, r.mailing_3, r.mailing_4, r.mailing_5]);
     const levy: string = r.levy_code_1 ?? '';
     const ooRate = /^OO/.test(levy) ? true : /^NOO?/.test(levy) ? false : null;
     const sale = num(c?.SaleDate);
-    const pt = r.property_location?.coordinates;
+    // Prefer the lot's center; fall back to the roll's geocoded point (which sits on the street).
+    const ctr = centroids.get(r.tax_map);
+    const pt = ctr ? [ctr.x, ctr.y] : r.property_location?.coordinates;
     const prop = parseAddress(r.formated_address);
     const mailAddr = parseAddress(mail.street);
     return {

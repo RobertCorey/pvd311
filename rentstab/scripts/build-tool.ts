@@ -1,4 +1,4 @@
-// Build the policy tool into tool/dist/: data.json (parcels + rules + presets + neighborhoods), app.js, index.html.
+// Build the map into tool/dist/: data.json (parcels + rules + neighborhoods), basemap.json, fonts/, app.js, index.html.
 // `npm run build-tool` (needs data/parcels.sqlite from `npm run rebuild`). Serve with `npm run serve`.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,7 +10,8 @@ import type { Parcel } from '../src/types.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const DIST = join(ROOT, 'tool', 'dist');
-const LEAFLET = '1.9.4';
+const MAPLIBRE = '4.7.1';
+const FONTS = { 'NotoSans-Regular': 'Noto%20Sans%20Regular', 'NotoSans-Medium': 'Noto%20Sans%20Medium' };
 
 // Columns the classifier reads (plus id/address/neighborhood/lat/lng for display). Person and trust owner names, mailing
 // addresses and the addresses of an owner's other parcels stay out: the page needs flags, not dossiers.
@@ -50,9 +51,34 @@ function encode(rows: unknown[][]) {
   return { dict, rows };
 }
 
+/** Basemap as GeoJSON from the city's own layers (the artifact host can't load outside tiles). */
+function basemap(hoods: ReturnType<typeof neighborhoods>) {
+  const raw = (n: string) => JSON.parse(readFileSync(join(ROOT, 'data', 'raw', `${n}.json`), 'utf8')) as any[];
+  const rd = (ring: number[][]) => ring.map(([x, y]) => [r5(x), r5(y)]);
+  const lines = (rows: any[], props: (r: any) => object) => rows.filter((r) => r._geometry?.paths).map((r) => ({
+    type: 'Feature', properties: props(r), geometry: { type: 'MultiLineString', coordinates: r._geometry.paths.map(rd) },
+  }));
+  const polys = (rows: any[], props: (r: any) => object) => rows.filter((r) => r._geometry?.rings).map((r) => ({
+    type: 'Feature', properties: props(r), geometry: { type: 'Polygon', coordinates: r._geometry.rings.map(rd) },
+  }));
+  const title = (n: string) => n.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\b(St|Ave|Rd|Blvd|Pl|Ct|Ln|Dr|Ter|Sq|Pkwy|Hwy)\b/g, (m) => m);
+  const centroid = (poly: (number | null)[][][]) => { let x = 0, y = 0; for (const [a, b] of poly[0]) { x += a ?? 0; y += b ?? 0; } return [r5(x / poly[0].length), r5(y / poly[0].length)]; };
+  return {
+    roads: { type: 'FeatureCollection', features: lines(raw('basemap_roads'), (r) => ({ name: r.Name ? title(r.Name) : '' })) },
+    major: { type: 'FeatureCollection', features: lines(raw('basemap_streets'), (r) => ({ name: r.NAME ? title(r.NAME) : '' })) },
+    parks: { type: 'FeatureCollection', features: polys(raw('basemap_parks'), (r) => ({ name: r.PARKNAME ?? '' })) },
+    water: { type: 'FeatureCollection', features: polys(raw('basemap_water'), () => ({})) },
+    hoods: { type: 'FeatureCollection', features: hoods.map((h) => ({ type: 'Feature', properties: { name: h.name }, geometry: { type: 'MultiPolygon', coordinates: h.polygons } })) },
+    hoodLabels: { type: 'FeatureCollection', features: hoods.map((h) => {
+      const biggest = h.polygons.reduce((a, b) => (b[0].length > a[0].length ? b : a));
+      return { type: 'Feature', properties: { name: h.name.toUpperCase() }, geometry: { type: 'Point', coordinates: centroid(biggest) } };
+    }) },
+  };
+}
+
 function neighborhoods() {
   const raw = JSON.parse(readFileSync(join(ROOT, 'data', 'raw', 'neighborhoods.json'), 'utf8')) as any[];
-  const round = (ring: number[][]) => ring.filter((_, i) => i % 2 === 0 || i === ring.length - 1).map(([x, y]) => [r5(x), r5(y)]);
+  const round = (ring: number[][]) => ring.map(([x, y]) => [r5(x), r5(y)]);
   return raw.map((n) => ({ name: n.lname as string, polygons: (n.the_geom.coordinates as number[][][][]).map((poly) => poly.map(round)) }));
 }
 
@@ -71,18 +97,24 @@ async function main() {
     ...encode(parcels.map(row)),
   };
   writeFileSync(join(DIST, 'data.json'), JSON.stringify(data));
+  writeFileSync(join(DIST, 'basemap.json'), JSON.stringify(basemap(data.neighborhoods)));
+  for (const [name, remote] of Object.entries(FONTS)) {
+    mkdirSync(join(DIST, 'fonts', name), { recursive: true });
+    const buf = Buffer.from(await (await fetch(`https://protomaps.github.io/basemaps-assets/fonts/${remote}/0-255.pbf`)).arrayBuffer());
+    writeFileSync(join(DIST, 'fonts', name, '0-255.pbf'), buf);
+  }
 
   await build({
     entryPoints: [join(ROOT, 'tool', 'main.ts')], bundle: true, format: 'iife', target: 'es2020', minify: true,
     outfile: join(DIST, 'app.js'), logLevel: 'warning',
   });
 
-  // Leaflet's script loads from cdnjs; its stylesheet must be inlined (the artifact CSP allows no external CSS).
-  const css = await (await fetch(`https://cdnjs.cloudflare.com/ajax/libs/leaflet/${LEAFLET}/leaflet.min.css`)).text();
-  const html = readFileSync(join(ROOT, 'tool', 'index.html'), 'utf8').replace('/*LEAFLET_CSS*/', css.replace(/url\([^)]*\)/g, 'none'));
+  // MapLibre's script loads from cdnjs; its stylesheet must be inlined (the artifact CSP allows no external CSS).
+  const css = await (await fetch(`https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/${MAPLIBRE}/maplibre-gl.min.css`)).text();
+  const html = readFileSync(join(ROOT, 'tool', 'index.html'), 'utf8').replace('/*MAPLIBRE_CSS*/', css);
   writeFileSync(join(DIST, 'index.html'), html);
   const kb = (f: string) => Math.round(readFileSync(join(DIST, f)).length / 1024);
-  console.log(`tool/dist: data.json ${kb('data.json')} KB · app.js ${kb('app.js')} KB · index.html ${kb('index.html')} KB · ${parcels.length} parcels`);
+  console.log(`tool/dist: data.json ${kb('data.json')} KB · basemap.json ${kb('basemap.json')} KB · app.js ${kb('app.js')} KB · index.html ${kb('index.html')} KB · ${parcels.length} parcels`);
 }
 
 if (import.meta.main) await main();

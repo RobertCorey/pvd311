@@ -11,17 +11,26 @@ const HUD = 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services';
 
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
-  | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string };
+  | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
+      /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
 export const SOURCES: Source[] = [
   // FY2026 roll (assessment date 12/31/2024, billed Jul 2025). Owner-occupancy levy codes, class, owner + mailing address.
   { name: 'taxroll2026', kind: 'socrata', id: 'p9dd-mw2m', select: '*, :@computed_region_ueqj_g33x, :@computed_region_asue_2ipu' },
   // Prior-year roll, only to measure how often the owner-occupied flag changes year to year (DATA_REPORT.md).
   { name: 'taxroll2025', kind: 'socrata', id: '6ub4-iebe', select: 'tax_map, levy_code_1, class' },
-  // Neighborhood polygons the roll's computed region column points into (names only).
-  { name: 'neighborhoods', kind: 'socrata', id: 'ueqj-g33x', select: '_feature_id, lname' },
+  // Older rolls: owner-occupied flag history (an owner who held the OO rate in recent years and still owns the place
+  // very likely still lives there, even if the certification lapsed).
+  { name: 'taxroll2024', kind: 'socrata', id: 'xvti-7dtw', select: 'tax_map, levy_code_1, first_name, last_name, company' },
+  { name: 'taxroll2023', kind: 'socrata', id: 'fd8d-n74v', select: 'tax_map, levy_code_1, first_name, last_name, company' },
+  { name: 'taxroll2022', kind: 'socrata', id: 'c3q4-f95q', select: 'tax_map, levy_code_1, first_name, last_name, company' },
+  { name: 'taxroll2021', kind: 'socrata', id: 'fawc-z8zq', select: 'tax_map, levy_code_1, owner_first_name, owner_last_name, owner_company' },
+  // Neighborhood polygons the roll's computed region column points into (names + outlines for the map).
+  { name: 'neighborhoods', kind: 'socrata', id: 'ueqj-g33x', select: '_feature_id, lname, the_geom' },
   // City GIS parcels joined to the assessor's CAMA extract: unit count, year built, use code.
   { name: 'cama', kind: 'arcgis', service: 'Parcels_with_CAMA' },
+  // Lot centers (the roll's points sit on the street, where the address was geocoded): dots are drawn here.
+  { name: 'cama_centroids', kind: 'arcgis', service: 'Parcels_with_CAMA', fields: 'PROPID', centroid: true },
   // Providence Housing Authority sites (public housing → regulated affordable).
   { name: 'pha', kind: 'arcgis', service: 'Providence_Housing_Authority', geometry: true, order: 'ObjectId' },
   // Building permits. Socrata "2009-2018" actually holds Dec 2016 – Jan 2020; the ArcGIS map holds Jan 2019 – Mar 2024.
@@ -30,6 +39,11 @@ export const SOURCES: Source[] = [
     select: 'permitnum, permittype, permitclass, workclass, pin, originaladdress1, description, estprojectcost, issueddate, completeddate, statuscurrent, proposeduse, totalsqft' },
   { name: 'permits_2019_2024', kind: 'arcgis', service: 'Interactive_Permitting_Map_(BETA)', order: 'ObjectId',
     fields: 'Record__,Record_Type,Date_Submitted,Permit_License_Issued_Date,Address,Mbl,Record_Status,Project_Cost,Description_of_Work,Structure_Type,Occupancy_Type' },
+  // Basemap layers for the map (the artifact host allows no outside tiles): named streets, parks, water parcels.
+  { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
+  { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
+  { name: 'basemap_parks', kind: 'arcgis', service: 'Parks_And_Open_Space', geometry: true, fields: 'PARKNAME,ACRES', simplify: 0.00002 },
+  { name: 'basemap_water', kind: 'arcgis', service: 'Parcels_with_CAMA', geometry: true, where: "POLY_TYPE='WATER'", fields: 'OBJECTID', simplify: 0.00002 },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -74,9 +88,11 @@ async function fetchArcgis(s: Extract<Source, { kind: 'arcgis' }>): Promise<any[
       where: s.where ?? '1=1', outFields: s.fields ?? '*', returnGeometry: String(!!s.geometry), outSR: '4326',
       orderByFields: s.order ?? 'OBJECTID', resultOffset: String(offset), resultRecordCount: String(page), f: 'json',
     });
+    if (s.simplify) { q.set('maxAllowableOffset', String(s.simplify)); q.set('geometryPrecision', '6'); }
+    if (s.centroid) q.set('returnCentroid', 'true');
     const body = await getJson(`${base}?${q}`);
     if (body.error) throw new Error(`${s.service}: ${JSON.stringify(body.error)}`);
-    rows.push(...body.features.map((f: any) => (s.geometry ? { ...f.attributes, _geometry: f.geometry } : f.attributes)));
+    rows.push(...body.features.map((f: any) => ({ ...f.attributes, ...(s.geometry ? { _geometry: f.geometry } : {}), ...(s.centroid ? { _centroid: f.centroid } : {}) })));
     offset += body.features.length;
     if (!body.features.length || (!body.exceededTransferLimit && body.features.length < page)) return rows;
   }
