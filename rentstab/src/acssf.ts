@@ -11,11 +11,11 @@ const BASE = 'https://www2.census.gov/programs-surveys/acs/summary_file';
 export interface TableStart { seq: string; start: number }
 
 /** Lookup rows → table id → sequence, start position, and each line's label ("Moved in 2017 or later"). */
-export function tableStarts(lookupCsv: string): Map<string, TableStart & { labels: string[] }> {
-  const out = new Map<string, TableStart & { labels: string[] }>();
+export function tableStarts(lookupCsv: string): Map<string, TableStart & { title: string; labels: string[] }> {
+  const out = new Map<string, TableStart & { title: string; labels: string[] }>();
   for (const r of readCsv(lookupCsv)) {
     const id = r['Table ID'], start = Number(r['Start Position']), line = Number(r['Line Number']);
-    if (id && start > 0 && !out.has(id)) out.set(id, { seq: r['Sequence Number'], start, labels: [] });
+    if (id && start > 0 && !out.has(id)) out.set(id, { seq: r['Sequence Number'], start, title: (r['Table Title'] ?? '').trim(), labels: [] });
     if (id && line > 0 && Number.isInteger(line) && out.has(id)) out.get(id)!.labels[line - 1] = (r['Table Title'] ?? '').trim();
   }
   return out;
@@ -38,6 +38,7 @@ export async function acsTractTables(o: { year: number; st: string; stateDir: st
   for (const t of o.tables) {
     const info = starts.get(t);
     if (!info) throw new Error(`ACS ${o.year}: no table ${t}`);
+    labels[`${t}_title`] = info.title;
     info.labels.forEach((label, i) => { const c = `${t}_${String(i + 1).padStart(3, '0')}`; cells[c] = c; labels[c] = label; });
   }
   const wide = await acsTracts({ ...o, cells });

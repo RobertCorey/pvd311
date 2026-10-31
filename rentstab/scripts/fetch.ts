@@ -43,6 +43,16 @@ type Source =
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
+// Housing tables pulled whole for every tract and release (long format, acs_tract_cells):
+//   stock — B25001 units, B25004 vacancy status, B25024 units in structure, B25034 year built, B25041 bedrooms
+//   tenure — B25003B/H/I tenure by race and ethnicity of householder (Black, white non-Hispanic, Hispanic), B25007 by age,
+//            B25009 by household size, B25038 by year moved in, B25118 by household income
+//   rent — B25056 contract rent, B25058 median contract rent, B25063 gross rent, B25070 gross rent as a share of income
+//   costs — B25106 housing costs as a share of income by tenure
+//   condition — B25014 occupants per room (crowding), B25040 heating fuel, B25047 plumbing, B25051 kitchen
+const ACS_HOUSING_TABLES = ['B25001', 'B25004', 'B25024', 'B25034', 'B25041', 'B25003B', 'B25003H', 'B25003I', 'B25007', 'B25009', 'B25038', 'B25118',
+  'B25056', 'B25058', 'B25063', 'B25070', 'B25106', 'B25014', 'B25040', 'B25047', 'B25051'];
+
 // B25032 lines: owner 003–012 (1 detached, 1 attached, 2, 3–4, 5–9, 10–19, 20–49, 50+, mobile, other), renter 014–023 likewise.
 const STRUCTURE_CELLS: Record<string, string> = {
   owner_total: 'B25032_002', owner_1_det: 'B25032_003', owner_1_att: 'B25032_004', owner_2: 'B25032_005', owner_3_4: 'B25032_006',
@@ -139,9 +149,11 @@ export const SOURCES: Source[] = [
     households: 'B25003_001', renter_households: 'B25003_003', median_income: 'B19013_001', renter_median_income: 'B25119_003',
     pop: 'B03002_001', white_nh: 'B03002_003', black_nh: 'B03002_004', hispanic: 'B03002_012', asian_nh: 'B03002_006',
     median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001', ...STRUCTURE_CELLS } })),
-  // Distribution tables, every line (labels shift between releases): year householder moved in by tenure, gross rent, year built.
-  ...[2010, 2014, 2019, 2020].map((year) => ({ name: `acs_dist_${year}`, kind: 'acs_sf_tables' as const, year, tables: ['B25038', 'B25063', 'B25034'] })),
-  { name: 'acs_dist_latest', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25038,B25063,B25034&geo_ids=140|16000US4459000' },
+  // The Census housing tables, every line (labels shift between releases), for every release: see ACS_HOUSING_TABLES.
+  ...[2010, 2014, 2019, 2020].map((year) => ({ name: `acs_dist_${year}`, kind: 'acs_sf_tables' as const, year, tables: ACS_HOUSING_TABLES })),
+  // Census Reporter takes a handful of tables per request, so the latest release comes in groups of six.
+  ...Array.from({ length: Math.ceil(ACS_HOUSING_TABLES.length / 6) }, (_, i) => ({ name: `acs_dist_latest_${i}`, kind: 'json' as const,
+    url: `https://api.censusreporter.org/1.0/data/show/latest?table_ids=${ACS_HOUSING_TABLES.slice(i * 6, i * 6 + 6).join(',')}&geo_ids=140|16000US4459000` })),
   // The same structure tables for the latest release (Census Reporter).
   { name: 'acs_tracts_structure', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25032,B25002,B25077&geo_ids=140|16000US4459000' },
   { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },

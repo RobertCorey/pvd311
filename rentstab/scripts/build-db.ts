@@ -852,8 +852,8 @@ function main() {
       put(geoid, year, (k) => t[cell[k].slice(0, 6)]?.estimate?.[cell[k]] ?? null);
   }
 
-  // ACS distribution tables (year moved in by tenure, gross rent, year built) for the city's tracts, long format, plus each
-  // release's line labels: labels shift between releases ("Moved in 2017 or later" in 2015–19, "2021 or later" in 2020–24).
+  // ACS housing tables (fetch.ts ACS_HOUSING_TABLES) for the city's tracts, long format, plus each release's line labels and
+  // table titles (cell "<table>_title"): labels shift between releases ("Moved in 2017 or later" in 2015–19, "2021 or later" in 2020–24).
   {
     db.exec('CREATE TABLE acs_tract_cells (geoid, year, cell, value, PRIMARY KEY (geoid, year, cell))');
     db.exec('CREATE TABLE acs_cell_labels (year, cell, label, PRIMARY KEY (year, cell))');
@@ -865,11 +865,15 @@ function main() {
       for (const [cell, label] of Object.entries<string>(d?.labels ?? {})) insL.run(year, cell, label);
       for (const r of d?.rows ?? []) if (cityCode(r.geoid)) insC.run(r.geoid, year, r.cell, r.value);
     }
-    const latest = rawIf('acs_dist_latest') as any;
-    const year = Number(String(latest?.release?.name ?? '').match(/\d{4}/)?.[0]) || null;
-    if (year) {
-      for (const [table, meta] of Object.entries<any>(latest.tables ?? {}))
+    // The latest release arrives in parts (Census Reporter takes a few tables per request).
+    for (let part = 0; existsSync(join(DATA, 'raw', `acs_dist_latest_${part}.json`)); part++) {
+      const latest = rawIf(`acs_dist_latest_${part}`) as any;
+      const year = Number(String(latest?.release?.name ?? '').match(/\d{4}/)?.[0]) || null;
+      if (!year) continue;
+      for (const [table, meta] of Object.entries<any>(latest.tables ?? {})) {
+        insL.run(year, `${table}_title`, String(meta.title ?? '').trim());
         for (const [col, c] of Object.entries<any>(meta.columns ?? {})) insL.run(year, `${table}_${col.slice(-3)}`, String(c.name).trim());
+      }
       for (const [geoid, t] of Object.entries<any>(latest.data ?? {}))
         for (const [table, v] of Object.entries<any>(t)) for (const [col, val] of Object.entries<any>(v.estimate ?? {})) insC.run(geoid, year, `${table}_${col.slice(-3)}`, val);
     }
