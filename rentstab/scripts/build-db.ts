@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
+import { inGeometry } from '../src/geo.ts';
 import { newUnitsByParcel, permitKind, permitUnits, type Permit } from '../src/permits.ts';
 import type { Parcel } from '../src/types.ts';
 
@@ -42,6 +43,7 @@ export function buildParcels(): Parcel[] {
       id: r.tax_map,
       address: r.formated_address ?? '',
       neighborhood: hoods.get(String(r[':@computed_region_ueqj_g33x'])) ?? null,
+      tract: null,
       lat: pt ? pt[1] : null,
       lng: pt ? pt[0] : null,
       taxClass: r.class ?? '',
@@ -185,6 +187,14 @@ export function buildParcels(): Parcel[] {
     console.log(`manual labels applied: ${applied}`);
   }
 
+  // Census tract for each parcel (point in tract outline).
+  const tractShapes = existsSync(join(DATA, 'raw', 'acs_tract_shapes.json')) ? (JSON.parse(readFileSync(join(DATA, 'raw', 'acs_tract_shapes.json'), 'utf8')).features as any[]) : [];
+  for (const p of parcels) {
+    if (p.lat == null || p.lng == null) continue;
+    p.tract = tractShapes.find((f) => inGeometry(f.geometry, p.lng!, p.lat!))?.properties.geoid ?? null;
+  }
+  console.log(`parcels with a census tract: ${parcels.filter((p) => p.tract).length}/${parcels.length}`);
+
   // Building permits → normalized table + per-parcel new-units evidence.
   const permits = loadPermits(new Set(parcels.map((p) => p.id)));
   const byId = new Map(parcels.map((p) => [p.id, p]));
@@ -284,6 +294,23 @@ function main() {
   for (const pm of lastPermits) pins.run(...pcols.map((c) => (pm as any)[c] ?? null));
   db.exec('COMMIT');
   db.exec('CREATE INDEX permits_parcel ON permits(parcelId)');
+  // ACS tract table: one row per Providence tract, the few measures a coverage-equity comparison needs.
+  const acsPath = join(DATA, 'raw', 'acs_tracts.json');
+  if (existsSync(acsPath)) {
+    const acs = JSON.parse(readFileSync(acsPath, 'utf8'));
+    const shapes = existsSync(join(DATA, 'raw', 'acs_tract_shapes.json')) ? JSON.parse(readFileSync(join(DATA, 'raw', 'acs_tract_shapes.json'), 'utf8')).features as any[] : [];
+    const nameOf = new Map(shapes.map((f) => [f.properties.geoid, f.properties.name]));
+    db.exec(`CREATE TABLE tracts (geoid PRIMARY KEY, name, households, renter_households, median_income, renter_median_income,
+      white_nh_share, black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, release)`);
+    const ins = db.prepare('INSERT INTO tracts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    for (const [geoid, t] of Object.entries(acs.data) as [string, any][]) {
+      const e = (table: string, col: string) => t[table]?.estimate?.[col] ?? null;
+      const pop = e('B03002', 'B03002001');
+      const share = (col: string) => (pop ? Math.round((1000 * (e('B03002', col) ?? 0)) / pop) / 1000 : null);
+      ins.run(geoid, nameOf.get(geoid) ?? null, e('B25003', 'B25003001'), e('B25003', 'B25003003'), e('B19013', 'B19013001'), e('B25119', 'B25119003'),
+        share('B03002003'), share('B03002004'), share('B03002012'), share('B03002006'), e('B25064', 'B25064001'), e('B25071', 'B25071001'), acs.release?.name ?? null);
+    }
+  }
   db.close();
   console.log(`parcels: ${parcels.length} → ${file}`);
 }

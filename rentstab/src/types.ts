@@ -5,6 +5,7 @@ export interface Parcel {
   id: string; // plat-lot-unit as on the roll, e.g. "016-0194-0000"
   address: string;
   neighborhood: string | null;
+  tract: string | null; // Census tract GEOID (e.g. "14000US44007000800")
   lat: number | null;
   lng: number | null;
 

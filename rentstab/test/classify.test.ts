@@ -9,7 +9,7 @@ const RULES = loadRules(join(import.meta.dirname, '..', 'rules', 'ordinance-2026
 /** Default: a 3-family, non-owner-occupied, person-owned, mail elsewhere, built 1920 — plain covered. */
 function parcel(over: Partial<Parcel> = {}): Parcel {
   return {
-    id: '001-0001-0000', address: '10 Test St', neighborhood: 'Elmhurst', lat: 41.83, lng: -71.43,
+    id: '001-0001-0000', address: '10 Test St', neighborhood: 'Elmhurst', tract: null, lat: 41.83, lng: -71.43,
     taxClass: '2', taxClassDesc: '2-5 Family', levyCode: 'NOO2-5', levyCode2: null, ownerOccupiedTaxRate: false,
     owner: 'Jane Q Smith', ownerKind: 'person', ownerKey: 'person:jane smith', mailingStreet: '99 Elsewhere Rd',
     mailingCity: 'Cranston RI  02920', mailingIsProperty: false, totalAssessment: 400000, totalExempt: 0,

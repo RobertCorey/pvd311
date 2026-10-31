@@ -12,6 +12,7 @@ const RIGIS = 'https://services2.arcgis.com/S8zZg9pg23JUEexQ/arcgis/rest/service
 
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
+  | { name: string; kind: 'json'; url: string }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -52,6 +53,10 @@ export const SOURCES: Source[] = [
   { name: 'building_shapes', kind: 'arcgis', service: 'Buildings_layer', geometry: true, fields: 'OBJECTID', simplify: 0.000005 },
   { name: 'basemap_parks', kind: 'arcgis', service: 'Parks_And_Open_Space', geometry: true, fields: 'PARKNAME,ACRES', simplify: 0.00002 },
   { name: 'basemap_water', kind: 'arcgis', service: 'Parcels_with_CAMA', geometry: true, where: "POLY_TYPE='WATER'", fields: 'OBJECTID', simplify: 0.00002 },
+  // Census tracts (ACS 2020–2024 5-year via Census Reporter, no key): income overall and for renters, race/ethnicity,
+  // tenure, median gross rent, rent burden — plus tract outlines. For who-is-covered comparisons by area.
+  { name: 'acs_tracts', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013,B25119,B03002,B25003,B25064,B25071&geo_ids=140|16000US4459000' },
+  { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -64,7 +69,7 @@ export const SOURCES: Source[] = [
 async function getJson(url: string): Promise<any> {
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      const res = await fetch(url, { headers: { accept: 'application/json', 'user-agent': 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().then((t) => t.slice(0, 200))}`);
       return await res.json();
     } catch (err) {
@@ -115,14 +120,14 @@ async function main() {
     only && existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
   for (const s of SOURCES) {
     if (only && !only.includes(s.name)) continue;
-    const rows = s.kind === 'socrata' ? await fetchSocrata(s) : await fetchArcgis(s);
+    const rows = s.kind === 'socrata' ? await fetchSocrata(s) : s.kind === 'json' ? await getJson(s.url) : await fetchArcgis(s);
     writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
     manifest[s.name] = {
-      rows: rows.length,
+      rows: Array.isArray(rows) ? rows.length : Object.keys(rows.data ?? rows.features ?? {}).length,
       fetchedAt: new Date().toISOString(),
-      url: s.kind === 'socrata' ? `${SOCRATA}/d/${s.id}` : `${s.base ?? ARCGIS}/${s.service}/FeatureServer/${s.layer ?? 0}`,
+      url: s.kind === 'socrata' ? `${SOCRATA}/d/${s.id}` : s.kind === 'json' ? s.url : `${s.base ?? ARCGIS}/${s.service}/FeatureServer/${s.layer ?? 0}`,
     };
-    console.log(`${s.name}: ${rows.length} rows`);
+    console.log(`${s.name}: ${manifest[s.name].rows} rows`);
   }
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
