@@ -56,6 +56,15 @@ City requests for OpenGov exports have come back the same week with no fee.
 
 SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`, `lead_certificates`. View: `parcel_signals` (one row per parcel with every signal). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
 
+### Derived tables (`npm run derive`, part of `rebuild`)
+
+| Table | What | Caveats |
+|---|---|---|
+| `parcel_status` | every parcel's result under the April 2026 rules: status, deciding rule, reason, homes by category | recomputed from the rules YAML on every rebuild |
+| `owner_groups`, `parcel_owner_group` | landlord portfolios over non-owner-occupied parcels with homes. Owners are linked by a shared mailing address, or by an identical name for entities and trusts. 10,376 groups. 46 groups hold 100+ homes each (8,304 homes total, 3,353 covered), e.g. an 8-LLC network sharing one office address with 126 parcels and 279 homes. | a management company's or law firm's address can join unrelated owners; individuals' names stay in the local database and never appear in anything published |
+| `ownership_changes` | owner-name changes between consecutive rolls FY2021→FY2026 on parcels with homes, with seller and buyer kind (person / trust / entity). About 2,200–3,400 a year; entities buy 19–32%. | a name-format change can look like a sale; the FY2026 roll names trustees where earlier rolls named the trust, so FY2026 "trust buyers" (240 vs ~10 a year before) are mostly that artifact |
+| `new_housing_by_year` | dwelling units in new-building and conversion permits by year issued: 135–390 a year in 2017–2020, 400–700 a year since 2021 | a permit isn't a finished building; units missing from a permit count as 0 |
+
 ## 2. Online, not pulled yet (ranked)
 
 | # | Dataset | Where | Why | Notes |

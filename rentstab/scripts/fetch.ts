@@ -28,7 +28,7 @@ export const SOURCES: Source[] = [
   // FY2026 roll (assessment date 12/31/2024, billed Jul 2025). Owner-occupancy levy codes, class, owner + mailing address.
   { name: 'taxroll2026', kind: 'socrata', id: 'p9dd-mw2m', select: '*, :@computed_region_ueqj_g33x, :@computed_region_asue_2ipu' },
   // Prior-year roll, only to measure how often the owner-occupied flag changes year to year (DATA_REPORT.md).
-  { name: 'taxroll2025', kind: 'socrata', id: '6ub4-iebe', select: 'tax_map, levy_code_1, class' },
+  { name: 'taxroll2025', kind: 'socrata', id: '6ub4-iebe', select: 'tax_map, levy_code_1, class, first_name, last_name, company' },
   // Older rolls: owner-occupied flag history (an owner who held the OO rate in recent years and still owns the place
   // very likely still lives there, even if the certification lapsed).
   { name: 'taxroll2024', kind: 'socrata', id: 'xvti-7dtw', select: 'tax_map, levy_code_1, first_name, last_name, company' },

@@ -7,13 +7,14 @@
     "fetch": "node scripts/fetch.ts",
     "build-db": "node scripts/build-db.ts",
     "citywide": "node scripts/citywide.ts",
-    "rebuild": "node scripts/fetch.ts && node scripts/build-db.ts && node scripts/citywide.ts",
+    "rebuild": "node scripts/fetch.ts && node scripts/build-db.ts && node scripts/derive.ts && node scripts/citywide.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p .",
     "serve": "node scripts/serve.ts",
     "spot-checks": "node scripts/spot-checks.ts",
     "profile": "node scripts/profile.ts",
-    "build-tool": "node scripts/build-tool.ts"
+    "build-tool": "node scripts/build-tool.ts",
+    "derive": "node scripts/derive.ts"
   },
   "dependencies": {
     "fflate": "^0.8.2",
