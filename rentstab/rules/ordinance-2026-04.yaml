@@ -112,6 +112,28 @@ rules:
     reason: "{classDesc} on the owner-occupied tax rate — the owner's own home, no rental unit on record"
     note: "Owner-occupied status is the tax assessor's classification as of 12/31/2024."
 
+  # Hand-researched labels for big buildings the city records can't classify (manual/big-buildings.csv, with sources).
+  - id: researched_building
+    label: "Researched building"
+    test: manual_label
+    section: "Sec. 13-78(a), (d), (f), (i), (j), (m); Sec. 13-70(c)"
+    min_confidence: medium      # low-confidence labels are ignored
+    use:
+      hotel: { status: not_residential_rental, reason: "{name} is a hotel → transient lodging, exempt (Sec. 13-78(d))" }
+      office_or_commercial: { status: not_residential_rental, reason: "{name} is offices or commercial space, not homes" }
+      dorm_university: { status: likely_exempt, reason: "{name} is university housing → exempt if residence is incidental to education (Sec. 13-78(a))" }
+      cooperative: { status: likely_exempt, reason: "{name} is a cooperative → proprietary-lease holders are exempt (Sec. 13-78(f))" }
+      apartments_affordable: { status: likely_exempt, reason: "{name} is income-restricted housing → exempt (Sec. 13-78(i), (j))" }
+      apartments_mixed_income: { status: cant_tell, reason: "{name} mixes income-restricted and market-rate apartments → only the market-rate units would be covered" }
+      senior_living: { status: cant_tell, reason: "{name} is senior housing → exempt if it provides assisted living or nursing care (Sec. 13-78(a)), covered if it is independent apartments" }
+      condo: { status: cant_tell, reason: "{name} is condominiums → each unit is covered only if its owner rents it out" }
+      mixed_use: { status: cant_tell, reason: "{name} is mixed use → its apartments are covered unless another exemption applies" }
+      apartments_market: { status: likely_covered, reason: "{name}: {unitsText} market-rate apartments, opened {openedText} → covered" }
+      student_housing_private: { status: likely_covered, reason: "{name}: {unitsText} privately owned student apartments, opened {openedText} → covered (there is no student-housing exemption)" }
+    reason_new: "{name}: {unitsText} apartments {conversionText}opened {opened}, inside the 5-year look-back → exempt as new construction (Sec. 13-78(m))"
+    reason_boundary: "{name}: {unitsText} apartments {conversionText}opened {opened}, the edge of the 5-year look-back → exempt only if the certificate of occupancy came on/after {lookbackDate}"
+    note: "Researched from public sources (listing sites, developers, news); see manual/big-buildings.csv for links."
+
   # Runs early so a lot that read as vacant land in the 2024 assessor extract but has since been built on is caught.
   - id: new_construction_permit
     label: "New building (permit)"

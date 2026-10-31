@@ -57,6 +57,8 @@ export interface Parcel {
   razePermitDate: string | null;
   /** Sum of stated project costs on building permits issued 2019-01 … 2024-03 (renovation intensity). */
   permitCostSince2019: number;
+  /** Hand-researched label for a big ambiguous building (manual/big-buildings.csv). */
+  manual: { use: string; name: string; residentialUnits: number | null; opened: number | null; conversion: boolean; confidence: string; sources: string } | null;
   /** Regulated-affordable signals: '8LAW' levy, HUD LIHTC / assisted multifamily / public housing, PHA site, housing-authority owner. */
   affordableSignals: string[];
 }

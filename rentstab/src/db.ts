@@ -3,12 +3,12 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Parcel } from './types.ts';
 
 export const DB_PATH = join(import.meta.dirname, '..', 'data', 'parcels.sqlite');
-const JSON_COLS = ['affordableSignals', 'ownerOtherResidential', 'newUnitsPermit'] as const;
+const JSON_COLS = ['affordableSignals', 'ownerOtherResidential', 'newUnitsPermit', 'manual'] as const;
 const BOOL_COLS = ['ownerOccupiedTaxRate', 'mailingIsProperty', 'camaMatched', 'homeParcelOwnerOccupied', 'homeParcelSameOwner'] as const;
 
 export function rowToParcel(row: Record<string, any>): Parcel {
   const p: any = { ...row };
-  for (const k of JSON_COLS) p[k] = p[k] == null ? (k === 'newUnitsPermit' ? null : []) : JSON.parse(p[k]);
+  for (const k of JSON_COLS) p[k] = p[k] == null ? (k === 'newUnitsPermit' || k === 'manual' ? null : []) : JSON.parse(p[k]);
   for (const k of BOOL_COLS) p[k] = p[k] == null ? null : !!p[k];
   return p as Parcel;
 }

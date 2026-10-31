@@ -17,7 +17,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     bedrooms: 6, bathrooms: 3, lastSaleDate: '2015-06-01', condoBuildingUnits: null,
     ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false, ownerPortfolioUnits: 3,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
-    newUnitsPermit: null, razePermitDate: null, permitCostSince2019: 0,
+    newUnitsPermit: null, razePermitDate: null, permitCostSince2019: 0, manual: null,
     affordableSignals: [],
     ...over,
   };
@@ -176,6 +176,23 @@ describe('new-building permits — Sec. 13-78(m), stand-in for CO dates', () => 
   });
   it('conversion permits → can\'t tell', () => {
     expect(run({ taxClass: '6', taxClassDesc: 'Commercial II', levyCode: 'C01', ownerOccupiedTaxRate: null, units: 11, newUnitsPermit: permit('2023-01-01', 'conversion', 11) }).status).toBe('cant_tell');
+  });
+});
+
+describe('researched building labels', () => {
+  const big = { taxClass: '6', taxClassDesc: 'Commercial II', levyCode: 'C01', ownerOccupiedTaxRate: null, units: 350, ownerKind: 'entity' as const, owner: 'CJUF III MJH PROVIDENCE LLC', yearBuilt: 1975 };
+  const label = (use: string, extra: object = {}) => ({ use, name: 'Test Place', residentialUnits: null, opened: null, conversion: false, confidence: 'high', sources: 'https://x', ...extra });
+  it('a hotel label settles a big commercial parcel', () => {
+    const r = run({ ...big, manual: label('hotel') });
+    expect(r.status).toBe('not_residential_rental');
+    expect(r.rule).toBe('researched_building');
+  });
+  it('market apartments that opened inside the look-back are new construction', () => {
+    expect(run({ ...big, manual: label('apartments_market', { opened: 2024, residentialUnits: 176 }) }).status).toBe('likely_exempt');
+    expect(run({ ...big, manual: label('apartments_market', { opened: 2015 }) }).status).toBe('likely_covered');
+  });
+  it('low-confidence labels are ignored', () => {
+    expect(run({ ...big, manual: label('hotel', { confidence: 'low' }) }).rule).not.toBe('researched_building');
   });
 });
 

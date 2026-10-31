@@ -1,5 +1,5 @@
 // Normalize data/raw/*.json into data/parcels.sqlite (table `parcels`, one row per tax-roll parcel).
-import { readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
@@ -76,6 +76,7 @@ export function buildParcels(): Parcel[] {
       homeParcelOwnerOccupied: null,
       homeParcelSameOwner: null,
       newUnitsPermit: null,
+      manual: null,
       razePermitDate: null,
       permitCostSince2019: 0,
       affordableSignals: levy === '8LAW' ? ['8law'] : [],
@@ -167,6 +168,23 @@ export function buildParcels(): Parcel[] {
   for (const r of raw('pha')) count('pha', tag('pha_site', r.Street_Name, r._geometry?.y ?? null, r._geometry?.x ?? null));
   console.log('affordable-list matches:', JSON.stringify(matchStats));
 
+  // Hand-researched labels for big ambiguous buildings (committed, with sources). A researched apartment count
+  // replaces the assessor's (which can be hotel rooms, beds or storefronts).
+  const manualPath = join(import.meta.dirname, '..', 'manual', 'big-buildings.csv');
+  if (existsSync(manualPath)) {
+    let applied = 0;
+    for (const m of readCsv(readFileSync(manualPath, 'utf8'))) {
+      const p = parcels.find((x) => x.id === m.id);
+      if (!p) continue;
+      const units = m.residential_units ? Number(String(m.residential_units).replace(/[^0-9]/g, '')) || null : null;
+      const opened = m.residential_opened ? Number(String(m.residential_opened).match(/\d{4}/)?.[0]) || null : null;
+      p.manual = { use: m.use, name: m.name ?? '', residentialUnits: units, opened, conversion: /^y/i.test(m.conversion ?? ''), confidence: m.confidence ?? 'low', sources: m.sources ?? '' };
+      if (units != null && m.confidence !== 'low') p.units = units;
+      applied++;
+    }
+    console.log(`manual labels applied: ${applied}`);
+  }
+
   // Building permits → normalized table + per-parcel new-units evidence.
   const permits = loadPermits(new Set(parcels.map((p) => p.id)));
   const byId = new Map(parcels.map((p) => [p.id, p]));
@@ -191,6 +209,23 @@ export function buildParcels(): Parcel[] {
 }
 
 let lastPermits: Permit[] = [];
+
+/** Minimal CSV reader (quoted fields, commas inside quotes, "" escapes). */
+export function readCsv(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let row: string[] = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; } else if (ch === '"') q = false; else field += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(field); field = ''; if (row.some((x) => x !== '')) rows.push(row); row = []; }
+    else field += ch;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  const [head, ...body] = rows;
+  return body.map((r) => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()])));
+}
 
 const isoDay = (v: unknown): string | null => {
   if (v == null || v === '') return null;

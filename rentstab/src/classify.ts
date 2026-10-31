@@ -51,7 +51,31 @@ function effectiveDates(rules: Rules) {
   return { eff, lookback };
 }
 
+const CONFIDENCE = ['low', 'medium', 'high'];
+
 const TESTS: Record<string, Test> = {
+  manual_label(c, r) {
+    const m = c.p.manual;
+    if (!m || CONFIDENCE.indexOf(m.confidence) < CONFIDENCE.indexOf(String(r.min_confidence ?? 'medium'))) return null;
+    const spec = (r.use as Record<string, { status: Status; reason: string }>)[m.use];
+    if (!spec) return null;
+    const { lookback } = effectiveDates(c.rules);
+    const units = m.residentialUnits ?? c.units;
+    const vars = {
+      ...c.vars, name: m.name || c.p.address, unitsText: units ? `${units}` : 'its', opened: String(m.opened ?? ''),
+      openedText: m.opened ? String(m.opened) : 'year unknown', conversionText: m.conversion ? 'converted from nonresidential space, ' : '',
+      lookbackDate: lookback.toISOString().slice(0, 10),
+    };
+    // Apartments that opened recently are new construction, whatever the label says about the market.
+    const nc = c.rules.rules.find((x) => x.test === 'new_construction');
+    if (m.opened && nc?.enabled !== false && (spec.status === 'likely_covered' || m.use === 'mixed_use')) {
+      const firstFull = lookback.getUTCMonth() === 0 && lookback.getUTCDate() === 1 ? lookback.getUTCFullYear() : lookback.getUTCFullYear() + 1;
+      if (m.opened >= firstFull) return { status: 'likely_exempt', reason: fill(r.reason_new as string, vars), note: r.note };
+      if (m.opened === lookback.getUTCFullYear()) return { status: 'cant_tell', reason: fill(r.reason_boundary as string, vars), note: r.note };
+    }
+    return { status: spec.status, reason: fill(spec.reason, vars), note: r.note };
+  },
+
   new_units_permit(c, r) {
     const ev = c.p.newUnitsPermit;
     if (!ev) return null;
