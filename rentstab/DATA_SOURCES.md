@@ -104,6 +104,7 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 | # | Dataset | Where | Why | Notes |
 |---|---|---|---|---|
+| — | Eviction Lab national data 2000–2018 (filings and judgments by tract, before the 2020+ tracking series we have) | evictionlab.org/get-the-data (email sign-up; checked 2026-10-31) | eviction pressure by tract over two decades | the old open S3 downloads now return 404; needs an email in Rob's name, or the Eviction Lab data request form |
 | 1 | National Housing Preservation Database | preservationdatabase.org (free account required for downloads; checked 2026-10-31) | recorded LIHTC, HOME and other non-Section-8 subsidy **end dates** | Section 8 expirations come straight from HUD and federal-minimum LIHTC dates are derived (`lihtc_projects`); NHPD would replace those estimates with recorded end dates |
 | 2 | Other city ArcGIS layers, found 2026-10-31 | `services6.arcgis.com/wv9mHoqblhTsnqdG` (315 services) | `Vacant_Properties_Layer` (722 parcels, 2023, source unstated); `Buildings_with_FAR` (25 neighborhood totals, not buildings); `Public_Side_Lead_Providence`; `DIS_Active_Permit_VIew` (2024 permit snapshot with unnamed columns) | superseded or unclear: the 2026 permit export and the vacant-registry release cover the permit and vacancy questions; the vacant layer's definition is unstated |
 | — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
