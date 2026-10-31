@@ -61,7 +61,7 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 | # | Dataset | Where | Why | Notes |
 |---|---|---|---|---|
 | 1 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
-| 2 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock Sheet CSV export is disabled on both workbooks (tried 2026-10-31); reading them would mean reverse-engineering Tableau's session protocol. |
+| 2 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock. Sheet CSV export is disabled on both workbooks (tried 2026-10-31); reading them would mean reverse-engineering Tableau's session protocol. |
 | 3 | City 311 housing complaints | FixMyPVD's own `cityCases` feed | complaints by building | ours; join via E-911 addresses |
 | 4 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
 | — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
