@@ -4,6 +4,7 @@
 //   parcel_owner_group   — landlord portfolios: owners linked by a shared mailing address or identical name
 //   ownership_changes    — owner changes between consecutive rolls FY2013–FY2026, with buyer/seller kind
 //   new_housing_by_year  — dwelling units in new-building and conversion permits, by year issued
+//   parcel_zoning        — base zoning district at each lot's centroid
 //   tract_summary, neighborhood_summary, tract_profile (view) — homes by result next to area measures
 // Local analysis tables: individuals' names stay in the local database only; anything published shows entities, never people.
 import { readFileSync } from 'node:fs';
@@ -11,6 +12,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { classify } from '../src/classify.ts';
 import { DB_PATH, loadParcels } from '../src/db.ts';
+import { inRing } from '../src/geo.ts';
 import { ownerKey, ownerKind, parseAddress } from '../src/normalize.ts';
 import { loadRules } from '../src/rules.ts';
 import type { Parcel } from '../src/types.ts';
@@ -108,7 +110,21 @@ function main() {
   const supply = db.prepare(`SELECT substr(issued, 1, 4) AS year, kind, COUNT(*) AS permits, SUM(COALESCE(units, 0)) AS units
     FROM permits WHERE kind IN ('new_residential', 'conversion') AND issued IS NOT NULL GROUP BY 1, 2 ORDER BY 1`).all() as any[];
   insertAll(db, 'new_housing_by_year', ['year', 'kind', 'permits', 'units'], supply.map((r) => [r.year, r.kind, r.permits, r.units]));
-  // 5. Area summaries (tract and neighborhood): homes by result next to the other area measures. Data prep only.
+  // 5. Base zoning district at each lot's centroid. Esri rings mix outer rings and holes, so a point is inside when an odd
+  //    number of a zone's rings contain it.
+  const zones = raw('zoning').map((z) => {
+    const rings: number[][][] = z._geometry?.rings ?? [], pts = rings.flat();
+    return { code: z.Code, district: z.District, rings,
+      box: [Math.min(...pts.map((c) => c[0])), Math.min(...pts.map((c) => c[1])), Math.max(...pts.map((c) => c[0])), Math.max(...pts.map((c) => c[1]))] };
+  });
+  const zoneAt = (x: number, y: number) => zones.find((z) => x >= z.box[0] && x <= z.box[2] && y >= z.box[1] && y <= z.box[3]
+    && z.rings.filter((r) => inRing(r, x, y)).length % 2 === 1);
+  insertAll(db, 'parcel_zoning', ['parcelId', 'zone', 'district'], parcels.flatMap((p) => {
+    const z = p.lat != null && p.lng != null ? zoneAt(p.lng, p.lat) : undefined;
+    return z ? [[p.id, z.code, z.district]] : [];
+  }), 'parcelId');
+
+  // 6. Area summaries (tract and neighborhood): homes by result next to the other area measures. Data prep only.
   for (const [table, col] of [['tract_summary', 'tract'], ['neighborhood_summary', 'neighborhood']] as const) {
     db.exec(`DROP TABLE IF EXISTS ${table}`);
     db.exec(`CREATE TABLE ${table} AS

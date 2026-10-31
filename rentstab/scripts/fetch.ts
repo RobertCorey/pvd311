@@ -62,6 +62,8 @@ export const SOURCES: Source[] = [
   { name: 'permits_2019_2024', kind: 'arcgis', service: 'Interactive_Permitting_Map_(BETA)', order: 'ObjectId',
     fields: 'Record__,Record_Type,Date_Submitted,Permit_License_Issued_Date,Address,Mbl,Record_Status,Project_Cost,Description_of_Work,Structure_Type,Occupancy_Type' },
   // Basemap layers for the map (the artifact host allows no outside tiles): named streets, parks, water parcels.
+  // Base zoning districts (510 polygons). Joined to parcels by lot centroid in derive.ts → parcel_zoning.
+  { name: 'zoning', kind: 'arcgis', service: 'PVD_ZoningMap', layer: 15, geometry: true, fields: 'Code,District' },
   { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
   { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
   // Lot outlines (simplified) — the map shades lots with no homes on record.
