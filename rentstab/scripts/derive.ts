@@ -2,7 +2,7 @@
 //   parcel_status        — every parcel's result under the April 2026 rules, with homes by category
 //   owner_groups,
 //   parcel_owner_group   — landlord portfolios: owners linked by a shared mailing address or identical name
-//   ownership_changes    — owner changes between consecutive rolls FY2021–FY2026, with buyer/seller kind
+//   ownership_changes    — owner changes between consecutive rolls FY2013–FY2026, with buyer/seller kind
 //   new_housing_by_year  — dwelling units in new-building and conversion permits, by year issued
 // Local analysis tables: individuals' names stay in the local database only; anything published shows entities, never people.
 import { readFileSync } from 'node:fs';
@@ -83,23 +83,25 @@ function main() {
   // 3. Ownership changes between consecutive rolls (owner name keys differ), FY2021 → FY2026.
   const ownerByYear = new Map<number, Map<string, { key: string | null; kind: string }>>();
   const nameOf = (r: any) => (r.company?.trim() || r.owner_company?.trim() || [r.first_name ?? r.owner_first_name, r.last_name ?? r.owner_last_name].filter(Boolean).join(' '));
-  for (const y of [2021, 2022, 2023, 2024, 2025]) {
+  for (const y of [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]) {
     const m = new Map<string, { key: string | null; kind: string }>();
-    for (const r of raw(`taxroll${y}`)) { const n = nameOf(r); m.set(String(r.tax_map).trim(), { key: ownerKey(n), kind: ownerKind(n) }); }
+    for (const r of raw(`taxroll${y}`)) { const n = nameOf(r); m.set(String(r.tax_map ?? r.plat_lot_unit).trim(), { key: ownerKey(n), kind: ownerKind(n) }); }
     ownerByYear.set(y, m);
   }
   ownerByYear.set(2026, new Map(parcels.map((p) => [p.id, { key: p.ownerKey, kind: p.ownerKind }])));
   const residential = new Set(parcels.filter((p, i) => mixes[i].units > 0).map((p) => p.id));
   const changes: unknown[][] = [];
-  for (const y of [2022, 2023, 2024, 2025, 2026]) {
+  for (let y = 2014; y <= 2026; y++) {
     const before = ownerByYear.get(y - 1)!, after = ownerByYear.get(y)!;
     for (const [id, a] of after) {
       const b = before.get(id);
       if (!b || !a.key || !b.key || a.key === b.key || !residential.has(id)) continue;
-      changes.push([id, y, b.kind, a.kind]);
+      // Name fields changed shape in FY2014 (one field → first/last) and FY2017 (company field added): only pairs inside
+      // the FY2017+ format compare cleanly.
+      changes.push([id, y, b.kind, a.kind, y >= 2018 ? 1 : 0]);
     }
   }
-  insertAll(db, 'ownership_changes', ['parcelId', 'roll_year', 'seller_kind', 'buyer_kind'], changes);
+  insertAll(db, 'ownership_changes', ['parcelId', 'roll_year', 'seller_kind', 'buyer_kind', 'comparable'], changes);
 
   // 4. New housing supply from permits.
   const supply = db.prepare(`SELECT substr(issued, 1, 4) AS year, kind, COUNT(*) AS permits, SUM(COALESCE(units, 0)) AS units
