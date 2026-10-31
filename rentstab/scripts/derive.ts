@@ -130,9 +130,11 @@ function main() {
   }), 'parcelId');
 
   // Overlay districts at each lot's centroid (historic, Downcity, transit-oriented…); a lot can sit in several.
-  const overlays = raw('overlay_zoning').map((z) => {
-    const rings: number[][][] = z._geometry?.rings ?? [], pts = rings.flat();
-    return { code: z.ZONE, district: z.DISTRICT, rings,
+  // National Register districts join as overlay 'NR' with the district's name.
+  const overlays = [...raw('overlay_zoning').map((z) => ({ code: z.ZONE, district: z.DISTRICT, g: z._geometry })),
+    ...raw('historic_districts_nr').map((z) => ({ code: 'NR', district: `National Register: ${z.SITENAME1}`, g: z._geometry }))].map((z) => {
+    const rings: number[][][] = z.g?.rings ?? [], pts = rings.flat();
+    return { code: z.code, district: z.district, rings,
       box: [Math.min(...pts.map((c) => c[0])), Math.min(...pts.map((c) => c[1])), Math.max(...pts.map((c) => c[0])), Math.max(...pts.map((c) => c[1]))] };
   });
   insertAll(db, 'parcel_overlay', ['parcelId', 'overlay', 'district'], parcels.flatMap((p) => {

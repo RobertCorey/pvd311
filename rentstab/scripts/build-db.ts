@@ -398,6 +398,15 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     }));
   }
 
+  // FEMA flood areas (2019 city layers): the 1% (100-year) list, then the wider 1%-or-0.2% list for the rest.
+  {
+    const toId = (x: unknown) => { const m = String(x ?? '').trim().match(/^(\d{3})(\d{4})(\w{4})$/); return m && ids.has(`${m[1]}-${m[2]}-${m[3]}`) ? `${m[1]}-${m[2]}-${m[3]}` : null; };
+    const zone = new Map<string, string>();
+    for (const r of rawIf('flood_parcels_1pct')) { const id = toId(r.MAP_PAR_ID); if (id) zone.set(id, '1%'); }
+    for (const r of rawIf('flood_parcels_02pct')) { const id = toId(r.MAP_PAR_ID); if (id && !zone.has(id)) zone.set(id, '0.2%'); }
+    table('flood_zone', ['parcelId', 'zone'], [...zone]);
+  }
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
@@ -406,7 +415,7 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
       lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires,
       COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing,
-      COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date
+      COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date, fz.zone AS flood_zone
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -421,7 +430,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, COUNT(*) n, SUM(housing) housing FROM city_cases GROUP BY parcelId) c3 ON c3.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_history GROUP BY parcelId) ch ON ch.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_service_lines GROUP BY parcelId) ls ON ls.parcelId = p.id
-    LEFT JOIN (SELECT parcelId, MAX(price) price, MAX(sale_date) sale_date FROM sales_2024 GROUP BY parcelId) sa ON sa.parcelId = p.id`);
+    LEFT JOIN (SELECT parcelId, MAX(price) price, MAX(sale_date) sale_date FROM sales_2024 GROUP BY parcelId) sa ON sa.parcelId = p.id
+    LEFT JOIN flood_zone fz ON fz.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

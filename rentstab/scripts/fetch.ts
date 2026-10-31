@@ -90,6 +90,11 @@ export const SOURCES: Source[] = [
     fields: 'Record__,Address,Mbl,Record_Status,Date_of_First_Inspection,Complaint_Type,Violations_Found_,Condemnation,Building_Type,Date_1NOV_Issued,Date_2NOV_Issued,Date_Condemnation_Issued' },
   // Providence Water lead service lines (private side), 16,588 lines, edited 2025-01. Joined to the lot the line ends in.
   { name: 'lead_service_lines', kind: 'arcgis', service: 'Private_Side_Lead_Providence', layer: 31, geometry: true, fields: 'LOCATIONID,PRIV_SIDE_,GrantEligibility' },
+  // Parcels in FEMA's 1% (100-year) and 1%-or-0.2% flood areas, city layers from 2019; plat-lot in MAP_PAR_ID ("08008660000").
+  { name: 'flood_parcels_1pct', kind: 'arcgis', service: 'Parcels1percent', fields: 'MAP_PAR_ID' },
+  { name: 'flood_parcels_02pct', kind: 'arcgis', service: 'Parcels1andpoint2percent', fields: 'MAP_PAR_ID' },
+  // National Register historic districts (2016 layer); local historic zoning is in overlay_zoning.
+  { name: 'historic_districts_nr', kind: 'arcgis', service: 'Federal_Historic_Districts_2016', geometry: true, fields: 'SITENAME1' },
   { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
   { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
   // Lot outlines (simplified) — the map shades lots with no homes on record.
