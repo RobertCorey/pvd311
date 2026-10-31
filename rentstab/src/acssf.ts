@@ -21,10 +21,19 @@ export function tableStarts(lookupCsv: string): Map<string, TableStart & { label
   return out;
 }
 
+/** The release's sequence/table lookup: current path first, then the 2006–10 era path. */
+async function lookupText(year: number): Promise<string> {
+  for (const path of [`${year}/documentation/user_tools/ACS_5yr_Seq_Table_Number_Lookup.txt`, `${year}/documentation/5_year/user_tools/Sequence_Number_and_Table_Number_Lookup.txt`]) {
+    const r = await fetch(`${BASE}/${path}`);
+    if (r.ok) return r.text();
+  }
+  throw new Error(`ACS ${year}: no table lookup found`);
+}
+
 /** Every line of whole tables for every tract whose GEOID starts with `prefix`, long format, with the release's line labels. */
 export async function acsTractTables(o: { year: number; st: string; stateDir: string; prefix: string; tables: string[] }):
   Promise<{ labels: Record<string, string>; rows: { geoid: string; cell: string; value: number | null }[] }> {
-  const starts = tableStarts(await (await fetch(`${BASE}/${o.year}/documentation/user_tools/ACS_5yr_Seq_Table_Number_Lookup.txt`)).text());
+  const starts = tableStarts(await lookupText(o.year));
   const cells: Record<string, string> = {}, labels: Record<string, string> = {};
   for (const t of o.tables) {
     const info = starts.get(t);
@@ -39,7 +48,7 @@ export async function acsTractTables(o: { year: number; st: string; stateDir: st
 export async function acsTracts(o: { year: number; st: string; stateDir: string; prefix: string; cells: Record<string, string> }):
   Promise<Record<string, string | number | null>[]> {
   const get = async (url: string) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r; };
-  const starts = tableStarts(await (await get(`${BASE}/${o.year}/documentation/user_tools/ACS_5yr_Seq_Table_Number_Lookup.txt`)).text());
+  const starts = tableStarts(await lookupText(o.year));
   const want = Object.entries(o.cells).map(([name, cell]) => {
     const [table, line] = cell.split('_');
     const t = starts.get(table);
@@ -48,14 +57,15 @@ export async function acsTracts(o: { year: number; st: string; stateDir: string;
   });
   const zip = new Uint8Array(await (await get(`${BASE}/${o.year}/data/5_year_by_state/${o.stateDir}_Tracts_Block_Groups_Only.zip`)).arrayBuffer());
   const seqs = new Set(want.map((w) => w.seq));
-  const geoName = `g${o.year}5${o.st}.csv`;
-  const files = unzipSync(zip, { filter: (f) => f.name === geoName || [...seqs].some((s) => f.name === `e${o.year}5${o.st}${s}000.txt`) });
-  // Geography rows are unquoted except the NAME field; LOGRECNO is the 5th field and GEOID the one shaped like "14000US…".
+  const geoCsv = `g${o.year}5${o.st}.csv`, geoTxt = `g${o.year}5${o.st}.txt`;
+  const files = unzipSync(zip, { filter: (f) => f.name === geoCsv || f.name === geoTxt || [...seqs].some((s) => f.name === `e${o.year}5${o.st}${s}000.txt`) });
+  // Geography: CSV from 2011 on (LOGRECNO is the 5th field, GEOID the one shaped like "14000US…"); fixed-width text in the
+  // 2006–10 release (LOGRECNO in columns 14–20).
   const geoid = new Map<string, string>();
-  for (const line of strFromU8(files[geoName], true).split('\n')) {
-    const f = line.split(',');
-    const g = f.find((x) => /^\d{3}00US\d+$/.test(x));
-    if (g?.startsWith(o.prefix)) geoid.set(f[4], g);
+  const csv = files[geoCsv];
+  for (const line of strFromU8(csv ?? files[geoTxt], true).split('\n')) {
+    const g = csv ? line.split(',').find((x) => /^\d{3}00US\d+$/.test(x)) : line.match(/\d{3}00US\d+/)?.[0];
+    if (g?.startsWith(o.prefix)) geoid.set(csv ? line.split(',')[4] : line.slice(13, 20), g);
   }
   const rows = new Map<string, Record<string, string | number | null>>();
   for (const seq of seqs) {

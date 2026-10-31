@@ -135,12 +135,12 @@ export const SOURCES: Source[] = [
   { name: 'acs_tracts', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013,B25119,B03002,B25003,B25064,B25071&geo_ids=140|16000US4459000' },
   // Earlier ACS 5-year releases (2010-tract geography) from the Summary File, for change over a decade. Same measures as acs_tracts.
   // Also households by tenure and units in structure (B25032), housing units and vacancy (B25002), median home value (B25077).
-  ...[2014, 2019, 2020].map((year) => ({ name: `acs_tracts_${year}`, kind: 'acs_sf' as const, year, cells: {
+  ...[2010, 2014, 2019, 2020].map((year) => ({ name: `acs_tracts_${year}`, kind: 'acs_sf' as const, year, cells: {
     households: 'B25003_001', renter_households: 'B25003_003', median_income: 'B19013_001', renter_median_income: 'B25119_003',
     pop: 'B03002_001', white_nh: 'B03002_003', black_nh: 'B03002_004', hispanic: 'B03002_012', asian_nh: 'B03002_006',
     median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001', ...STRUCTURE_CELLS } })),
   // Distribution tables, every line (labels shift between releases): year householder moved in by tenure, gross rent, year built.
-  ...[2014, 2019, 2020].map((year) => ({ name: `acs_dist_${year}`, kind: 'acs_sf_tables' as const, year, tables: ['B25038', 'B25063', 'B25034'] })),
+  ...[2010, 2014, 2019, 2020].map((year) => ({ name: `acs_dist_${year}`, kind: 'acs_sf_tables' as const, year, tables: ['B25038', 'B25063', 'B25034'] })),
   { name: 'acs_dist_latest', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25038,B25063,B25034&geo_ids=140|16000US4459000' },
   // The same structure tables for the latest release (Census Reporter).
   { name: 'acs_tracts_structure', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25032,B25002,B25077&geo_ids=140|16000US4459000' },

@@ -790,7 +790,7 @@ function main() {
       black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, same_tract_2020, PRIMARY KEY (geoid, year))`);
     const cur = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
     const ins = db.prepare('INSERT INTO acs_tract_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    for (const year of [2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
+    for (const year of [2010, 2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
       if (!(Number(String(r.geoid).slice(12)) < 3800)) continue;
       const share = (v: number | null) => (r.pop ? Math.round((1000 * (v ?? 0)) / r.pop) / 1000 : null);
       ins.run(r.geoid, year, r.households, r.renter_households, r.median_income, r.renter_median_income, share(r.white_nh), share(r.black_nh), share(r.hispanic),
@@ -838,7 +838,7 @@ function main() {
       ins.run(geoid, year, v('renter_total'), sum('renter_1_det', 'renter_1_att'), v('renter_2'), v('renter_3_4'), sum('renter_5_9', 'renter_10_19', 'renter_20_49', 'renter_50_plus'),
         v('owner_total'), sum('owner_1_det', 'owner_1_att'), sum('owner_2', 'owner_3_4'), v('housing_units'), v('vacant_units'), v('median_home_value'));
     };
-    for (const year of [2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
+    for (const year of [2010, 2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
       if (Number(String(r.geoid).slice(12)) < 3800) put(r.geoid, year, (k) => r[k] ?? null);
     }
     const latest = rawIf('acs_tracts_structure') as any;
@@ -860,7 +860,7 @@ function main() {
     const insC = db.prepare('INSERT OR REPLACE INTO acs_tract_cells VALUES (?,?,?,?)'), insL = db.prepare('INSERT OR REPLACE INTO acs_cell_labels VALUES (?,?,?)');
     const cityCode = (g: string) => Number(g.slice(12)) < 3800;
     db.exec('BEGIN');
-    for (const year of [2014, 2019, 2020]) {
+    for (const year of [2010, 2014, 2019, 2020]) {
       const d = rawIf(`acs_dist_${year}`) as any;
       for (const [cell, label] of Object.entries<string>(d?.labels ?? {})) insL.run(year, cell, label);
       for (const r of d?.rows ?? []) if (cityCode(r.geoid)) insC.run(r.geoid, year, r.cell, r.value);
