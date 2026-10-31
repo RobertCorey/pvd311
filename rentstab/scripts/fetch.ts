@@ -2,6 +2,8 @@
 // One command rebuilds from scratch: `npm run rebuild` (fetch → build-db → citywide).
 // No keys needed. Sources and why each matters are in DATA_REPORT.md.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readCsv } from '../src/csv.ts';
+import { readXlsx, xlsxRecords } from '../src/xlsx.ts';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -14,6 +16,9 @@ type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
   | { name: string; kind: 'json'; url: string }
   | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
+  /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
+   *  never reach disk). Written as JSON records. */
+  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -67,6 +72,23 @@ export const SOURCES: Source[] = [
   // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
   // request 26-2355 (providenceri.nextrequest.com). Has "Type of Improvement" and "Number of Dwelling Units"; no parcel id.
   { name: 'permits_2016_2026', kind: 'csv', url: 'https://providenceri.nextrequest.com/documents/70401717/download' },
+  // Released datasets from the public-records portals and state rosters (see DATA_SOURCES.md). Only non-personal
+  // columns are kept: no owner/manager/applicant/host names, emails or phone numbers.
+  { name: 'ridoh_rental_registry', kind: 'records', format: 'xlsx', headerHint: 'Street Address',
+    url: 'https://healthandhumanservicesdepts-ri.nextrequest.com/documents/62808486/download', // RIDOH APRA 26-278, ~2026-05
+    keep: ['Street Address', 'Number of Units', 'License Advisory', 'Built Before 1978', 'Is Exempt'] },
+  { name: 'housing_court_cases', kind: 'records', format: 'xlsx', headerHint: 'CASE NO.',
+    url: 'https://providenceri.nextrequest.com/documents/60717056/download', // city APRA 26-521, 1998 → 2026-03
+    keep: ['CASE NO.', 'Prop.#', 'Property St', 'PLAT', 'LOT', 'DATE FILED', 'PRF', 'RCVR', 'CLOSED', 'FINAL JUDGMENT', 'AMOUNT'] },
+  { name: 'str_city_permits', kind: 'records', format: 'csv',
+    url: 'https://providenceri.nextrequest.com/documents/69800665/download', // city APRA 26-2245, 2024-09 → 2026-09
+    keep: ['Record #', 'Record Type', 'Date Submitted', 'Address', 'Record Status'] },
+  { name: 'str_state_roster', kind: 'records', format: 'csv',
+    url: 'https://ridbrprod.state-reg-eastern.tylerapp.com/licensing/page.request.do?page=page.shorttermRentalRoster', // DBR, daily, active only
+    keep: ['License No.', 'License Status', 'Effective Date', 'Expiration Date', 'STR Address 1', 'STR Address 2', 'STR City', 'STR Zip Code'] },
+  { name: 'airbnb_listings', kind: 'records', format: 'csv',
+    url: 'https://data.insideairbnb.com/united-states/ri/rhode-island/2026-09-28/visualisations/listings.csv', // Inside Airbnb, CC BY 4.0
+    keep: ['id', 'neighbourhood', 'room_type', 'price', 'minimum_nights', 'number_of_reviews_ltm', 'availability_365', 'license', 'latitude', 'longitude'] },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
     fields: 'HUD_ID,PROJECT,PROJ_ADD,STD_ADDR,N_UNITS,LI_UNITS,YR_PIS,LAT,LON' },
@@ -144,6 +166,25 @@ async function main() {
     only && existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
   for (const s of SOURCES) {
     if (only && !only.includes(s.name)) continue;
+    if (s.kind === 'records') {
+      let recs: Record<string, string>[];
+      if (s.format === 'xlsx') {
+        const res = await fetch(s.url, { headers: { 'user-agent': 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
+        if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
+        recs = xlsxRecords(readXlsx(new Uint8Array(await res.arrayBuffer())), s.headerHint ?? s.keep[0]);
+      } else {
+        recs = readCsv((await getText(s.url)).replace(/^\uFEFF/, ''));
+      }
+      // Headers in these files carry stray spaces ("PLAT ", " Expiration Date"): match on trimmed names.
+      const kept = recs.map((r) => {
+        const byTrim = new Map(Object.entries(r).map(([k, v]) => [k.trim(), v]));
+        return Object.fromEntries(s.keep.map((k) => [k, byTrim.get(k) ?? '']));
+      });
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(kept));
+      manifest[s.name] = { rows: kept.length, fetchedAt: new Date().toISOString(), url: s.url };
+      console.log(`${s.name}: ${kept.length} rows (kept ${s.keep.length} columns)`);
+      continue;
+    }
     if (s.kind === 'csv') {
       const text = await getText(s.url, s.browserUA);
       if (!/^[^<]/.test(text) || !text.includes(',')) throw new Error(`${s.name}: expected CSV, got ${text.slice(0, 80)}`);

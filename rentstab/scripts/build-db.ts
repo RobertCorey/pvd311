@@ -3,6 +3,8 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
+import { readCsv } from '../src/csv.ts';
+import { excelDate } from '../src/xlsx.ts';
 import { inGeometry, lotIndex } from '../src/geo.ts';
 import { newUnitsByParcel, permitKind, permitUnits, type Permit } from '../src/permits.ts';
 import type { Parcel } from '../src/types.ts';
@@ -221,28 +223,73 @@ export function buildParcels(): Parcel[] {
 
 let lastPermits: Permit[] = [];
 
-/** Minimal CSV reader (quoted fields, commas inside quotes, "" escapes). */
-export function readCsv(text: string): Record<string, string>[] {
-  const rows: string[][] = [];
-  let row: string[] = [], field = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) { if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; } else if (ch === '"') q = false; else field += ch; }
-    else if (ch === '"') q = true;
-    else if (ch === ',') { row.push(field); field = ''; }
-    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(field); field = ''; if (row.some((x) => x !== '')) rows.push(row); row = []; }
-    else field += ch;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  const [head, ...body] = rows;
-  return body.map((r) => Object.fromEntries(head.map((h, i) => [h.trim(), (r[i] ?? '').trim()])));
-}
-
 const isoDay = (v: unknown): string | null => {
   if (v == null || v === '') return null;
   const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
   return Number.isNaN(d.getTime()) || d.getUTCFullYear() < 1990 ? null : d.toISOString().slice(0, 10);
 };
+
+const rawIf = (name: string): any[] => (existsSync(join(DATA, 'raw', `${name}.json`)) ? raw(name) : []);
+const money = (v: string | undefined) => (v ? Number(v.replace(/[$,\s]/g, '')) || null : null);
+
+function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
+  const match = addressMatcher(parcels);
+  const ids = new Set(parcels.map((p) => p.id));
+  const byPlatLot = (plat: string, lot: string) => {
+    if (!/^\d+$/.test(plat) || !/^\d+$/.test(lot)) return null;
+    const id = `${plat.padStart(3, '0')}-${lot.padStart(4, '0')}-0000`;
+    return ids.has(id) ? id : null;
+  };
+  const table = (name: string, cols: string[], rows: unknown[][]) => {
+    db.exec(`CREATE TABLE ${name} (${cols.map((c) => `"${c}"`).join(', ')})`);
+    const ins = db.prepare(`INSERT INTO ${name} VALUES (${cols.map(() => '?').join(', ')})`);
+    db.exec('BEGIN'); for (const r of rows) ins.run(...(r as any[])); db.exec('COMMIT');
+    const matched = rows.filter((r) => r[cols.indexOf('parcelId')]).length;
+    console.log(`${name}: ${rows.length} rows, ${matched} matched to a parcel`);
+  };
+
+  // RIDOH rental registry has no town column: keep rows whose address matches a Providence parcel or street address.
+  table('rental_registry', ['address', 'units', 'lead_status', 'pre1978', 'exempt', 'parcelId'],
+    rawIf('ridoh_rental_registry').map((r) => [r['Street Address'], Number(r['Number of Units']) || null, r['License Advisory'], r['Built Before 1978'], r['Is Exempt'], match(r['Street Address'] ?? '')])
+      .filter((r) => r[5]));
+  const strRows = rawIf('str_state_roster').filter((r) => /providence/i.test(r['STR City'] ?? '') && !/north|east/i.test(r['STR City'] ?? ''));
+  table('str_registrations', ['license_no', 'status', 'effective', 'expires', 'address', 'unit', 'zip', 'parcelId'],
+    strRows.map((r) => [r['License No.'], r['License Status'], isoDay(r['Effective Date']), isoDay(r['Expiration Date']), r['STR Address 1'], r['STR Address 2'], r['STR Zip Code'], match(r['STR Address 1'] ?? '')]));
+  table('str_city_permits', ['record', 'type', 'submitted', 'address', 'status', 'parcelId'],
+    rawIf('str_city_permits').map((r) => [r['Record #'], r['Record Type'], isoDay(r['Date Submitted']), r.Address, r['Record Status'], match(r.Address ?? '')]));
+  // Airbnb coordinates are jittered ~150 m: join through the state registration number instead.
+  // Registration numbers appear as "RE.0206009.STR", "RE 0206009-STR, expiry date: …": compare the digits only.
+  // Old 5-digit numbers (registrations that lapsed in 2025) have no active roster entry and stay unmatched.
+  const regDigits = (x: unknown) => String(x ?? '').match(/RE[ .]?(\d+)/i)?.[1] ?? '';
+  const regParcel = new Map(strRows.map((r) => [regDigits(r['License No.']), match(r['STR Address 1'] ?? '')]));
+  table('airbnb_listings', ['id', 'room_type', 'price', 'min_nights', 'reviews_ltm', 'availability_365', 'license', 'lat', 'lng', 'parcelId'],
+    rawIf('airbnb_listings').filter((r) => r.neighbourhood === 'Providence').map((r) => {
+      const lic = String(r.license ?? '').trim();
+      return [r.id, r.room_type, money(r.price), Number(r.minimum_nights) || null, Number(r.number_of_reviews_ltm) || 0, Number(r.availability_365) || 0, lic || null, Number(r.latitude), Number(r.longitude), regParcel.get(regDigits(lic)) ?? null];
+    }));
+  table('housing_court_cases', ['case_no', 'address', 'filed', 'closed', 'receivership', 'final_judgment', 'amount', 'parcelId'],
+    rawIf('housing_court_cases').map((r) => {
+      const address = [r['Prop.#'], r['Property St']].filter(Boolean).join(' ');
+      return [r['CASE NO.'], address, excelDate(r['DATE FILED']), excelDate(r.CLOSED), r.RCVR || null, excelDate(r['FINAL JUDGMENT']), money(r.AMOUNT),
+        byPlatLot(r.PLAT, r.LOT) ?? match(address)];
+    }));
+  const taxPath = join(import.meta.dirname, '..', 'manual', 'tax-sale-2026.csv');
+  const tax = existsSync(taxPath) ? readCsv(readFileSync(taxPath, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n')) : [];
+  table('tax_sale_2026', ['parcelId', 'location', 'face_value', 'total', 'sold'],
+    tax.map((r) => [ids.has(r['Parcel Number']) ? r['Parcel Number'] : match(r['Parcel Location'] ?? ''), r['Parcel Location'], money(r['Face Value']), money(r.Total), isoDay(r['Date Purchased'])]));
+
+  // One row per parcel with every signal it has: the map and later analysis read this instead of five joins.
+  db.exec(`CREATE VIEW parcel_signals AS
+    SELECT p.id AS parcelId,
+      (SELECT SUM(units) FROM rental_registry r WHERE r.parcelId = p.id) AS registered_rental_units,
+      (SELECT COUNT(*) FROM str_registrations s WHERE s.parcelId = p.id) AS str_registrations,
+      (SELECT COUNT(*) FROM str_city_permits s WHERE s.parcelId = p.id) AS str_city_permits,
+      (SELECT COUNT(*) FROM airbnb_listings a WHERE a.parcelId = p.id) AS airbnb_listings,
+      (SELECT COUNT(*) FROM housing_court_cases h WHERE h.parcelId = p.id) AS housing_court_cases,
+      (SELECT MAX(filed) FROM housing_court_cases h WHERE h.parcelId = p.id) AS last_housing_court_case,
+      (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026
+    FROM parcels p`);
+}
 
 /** Street address → parcel id: the roll's own addresses first, then E-911 address points located inside a lot. */
 function addressMatcher(parcels: Parcel[]): (address: string) => string | null {
@@ -364,6 +411,9 @@ function main() {
       for (const [k, v] of Object.entries(r)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v) zins.run(r.RegionName, r.RegionType, k.slice(0, 7), Math.round(Number(v)));
     }
   }
+
+  // Released datasets (rental registry, short-term rentals, housing court, tax sale), each joined to a parcel.
+  writeSignals(db, parcels);
 
   // ACS tract table: one row per Providence tract, the few measures a coverage-equity comparison needs.
   const acsPath = join(DATA, 'raw', 'acs_tracts.json');
