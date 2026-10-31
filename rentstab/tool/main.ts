@@ -13,6 +13,15 @@ interface Data {
   acs: { label: string; housingUnits: number; renterOccupied: number; vacantForRent: number; ownerOccupied?: number };
   neighborhoods: Hood[]; cols: string[]; rows: unknown[][]; dict: Record<string, unknown[]>;
 }
+// Display rule: every home gets one category from its parcel's result (src/units.ts housingMix, then slicesFor below).
+//   owner's own unit, owner-occupied rate on file            → owned       "Not a rental"            neutral, light
+//   "owner may live here" (bill at the property, no rate)    → owned for one unit, market for the rest, both "probably"
+//   rental the bill covers                                   → controlled  "Rent-stabilized"         hue
+//   rental the bill exempts (owner-occupied 2–4s' other units,
+//     new construction, institutions …)                      → market      "Open market"             hue
+//   rental exempt because a program already sets the rent    → subsidized  "Rent set by a program"   neutral, middle
+//   the records can't settle it                              → unclear     "Can't tell"              neutral, dark
+// Changing how a group is shown means changing this rule, not the data.
 type Cat = 'owned' | 'controlled' | 'market' | 'subsidized' | 'unclear';
 const CATS: Cat[] = ['owned', 'controlled', 'market', 'subsidized', 'unclear'];
 /** A parcel's homes, split by category and by whether the records settle it ("sure") or it's our best guess. */
@@ -20,12 +29,12 @@ interface Slice { cat: Cat; sure: boolean; n: number }
 interface Row { p: Parcel; c: Classification; slices: Slice[]; homes: number }
 interface Tally { homes: number; sure: Record<Cat, number>; likely: Record<Cat, number>; exemptBy: Map<string, number> }
 
-const LABEL: Record<Cat, string> = { owned: 'Owner-occupied', controlled: 'Rent-stabilized', market: 'Exempt rental', subsidized: 'Already subsidized', unclear: "Can't tell" };
+const LABEL: Record<Cat, string> = { owned: 'Not a rental', controlled: 'Rent-stabilized', market: 'Open market', subsidized: 'Rent set by a program', unclear: "Can't tell" };
 const HELP: Record<Cat, string> = {
   owned: "the owner's own home",
   controlled: 'rentals the 4% cap would reach',
-  market: 'mostly small owner-occupied buildings and new construction',
-  subsidized: 'rents already limited by a housing program',
+  market: 'rentals the bill exempts: mostly other units in owner-occupied 2–4 families, and new construction',
+  subsidized: 'public housing, project-based Section 8, tax-credit and other income-restricted rentals',
   unclear: 'big or unusual buildings, owners’ second properties',
 };
 const OWNER_MAY_LIVE = 'owner_may_live_here';
@@ -123,7 +132,7 @@ function renderCity() {
         <button type="button" data-sort="count" aria-pressed="${sortBy === 'count'}">Most stabilized</button>
         <button type="button" data-sort="share" aria-pressed="${sortBy === 'share'}">Highest share</button>
       </div>
-      <p class="note">Each bar is all of a neighborhood’s homes: gray owners, then rentals.</p>
+      <p class="note">Each bar is all of a neighborhood’s homes: owners’ homes in light gray, then rentals.</p>
       <div class="hoods">${hoodList()}</div>
     </section>`;
   $('body').querySelectorAll<HTMLButtonElement>('[data-sort]').forEach((b) => b.addEventListener('click', () => { sortBy = b.dataset.sort as typeof sortBy; renderCity(); }));
@@ -149,7 +158,7 @@ function renderHood(name: string) {
       <button class="back" type="button" id="back">← All of Providence</button>
       <div><h2>${esc(name)}</h2><p class="muted small">${fmt(t.homes)} homes on record</p></div>
       ${bar(t, 'stack')}
-      <p>${pct(all(t, 'owned'), t.homes)} of homes are owner-occupied. Of the ${fmt(r)} rentals, <b>${pct(t.sure.controlled, r)}</b> would be rent-stabilized, ${pct(all(t, 'market'), r)} are exempt${topExempt ? ` (mostly: ${esc(topExempt[0].toLowerCase())})` : ''}, ${pct(t.sure.subsidized, r)} are already subsidized, and ${pct(t.sure.unclear, r)} can’t be settled from the records.</p>
+      <p>${pct(all(t, 'owned'), t.homes)} of homes are owner-occupied. Of the ${fmt(r)} rentals, <b>${pct(t.sure.controlled, r)}</b> would be rent-stabilized, ${pct(all(t, 'market'), r)} stay on the open market${topExempt ? ` (mostly: ${esc(topExempt[0].toLowerCase())})` : ''}, ${pct(t.sure.subsidized, r)} have rents set by a program, and ${pct(t.sure.unclear, r)} can’t be settled from the records.</p>
       ${keyRows(t)}
     </div>`;
   $('back').addEventListener('click', clearSelection);
@@ -164,7 +173,7 @@ const PILL: Record<string, [Cat, string]> = {
 function renderParcel(i: number) {
   const { p, c, slices } = rows[i];
   let [cat, label] = PILL[c.status];
-  if (c.rule === 'public_and_subsidized_housing') cat = 'subsidized';
+  if (c.rule === 'public_and_subsidized_housing') { cat = 'subsidized'; label = 'Likely exempt · rent set by a program'; }
   if (c.rule === OWNER_MAY_LIVE) label = "Can't tell · the owner probably lives here";
   const homes = slices.map((s) => `${s.n} ${LABEL[s.cat].toLowerCase()}${s.sure ? '' : ' (probably)'}`).join(', ');
   $('body').innerHTML = `
@@ -431,13 +440,13 @@ async function boot() {
   renderCity();
   $('maplegend').innerHTML = `<b style="font-weight:600">Each dot is one home</b>
     ${(['controlled', 'market', 'subsidized', 'owned', 'unclear'] as Cat[]).map((k) => `<div class="row"><span class="sw ${k}"></span>${LABEL[k]}</div>`).join('')}
-    <div class="row"><span class="sw owned light"></span><span class="sw market light"></span>Lighter: probably (owner seems to live there)</div>
+    <div class="row"><span class="sw owned light"></span><span class="sw market light"></span>Lighter: probably (the owner seems to live there)</div>
     <div class="row"><span class="sw sq nohomes"></span>Lot with no homes (offices, shops, campuses, vacant)</div>
     <span class="muted">Zoom in to see buildings, colored by their result. Click one for details.</span>`;
   $('footer').innerHTML = `<p>${esc(rules.disclaimer)}</p>
     <p>Homes are the assessor’s legal units, placed at each parcel. Owner-occupancy comes from the city’s owner-occupied tax rate (as of 12/31/2024). The Census counts ${fmt(data.acs.housingUnits)} housing units and ${fmt(data.acs.renterOccupied)} renter households (${esc(data.acs.label)}), and about 29,600 owner-occupied homes, more than the tax rate shows, which is why owners who get their tax bill at the building are counted as probably living there.</p>
     <p>Not modeled: who actually lives in a home, unpermitted units, voucher holders (covered under the April text), short-term rentals, employee or transitional housing, an owner’s temporary absence, and the 20-year exemption for buildings built to prevailing-wage standards.</p>
-    <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Mar 2024, HUD LIHTC / assisted / public housing lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`;
+    <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Sep 2026, HUD LIHTC / assisted / public housing / Section 8 contract lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`;
 }
 
 boot().catch((err) => {

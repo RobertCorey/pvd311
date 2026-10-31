@@ -16,11 +16,12 @@
   --line: #E3DACB;
   --ember-text: #BD3F12;
   --river: #1D5C99;
-  /* Map marks. Three hues for the rental outcomes (validated all-pairs: CVD ΔE ≥ 9.2, normal ≥ 24 on --land);
-     owners and "can't tell" are neutrals, separated by lightness, so they never compete with the hues. */
+  /* Map marks. Two hues for the question the map asks of the rental stock, capped vs. open market (validated: CVD ΔE ≥ 9.2,
+     normal ≥ 24 on --land). Everything outside that question is a neutral, separated by lightness: the owner's own home
+     (lightest), rent set by a program (middle, ΔE ≈ 10.5 to each side), can't tell (darkest). */
   --controlled: #EB6834;
   --market: #2A78D6;
-  --subsidized: #1BAF7A;
+  --subsidized: #A69E90;
   --owned: #C7BFB1;
   --unclear: #827E76;
   --nohomes: #E6DFD3;
@@ -84,7 +85,7 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--river); out
 .pill { display: inline-block; font-weight: 600; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; }
 .pill.controlled { background: var(--controlled); color: var(--ink); }
 .pill.market { background: var(--market); color: var(--surface); }
-.pill.subsidized { background: var(--subsidized); color: var(--surface); }
+.pill.subsidized { background: var(--subsidized); color: var(--ink); }
 .pill.owned { background: var(--owned); color: var(--ink); }
 .pill.unclear { background: var(--unclear); color: var(--surface); }
 .card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
