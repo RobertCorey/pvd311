@@ -790,7 +790,7 @@ function main() {
       black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, same_tract_2020, PRIMARY KEY (geoid, year))`);
     const cur = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
     const ins = db.prepare('INSERT INTO acs_tract_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    for (const year of [2014, 2019]) for (const r of rawIf(`acs_tracts_${year}`)) {
+    for (const year of [2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
       if (!(Number(String(r.geoid).slice(12)) < 3800)) continue;
       const share = (v: number | null) => (r.pop ? Math.round((1000 * (v ?? 0)) / r.pop) / 1000 : null);
       ins.run(r.geoid, year, r.households, r.renter_households, r.median_income, r.renter_median_income, share(r.white_nh), share(r.black_nh), share(r.hispanic),
@@ -824,6 +824,32 @@ function main() {
         ins.run(geoid, tenure.startsWith('Renter') ? 'renter' : 'owner', band(income), burden(cost), Number(r[col]) || 0);
       }
     }
+  }
+
+  // Households by tenure and building size, housing units, vacancy and median home value per tract: 2014, 2019 and 2020 from the
+  // Summary File, the latest release from Census Reporter. Renters in 2–4-unit buildings are the stock the owner-occupied
+  // exemption turns on.
+  {
+    db.exec(`CREATE TABLE acs_tract_structure (geoid, year, renter_total, renter_1_unit, renter_2, renter_3_4, renter_5_plus, owner_total, owner_1_unit, owner_2_4,
+      housing_units, vacant_units, median_home_value, PRIMARY KEY (geoid, year))`);
+    const ins = db.prepare('INSERT OR REPLACE INTO acs_tract_structure VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const put = (geoid: string, year: number, v: (k: string) => number | null) => {
+      const sum = (...k: string[]) => k.reduce((a, x) => a + (v(x) ?? 0), 0);
+      ins.run(geoid, year, v('renter_total'), sum('renter_1_det', 'renter_1_att'), v('renter_2'), v('renter_3_4'), sum('renter_5_9', 'renter_10_19', 'renter_20_49', 'renter_50_plus'),
+        v('owner_total'), sum('owner_1_det', 'owner_1_att'), sum('owner_2', 'owner_3_4'), v('housing_units'), v('vacant_units'), v('median_home_value'));
+    };
+    for (const year of [2014, 2019, 2020]) for (const r of rawIf(`acs_tracts_${year}`)) {
+      if (Number(String(r.geoid).slice(12)) < 3800) put(r.geoid, year, (k) => r[k] ?? null);
+    }
+    const latest = rawIf('acs_tracts_structure') as any;
+    const year = Number(String(latest?.release?.name ?? '').match(/\d{4}/)?.[0]) || null;
+    const cell: Record<string, string> = {
+      owner_total: 'B25032002', owner_1_det: 'B25032003', owner_1_att: 'B25032004', owner_2: 'B25032005', owner_3_4: 'B25032006',
+      renter_total: 'B25032013', renter_1_det: 'B25032014', renter_1_att: 'B25032015', renter_2: 'B25032016', renter_3_4: 'B25032017',
+      renter_5_9: 'B25032018', renter_10_19: 'B25032019', renter_20_49: 'B25032020', renter_50_plus: 'B25032021',
+      housing_units: 'B25002001', vacant_units: 'B25002003', median_home_value: 'B25077001' };
+    if (year) for (const [geoid, t] of Object.entries<any>(latest.data ?? {}))
+      put(geoid, year, (k) => t[cell[k].slice(0, 6)]?.estimate?.[cell[k]] ?? null);
   }
 
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home

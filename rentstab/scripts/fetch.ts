@@ -39,6 +39,14 @@ type Source =
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
+// B25032 lines: owner 003–012 (1 detached, 1 attached, 2, 3–4, 5–9, 10–19, 20–49, 50+, mobile, other), renter 014–023 likewise.
+const STRUCTURE_CELLS: Record<string, string> = {
+  owner_total: 'B25032_002', owner_1_det: 'B25032_003', owner_1_att: 'B25032_004', owner_2: 'B25032_005', owner_3_4: 'B25032_006',
+  renter_total: 'B25032_013', renter_1_det: 'B25032_014', renter_1_att: 'B25032_015', renter_2: 'B25032_016', renter_3_4: 'B25032_017',
+  renter_5_9: 'B25032_018', renter_10_19: 'B25032_019', renter_20_49: 'B25032_020', renter_50_plus: 'B25032_021',
+  housing_units: 'B25002_001', vacant_units: 'B25002_003', median_home_value: 'B25077_001',
+};
+
 export const SOURCES: Source[] = [
   // FY2026 roll (assessment date 12/31/2024, billed Jul 2025). Owner-occupancy levy codes, class, owner + mailing address.
   { name: 'taxroll2026', kind: 'socrata', id: 'p9dd-mw2m', select: '*, :@computed_region_ueqj_g33x, :@computed_region_asue_2ipu' },
@@ -122,10 +130,13 @@ export const SOURCES: Source[] = [
   // tenure, median gross rent, rent burden — plus tract outlines. For who-is-covered comparisons by area.
   { name: 'acs_tracts', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013,B25119,B03002,B25003,B25064,B25071&geo_ids=140|16000US4459000' },
   // Earlier ACS 5-year releases (2010-tract geography) from the Summary File, for change over a decade. Same measures as acs_tracts.
-  ...[2014, 2019].map((year) => ({ name: `acs_tracts_${year}`, kind: 'acs_sf' as const, year, cells: {
+  // Also households by tenure and units in structure (B25032), housing units and vacancy (B25002), median home value (B25077).
+  ...[2014, 2019, 2020].map((year) => ({ name: `acs_tracts_${year}`, kind: 'acs_sf' as const, year, cells: {
     households: 'B25003_001', renter_households: 'B25003_003', median_income: 'B19013_001', renter_median_income: 'B25119_003',
     pop: 'B03002_001', white_nh: 'B03002_003', black_nh: 'B03002_004', hispanic: 'B03002_012', asian_nh: 'B03002_006',
-    median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001' } })),
+    median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001', ...STRUCTURE_CELLS } })),
+  // The same structure tables for the latest release (Census Reporter).
+  { name: 'acs_tracts_structure', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B25032,B25002,B25077&geo_ids=140|16000US4459000' },
   { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },
   // Eviction filings by tract and month, Jan 2020 → now (Eviction Lab ETS; data from RIHousing / the courts).
   // Their CDN refuses non-browser user agents for this public CSV.
