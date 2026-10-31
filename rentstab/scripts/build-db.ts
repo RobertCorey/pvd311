@@ -407,7 +407,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     table('flood_zone', ['parcelId', 'zone'], [...zone]);
   }
 
-  // Sales history from the assessor's 2013 and 2019 extracts (APRA 20-209): up to six sales per parcel each, de-duplicated.
+  // Sales history from the assessor's 2013 and 2019 extracts (APRA 20-209): up to six sales per parcel each, de-duplicated;
+  // plus the current CAMA layer's last sale per parcel (source 'cama_last_sale').
   // Price 0 marks a non-arm's-length transfer; `qualified` is the assessor's Q/U. Lots only (the extracts carry no condo unit).
   {
     const seen = new Set<string>(), rows: unknown[][] = [];
@@ -419,10 +420,17 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
         const key = `${id}|${date}|${price}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        rows.push([date, price, r[`SALE CODE ${i}`] || null, r[`QUALIFIED ${i}`] || null, r[`IMPROVED ${i}`] || null, `${r['STREET NUM']} ${r['STREET NAME']}`.trim(), ids.has(id) ? id : null]);
+        rows.push([date, price, r[`SALE CODE ${i}`] || null, r[`QUALIFIED ${i}`] || null, r[`IMPROVED ${i}`] || null, `${r['STREET NUM']} ${r['STREET NAME']}`.trim(), ids.has(id) ? id : null, file]);
       }
     }
-    table('sales_history', ['sale_date', 'price', 'sale_code', 'qualified', 'improved', 'address', 'parcelId'], rows);
+    // The current assessor layer's last sale per parcel fills 2019 onward (only the latest sale survives, so resales undercount).
+    for (const r of rawIf('cama')) {
+      const id = String(r.PROPID ?? '').trim(), date = typeof r.SaleDate === 'number' ? new Date(r.SaleDate).toISOString().slice(0, 10) : null, price = num(r.SalePrice);
+      if (!date || !ids.has(id) || seen.has(`${id}|${date}|${price}`)) continue;
+      seen.add(`${id}|${date}|${price}`);
+      rows.push([date, price, null, null, null, null, id, 'cama_last_sale']);
+    }
+    table('sales_history', ['sale_date', 'price', 'sale_code', 'qualified', 'improved', 'address', 'parcelId', 'source'], rows);
   }
   // Code cases with lead-hazard violations, active and released (APRA 22-1323, 2022).
   // The house number sits in the "Number" column; "Address" is the street.
