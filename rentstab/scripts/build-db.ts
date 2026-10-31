@@ -925,14 +925,15 @@ function main() {
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
   // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
   {
-    const city = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
+    // HMDA used 2010 tracts through 2021 and 2020 tracts from 2022: keep city tracts of either vintage (codes below 003800).
+    const isCity = (geoid: string) => geoid.startsWith('14000US44007') && Number(geoid.slice(12)) < 3800;
     db.exec('CREATE TABLE hmda_loans (year, geoid, purpose, occupancy, units, loan_amount, property_value, income, business)');
     const ins = db.prepare('INSERT INTO hmda_loans VALUES (?,?,?,?,?,?,?,?,?)');
     const purchases = new Map<string, { n: number; investor: number; second: number; units2to4: number; units5: number; values: number[] }>();
     db.exec('BEGIN');
     for (let y = 2018; y <= 2024; y++) for (const r of rawIf(`hmda_${y}`)) {
       const geoid = `14000US${r.census_tract}`;
-      if (!city.has(geoid)) continue;
+      if (!isCity(geoid)) continue;
       const units = r.total_units, value = num(r.property_value);
       ins.run(y, geoid, num(r.loan_purpose), num(r.occupancy_type), units, num(r.loan_amount), value, num(r.income), num(r.business_or_commercial_purpose));
       if (r.loan_purpose !== '1') continue;

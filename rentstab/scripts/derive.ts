@@ -7,8 +7,11 @@
 //   parcel_zoning        — base zoning district at each lot's centroid
 //   parcel_overlay       — overlay districts at each lot's centroid (a lot can sit in several)
 //   tract_summary, neighborhood_summary, tract_profile (view) — homes by result next to area measures
+//   parcel_profile (view) — one row per parcel with everything a map needs, no person names
+//   tract_year_panel     — tract × year: Census releases, mortgages, eviction filings, price index (for a time slider)
+//   SCHEMA.md            — every table and view with its row count and columns
 // Local analysis tables: individuals' names stay in the local database only; anything published shows entities, never people.
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { classify } from '../src/classify.ts';
@@ -178,6 +181,52 @@ function main() {
       (SELECT hpi FROM fhfa_hpi_tract f WHERE f.geoid = t.geoid AND hpi IS NOT NULL ORDER BY year DESC LIMIT 1) AS fhfa_hpi_latest,
       (SELECT SUM(occupied) FROM (SELECT total_occupied occupied FROM hud_psh_tract p WHERE p.geoid = t.geoid AND p.program = 'Housing Choice Vouchers' AND p.sub_program = 'TBV, All')) AS tenant_voucher_households
     FROM tracts t LEFT JOIN tract_summary s ON s.area = t.geoid`);
+  // 7. One row per parcel for the map: result, building facts, zoning, overlays, valuation neighborhood, landlord portfolio size
+  //    and every signal. Owner names and mailing addresses stay out (owner kind and portfolio size only).
+  const signalCols = (db.prepare('PRAGMA table_info(parcel_signals)').all() as any[]).map((c) => c.name).filter((c) => c !== 'parcelId');
+  db.exec('DROP VIEW IF EXISTS parcel_profile');
+  db.exec(`CREATE VIEW parcel_profile AS
+    SELECT p.id AS parcelId, p.address, p.neighborhood, p.tract, n.nbhd AS assessor_nbhd, z.zone,
+      (SELECT group_concat(overlay, ',') FROM parcel_overlay o WHERE o.parcelId = p.id) AS overlays,
+      p.lat, p.lng, p.taxClassDesc AS tax_class, p.levyCode AS levy_code, p.ownerOccupiedTaxRate AS owner_occupied_rate, p.ownerKind AS owner_kind,
+      p.units, p.yearBuilt AS year_built, p.lastSaleDate AS last_sale_date,
+      s.status, s.rule, s.reason, s.homes, s.owned, s.controlled, s.market, s.subsidized, s.unclear,
+      og.groupId AS owner_group, gr.parcels AS owner_group_parcels, gr.homes AS owner_group_homes,
+      ${signalCols.map((c) => `g.${c}`).join(', ')}
+    FROM parcels p JOIN parcel_status s ON s.parcelId = p.id LEFT JOIN parcel_signals g ON g.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, MIN(nbhd) nbhd FROM assessor_nbhd GROUP BY parcelId) n ON n.parcelId = p.id
+    LEFT JOIN parcel_zoning z ON z.parcelId = p.id LEFT JOIN parcel_owner_group og ON og.parcelId = p.id LEFT JOIN owner_groups gr ON gr.groupId = og.groupId`);
+
+  // 8. Tract × year panel. Census rows sit at the release's last year (2010 = 2006–10 … 2024 = 2020–24). Tracts of both vintages
+  //    appear: 2010–2019 releases and HMDA through 2021 use 2010 tracts, so the three split tracts change ids in 2020 (ACS) and
+  //    2022 (HMDA). HMDA, eviction filings and FHFA are calendar years.
+  db.exec('DROP TABLE IF EXISTS tract_year_panel');
+  db.exec(`CREATE TABLE tract_year_panel AS
+    WITH city AS (SELECT geoid FROM tracts UNION SELECT geoid FROM acs_tract_history),
+    acs AS (SELECT geoid, year, renter_households, households, median_gross_rent, median_income, rent_burden_median_pct FROM acs_tract_history
+            UNION ALL SELECT geoid, 2024, renter_households, households, median_gross_rent, median_income, rent_burden_median_pct FROM tracts),
+    ev AS (SELECT geoid, CAST(substr(month, 1, 4) AS INTEGER) year, SUM(filings) filings, COUNT(*) months FROM evictions_tract_month GROUP BY 1, 2),
+    keys AS (SELECT geoid, year FROM acs UNION SELECT geoid, year FROM hmda_purchases_tract_year UNION SELECT geoid, year FROM ev
+             UNION SELECT geoid, year FROM fhfa_hpi_tract WHERE year >= 2006)
+    SELECT k.geoid, k.year, a.renter_households, a.households, a.median_gross_rent, a.median_income, a.rent_burden_median_pct,
+      h.purchases AS mortgage_purchases, h.investor AS investor_purchases, h.investor_share, h.median_property_value,
+      e.filings AS eviction_filings, e.months AS eviction_months, f.hpi AS fhfa_hpi
+    FROM keys k JOIN city c ON c.geoid = k.geoid
+    LEFT JOIN acs a ON a.geoid = k.geoid AND a.year = k.year LEFT JOIN hmda_purchases_tract_year h ON h.geoid = k.geoid AND h.year = k.year
+    LEFT JOIN ev e ON e.geoid = k.geoid AND e.year = k.year LEFT JOIN fhfa_hpi_tract f ON f.geoid = k.geoid AND f.year = k.year
+    ORDER BY k.geoid, k.year`);
+
+  // 9. SCHEMA.md: every table and view, rows and columns (generated; descriptions live in DATA_SOURCES.md).
+  const objects = db.prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as any[];
+  const lines = ['# Database schema (generated by `npm run derive`)', '', `\`data/parcels.sqlite\`: ${objects.length} tables and views. What each holds and where it comes from: DATA_SOURCES.md.`, '',
+    '| name | kind | rows | columns |', '|---|---|---:|---|'];
+  for (const o of objects) {
+    const cols = (db.prepare(`PRAGMA table_info("${o.name}")`).all() as any[]).map((c) => c.name);
+    const rows = (db.prepare(`SELECT COUNT(*) n FROM "${o.name}"`).get() as any).n;
+    lines.push(`| \`${o.name}\` | ${o.type} | ${rows.toLocaleString('en-US')} | ${cols.join(', ')} |`);
+  }
+  writeFileSync(join(ROOT, 'SCHEMA.md'), lines.join('\n') + '\n');
+
   console.log(`tract_summary: ${(db.prepare('SELECT COUNT(*) n FROM tract_summary').get() as any).n} tracts · neighborhood_summary: ${(db.prepare('SELECT COUNT(*) n FROM neighborhood_summary').get() as any).n} neighborhoods · tract_profile view`);
   db.close();
 }
