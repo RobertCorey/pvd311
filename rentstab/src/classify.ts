@@ -70,7 +70,7 @@ const TESTS: Record<string, Test> = {
     // opening year, a recent assessor year built stands in; a conversion with no date at all can't be settled.
     const nc = c.rules.rules.find((x) => x.test === 'new_construction');
     const opened = m.opened ?? (c.p.yearBuilt != null && c.p.yearBuilt >= 2000 ? c.p.yearBuilt : null);
-    if (nc?.enabled !== false && (spec.status === 'likely_covered' || m.use === 'mixed_use')) {
+    if (nc?.enabled !== false && ((r.new_construction_uses as string[] | undefined) ?? []).includes(m.use)) {
       const v = { ...vars, opened: String(opened ?? ''), openedText: opened ? String(opened) : 'year unknown' };
       const firstFull = lookback.getUTCMonth() === 0 && lookback.getUTCDate() === 1 ? lookback.getUTCFullYear() : lookback.getUTCFullYear() + 1;
       if (opened && opened >= firstFull) return { status: 'likely_exempt', reason: fill(r.reason_new as string, v), note: r.note };

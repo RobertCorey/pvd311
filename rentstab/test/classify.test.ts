@@ -195,6 +195,9 @@ describe('researched building labels', () => {
     expect(run({ ...big, yearBuilt: 2022, manual: label('apartments_market', { residentialUnits: 16 }) }).status).toBe('cant_tell');
     expect(run({ ...big, yearBuilt: 2024, manual: label('apartments_market') }).status).toBe('likely_exempt');
   });
+  it('a condo conversion that opened inside the look-back is new construction', () => {
+    expect(run({ ...big, taxClass: '23', taxClassDesc: 'Residential Condo', levyCode: 'NO01', units: 1, manual: label('condo', { opened: 2023, conversion: true }) }).status).toBe('likely_exempt');
+  });
   it('an undated conversion can\'t be settled', () => {
     expect(run({ ...big, yearBuilt: 1900, manual: label('apartments_market', { conversion: true }) }).status).toBe('cant_tell');
   });

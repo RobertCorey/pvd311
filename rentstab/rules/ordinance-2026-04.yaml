@@ -118,6 +118,7 @@ rules:
     test: manual_label
     section: "Sec. 13-78(a), (d), (f), (i), (j), (m); Sec. 13-70(c)"
     min_confidence: medium      # low-confidence labels are ignored
+    new_construction_uses: [apartments_market, student_housing_private, mixed_use, condo, apartments_mixed_income]  # an opening year inside the look-back makes these exempt
     use:
       hotel: { status: not_residential_rental, reason: "{name} is a hotel → transient lodging, exempt (Sec. 13-78(d))" }
       office_or_commercial: { status: not_residential_rental, reason: "{name} is offices or commercial space, not homes" }
