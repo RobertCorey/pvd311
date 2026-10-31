@@ -67,6 +67,16 @@ export const SOURCES: Source[] = [
   // Basemap layers for the map (the artifact host allows no outside tiles): named streets, parks, water parcels.
   // Base zoning districts (510 polygons). Joined to parcels by lot centroid in derive.ts → parcel_zoning.
   { name: 'zoning', kind: 'arcgis', service: 'PVD_ZoningMap', layer: 15, geometry: true, fields: 'Code,District' },
+  // Overlay districts (historic, Downcity, Capital Center, transit-oriented, institutional, I-195): several can cover one lot.
+  { name: 'overlay_zoning', kind: 'arcgis', service: 'Overlay_Zoning', geometry: true, fields: 'ZONE,DISTRICT' },
+  // The assessor's valid sales used for the 2024 revaluation (calendar 2024). Owner columns are not requested.
+  { name: 'sales_2024', kind: 'arcgis', service: 'Parcels_wCAMA_Valid_Sales_2024_Reval', layer: 24, order: 'OBJECTID_1',
+    fields: 'PROPID,CLASS,ParcAddress,Sale_Date,Sale_Price,NumUnits,Instrument_Type,N_A_L__Code,Building_Type,Primary_LUC,Total_Assessed_Value,YearBuilt,Quality,Condition,Total_Finished_Area' },
+  // Code-enforcement records 2013–2024 (a 999-row snapshot, last edited 2024-03). Owner name is not requested.
+  { name: 'code_cases_history', kind: 'arcgis', service: 'Violations_Code_Enforcement_', order: 'FID',
+    fields: 'Record__,Address,Mbl,Record_Status,Date_of_First_Inspection,Complaint_Type,Violations_Found_,Condemnation,Building_Type,Date_1NOV_Issued,Date_2NOV_Issued,Date_Condemnation_Issued' },
+  // Providence Water lead service lines (private side), 16,588 lines, edited 2025-01. Joined to the lot the line ends in.
+  { name: 'lead_service_lines', kind: 'arcgis', service: 'Private_Side_Lead_Providence', layer: 31, geometry: true, fields: 'LOCATIONID,PRIV_SIDE_,GrantEligibility' },
   { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
   { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
   // Lot outlines (simplified) — the map shades lots with no homes on record.

@@ -373,6 +373,31 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
         housing.test(types[i[1]]?.[0] ?? '') ? 1 : 0, /^\d/.test(i[7] ?? '') ? match(i[7]) : null]));
   }
 
+  // The assessor's 2024 valid sales (the revaluation's sales file), joined on PROPID.
+  const msDay = (v: unknown) => (typeof v === 'number' && v > 0 ? new Date(v).toISOString().slice(0, 10) : null);
+  table('sales_2024', ['sale_date', 'price', 'units', 'validity', 'instrument', 'building_type', 'land_use', 'assessed', 'year_built', 'quality', 'condition', 'finished_area', 'address', 'parcelId'],
+    rawIf('sales_2024').map((r) => [msDay(r.Sale_Date), num(r.Sale_Price), num(r.NumUnits), r.N_A_L__Code, r.Instrument_Type, r.Building_Type, r.Primary_LUC,
+      num(r.Total_Assessed_Value), num(r.YearBuilt), r.Quality, r.Condition, num(r.Total_Finished_Area), r.ParcAddress, ids.has(String(r.PROPID).trim()) ? String(r.PROPID).trim() : null]));
+  // Code-enforcement records 2013–2024 (city ArcGIS snapshot): plat-lot-unit when it is on the roll, else the address.
+  table('code_cases_history', ['record', 'address', 'status', 'first_inspection', 'complaint_type', 'violations_found', 'condemnation', 'building_type',
+    'nov1_issued', 'nov2_issued', 'condemnation_issued', 'parcelId'],
+    rawIf('code_cases_history').map((r) => [r.Record__, r.Address, r.Record_Status, msDay(r.Date_of_First_Inspection), r.Complaint_Type, r.Violations_Found_,
+      r.Condemnation, r.Building_Type, msDay(r.Date_1NOV_Issued), msDay(r.Date_2NOV_Issued), msDay(r.Date_Condemnation_Issued),
+      ids.has(String(r.Mbl ?? '').trim()) ? String(r.Mbl).trim() : match(String(r.Address ?? ''))]));
+  // Providence Water lead service lines (private side): a line runs from the curb to the house, so it belongs to the lot
+  // that one of its ends falls in (the house end when both do).
+  {
+    const shapes = new Map<string, number[][][]>();
+    for (const r of rawIf('parcel_shapes')) if (r.PROPID && r._geometry?.rings && !shapes.has(r.PROPID)) shapes.set(r.PROPID, r._geometry.rings);
+    const lotOf = lotIndex(parcels.map((p) => shapes.get(p.id) ?? null));
+    table('lead_service_lines', ['location_id', 'priv_side', 'grant_eligible', 'parcelId'], rawIf('lead_service_lines').map((r) => {
+      const path: number[][] = r._geometry?.paths?.[0] ?? [];
+      const ends = [path[path.length - 1], path[0]].filter(Boolean);
+      const hit = ends.map((e) => lotOf(e[0], e[1])).find((l) => l.length);
+      return [r.LOCATIONID, r.PRIV_SIDE_?.trim() || null, r.GrantEligibility, hit ? parcels[hit[0]].id : null];
+    }));
+  }
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
@@ -380,7 +405,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       COALESCE(ab.n, 0) AS airbnb_listings, COALESCE(hc.n, 0) AS housing_court_cases, hc.last AS last_housing_court_case,
       COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
       lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires,
-      COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing
+      COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing,
+      COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -392,7 +418,10 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_active GROUP BY parcelId) cc ON cc.parcelId = p.id
     LEFT JOIN (SELECT parcelId, MAX(last_letter) last, MAX(units) units FROM lead_certificates GROUP BY parcelId) lc ON lc.parcelId = p.id
     LEFT JOIN (SELECT parcelId, SUM(assisted_units) units, MIN(expires) expires FROM hud_mf_contracts WHERE status = 'Active' GROUP BY parcelId) mf ON mf.parcelId = p.id
-    LEFT JOIN (SELECT parcelId, COUNT(*) n, SUM(housing) housing FROM city_cases GROUP BY parcelId) c3 ON c3.parcelId = p.id`);
+    LEFT JOIN (SELECT parcelId, COUNT(*) n, SUM(housing) housing FROM city_cases GROUP BY parcelId) c3 ON c3.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_history GROUP BY parcelId) ch ON ch.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_service_lines GROUP BY parcelId) ls ON ls.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, MAX(price) price, MAX(sale_date) sale_date FROM sales_2024 GROUP BY parcelId) sa ON sa.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

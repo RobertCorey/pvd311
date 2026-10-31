@@ -5,6 +5,7 @@
 //   ownership_changes    — owner changes between consecutive rolls FY2013–FY2026, with buyer/seller kind
 //   new_housing_by_year  — dwelling units in new-building and conversion permits, by year issued
 //   parcel_zoning        — base zoning district at each lot's centroid
+//   parcel_overlay       — overlay districts at each lot's centroid (a lot can sit in several)
 //   tract_summary, neighborhood_summary, tract_profile (view) — homes by result next to area measures
 // Local analysis tables: individuals' names stay in the local database only; anything published shows entities, never people.
 import { readFileSync } from 'node:fs';
@@ -124,6 +125,19 @@ function main() {
     const z = p.lat != null && p.lng != null ? zoneAt(p.lng, p.lat) : undefined;
     return z ? [[p.id, z.code, z.district]] : [];
   }), 'parcelId');
+
+  // Overlay districts at each lot's centroid (historic, Downcity, transit-oriented…); a lot can sit in several.
+  const overlays = raw('overlay_zoning').map((z) => {
+    const rings: number[][][] = z._geometry?.rings ?? [], pts = rings.flat();
+    return { code: z.ZONE, district: z.DISTRICT, rings,
+      box: [Math.min(...pts.map((c) => c[0])), Math.min(...pts.map((c) => c[1])), Math.max(...pts.map((c) => c[0])), Math.max(...pts.map((c) => c[1]))] };
+  });
+  insertAll(db, 'parcel_overlay', ['parcelId', 'overlay', 'district'], parcels.flatMap((p) => {
+    if (p.lat == null || p.lng == null) return [];
+    const x = p.lng, y = p.lat;
+    const hits = overlays.filter((z) => x >= z.box[0] && x <= z.box[2] && y >= z.box[1] && y <= z.box[3] && z.rings.filter((r) => inRing(r, x, y)).length % 2 === 1);
+    return [...new Map(hits.map((z) => [z.code, z])).values()].map((z) => [p.id, z.code, z.district]);
+  }), 'parcelId, overlay');
 
   // 6. Area summaries (tract and neighborhood): homes by result next to the other area measures. Data prep only.
   for (const [table, col] of [['tract_summary', 'tract'], ['neighborhood_summary', 'neighborhood']] as const) {
