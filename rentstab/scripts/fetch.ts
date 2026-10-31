@@ -6,6 +6,7 @@ import { readCsv } from '../src/csv.ts';
 import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
 import { readXlsx, streamXlsxRows, xlsxRecords } from '../src/xlsx.ts';
 import { tableauView } from '../src/tableau.ts';
+import { acsTracts } from '../src/acssf.ts';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -29,6 +30,8 @@ type Source =
       stream?: { column: string; startsWith?: string; inSource?: { name: string; column: string } } }
   /** Public Tableau dashboards with downloads turned off: every worksheet of each view, via the page's own session calls. */
   | { name: string; kind: 'tableau'; workbook: string; views: string[] }
+  /** ACS 5-year Summary File tract estimates (no API key), cells named → "TABLE_LINE". */
+  | { name: string; kind: 'acs_sf'; year: number; cells: Record<string, string> }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -114,6 +117,11 @@ export const SOURCES: Source[] = [
   // Census tracts (ACS 2020–2024 5-year via Census Reporter, no key): income overall and for renters, race/ethnicity,
   // tenure, median gross rent, rent burden — plus tract outlines. For who-is-covered comparisons by area.
   { name: 'acs_tracts', kind: 'json', url: 'https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013,B25119,B03002,B25003,B25064,B25071&geo_ids=140|16000US4459000' },
+  // Earlier ACS 5-year releases (2010-tract geography) from the Summary File, for change over a decade. Same measures as acs_tracts.
+  ...[2014, 2019].map((year) => ({ name: `acs_tracts_${year}`, kind: 'acs_sf' as const, year, cells: {
+    households: 'B25003_001', renter_households: 'B25003_003', median_income: 'B19013_001', renter_median_income: 'B25119_003',
+    pop: 'B03002_001', white_nh: 'B03002_003', black_nh: 'B03002_004', hispanic: 'B03002_012', asian_nh: 'B03002_006',
+    median_gross_rent: 'B25064_001', rent_burden_median_pct: 'B25071_001' } })),
   { name: 'acs_tract_shapes', kind: 'json', url: 'https://api.censusreporter.org/1.0/geo/show/tiger2023?geo_ids=140|16000US4459000' },
   // Eviction filings by tract and month, Jan 2020 → now (Eviction Lab ETS; data from RIHousing / the courts).
   // Their CDN refuses non-browser user agents for this public CSV.
@@ -322,6 +330,13 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'RIDOH lead certificate Power BI report (public)' };
       console.log(`${s.name}: ${rows.length} address rows`);
+      continue;
+    }
+    if (s.kind === 'acs_sf') {
+      const rows = await acsTracts({ year: s.year, st: 'ri', stateDir: 'RhodeIsland', prefix: '14000US44007', cells: s.cells });
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
+      manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: `https://www2.census.gov/programs-surveys/acs/summary_file/${s.year}/` };
+      console.log(`${s.name}: ${rows.length} tracts`);
       continue;
     }
     if (s.kind === 'tableau') {

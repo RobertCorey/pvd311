@@ -743,6 +743,21 @@ function main() {
     for (const r of rows(p2['Total Judgments and Awards'])) insY.run(r['YEAR(Hearing Date (Pending Removed))'], r['Money/Possession Judgement'] === '%all%' ? 'all' : r['Money/Possession Judgement'], r['CNTD(Case Number)'], r['SUM(Award Amount1)']);
   }
 
+  // Earlier ACS 5-year releases (2010–14 and 2015–19), 2010 tracts: the city's tracts are codes below 003800. `same_tract_2020`
+  // marks tracts whose code didn't change in 2020; seven were split (000100 → 000101 + 000102, …) and compare only as a sum.
+  {
+    db.exec(`CREATE TABLE acs_tract_history (geoid, year, households, renter_households, median_income, renter_median_income, white_nh_share,
+      black_nh_share, hispanic_share, asian_nh_share, median_gross_rent, rent_burden_median_pct, same_tract_2020, PRIMARY KEY (geoid, year))`);
+    const cur = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
+    const ins = db.prepare('INSERT INTO acs_tract_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    for (const year of [2014, 2019]) for (const r of rawIf(`acs_tracts_${year}`)) {
+      if (!(Number(String(r.geoid).slice(12)) < 3800)) continue;
+      const share = (v: number | null) => (r.pop ? Math.round((1000 * (v ?? 0)) / r.pop) / 1000 : null);
+      ins.run(r.geoid, year, r.households, r.renter_households, r.median_income, r.renter_median_income, share(r.white_nh), share(r.black_nh), share(r.hispanic),
+        share(r.asian_nh), r.median_gross_rent, r.rent_burden_median_pct, cur.has(r.geoid) ? 1 : 0);
+    }
+  }
+
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
   // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
   {
