@@ -32,6 +32,8 @@ type Source =
   | { name: string; kind: 'tableau'; workbook: string; views: string[] }
   /** Census Building Permits Survey, annual place files (Northeast): the Providence row for each year. */
   | { name: string; kind: 'bps'; from: number; to: number }
+  /** A Socrata aggregate query (SoQL $select / $group), computed by the portal. */
+  | { name: string; kind: 'socrata_agg'; id: string; select: string; group: string }
   /** HUD CHAS: one table from the national tract zip (lines for one county) plus its labels from the data dictionary. */
   | { name: string; kind: 'chas'; url: string; member: string; county: string; dictUrl: string; dictSheet: number }
   /** ACS 5-year Summary File tract estimates (no API key), cells named → "TABLE_LINE". */
@@ -157,6 +159,11 @@ export const SOURCES: Source[] = [
   // HUD CHAS 2018–2022 Table 8: households by tenure × income (share of HUD area median) × housing cost burden, by tract.
   { name: 'chas_t8', kind: 'chas', url: 'https://www.huduser.gov/PORTAL/datasets/cp/2018thru2022-140-csv.zip', member: '140/Table8.csv', county: ',44,007,',
     dictUrl: 'https://www.huduser.gov/PORTAL/datasets/cp/CHAS-data-dictionary-18-22.xlsx', dictSheet: 12 },
+  // Taxes and net assessed value by levy code for every roll FY2002–FY2026, summed by the portal: effective tax rates by class
+  // (owner-occupied vs non-owner-occupied residential, commercial, 8% law, tax-stabilized). Column names vary by year.
+  ...([[2002, 'e3qk-fibu', 'levy_code', 'total_assessment', 'total_exemption'], [2003, 'fek9-hu38', 'levy_code', 'total_assessment', 'total_exemption'], [2004, 'fvsz-rky3', 'levy_code', 'total_assessment', 'total_exemption'], [2005, 'yqdi-fbw5', 'levy_code', 'total_assessment', 'total_exemption'], [2006, 'aymi-rpqq', 'levy_code', 'total_assessment', 'total_exemption'], [2007, 'iafn-rvmp', 'levy_code', 'total_assessment', 'total_exemption'], [2008, 'swgn-agtw', 'levy_code', 'total_assessment', 'total_exemption'], [2009, '9p3h-3q5i', 'levy_code', 'total_assessment', 'total_exemption'], [2010, 'p6bs-8exs', 'levy_code', 'total_assessment', 'total_exemption'], [2011, 'cj3e-g66x', 'levy_code', 'total_assessment', 'total_exemption'], [2012, 'fgwg-7viq', 'levy_code', 'total_assessment', 'total_exemption'], [2013, 'a6uy-vymr', 'levy_code', 'total_assessment', 'total_exemption'], [2014, 't2vi-f8qs', 'levy_code', 'total_assessment', 'total_exemptions'], [2015, 'r8g6-9zdt', 'levy_code', 'total_assessment', 'total_exemptions'], [2016, 'czje-unnn', 'levy_code', 'total_assessment', 'total_exemptions'], [2017, 'ku9m-5rhr', 'levy_code', 'total_assessment', 'total_exemption'], [2018, 'yghh-hsch', 'levy_code', 'total_assessment', 'total_exemption'], [2019, 'twey-459r', 'levy_code', 'total_assessment', 'total_exemption'], [2020, 'y9h5-fefu', 'levy_code_1', 'total_assessment', 'total_exemption'], [2021, 'fawc-z8zq', 'levy_code_1', 'total_assessment', 'total_exemption'], [2022, 'c3q4-f95q', 'levy_code_1', 'total_assmt', 'total_exempt'], [2023, 'fd8d-n74v', 'levy_code_1', 'total_assmt', 'total_exempt'], [2024, 'xvti-7dtw', 'levy_code_1', 'total_assmt', 'total_exempt'], [2025, '6ub4-iebe', 'levy_code_1', 'total_assmt', 'total_exempt'], [2026, 'p9dd-mw2m', 'levy_code_1', 'total_assmt', 'total_exempt']] as const).map(([year, id, levy, assessed, exempt]) => ({
+    name: `tax_levy_${year}`, kind: 'socrata_agg' as const, id,
+    select: `${levy} AS levy, count(*) AS parcels, sum(${assessed}) AS assessed, sum(${exempt}) AS exempt, sum(total_taxes) AS taxes`, group: levy })),
   { name: 'zhvi_city', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   { name: 'zhvi_zip', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
@@ -267,6 +274,13 @@ export const SOURCES: Source[] = [
     keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
   { name: 'hmda_2024', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2024&actions_taken=1',
     keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  // HUD Fair Market Rents 1983–2027, every bedroom size, Providence city row (Providence-Fall River metro FMR area).
+  { name: 'hud_fmr_history', kind: 'csv', lines: '^4400759000', browserUA: true, url: 'https://www.huduser.gov/PORTAL/datasets/FMR/FMR_All_1983_2027.csv' },
+  // HUD income limits FY2020–FY2026 (area median family income; 30% / 50% / 80% limits for 1- and 4-person households).
+  ...[20, 21, 22, 23, 24, 25, 26].map((yy) => ({ name: `hud_income_limits_fy${yy}`, kind: 'records' as const, format: 'xlsx' as const, browserUA: true,
+    // FY2020–22 name the id column fips2010.
+    url: `https://www.huduser.gov/portal/datasets/il/il${yy}/Section8-FY${yy}.xlsx`, headerHint: yy <= 22 ? 'fips2010' : 'fips',
+    keep: [yy <= 22 ? 'fips2010' : 'fips', `median20${yy}`, 'ELI_1', 'ELI_4', 'l50_1', 'l50_4', 'l80_1', 'l80_4'] })),
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -387,6 +401,14 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify({ labels, rows }));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: s.url };
       console.log(`${s.name}: ${rows.length} tracts, ${Object.keys(labels).length} labelled columns`);
+      continue;
+    }
+    if (s.kind === 'socrata_agg') {
+      const q = new URLSearchParams({ $select: s.select, $group: s.group, $limit: '5000' });
+      const rows = await getJson(`${SOCRATA}/resource/${s.id}.json?${q}`);
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
+      manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: `${SOCRATA}/d/${s.id}` };
+      console.log(`${s.name}: ${rows.length} groups`);
       continue;
     }
     if (s.kind === 'bps') {

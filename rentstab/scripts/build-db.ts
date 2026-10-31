@@ -876,6 +876,41 @@ function main() {
     db.exec('COMMIT');
   }
 
+  // HUD Fair Market Rents for Providence, 1983–2027 (wide file: fmrYY_0 … fmrYY_4 per year; early years have only some sizes).
+  db.exec('CREATE TABLE hud_fmr_history (year PRIMARY KEY, br0, br1, br2, br3, br4)');
+  {
+    const path = join(DATA, 'raw', 'hud_fmr_history.csv');
+    const r = existsSync(path) ? readCsv(readFileSync(path, 'utf8'))[0] : null;
+    const byYear = new Map<number, (number | null)[]>();
+    for (const [k, v] of Object.entries(r ?? {})) {
+      const m = k.match(/^fmr(\d{2})_(\d)$/);
+      if (!m || !v) continue;
+      const y = Number(m[1]) >= 80 ? 1900 + Number(m[1]) : 2000 + Number(m[1]);
+      (byYear.get(y) ?? byYear.set(y, [null, null, null, null, null]).get(y)!)[Number(m[2])] = Number(v);
+    }
+    const ins = db.prepare('INSERT INTO hud_fmr_history VALUES (?,?,?,?,?,?)');
+    for (const [y, v] of [...byYear].sort((a, b) => a[0] - b[0])) ins.run(y, ...v);
+  }
+  // HUD income limits for Providence (metro area values), FY2020–FY2026.
+  db.exec('CREATE TABLE hud_income_limits (year PRIMARY KEY, median_family_income, eli_1, eli_4, vli50_1, vli50_4, li80_1, li80_4)');
+  {
+    const ins = db.prepare('INSERT INTO hud_income_limits VALUES (?,?,?,?,?,?,?,?)');
+    for (let yy = 20; yy <= 26; yy++) {
+      const r = rawIf(`hud_income_limits_fy${yy}`).find((x) => String(x.fips ?? x.fips2010).trim() === '4400759000');
+      if (r) ins.run(2000 + yy, num(r[`median20${yy}`]), num(r.ELI_1), num(r.ELI_4), num(r.l50_1), num(r.l50_4), num(r.l80_1), num(r.l80_4));
+    }
+  }
+
+  // Effective property tax rate by levy code and roll year (taxes per $1,000 of net assessed value), FY2002–FY2026.
+  db.exec('CREATE TABLE tax_levy_year (year, levy, parcels, assessed, exempt, taxes, rate_per_1000, PRIMARY KEY (year, levy))');
+  {
+    const ins = db.prepare('INSERT OR REPLACE INTO tax_levy_year VALUES (?,?,?,?,?,?,?)');
+    for (let y = 2002; y <= 2026; y++) for (const r of rawIf(`tax_levy_${y}`)) {
+      const assessed = Number(r.assessed) || 0, exempt = Number(r.exempt) || 0, taxes = Number(r.taxes) || 0, net = assessed - exempt;
+      ins.run(y, r.levy ?? null, Number(r.parcels) || 0, assessed, exempt, taxes, net > 0 && taxes > 0 ? Math.round((taxes / net) * 1000 * 100) / 100 : null);
+    }
+  }
+
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
   // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
   {
