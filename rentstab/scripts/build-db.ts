@@ -447,6 +447,35 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       return [r.HUD_ID, r.PROJECT, r.STD_ADDR?.trim() || r.PROJ_ADD, num(r.N_UNITS), num(r.LI_UNITS), y, y ? y + 15 : null, y ? y + 30 : null, match(String(r.STD_ADDR?.trim() || r.PROJ_ADD || ''))];
     }));
 
+  // The city's code-enforcement database (APRA 22-1006, 2022). Buildings carry plat and lot; inspections, notices, violations
+  // and liens link back to a building through their ids, so each table gets the building's parcel.
+  {
+    const lot = (plat: unknown, l: unknown) => byPlatLot(String(plat ?? '').trim(), String(l ?? '').trim());
+    const bParcel = new Map<string, string | null>();
+    table('code_buildings', ['building_id', 'address', 'neighborhood', 'ward', 'condemned', 'emergency', 'parcelId'], rawIf('code_db_2022_buildings').map((r) => {
+      const num = [r.fld_building_address_num1, r.fld_building_address_num2].filter(Boolean).join('-');
+      const address = `${num} ${r.fld_building_address_name ?? ''} ${r.fld_building_address_type ?? ''}`.replace(/\s+/g, ' ').trim();
+      const id = lot(r.fld_plat, r.fld_lot) ?? match(address);
+      bParcel.set(r.fld_buildingID, id);
+      return [r.fld_buildingID, address, r.fld_building_neighborhood || null, r.fld_building_ward || null, r['fld_condemned?'] === '1' ? 1 : 0, r['fld_emergency?'] === '1' ? 1 : 0, id];
+    }));
+    const iParcel = new Map<string, string | null>();
+    table('code_inspections', ['inspection_id', 'building_id', 'date', 'type', 'parcelId'], rawIf('code_db_2022_inspections').map((r) => {
+      const id = bParcel.get(r.fld_buildingID) ?? null; iParcel.set(r.fld_inspectionID, id);
+      return [r.fld_inspectionID, r.fld_buildingID, excelDate(r.fld_inspection_date ?? ''), r.fld_inspection_type || null, id];
+    }));
+    const nParcel = new Map<string, string | null>();
+    table('code_novs', ['nov_id', 'inspection_id', 'status', 'issued', 'released', 'release_type', 'tenant_issued', 'parcelId'], rawIf('code_db_2022_novs').map((r) => {
+      const id = iParcel.get(r.fld_inspectionID) ?? null; nParcel.set(r.fld_NOVID, id);
+      return [r.fld_NOVID, r.fld_inspectionID, r.fld_NOV_status, excelDate(r.fld_NOV_issue_date ?? ''), excelDate(r.fld_NOV_release_date ?? ''), r.fld_NOV_release_type || null,
+        r.fld_tenant_issuance === '1' ? 1 : 0, id];
+    }));
+    table('code_violations', ['violation_id', 'nov_id', 'status', 'location', 'code', 'emergency', 'entered', 'abated', 'parcelId'], rawIf('code_db_2022_violations').map((r) =>
+      [r.fld_violationID, r.fld_NOVID, r.fld_violation_status || null, r.fld_violation_location || null, r.fld_violation_code || null, r.fld_violation_emergency_status || null,
+        excelDate(r.fld_violation_entered_date ?? ''), excelDate(r.fld_violation_abated_date ?? ''), nParcel.get(r.fld_NOVID) ?? null]));
+    table('code_liens', ['lien_id', 'nov_id', 'type', 'status', 'charged', 'discharged', 'parcelId'], rawIf('code_db_2022_liens').map((r) =>
+      [r.fld_lienID, r.fld_NOVID, r.fld_lien_type || null, r.fld_lien_status || null, excelDate(r.fld_lien_charge_date ?? ''), excelDate(r.fld_lien_discharge_date ?? ''), nParcel.get(r.fld_NOVID) ?? null]));
+  }
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
@@ -457,7 +486,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       COALESCE(c3.n, 0) AS city_cases, COALESCE(c3.housing, 0) AS city_cases_housing,
       COALESCE(ch.n, 0) AS code_cases_2013_2024, COALESCE(ls.n, 0) AS lead_service_lines, sa.price AS sale_2024_price, sa.sale_date AS sale_2024_date, fz.zone AS flood_zone,
       COALESCE(lv.n, 0) AS lead_violations_2022, sh.last_date AS last_arms_length_sale, sh.n AS arms_length_sales_since_2000,
-      CASE WHEN sus.parcelId IS NULL THEN 0 ELSE 1 END AS ridoh_suspected_rental
+      CASE WHEN sus.parcelId IS NULL THEN 0 ELSE 1 END AS ridoh_suspected_rental,
+      COALESCE(ci.n, 0) AS code_inspections_1997_2022, ci.last AS last_code_inspection, COALESCE(cv.n, 0) AS code_violations_1997_2022, COALESCE(cv.lead, 0) AS lead_violations_1997_2022
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -476,7 +506,9 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN flood_zone fz ON fz.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM lead_violations_2022 GROUP BY parcelId) lv ON lv.parcelId = p.id
     LEFT JOIN (SELECT parcelId, MAX(sale_date) last_date, COUNT(*) n FROM sales_history WHERE price > 1000 AND sale_date >= '2000-01-01' GROUP BY parcelId) sh ON sh.parcelId = p.id
-    LEFT JOIN (SELECT DISTINCT parcelId FROM ridoh_suspected_rentals WHERE parcelId IS NOT NULL) sus ON sus.parcelId = p.id`);
+    LEFT JOIN (SELECT DISTINCT parcelId FROM ridoh_suspected_rentals WHERE parcelId IS NOT NULL) sus ON sus.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n, MAX(date) last FROM code_inspections GROUP BY parcelId) ci ON ci.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n, SUM(code LIKE 'LHMA%') lead FROM code_violations GROUP BY parcelId) cv ON cv.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 

@@ -211,6 +211,21 @@ export const SOURCES: Source[] = [
     url: 'https://providenceri.nextrequest.com/documents/4804481/download', keep: ['Map', 'Lot', 'Unit', 'STREET NUM', 'STREET NAME', 'SALE DATE 1', 'SALE PRICE 1', 'SALE CODE 1', 'QUALIFIED 1', 'IMPROVED 1', 'SALE DATE 2', 'SALE PRICE 2', 'SALE CODE 2', 'QUALIFIED 2', 'IMPROVED 2', 'SALE DATE 3', 'SALE PRICE 3', 'SALE CODE 3', 'QUALIFIED 3', 'IMPROVED 3', 'SALE DATE 4', 'SALE PRICE 4', 'SALE CODE 4', 'QUALIFIED 4', 'IMPROVED 4', 'SALE DATE 5', 'SALE PRICE 5', 'SALE CODE 5', 'QUALIFIED 5', 'IMPROVED 5', 'SALE DATE 6', 'SALE PRICE 6', 'SALE CODE 6', 'QUALIFIED 6', 'IMPROVED 6', 'STYLE', 'ACTUAL YEAR BUILT'] },
   { name: 'sales_history_2013', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'VISION ID', stream: { column: 'Map' },
     url: 'https://providenceri.nextrequest.com/documents/4804482/download', keep: ['Map', 'Lot', 'Unit', 'STREET NUM', 'STREET NAME', 'SALE DATE 1', 'SALE PRICE 1', 'SALE CODE 1', 'QUALIFIED 1', 'IMPROVED 1', 'SALE DATE 2', 'SALE PRICE 2', 'SALE CODE 2', 'QUALIFIED 2', 'IMPROVED 2', 'SALE DATE 3', 'SALE PRICE 3', 'SALE CODE 3', 'QUALIFIED 3', 'IMPROVED 3', 'SALE DATE 4', 'SALE PRICE 4', 'SALE CODE 4', 'QUALIFIED 4', 'IMPROVED 4', 'SALE DATE 5', 'SALE PRICE 5', 'SALE CODE 5', 'QUALIFIED 5', 'IMPROVED 5', 'SALE DATE 6', 'SALE PRICE 6', 'SALE CODE 6', 'QUALIFIED 6', 'IMPROVED 6', 'STYLE', 'ACTUAL YEAR BUILT'] },
+  // The city's code-enforcement database as released for APRA 22-1006 (2022): buildings (with plat and lot), inspections
+  // 1997–2022, notices of violation, violations and liens. Inspection notes, employee columns and free-text violation
+  // details are not kept.
+  { name: 'code_db_2022_buildings', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/15486468/download',
+    keep: ['fld_buildingID', 'fld_plat', 'fld_lot', 'fld_building_address_num1', 'fld_building_address_num2', 'fld_building_address_name', 'fld_building_address_type',
+      'fld_building_neighborhood', 'fld_building_ward', 'fld_condemned?', 'fld_emergency?'] },
+  { name: 'code_db_2022_inspections', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/15486470/download',
+    keep: ['fld_inspectionID', 'fld_buildingID', 'fld_inspection_date', 'fld_inspection_type'] },
+  { name: 'code_db_2022_novs', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/15486467/download',
+    keep: ['fld_NOVID', 'fld_inspectionID', 'fld_NOV_status', 'fld_NOV_issue_date', 'fld_NOV_release_date', 'fld_NOV_release_type', 'fld_tenant_issuance'] },
+  { name: 'code_db_2022_violations', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/15486471/download',
+    keep: ['fld_violationID', 'fld_NOVID', 'fld_violation_status', 'fld_violation_location', 'fld_violation_code', 'fld_violation_emergency_status',
+      'fld_violation_entered_date', 'fld_violation_abated_date'] },
+  { name: 'code_db_2022_liens', kind: 'records', format: 'xlsx', browserUA: true, url: 'https://providenceri.nextrequest.com/documents/15486469/download',
+    keep: ['fld_lienID', 'fld_NOVID', 'fld_condemnationID', 'fld_lien_type', 'fld_lien_status', 'fld_lien_charge_date', 'fld_lien_discharge_date'] },
   // Code cases with lead-hazard violations (LHMA 42-128.1-8), active and released, APRA 22-1323 (2022). Owner not kept.
   { name: 'lead_violations_2022', kind: 'records', format: 'xlsx', browserUA: true, sheets: 1, url: 'https://providenceri.nextrequest.com/documents/16739719/download',
     keep: ['Status', 'Number', 'Address', 'Complaint Date', 'Complaint Reason', 'Inspection Date', '1st NOV Issue Date', '# Violations (1st)', 'Lead Added', '2nd NOV Issue Date'] },

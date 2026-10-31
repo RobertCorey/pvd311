@@ -45,9 +45,9 @@ APRA (R.I.G.L. 38-2) applies to the city, RIHousing and state agencies: 10 busin
 ## 4. Code-enforcement history (Inspections & Standards)
 
 **Send:** https://providenceri.nextrequest.com/ (department: Inspections & Standards)
-**Why:** the public snapshots stop at 999 records (2022–2024) and 1,269 active cases. A full history shows building condition over time.
+**Why:** request 22-1006 released the code-enforcement database through September 2022 (buildings, inspections, notices, violations, liens), and it's ingested. This brings it current.
 
-> Under the Access to Public Records Act, I request an electronic export (CSV or Excel) of all code-enforcement (housing, building and zoning) case records opened from January 1, 2016 to the present, all statuses. For each case please include: record number, property address, plat/lot, complaint type, date of first inspection, violation codes cited, notice of violation issue and release dates, condemnation and intent-to-condemn dates, status, and closed date. Owner names and complainant information are not needed. Please also release the vacant and abandoned property registry (as released for request 25-339) for 2025 and 2026, plat/lot and address only.
+> Under the Access to Public Records Act, I request the same code-enforcement database export released for request 22-1006 (tables tbl_code_buildings, tbl_code_inspections, tbl_code_NOVs, tbl_code_violations and tbl_code_liens), updated to the present, or, if the department has moved to OpenGov, an electronic export (CSV or Excel) of all code-enforcement case records opened since September 2022 with: record number, property address, plat/lot, complaint type, inspection dates, violation codes, notice issue and release dates, condemnation dates, status and closed date. Owner names and complainant information are not needed. Please also release the vacant and abandoned property registry (as released for request 25-339) for 2025 and 2026, plat/lot and address only.
 
 ---
 
