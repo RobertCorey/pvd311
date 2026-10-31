@@ -30,6 +30,8 @@ type Source =
       stream?: { column: string; startsWith?: string; inSource?: { name: string; column: string } } }
   /** Public Tableau dashboards with downloads turned off: every worksheet of each view, via the page's own session calls. */
   | { name: string; kind: 'tableau'; workbook: string; views: string[] }
+  /** Census Building Permits Survey, annual place files (Northeast): the Providence row for each year. */
+  | { name: string; kind: 'bps'; from: number; to: number }
   /** ACS 5-year Summary File tract estimates (no API key), cells named → "TABLE_LINE". */
   | { name: string; kind: 'acs_sf'; year: number; cells: Record<string, string> }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
@@ -132,6 +134,8 @@ export const SOURCES: Source[] = [
   // Zillow home value index (typical home, middle third), city and ZIP, Rhode Island rows only.
   // FHFA house price index by census tract (annual, repeat sales, developmental series), Providence County rows only.
   { name: 'fhfa_hpi_tract', kind: 'csv', lines: '^44007', browserUA: true, url: 'https://www.fhfa.gov/hpi/download/annually/hpi_at_tract.csv' },
+  // Census Building Permits Survey: units authorized in Providence by building size (1, 2, 3–4, 5+), every year since 1980.
+  { name: 'bps_providence', kind: 'bps', from: 1980, to: 2025 },
   { name: 'zhvi_city', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   { name: 'zhvi_zip', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
@@ -330,6 +334,23 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'RIDOH lead certificate Power BI report (public)' };
       console.log(`${s.name}: ${rows.length} address rows`);
+      continue;
+    }
+    if (s.kind === 'bps') {
+      // Layouts differ by year, but every row ends with 24 fields: buildings, units, value for 1, 2, 3–4 and 5+ unit buildings
+      // (imputed totals), then the same twelve for reporting months only. The imputed set is kept.
+      const rows: Record<string, number>[] = [];
+      for (let y = s.from; y <= s.to; y++) {
+        const text = await getText(`https://www2.census.gov/econ/bps/Place/Northeast%20Region/ne${y}a.txt`);
+        const line = text.split('\n').find((l) => { const f = l.split(','); return f[1]?.trim() === '44' && f.some((x) => /^providence[ .]*$/i.test(x.trim().replace(/ \./g, ''))); });
+        if (!line) { console.log(`bps ${y}: no Providence row`); continue; }
+        const f = line.trim().split(',').map((x) => Number(x.trim()));
+        const t = f.slice(-24, -12);
+        rows.push({ year: y, units_1: t[1], units_2: t[4], units_3_4: t[7], units_5_plus: t[10], bldgs_5_plus: t[9], value_total: t[2] + t[5] + t[8] + t[11] });
+      }
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
+      manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'https://www2.census.gov/econ/bps/Place/' };
+      console.log(`${s.name}: ${rows.length} years`);
       continue;
     }
     if (s.kind === 'acs_sf') {

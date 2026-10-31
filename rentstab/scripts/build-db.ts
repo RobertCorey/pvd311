@@ -766,6 +766,13 @@ function main() {
     }
   }
 
+  // Census Building Permits Survey for Providence, 1980–2025: units authorized by building size, as the city reported them.
+  db.exec('CREATE TABLE bps_units_year (year PRIMARY KEY, units_1, units_2, units_3_4, units_5_plus, bldgs_5_plus, value_total)');
+  {
+    const ins = db.prepare('INSERT INTO bps_units_year VALUES (?,?,?,?,?,?,?)');
+    for (const r of rawIf('bps_providence')) ins.run(r.year, r.units_1, r.units_2, r.units_3_4, r.units_5_plus, r.bldgs_5_plus, r.value_total);
+  }
+
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
   // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
   {
