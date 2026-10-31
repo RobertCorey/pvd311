@@ -275,7 +275,7 @@ function initMap(basemap: any) {
         { id: 'bldg', type: 'fill', source: 'buildings', minzoom: 14,
           paint: {
             'fill-color': ['match', ['get', 'k'], 0, css('--owned'), 1, colors[1], 2, colors[2], 3, colors[3], 4, colors[4], css('--nohomes')],
-            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, ['case', ['==', ['get', 's'], 1], 0.85, 0.42]],
+            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 14.2, 0, 15.2, ['case', ['==', ['get', 's'], 1], 0.85, 0.42]],
           } },
         { id: 'bldg-line', type: 'line', source: 'buildings', minzoom: 15,
           paint: { 'line-color': css('--ink'), 'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16.5, 0.28], 'line-width': 0.6 } },
@@ -283,7 +283,7 @@ function initMap(basemap: any) {
         { id: 'homes', type: 'circle', source: 'homes',
           paint: {
             'circle-color': ['match', ['get', 'k'], 0, colors[0], 1, colors[1], 2, colors[2], 3, colors[3], colors[4]],
-            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['case', ['==', ['get', 's'], 1], 0.95, 0.5], 16.5, 0],
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 14.8, ['case', ['==', ['get', 's'], 1], 0.95, 0.5], 15.6, 0],
             'circle-radius': ['interpolate', ['exponential', 1.5], ['zoom'], 11, 0.8, 13, 1.3, 15, 2.4, 16, 3.2, 17, 4.4, 18, 6.5, 19, 9],
           } },
         { id: 'sel', type: 'circle', source: 'sel',
@@ -309,7 +309,7 @@ function initMap(basemap: any) {
   map.on('mouseenter', 'bldg', () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', 'bldg', () => (map.getCanvas().style.cursor = ''));
   map.on('click', (e: any) => {
-    if (map.getZoom() >= 15.5) {
+    if (map.getZoom() >= 15.2) {
       const b = map.queryRenderedFeatures(e.point, { layers: ['bldg'] })[0];
       if (b) return pickBuilding(b.properties.b);
     }
