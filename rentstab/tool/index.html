@@ -16,11 +16,14 @@
   --line: #E3DACB;
   --ember-text: #BD3F12;
   --river: #1D5C99;
-  --owned: #8C94A8;
-  --controlled: #F05A1E;
-  --market: #2367A8;
-  --subsidized: #1E7A4E;
-  --unclear: #C9B48C;
+  /* Map marks. Three hues for the rental outcomes (validated all-pairs: CVD ΔE ≥ 9.2, normal ≥ 24 on --land);
+     owners and "can't tell" are neutrals, separated by lightness, so they never compete with the hues. */
+  --controlled: #EB6834;
+  --market: #2A78D6;
+  --subsidized: #1BAF7A;
+  --owned: #C7BFB1;
+  --unclear: #827E76;
+  --nohomes: #E6DFD3;
   --font-display: 'Bricolage Grotesque', 'Avenir Next', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --radius: 12px;
@@ -62,6 +65,8 @@ p { margin: 0; }
 .sw { width: 10px; height: 10px; border-radius: 50%; transform: translateY(1px); }
 .sw.owned { background: var(--owned); } .sw.controlled { background: var(--controlled); } .sw.market { background: var(--market); } .sw.subsidized { background: var(--subsidized); } .sw.unclear { background: var(--unclear); }
 .sw.light { opacity: .45; }
+.sw.sq { border-radius: 2px; }
+.sw.nohomes { background: var(--nohomes); border: 1px solid var(--line); }
 .note { font-size: 12.5px; color: var(--muted); }
 
 .searchbox { position: relative; }
@@ -80,8 +85,8 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--river); out
 .pill.controlled { background: var(--controlled); color: var(--ink); }
 .pill.market { background: var(--market); color: var(--surface); }
 .pill.subsidized { background: var(--subsidized); color: var(--surface); }
-.pill.unclear { background: var(--unclear); color: var(--ink); }
-.pill.owned { background: var(--owned); color: var(--surface); }
+.pill.owned { background: var(--owned); color: var(--ink); }
+.pill.unclear { background: var(--unclear); color: var(--surface); }
 .card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .card details { font-size: 12.5px; color: var(--muted); }
 .card details ul { margin-top: 6px; }

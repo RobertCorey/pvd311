@@ -8,6 +8,7 @@ const RAW = join(import.meta.dirname, '..', 'data', 'raw');
 const SOCRATA = 'https://data.providenceri.gov';
 const ARCGIS = 'https://services6.arcgis.com/wv9mHoqblhTsnqdG/arcgis/rest/services'; // City of Providence GIS
 const HUD = 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services'; // HUD eGIS open data
+const RIGIS = 'https://services2.arcgis.com/S8zZg9pg23JUEexQ/arcgis/rest/services'; // RIGIS (URI) statewide layers
 
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
@@ -42,6 +43,13 @@ export const SOURCES: Source[] = [
   // Basemap layers for the map (the artifact host allows no outside tiles): named streets, parks, water parcels.
   { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
   { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
+  // Lot outlines (simplified) — the map shades lots with no homes on record.
+  { name: 'parcel_shapes', kind: 'arcgis', service: 'Parcels_with_CAMA', geometry: true, fields: 'PROPID', simplify: 0.000008 },
+  // Every street address (state E-911 points): a lot like 280 Waterman St also holds 209–221 Medway St.
+  { name: 'address_points', kind: 'arcgis', base: RIGIS, service: 'FACILITY_AddressPoints_E911domains', layer: 5, geometry: true,
+    where: "municipality='PROVIDENCE' AND addrnum IS NOT NULL", fields: 'addrnum,addrnumsuf,fullname,pointtype' },
+  // Building footprints (city GIS), colored by their lot's result at street zoom.
+  { name: 'building_shapes', kind: 'arcgis', service: 'Buildings_layer', geometry: true, fields: 'OBJECTID', simplify: 0.000005 },
   { name: 'basemap_parks', kind: 'arcgis', service: 'Parks_And_Open_Space', geometry: true, fields: 'PARKNAME,ACRES', simplify: 0.00002 },
   { name: 'basemap_water', kind: 'arcgis', service: 'Parcels_with_CAMA', geometry: true, where: "POLY_TYPE='WATER'", fields: 'OBJECTID', simplify: 0.00002 },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).

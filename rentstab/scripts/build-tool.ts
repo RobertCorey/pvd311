@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 import { parse } from 'yaml';
 import { loadParcels } from '../src/db.ts';
+import { classify } from '../src/classify.ts';
 import { loadRules } from '../src/rules.ts';
+import { housingMix } from '../src/units.ts';
 import type { Parcel } from '../src/types.ts';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -76,6 +78,36 @@ function basemap(hoods: ReturnType<typeof neighborhoods>) {
   };
 }
 
+/** Point → indexes of the lots containing it (grid-bucketed bounding boxes, then ray casting on the outer ring). */
+function lotIndex(rings: (number[][][] | null)[]) {
+  const CELL = 0.002, grid = new Map<string, number[]>();
+  const boxes = rings.map((r) => {
+    if (!r) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of r[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    return [x0, y0, x1, y1];
+  });
+  boxes.forEach((bx, i) => {
+    if (!bx) return;
+    for (let gx = Math.floor(bx[0] / CELL); gx <= Math.floor(bx[2] / CELL); gx++)
+      for (let gy = Math.floor(bx[1] / CELL); gy <= Math.floor(bx[3] / CELL); gy++) {
+        const k = `${gx},${gy}`; (grid.get(k) ?? grid.set(k, []).get(k)!).push(i);
+      }
+  });
+  const inside = (ring: number[][], x: number, y: number) => {
+    let c = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+  return (x: number, y: number): number[] => {
+    const cands = grid.get(`${Math.floor(x / CELL)},${Math.floor(y / CELL)}`) ?? [];
+    return cands.filter((i) => { const b = boxes[i]!; return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && inside(rings[i]![0], x, y); });
+  };
+}
+
 function neighborhoods() {
   const raw = JSON.parse(readFileSync(join(ROOT, 'data', 'raw', 'neighborhoods.json'), 'utf8')) as any[];
   const round = (ring: number[][]) => ring.map(([x, y]) => [r5(x), r5(y)]);
@@ -97,7 +129,47 @@ async function main() {
     ...encode(parcels.map(row)),
   };
   writeFileSync(join(DIST, 'data.json'), JSON.stringify(data));
-  writeFileSync(join(DIST, 'basemap.json'), JSON.stringify(basemap(data.neighborhoods)));
+  // Lots with no homes on record (offices, shops, industry, institutions, government, vacant) get a pale fill.
+  const shapes = new Map<string, number[][][]>();
+  for (const r of JSON.parse(readFileSync(join(ROOT, 'data', 'raw', 'parcel_shapes.json'), 'utf8')) as any[]) {
+    if (r.PROPID && r._geometry?.rings && !shapes.has(r.PROPID)) shapes.set(r.PROPID, r._geometry.rings);
+  }
+  const noHomes = parcels.flatMap((p, i) => {
+    const rings = shapes.get(p.id);
+    if (!rings || housingMix(p, classify(p, data.rules), data.rules).units > 0) return [];
+    return [{ type: 'Feature', properties: { i }, geometry: { type: 'Polygon', coordinates: rings.map((ring) => ring.map(([x, y]) => [r5(x), r5(y)])) } }];
+  });
+  writeFileSync(join(DIST, 'basemap.json'), JSON.stringify({ ...basemap(data.neighborhoods), noHomes: { type: 'FeatureCollection', features: noHomes } }));
+  console.log(`no-homes lots: ${noHomes.length}`);
+
+  // Buildings and street addresses → the lot(s) they sit in (stacked condo lots can return several parcels).
+  const lotOf = lotIndex(parcels.map((p) => shapes.get(p.id) ?? null));
+  const Q = 1e6, X0 = -71.48, Y0 = 41.77;
+  const buildings: [number[], number[]][] = [];
+  for (const b of JSON.parse(readFileSync(join(ROOT, 'data', 'raw', 'building_shapes.json'), 'utf8')) as any[]) {
+    const ring: number[][] | undefined = b._geometry?.rings?.[0];
+    if (!ring || ring.length < 4) continue;
+    let cx = 0, cy = 0;
+    for (const [x, y] of ring) { cx += x; cy += y; }
+    const lots = lotOf(cx / ring.length, cy / ring.length);
+    // Quantized, delta-encoded outer ring: [x0, y0, dx1, dy1, …] in millionths of a degree from (X0, Y0).
+    const q: number[] = [];
+    let px = 0, py = 0;
+    for (const [x, y] of ring) { const ix = Math.round((x - X0) * Q), iy = Math.round((y - Y0) * Q); q.push(ix - px, iy - py); px = ix; py = iy; }
+    buildings.push([lots, q]);
+  }
+  const roll = new Set(parcels.map((p) => p.address.toLowerCase()));
+  const title = (s: string) => s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+  const addresses: [string, number[]][] = [];
+  for (const a of JSON.parse(readFileSync(join(ROOT, 'data', 'raw', 'address_points.json'), 'utf8')) as any[]) {
+    if (!a._geometry || !a.addrnum || !a.fullname) continue;
+    const label = title(`${a.addrnum}${a.addrnumsuf ?? ''} ${a.fullname}`.replace(/\s+/g, ' ').trim());
+    const lots = lotOf(a._geometry.x, a._geometry.y);
+    if (!lots.length || roll.has(label.toLowerCase())) continue;
+    addresses.push([label, lots]);
+  }
+  writeFileSync(join(DIST, 'buildings.json'), JSON.stringify({ origin: [X0, Y0], scale: Q, buildings, addresses }));
+  console.log(`buildings: ${buildings.length} (${buildings.filter((b) => b[0].length).length} on a lot) · extra street addresses: ${addresses.length}`);
   for (const [name, remote] of Object.entries(FONTS)) {
     mkdirSync(join(DIST, 'fonts', name), { recursive: true });
     const buf = Buffer.from(await (await fetch(`https://protomaps.github.io/basemaps-assets/fonts/${remote}/0-255.pbf`)).arrayBuffer());
@@ -115,7 +187,7 @@ async function main() {
   const html = readFileSync(join(ROOT, 'tool', 'index.html'), 'utf8').replace('/*MAPLIBRE_CSS*/', css);
   writeFileSync(join(DIST, 'index.html'), html);
   const kb = (f: string) => Math.round(readFileSync(join(DIST, f)).length / 1024);
-  console.log(`tool/dist: data.json ${kb('data.json')} KB · basemap.json ${kb('basemap.json')} KB · app.js ${kb('app.js')} KB · index.html ${kb('index.html')} KB · ${parcels.length} parcels`);
+  console.log(`tool/dist: data.json ${kb('data.json')} KB · basemap.json ${kb('basemap.json')} KB · buildings.json ${kb('buildings.json')} KB · app.js ${kb('app.js')} KB · index.html ${kb('index.html')} KB · ${parcels.length} parcels`);
 }
 
 if (import.meta.main) await main();
