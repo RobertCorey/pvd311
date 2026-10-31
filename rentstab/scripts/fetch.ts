@@ -365,6 +365,20 @@ function accumulateCases(feed: any, path: string): { v: 'accumulated'; at: strin
 }
 
 const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
+/** Binary download with the same retries as getText (large HUD and city files sometimes drop mid-transfer). */
+async function getBytes(url: string, browserUA = false): Promise<Uint8Array> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { 'user-agent': browserUA ? BROWSER_UA : 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    } catch (err) {
+      if (attempt >= 5) throw new Error(`${url}: ${err}`);
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    }
+  }
+}
+
 async function getText(url: string, browserUA = false): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -401,7 +415,7 @@ async function main() {
       continue;
     }
     if (s.kind === 'chas') {
-      const get = async (u: string) => { const r = await fetch(u, { headers: { 'user-agent': BROWSER_UA } }); if (!r.ok) throw new Error(`${s.name}: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
+      const get = (u: string) => getBytes(u, true);
       // Dictionary sheet rows: column name, type (Total/Subtotal/Detail), tenure, income, cost burden, facilities.
       const labels = Object.fromEntries(readXlsx(await get(s.dictUrl), s.dictSheet).filter((r) => /_est\d+$/.test(r[0]?.trim() ?? '')).map((r) => [r[0].trim(), r.slice(1, 6).map((c) => c.trim())]));
       let head: string[] = [];
@@ -468,9 +482,7 @@ async function main() {
     if (s.kind === 'records') {
       let recs: Record<string, string>[];
       if (s.format === 'xlsx') {
-        const res = await fetch(s.url, { headers: { 'user-agent': s.browserUA ? BROWSER_UA : 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
-        if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
-        const buf = new Uint8Array(await res.arrayBuffer());
+        const buf = await getBytes(s.url, s.browserUA);
         recs = [];
         if (s.stream) {
           const { column, startsWith, inSource } = s.stream;
