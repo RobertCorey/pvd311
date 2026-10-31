@@ -2,7 +2,7 @@
 
 Drafts for the by-request items in DATA_SOURCES.md §3, in priority order.
 
-**Filed 2026-10-31** (city portal, replies to robertbcorey@gmail.com): 2a → **#26-3023**, 2b → **#26-3024**, 2c → **#26-3025**, 1 → **#26-3026**. Response due about 2026-11-16/17 (10 business days; extendable by 20). #5 (RIHousing) is a draft in Rob's Gmail, not yet sent. #3, #4 and #6 are on hold (not rent-control coverage). Each asks for property-level records in an electronic format and for no personal information about tenants. Before sending, search the portal again (DATA_SOURCES.md, "Before filing"): someone may have asked since 2026-10-31.
+**Filed 2026-10-31** (city portal, replies to robertbcorey@gmail.com): 2a → **#26-3023**, 2b → **#26-3024**, 2c → **#26-3025**, 1 → **#26-3026**. Response due about 2026-11-16/17 (10 business days; extendable by 20). #5 (RIHousing) emailed to recordsrequests@rihousing.com on 2026-10-31. #3, #4 and #6 are on hold (not rent-control coverage). Each asks for property-level records in an electronic format and for no personal information about tenants. Before sending, search the portal again (DATA_SOURCES.md, "Before filing"): someone may have asked since 2026-10-31.
 
 APRA (R.I.G.L. 38-2) applies to the city, RIHousing and state agencies: 10 business days to respond (extendable by 20), first hour of search free, then up to $15/hour. Court records are not APRA records; see request 5.
 
