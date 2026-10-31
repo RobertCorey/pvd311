@@ -773,6 +773,27 @@ function main() {
     for (const r of rawIf('bps_providence')) ins.run(r.year, r.units_1, r.units_2, r.units_3_4, r.units_5_plus, r.bldgs_5_plus, r.value_total);
   }
 
+  // HUD CHAS 2018–2022 Table 8 for the city's tracts: households by tenure × income band (% of HUD area median family income)
+  // × housing cost burden. Long format; 'all' marks a subtotal.
+  {
+    const chas = rawIf('chas_t8') as any;
+    const city = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
+    const band = (t: string) => t === 'All' ? 'all' : /less than or equal to 30%/.test(t) ? '0-30' : /greater than 30% but less than or equal to 50%/.test(t) ? '30-50'
+      : /greater than 50% but less than or equal to 80%/.test(t) ? '50-80' : /greater than 80% but less than or equal to 100%/.test(t) ? '80-100' : /greater than 100%/.test(t) ? '100+' : t;
+    const burden = (t: string) => t === 'All' ? 'all' : /not computed/.test(t) ? 'not computed' : /less than or equal to 30%/.test(t) ? '<=30%'
+      : /greater than 30% but less than or equal to 50%/.test(t) ? '30-50%' : /greater than 50%/.test(t) ? '>50%' : t;
+    db.exec('CREATE TABLE chas_tract_burden (geoid, tenure, income_band, cost_burden, households, PRIMARY KEY (geoid, tenure, income_band, cost_burden))');
+    const ins = db.prepare('INSERT OR REPLACE INTO chas_tract_burden VALUES (?,?,?,?,?)');
+    for (const r of chas?.rows ?? []) {
+      const geoid = `14000US${r.st}${r.cnty}${r.tract}`;
+      if (!city.has(geoid)) continue;
+      for (const [col, [type, tenure, income, cost, facilities]] of Object.entries<string[]>(chas.labels)) {
+        if (type !== 'Subtotal' || facilities !== 'All' || !/^(Owner|Renter)/.test(tenure)) continue;
+        ins.run(geoid, tenure.startsWith('Renter') ? 'renter' : 'owner', band(income), burden(cost), Number(r[col]) || 0);
+      }
+    }
+  }
+
   // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
   // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
   {

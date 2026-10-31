@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readCsv } from '../src/csv.ts';
 import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
-import { readXlsx, streamXlsxRows, xlsxRecords } from '../src/xlsx.ts';
+import { readXlsx, streamXlsxRows, streamZipLines, xlsxRecords } from '../src/xlsx.ts';
 import { tableauView } from '../src/tableau.ts';
 import { acsTracts } from '../src/acssf.ts';
 import { join } from 'node:path';
@@ -32,6 +32,8 @@ type Source =
   | { name: string; kind: 'tableau'; workbook: string; views: string[] }
   /** Census Building Permits Survey, annual place files (Northeast): the Providence row for each year. */
   | { name: string; kind: 'bps'; from: number; to: number }
+  /** HUD CHAS: one table from the national tract zip (lines for one county) plus its labels from the data dictionary. */
+  | { name: string; kind: 'chas'; url: string; member: string; county: string; dictUrl: string; dictSheet: number }
   /** ACS 5-year Summary File tract estimates (no API key), cells named → "TABLE_LINE". */
   | { name: string; kind: 'acs_sf'; year: number; cells: Record<string, string> }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
@@ -136,6 +138,9 @@ export const SOURCES: Source[] = [
   { name: 'fhfa_hpi_tract', kind: 'csv', lines: '^44007', browserUA: true, url: 'https://www.fhfa.gov/hpi/download/annually/hpi_at_tract.csv' },
   // Census Building Permits Survey: units authorized in Providence by building size (1, 2, 3–4, 5+), every year since 1980.
   { name: 'bps_providence', kind: 'bps', from: 1980, to: 2025 },
+  // HUD CHAS 2018–2022 Table 8: households by tenure × income (share of HUD area median) × housing cost burden, by tract.
+  { name: 'chas_t8', kind: 'chas', url: 'https://www.huduser.gov/PORTAL/datasets/cp/2018thru2022-140-csv.zip', member: '140/Table8.csv', county: ',44,007,',
+    dictUrl: 'https://www.huduser.gov/PORTAL/datasets/cp/CHAS-data-dictionary-18-22.xlsx', dictSheet: 12 },
   { name: 'zhvi_city', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   { name: 'zhvi_zip', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
@@ -334,6 +339,23 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'RIDOH lead certificate Power BI report (public)' };
       console.log(`${s.name}: ${rows.length} address rows`);
+      continue;
+    }
+    if (s.kind === 'chas') {
+      const get = async (u: string) => { const r = await fetch(u, { headers: { 'user-agent': BROWSER_UA } }); if (!r.ok) throw new Error(`${s.name}: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
+      // Dictionary sheet rows: column name, type (Total/Subtotal/Detail), tenure, income, cost burden, facilities.
+      const labels = Object.fromEntries(readXlsx(await get(s.dictUrl), s.dictSheet).filter((r) => /_est\d+$/.test(r[0]?.trim() ?? '')).map((r) => [r[0].trim(), r.slice(1, 6).map((c) => c.trim())]));
+      let head: string[] = [];
+      const rows: Record<string, string>[] = [];
+      streamZipLines(await get(s.url), s.member, (line) => {
+        if (!head.length) { head = line.split(','); return; }
+        if (!line.includes(s.county)) return;
+        const f = line.replace(/"[^"]*"/g, '').split(',');
+        rows.push(Object.fromEntries(head.map((k, i) => [k, f[i]])));
+      });
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify({ labels, rows }));
+      manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: s.url };
+      console.log(`${s.name}: ${rows.length} tracts, ${Object.keys(labels).length} labelled columns`);
       continue;
     }
     if (s.kind === 'bps') {

@@ -27,6 +27,25 @@ function parseRow(row: string, shared: string[]): string[] {
   return Array.from(out, (x) => x ?? '');
 }
 
+/** Streams one text member of a zip line by line (national CSVs inside big zips, e.g. HUD CHAS). */
+export function streamZipLines(buf: Uint8Array, member: string, onLine: (line: string) => void): void {
+  const decoder = new TextDecoder('latin1');
+  let pending = '';
+  const unzip = new Unzip((file) => {
+    if (file.name !== member) return;
+    file.ondata = (err, chunk, final) => {
+      if (err) throw err;
+      pending += decoder.decode(chunk, { stream: !final });
+      const lines = pending.split('\n');
+      pending = final ? '' : lines.pop()!;
+      for (const l of lines) onLine(l.replace(/\r$/, ''));
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  for (let i = 0; i < buf.length; i += 1 << 20) unzip.push(buf.subarray(i, Math.min(i + (1 << 20), buf.length)), i + (1 << 20) >= buf.length);
+}
+
 /** Streams one sheet row by row, for sheets too big to hold as a string (HUD's tract file is a 500 MB sheet). */
 export function streamXlsxRows(buf: Uint8Array, onRow: (row: string[]) => void, sheet = 1): void {
   const shared = sharedStrings(buf);
