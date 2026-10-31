@@ -217,7 +217,7 @@ function initMap(basemap: any) {
     minZoom: 11, maxZoom: 19, dragRotate: false, pitchWithRotate: false, attributionControl: false,
     style: {
       version: 8,
-      glyphs: `${base}fonts/{fontstack}/{range}.pbf`,
+      glyphs: `${base}fonts/{fontstack}/{range}.woff`,
       sources: {
         water: { type: 'geojson', data: basemap.water }, parks: { type: 'geojson', data: basemap.parks },
         roads: { type: 'geojson', data: basemap.roads }, major: { type: 'geojson', data: basemap.major },

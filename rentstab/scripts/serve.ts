@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 const DIST = join(import.meta.dirname, '..', 'tool', 'dist');
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json' };
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.woff': 'font/woff' };
 const SKELETON = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"></head><body>';
 
 createServer((req, res) => {

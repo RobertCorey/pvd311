@@ -101,7 +101,8 @@ async function main() {
   for (const [name, remote] of Object.entries(FONTS)) {
     mkdirSync(join(DIST, 'fonts', name), { recursive: true });
     const buf = Buffer.from(await (await fetch(`https://protomaps.github.io/basemaps-assets/fonts/${remote}/0-255.pbf`)).arrayBuffer());
-    writeFileSync(join(DIST, 'fonts', name, '0-255.pbf'), buf);
+    // Glyph PBFs ship under a .woff name: the artifact host only serves standard web types, and MapLibre reads raw bytes.
+    writeFileSync(join(DIST, 'fonts', name, '0-255.woff'), buf);
   }
 
   await build({
