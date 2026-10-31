@@ -439,6 +439,14 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     return [[r.street_address, r.zip_code, ids.has(id) ? id : match(String(r.street_address ?? ''))]];
   }));
 
+  // HUD LIHTC projects with their tax-credit clocks: 15-year compliance and 30-year extended use counted from the year placed
+  // in service (the federal minimums; many Rhode Island deals carry longer restrictions, which only NHPD or RIHousing list).
+  table('lihtc_projects', ['hud_id', 'project', 'address', 'units', 'li_units', 'year_placed_in_service', 'compliance_ends', 'extended_use_ends', 'parcelId'],
+    rawIf('hud_lihtc').map((r) => {
+      const y = num(r.YR_PIS) && num(r.YR_PIS)! > 1980 && num(r.YR_PIS)! < 2100 ? num(r.YR_PIS)! : null;
+      return [r.HUD_ID, r.PROJECT, r.STD_ADDR?.trim() || r.PROJ_ADD, num(r.N_UNITS), num(r.LI_UNITS), y, y ? y + 15 : null, y ? y + 30 : null, match(String(r.STD_ADDR?.trim() || r.PROJ_ADD || ''))];
+    }));
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
