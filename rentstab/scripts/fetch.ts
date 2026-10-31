@@ -46,6 +46,19 @@ export const SOURCES: Source[] = [
   { name: 'taxroll2015', kind: 'socrata', id: 'r8g6-9zdt', select: 'plat_lot_unit, levy_code, owner_first AS first_name, owner_last AS last_name' },
   { name: 'taxroll2014', kind: 'socrata', id: 't2vi-f8qs', select: 'plat_lot_unit, levy_code, owner_first AS first_name, owner_last AS last_name' },
   { name: 'taxroll2013', kind: 'socrata', id: 'a6uy-vymr', select: 'plat_lot_unit, levy_code, owner_first_name AS first_name' },
+  // FY2002–FY2012: no owner-occupied levy split, but the homestead exemption (≥35% of assessed value on an R01 parcel) marks
+  // owner-occupants: on FY2012 it agrees with FY2013's levy code on 93% of houses (precision 98%, recall 91%).
+  { name: 'taxroll2012', kind: 'socrata', id: 'fgwg-7viq', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2011', kind: 'socrata', id: 'cj3e-g66x', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2010', kind: 'socrata', id: 'p6bs-8exs', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2009', kind: 'socrata', id: '9p3h-3q5i', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2008', kind: 'socrata', id: 'swgn-agtw', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2007', kind: 'socrata', id: 'iafn-rvmp', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2006', kind: 'socrata', id: 'aymi-rpqq', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2005', kind: 'socrata', id: 'yqdi-fbw5', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2004', kind: 'socrata', id: 'fvsz-rky3', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2003', kind: 'socrata', id: 'fek9-hu38', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
+  { name: 'taxroll2002', kind: 'socrata', id: 'e3qk-fibu', select: 'plat_lot_unit, class, levy_code, total_assessment, total_exemption, owner_first_name AS first_name' },
   // FY2021–23 have no owner-occupied levy code; their exemption amounts are the candidate stand-in.
   { name: 'taxroll2021_values', kind: 'socrata', id: 'fawc-z8zq', select: 'tax_map, levy_code_1, total_assessment AS total_assmt, total_exemption AS total_exempt' },
   { name: 'taxroll2022_values', kind: 'socrata', id: 'c3q4-f95q', select: 'tax_map, levy_code_1, total_assmt, total_exempt' },

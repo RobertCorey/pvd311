@@ -558,7 +558,7 @@ function main() {
   // Released datasets (rental registry, short-term rentals, housing court, tax sale), each joined to a parcel.
   writeSignals(db, parcels);
 
-  // Owner-occupied tax rate per parcel per roll year, FY2016 and FY2020–FY2026 (assessment dates a year earlier).
+  // Owner-occupied tax rate per parcel per roll year, FY2002–FY2026 (assessment dates a year earlier).
   // FY2021–23 had a single residential code; there the homestead exemption (≥30% of assessed value) marks owner-occupants.
   // Checked on FY2022: 95% of parcels owner-occupied in both FY2020 and FY2024 carry it, 98% of parcels investor-owned in
   // both carry no exemption, and ~99% of parcels with it were owner-occupied on both sides. method = 'levy' | 'homestead'.
@@ -586,6 +586,20 @@ function main() {
         const assessed = Number(r.total_assmt), exempt = Number(r.total_exempt) || 0;
         if (!ids.has(id) || r.levy_code_1 !== 'R01' || !(assessed > 0)) continue;
         ins.run(id, year, exempt / assessed >= 0.3 ? 1 : 0, 'homestead');
+      }
+    }
+    // FY2002–FY2012: the pre-2013 homestead exemption, method 'exemption_pre2013'. Its size changed: owner-occupants hold
+    // ≥20% of assessed value in FY2002–03 and ≥45% from FY2004 (a ~30% band in FY2004–09 is mostly not owner-occupied).
+    // Checked against FY2013's levy code: FY2012 holders are 99% owner-occupied a year later, FY2004–11 holders only 76–81%
+    // two to nine years later, and the holder count drops 18% in FY2012. The list looks purged around FY2012, so earlier
+    // years overstate owner-occupancy: use them per parcel as evidence, not as a citywide trend.
+    for (let year = 2002; year <= 2012; year++) {
+      const cut = year <= 2003 ? 0.2 : 0.45;
+      for (const r of rawIf(`taxroll${year}`)) {
+        const id = String(r.plat_lot_unit ?? '').trim();
+        const assessed = Number(r.total_assessment), exempt = Number(r.total_exemption) || 0;
+        if (!ids.has(id) || r.levy_code !== 'R01' || !(assessed > 0)) continue;
+        ins.run(id, year, exempt / assessed >= cut ? 1 : 0, 'exemption_pre2013');
       }
     }
     db.exec('COMMIT');

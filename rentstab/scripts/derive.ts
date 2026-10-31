@@ -2,7 +2,7 @@
 //   parcel_status        — every parcel's result under the April 2026 rules, with homes by category
 //   owner_groups,
 //   parcel_owner_group   — landlord portfolios: owners linked by a shared mailing address or identical name
-//   ownership_changes    — owner changes between consecutive rolls FY2013–FY2026, with buyer/seller kind
+//   ownership_changes    — owner changes between consecutive rolls FY2002–FY2026, with buyer/seller kind
 //   new_housing_by_year  — dwelling units in new-building and conversion permits, by year issued
 //   parcel_zoning        — base zoning district at each lot's centroid
 //   parcel_overlay       — overlay districts at each lot's centroid (a lot can sit in several)
@@ -42,6 +42,8 @@ function mailKey(p: Parcel): string | null {
   const a = parseAddress(street);
   return a ? `${a.lo} ${a.street}|${city.replace(/[^a-z ]/g, ' ').trim().split(/\s+/)[0] ?? ''}` : null;
 }
+
+const COMPARABLE_YEARS = new Set([2005, 2006, 2009, 2010, 2011, 2012, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]);
 
 function main() {
   const rules = loadRules(join(ROOT, 'rules', 'ordinance-2026-04.yaml'));
@@ -84,10 +86,10 @@ function main() {
   insertAll(db, 'owner_groups', ['groupId', 'parcels', 'homes', 'controlled', 'market', 'subsidized', 'unclear', 'entity_parcels', 'non_entity_parcels', 'sample_entities'], groupRows, 'groupId');
   insertAll(db, 'parcel_owner_group', ['parcelId', 'groupId'], memberRows, 'parcelId');
 
-  // 3. Ownership changes between consecutive rolls (owner name keys differ), FY2021 → FY2026.
+  // 3. Ownership changes between consecutive rolls (owner name keys differ), FY2002 → FY2026.
   const ownerByYear = new Map<number, Map<string, { key: string | null; kind: string }>>();
   const nameOf = (r: any) => (r.company?.trim() || r.owner_company?.trim() || [r.first_name ?? r.owner_first_name, r.last_name ?? r.owner_last_name].filter(Boolean).join(' '));
-  for (const y of [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]) {
+  for (let y = 2002; y <= 2025; y++) {
     const m = new Map<string, { key: string | null; kind: string }>();
     for (const r of raw(`taxroll${y}`)) { const n = nameOf(r); m.set(String(r.tax_map ?? r.plat_lot_unit).trim(), { key: ownerKey(n), kind: ownerKind(n) }); }
     ownerByYear.set(y, m);
@@ -95,14 +97,15 @@ function main() {
   ownerByYear.set(2026, new Map(parcels.map((p) => [p.id, { key: p.ownerKey, kind: p.ownerKind }])));
   const residential = new Set(parcels.filter((p, i) => mixes[i].units > 0).map((p) => p.id));
   const changes: unknown[][] = [];
-  for (let y = 2014; y <= 2026; y++) {
+  for (let y = 2003; y <= 2026; y++) {
     const before = ownerByYear.get(y - 1)!, after = ownerByYear.get(y)!;
     for (const [id, a] of after) {
       const b = before.get(id);
       if (!b || !a.key || !b.key || a.key === b.key || !residential.has(id)) continue;
-      // Name fields changed shape in FY2014 (one field → first/last) and FY2017 (company field added): only pairs inside
-      // the FY2017+ format compare cleanly.
-      changes.push([id, y, b.kind, a.kind, y >= 2018 ? 1 : 0]);
+      // Name formats shift between rolls (FY2003 names missing, case and "Last, First" changes in FY2004, FY2007, FY2008,
+      // FY2013, one field → first/last in FY2014, a company field in FY2017). Comparable pairs are the ones with a normal
+      // turnover count (2,500–4,000 a year); the others show 9,000–31,000 "changes" that are mostly formatting.
+      changes.push([id, y, b.kind, a.kind, COMPARABLE_YEARS.has(y) ? 1 : 0]);
     }
   }
   insertAll(db, 'ownership_changes', ['parcelId', 'roll_year', 'seller_kind', 'buyer_kind', 'comparable'], changes);
