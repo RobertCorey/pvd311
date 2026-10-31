@@ -18,7 +18,7 @@ type Source =
   | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
-  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string }
+  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -80,6 +80,9 @@ export const SOURCES: Source[] = [
   { name: 'housing_court_cases', kind: 'records', format: 'xlsx', headerHint: 'CASE NO.',
     url: 'https://providenceri.nextrequest.com/documents/60717056/download', // city APRA 26-521, 1998 → 2026-03
     keep: ['CASE NO.', 'Prop.#', 'Property St', 'PLAT', 'LOT', 'DATE FILED', 'PRF', 'RCVR', 'CLOSED', 'FINAL JUDGMENT', 'AMOUNT'] },
+  { name: 'vacant_registry', kind: 'records', format: 'xlsx', headerHint: 'ADDRESS', sheets: 5,
+    url: 'https://providenceri.nextrequest.com/documents/43471545/download', // city APRA 25-339: one sheet per registration year (~2017–2025)
+    keep: ['ADDRESS', 'PLAT', 'LOT'] },
   { name: 'str_city_permits', kind: 'records', format: 'csv',
     url: 'https://providenceri.nextrequest.com/documents/69800665/download', // city APRA 26-2245, 2024-09 → 2026-09
     keep: ['Record #', 'Record Type', 'Date Submitted', 'Address', 'Record Status'] },
@@ -171,7 +174,11 @@ async function main() {
       if (s.format === 'xlsx') {
         const res = await fetch(s.url, { headers: { 'user-agent': 'pvd-rentstab/0.1 (Providence rent-stabilization data spike; fixmypvd.org)' } });
         if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
-        recs = xlsxRecords(readXlsx(new Uint8Array(await res.arrayBuffer())), s.headerHint ?? s.keep[0]);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        recs = [];
+        for (let sheet = 1; sheet <= (s.sheets ?? 1); sheet++) {
+          recs.push(...xlsxRecords(readXlsx(buf, sheet), s.headerHint ?? s.keep[0]).map((r) => ({ ...r, sheet: String(sheet) })));
+        }
       } else {
         recs = readCsv((await getText(s.url)).replace(/^\uFEFF/, ''));
       }

@@ -273,6 +273,9 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       return [r['CASE NO.'], address, excelDate(r['DATE FILED']), excelDate(r.CLOSED), r.RCVR || null, excelDate(r['FINAL JUDGMENT']), money(r.AMOUNT),
         byPlatLot(r.PLAT, r.LOT) ?? match(address)];
     }));
+  // Vacant/abandoned registry: street numbers are partly redacted in the release, so join on plat/lot.
+  table('vacant_registry', ['address', 'plat', 'lot', 'parcelId'],
+    rawIf('vacant_registry').filter((r) => r.ADDRESS || r.PLAT).map((r) => [r.ADDRESS, r.PLAT, r.LOT, byPlatLot(String(r.PLAT ?? ''), String(r.LOT ?? '')) ?? match(r.ADDRESS ?? '')]));
   const taxPath = join(import.meta.dirname, '..', 'manual', 'tax-sale-2026.csv');
   const tax = existsSync(taxPath) ? readCsv(readFileSync(taxPath, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n')) : [];
   table('tax_sale_2026', ['parcelId', 'location', 'face_value', 'total', 'sold'],
@@ -287,7 +290,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       (SELECT COUNT(*) FROM airbnb_listings a WHERE a.parcelId = p.id) AS airbnb_listings,
       (SELECT COUNT(*) FROM housing_court_cases h WHERE h.parcelId = p.id) AS housing_court_cases,
       (SELECT MAX(filed) FROM housing_court_cases h WHERE h.parcelId = p.id) AS last_housing_court_case,
-      (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026
+      (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026,
+      (SELECT COUNT(*) FROM vacant_registry v WHERE v.parcelId = p.id) AS vacant_registry
     FROM parcels p`);
 }
 
