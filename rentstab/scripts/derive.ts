@@ -158,7 +158,8 @@ function main() {
         SUM(g.city_cases_housing) AS city_cases_housing, SUM(g.code_cases_2013_2024) AS code_cases_2022_2024,
         SUM(g.lead_service_lines > 0) AS parcels_with_lead_service_line, SUM(CASE WHEN g.flood_zone = '1%' THEN s.homes ELSE 0 END) AS homes_in_100yr_flood_area,
         SUM(g.ridoh_suspected_rental) AS ridoh_suspected_rentals, SUM(COALESCE(g.hud_assisted_units, 0)) AS hud_assisted_units,
-        SUM(g.sale_2024_price IS NOT NULL) AS sales_2024
+        SUM(g.sale_2024_price IS NOT NULL) AS sales_2024, SUM(g.code_inspections_1997_2022) AS code_inspections_1997_2022,
+        SUM(g.code_violations_1997_2022) AS code_violations_1997_2022
       FROM parcels p JOIN parcel_status s ON s.parcelId = p.id JOIN parcel_signals g ON g.parcelId = p.id
       LEFT JOIN (SELECT parcelId, SUM(COALESCE(units, 0)) units FROM permits WHERE kind IN ('new_residential', 'conversion') AND issued >= '2022-01-01' GROUP BY parcelId) nu ON nu.parcelId = p.id
       WHERE p.${col} IS NOT NULL GROUP BY p.${col}`);
@@ -169,7 +170,7 @@ function main() {
     SELECT t.*, s.homes, s.owned, s.controlled, s.market, s.subsidized, s.unclear, s.str_registrations, s.housing_court_cases,
       s.code_cases_active, s.parcels_with_lead_cert, s.registered_rental_units, s.new_units_permitted_since_2022,
       s.city_cases_housing, s.code_cases_2022_2024, s.parcels_with_lead_service_line, s.homes_in_100yr_flood_area, s.ridoh_suspected_rentals,
-      s.hud_assisted_units, s.sales_2024,
+      s.hud_assisted_units, s.sales_2024, s.code_inspections_1997_2022, s.code_violations_1997_2022,
       (SELECT SUM(filings) FROM evictions_tract_month e WHERE e.geoid = t.geoid
         AND e.month > (SELECT strftime('%Y-%m', date(MAX(month) || '-01', '-12 months')) FROM evictions_tract_month)) AS eviction_filings_last_12mo,
       (SELECT SUM(purchases) FROM hmda_purchases_tract_year h WHERE h.geoid = t.geoid AND h.year >= 2022) AS mortgage_purchases_2022_2024,
