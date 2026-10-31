@@ -94,6 +94,8 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 ## 3. By request (ranked)
 
+Ready-to-send text for each, with where to send it: **REQUESTS.md**.
+
 | # | Dataset | Who holds it | How | Why it matters |
 |---|---|---|---|---|
 | 1 | **Certificates of occupancy** | Dept of Inspections & Standards | city NextRequest: "CSV export of all OpenGov 'Certificate of Occupancy' records, all statuses, with address, plat-lot, issued date, dwelling units, linked permit #" | settles the new-construction exemption exactly; permit request 26-2355 came back the same day |
