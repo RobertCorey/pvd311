@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { mailingStreetAndCity, ownerKey, ownerKind, parseAddress, sameAddress, type StreetAddress } from '../src/normalize.ts';
+import { mailingStreetAndCity, markSuffixSensitive, ownerKey, ownerKind, parseAddress, sameAddress, streetsWithSeveralSuffixes, type StreetAddress } from '../src/normalize.ts';
 import { readCsv } from '../src/csv.ts';
 import { excelDate } from '../src/xlsx.ts';
 import { inGeometry, lotIndex } from '../src/geo.ts';
@@ -23,6 +23,10 @@ function metres(aLat: number, aLng: number, bLat: number, bLng: number): number 
 }
 
 export function buildParcels(): Parcel[] {
+  // Street names that exist under two suffixes (Washington St / Ave): there, address matching must respect the suffix.
+  const severalSuffixes = streetsWithSeveralSuffixes(rawIf('address_points').map((p) => String(p.fullname ?? '')).filter(Boolean));
+  markSuffixSensitive(severalSuffixes);
+  console.log(`street names under several suffixes: ${severalSuffixes.length}`);
   const roll = raw('taxroll2026');
   const hoods = new Map(raw('neighborhoods').map((h) => [String(h._feature_id), h.lname as string]));
   const cama = new Map<string, any>();
@@ -142,10 +146,21 @@ export function buildParcels(): Parcel[] {
   const parsed = parcels.map((p) => ({ p, a: parseAddress(p.address) }));
   const byStreet = new Map<string, { p: Parcel; a: StreetAddress }[]>();
   for (const x of parsed) if (x.a) (byStreet.get(x.a.street) ?? byStreet.set(x.a.street, []).get(x.a.street)!).push(x as any);
-  const tag = (signal: string, addr: string | null, lat: number | null, lng: number | null) => {
+  // Each list's project size, kept per parcel and source so 8%-law placeholders ("1 unit" for a 354-unit tower) can be fixed below.
+  const listed = new Map<Parcel, Map<string, number>>();
+  const tag = (signal: string, addr: string | null, lat: number | null, lng: number | null, units: number | null = null, source = signal) => {
+    const note = (p: Parcel) => {
+      if (!units) return;
+      const m = listed.get(p) ?? listed.set(p, new Map()).get(p)!;
+      m.set(source, source === 'public_housing' ? (m.get(source) ?? 0) + units : Math.max(m.get(source) ?? 0, units));
+    };
     const a = parseAddress(addr);
     const hits = a ? (byStreet.get(a.street) ?? []).filter((x) => sameAddress(x.a, a)) : [];
-    if (hits.length) { for (const h of hits) if (!h.p.affordableSignals.includes(signal)) h.p.affordableSignals.push(signal); return 'address'; }
+    if (hits.length) {
+      for (const h of hits) if (!h.p.affordableSignals.includes(signal)) h.p.affordableSignals.push(signal);
+      note(hits[0].p); // one parcel per project, so a project matched across a number range isn't counted twice
+      return 'address';
+    }
     if (lat == null || lng == null) return 'none';
     let best: Parcel | null = null; let bestD = 40;
     for (const p of parcels) {
@@ -154,7 +169,7 @@ export function buildParcels(): Parcel[] {
       const d = metres(lat, lng, p.lat, p.lng);
       if (d < bestD) { bestD = d; best = p; }
     }
-    if (best) { const s = `${signal}_nearby`; if (!best.affordableSignals.includes(s)) best.affordableSignals.push(s); return 'nearby'; }
+    if (best) { const s = `${signal}_nearby`; if (!best.affordableSignals.includes(s)) best.affordableSignals.push(s); note(best); return 'nearby'; }
     return 'none';
   };
   const matchStats: Record<string, Record<string, number>> = {};
@@ -162,15 +177,52 @@ export function buildParcels(): Parcel[] {
   // Projects where only some units are income-restricted get a *_partial signal (the rest of the building is covered).
   for (const r of raw('hud_lihtc')) {
     const partial = num(r.LI_UNITS) != null && num(r.N_UNITS) != null && num(r.LI_UNITS)! < num(r.N_UNITS)!;
-    count('hud_lihtc', tag(partial ? 'lihtc_partial' : 'lihtc', r.STD_ADDR?.trim() || r.PROJ_ADD, r.LAT, r.LON));
+    count('hud_lihtc', tag(partial ? 'lihtc_partial' : 'lihtc', r.STD_ADDR?.trim() || r.PROJ_ADD, r.LAT, r.LON, num(r.N_UNITS), 'lihtc'));
   }
   for (const r of raw('hud_multifamily')) {
     const partial = num(r.TOTAL_ASSISTED_UNIT_COUNT) != null && num(r.TOTAL_UNIT_COUNT) != null && num(r.TOTAL_ASSISTED_UNIT_COUNT)! < num(r.TOTAL_UNIT_COUNT)!;
-    count('hud_multifamily', tag(partial ? 'hud_assisted_partial' : 'hud_assisted', r.STD_ADDR?.trim() || r.ADDRESS_LINE1_TEXT, r.LAT, r.LON));
+    count('hud_multifamily', tag(partial ? 'hud_assisted_partial' : 'hud_assisted', r.STD_ADDR?.trim() || r.ADDRESS_LINE1_TEXT, r.LAT, r.LON, num(r.TOTAL_UNIT_COUNT), 'hud_assisted'));
   }
-  for (const r of raw('hud_public_housing')) count('hud_public_housing', tag('public_housing', r.STD_ADDR?.trim(), r.LAT, r.LON));
+  for (const r of raw('hud_public_housing')) count('hud_public_housing', tag('public_housing', r.STD_ADDR?.trim(), r.LAT, r.LON, num(r.TOTAL_UNITS)));
   for (const r of raw('pha')) count('pha', tag('pha_site', r.Street_Name, r._geometry?.y ?? null, r._geometry?.x ?? null));
   console.log('affordable-list matches:', JSON.stringify(matchStats));
+  // HUD's full multifamily property list (monthly) has no coordinates: match its first door through roll + E-911 addresses.
+  {
+    // Its active contracts give the assisted share, so a matched parcel gets the same signal as the HUD map layer's.
+    const matchAddr = addressMatcher(parcels), byId = new Map(parcels.map((p) => [p.id, p]));
+    const assisted = new Map<string, number>();
+    for (const c of rawIf('hud_mf_contracts')) if (c.tracs_status_name === 'Active') assisted.set(c.property_id, (assisted.get(c.property_id) ?? 0) + (num(c.assisted_units_count) ?? 0));
+    for (const r of rawIf('hud_mf_properties')) {
+      if (!/^providence$/i.test(String(r.city_name_text ?? '').trim())) continue;
+      const p = byId.get(matchAddr(firstDoor(String(r.address_line1_text ?? ''))) ?? '');
+      const n = num(r.property_total_unit_count), a = assisted.get(r.property_id) ?? 0;
+      if (!p) { count('hud_mf_properties', 'none'); continue; }
+      count('hud_mf_properties', 'address');
+      if (n) { const m = listed.get(p) ?? listed.set(p, new Map()).get(p)!; m.set('hud_mf', Math.max(m.get('hud_mf') ?? 0, n)); }
+      const signal = a > 0 && n != null && a < n ? 'hud_assisted_partial' : a > 0 ? 'hud_assisted' : null;
+      if (signal && !p.affordableSignals.some((s) => s.startsWith('hud_assisted') && !s.endsWith('_nearby'))) p.affordableSignals.push(signal);
+    }
+    console.log('hud_mf_properties matches:', JSON.stringify(matchStats.hud_mf_properties));
+  }
+  // 8%-law parcels (class 12) often carry a placeholder unit count in CAMA. HUD lists give project sizes, but scattered-site
+  // projects (Barbara Jordan I: 81 lots; EPN: 54 sites citywide) already count most units lot by lot, and one project can match
+  // different lots in different lists. So per owner: the 8%-law lots together get at most the largest listed project, and any
+  // shortfall goes to the lot that list matched. (An owner with two separate listed projects is undercounted, never doubled.)
+  const lawByOwner = new Map<string, Parcel[]>();
+  for (const p of parcels) if (p.levyCode === '8LAW') { const k = p.ownerKey ?? p.id; (lawByOwner.get(k) ?? lawByOwner.set(k, []).get(k)!).push(p); }
+  const best = new Map<string, { p: Parcel; n: number }>();
+  for (const [p, bySource] of listed) {
+    if (p.levyCode !== '8LAW') continue;
+    const k = p.ownerKey ?? p.id, n = Math.max(...bySource.values());
+    if (n > (best.get(k)?.n ?? 0)) best.set(k, { p, n });
+  }
+  let fixed = 0, added = 0;
+  for (const [k, { p, n }] of best) {
+    const have = lawByOwner.get(k)!.reduce((sum, q) => sum + (q.units ?? 0), 0);
+    if (n <= have) continue;
+    p.units = (p.units ?? 0) + n - have; added += n - have; fixed++;
+  }
+  console.log(`8%-law unit counts from HUD lists: ${fixed} parcels, +${added} units`);
 
   // Hand-researched labels for big ambiguous buildings (committed, with sources). A researched apartment count
   // replaces the assessor's (which can be hotel rooms, beds or storefronts).
@@ -296,13 +348,26 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
   table('tax_sale_2026', ['parcelId', 'location', 'face_value', 'total', 'sold'],
     tax.map((r) => [ids.has(r['Parcel Number']) ? r['Parcel Number'] : match(r['Parcel Location'] ?? ''), r['Parcel Location'], money(r['Face Value']), money(r.Total), isoDay(r['Date Purchased'])]));
 
+  // HUD-assisted multifamily properties (Section 8, 202/811 and others) with each rental-assistance contract's expiration date.
+  // A property is matched to one parcel by its street address, even where its buildings span several lots.
+  const mfProps = rawIf('hud_mf_properties').filter((r) => /^providence$/i.test(String(r.city_name_text ?? '').trim()));
+  const mfParcel = new Map(mfProps.map((r) => [r.property_id, match(firstDoor(String(r.address_line1_text ?? '')))]));
+  table('hud_mf_properties', ['property_id', 'name', 'address', 'zip', 'units', 'category', 'financing', 'is_202_811', 'assisted_living', 'parcelId'],
+    mfProps.map((r) => [r.property_id, r.property_name_text, r.address_line1_text.replace(/\s+/g, ' '), r.zip_code, Number(r.property_total_unit_count) || null,
+      r.property_category_name, r.primary_financing_type || null, r.is_202_811_ind, r.is_assisted_living_ind, mfParcel.get(r.property_id) ?? null]));
+  table('hud_mf_contracts', ['contract_number', 'property_id', 'program', 'program_group', 'status', 'effective', 'expires', 'current_term_expires',
+    'term_months', 'assisted_units', 'rent_to_fmr', 'parcelId'],
+    rawIf('hud_mf_contracts').filter((r) => mfParcel.has(r.property_id)).map((r) => [r.contract_number, r.property_id, r.program_type_name, r.program_type_group_name,
+      r.tracs_status_name, excelDate(r.tracs_effective_date), excelDate(r.tracs_overall_expiration_date), excelDate(r.tracs_current_expiration_date),
+      Number(r.contract_term_months_qty) || null, Number(r.assisted_units_count) || null, Number(r.rent_to_FMR_ratio) || null, mfParcel.get(r.property_id) ?? null]));
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
       rr.units AS registered_rental_units, COALESCE(sr.n, 0) AS str_registrations, COALESCE(sp.n, 0) AS str_city_permits,
       COALESCE(ab.n, 0) AS airbnb_listings, COALESCE(hc.n, 0) AS housing_court_cases, hc.last AS last_housing_court_case,
       COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
-      lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units
+      lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units, mf.units AS hud_assisted_units, mf.expires AS hud_contract_expires
     FROM parcels p
     LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
@@ -312,8 +377,18 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM tax_sale_2026 GROUP BY parcelId) ts ON ts.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM vacant_registry GROUP BY parcelId) vr ON vr.parcelId = p.id
     LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_active GROUP BY parcelId) cc ON cc.parcelId = p.id
-    LEFT JOIN (SELECT parcelId, MAX(last_letter) last, MAX(units) units FROM lead_certificates GROUP BY parcelId) lc ON lc.parcelId = p.id`);
+    LEFT JOIN (SELECT parcelId, MAX(last_letter) last, MAX(units) units FROM lead_certificates GROUP BY parcelId) lc ON lc.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, SUM(assisted_units) units, MIN(expires) expires FROM hud_mf_contracts WHERE status = 'Active' GROUP BY parcelId) mf ON mf.parcelId = p.id`);
   db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
+}
+
+// HUD addresses come as lists ("201,205-207,211-213 Thurbers Ave", "861 A, B BROAD ST", "FOUR CATHEDRAL SQUARE"): match the first door.
+function firstDoor(address: string): string {
+  const words: Record<string, string> = { ONE: '1', TWO: '2', THREE: '3', FOUR: '4', FIVE: '5', SIX: '6', SEVEN: '7', EIGHT: '8', NINE: '9', TEN: '10' };
+  const tokens = address.replace(/,/g, ' , ').trim().split(/\s+/).map((t) => words[t.toUpperCase()] ?? t);
+  const street = tokens.findIndex((t, i) => i > 0 && /^[A-Za-z]{2,}/.test(t));
+  const num = tokens[0]?.match(/^\d+/)?.[0];
+  return num && street > 0 ? `${num} ${tokens.slice(street).join(' ')}` : address;
 }
 
 /** Street address → parcel id: the roll's own addresses first, then E-911 address points located inside a lot. */

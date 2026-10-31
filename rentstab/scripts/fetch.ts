@@ -21,7 +21,9 @@ type Source =
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
   | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number; browserUA?: boolean;
-      /** Stream the sheet row by row and keep only rows whose `column` starts with `startsWith` (for national files). */ stream?: { column: string; startsWith: string } }
+      /** Stream the sheet row by row and keep only rows whose `column` starts with `startsWith`, or whose `column` value appears in
+       *  column `inSource.column` of an earlier source (for national files). */
+      stream?: { column: string; startsWith?: string; inSource?: { name: string; column: string } } }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -128,6 +130,18 @@ export const SOURCES: Source[] = [
     keep: ['code', 'program_label', 'sub_program', 'total_units', 'total_occupied', 'pct_occupied', 'people_total', 'rent_per_month', 'spending_per_month',
       'hh_income', 'pct_lt80_median', 'pct_lt50_median', 'pct_lt30_median', 'pct_age62plus', 'pct_disabled_all', 'pct_female_head_child',
       'pct_minority', 'pct_black_nonhsp', 'pct_hispanic', 'pct_white_nothsp', 'months_waiting', 'months_from_movein', 'pct_overhoused', 'Quarter'] },
+  // HUD Multifamily Assistance & Section 8 Contracts database (refreshed monthly): every HUD-assisted multifamily property and
+  // its rental-assistance contracts, with each contract's expiration date. The property file also lists owner and agent
+  // people with phones and emails; only property-level columns are kept.
+  { name: 'hud_mf_properties', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'property_id', stream: { column: 'state_code', startsWith: 'RI' },
+    url: 'https://www.hud.gov/sites/dfiles/Housing/documents/MF-Properties-with-Assistance-Sec8-Contracts1.xlsx',
+    keep: ['property_id', 'property_name_text', 'address_line1_text', 'city_name_text', 'state_code', 'zip_code', 'property_total_unit_count',
+      'property_category_name', 'primary_financing_type', 'is_202_811_ind', 'is_assisted_living_ind', 'is_nursing_home_ind', 'is_hud_owned_ind'] },
+  { name: 'hud_mf_contracts', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'contract_number',
+    stream: { column: 'property_id', inSource: { name: 'hud_mf_properties', column: 'property_id' } },
+    url: 'https://www.hud.gov/sites/dfiles/Housing/documents/MF-Assistance-Sec8-Contracts1.xlsx',
+    keep: ['contract_number', 'property_id', 'tracs_effective_date', 'tracs_overall_expiration_date', 'tracs_current_expiration_date', 'tracs_status_name',
+      'contract_term_months_qty', 'assisted_units_count', 'program_type_name', 'program_type_group_name', 'rent_to_FMR_ratio', 'rent_to_FMR_description'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -227,11 +241,13 @@ async function main() {
         const buf = new Uint8Array(await res.arrayBuffer());
         recs = [];
         if (s.stream) {
-          const { column, startsWith } = s.stream;
+          const { column, startsWith, inSource } = s.stream;
+          const allowed = inSource ? new Set(JSON.parse(readFileSync(join(RAW, `${inSource.name}.json`), 'utf8')).map((r: any) => String(r[inSource.column]).trim())) : null;
+          const keepRow = (v: string) => (startsWith == null || v.startsWith(startsWith)) && (!allowed || allowed.has(v.trim()));
           let head: string[] | null = null, at = -1;
           streamXlsxRows(buf, (r) => {
             if (!head) { if (r.some((c) => c.trim() === (s.headerHint ?? s.keep[0]))) { head = r.map((c) => c.trim()); at = head.indexOf(column); } return; }
-            if ((r[at] ?? '').startsWith(startsWith)) recs.push(Object.fromEntries(head.map((k, i) => [k, (r[i] ?? '').trim()])));
+            if (keepRow(r[at] ?? '')) recs.push(Object.fromEntries(head.map((k, i) => [k, (r[i] ?? '').trim()])));
           });
         } else for (let sheet = 1; sheet <= (s.sheets ?? 1); sheet++) {
           recs.push(...xlsxRecords(readXlsx(buf, sheet), s.headerHint ?? s.keep[0]).map((r) => ({ ...r, sheet: String(sheet) })));

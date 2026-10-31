@@ -91,7 +91,8 @@ data:
     '84': Amtrak / railroad
     '33': farm / forest
   # Owner-name patterns (case-insensitive regex). Heuristics — every match is noted as such in the result.
-  hotel_owner_pattern: '\bhotel\b|\binns?\b|hospitality|lodging|\bmotel\b|marriott|hilton|hyatt|\bomni\b|\baloft\b|hampton|courtyard|residence inn|\bgraduate\b'
+  # Brand words alone misfire: Omni Development is an affordable-housing nonprofit, a "Hampton" trust owns a house.
+  hotel_owner_pattern: '\bhotels?\b|\binns?\b|hospitality|lodging|\bmotel\b|marriott|hilton|hyatt'
   cooperative_owner_pattern: 'cooperative|co-op\b|housing corp'
   housing_authority_owner_pattern: 'housing authority|dept of housing'
   # Affordable-housing signals attached by build-db (see DATA_REPORT.md §5).

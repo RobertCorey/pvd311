@@ -5,7 +5,7 @@
 **Answer:**
 - **For about two-thirds of rental parcels and rental units, yes, with a confident answer and a stated reason.** The remaining third is honestly "can't tell", for reasons that are mostly fixable.
 - The data is good enough to keep going: the city publishes an explicit owner-occupancy tax flag, the assessor's real unit counts, and year built, all joinable for 99% of parcels.
-- The rental-unit total built from those records (42.6k–48.2k) matches the Census (45.3k).
+- Total dwelling units built from those records (77.2k) match the Census (79.4k) within 3%. The rental-unit estimate (47.8k–53.4k) runs 5–18% above the Census's 45.3k; DATA_REPORT.md §7 explains the likely reasons.
 
 ## Findings
 
@@ -21,11 +21,11 @@
 
    | | rental units | parcels |
    |---|---:|---:|
-   | likely covered | 19,218 | 6,826 |
-   | likely exempt | 13,051 | 8,112 |
-   | can't tell | 10,343–15,962 | 7,685 |
+   | likely covered | 19,479 | 6,751 |
+   | likely exempt | 19,863 | 8,518 |
+   | can't tell | 8,446–14,016 | 7,476 |
 
-   So **40–73% of rental units would be covered**: 19k if every can't-tell is exempt, 35k if every one is covered.
+   So **37–63% of rental units would be covered**: 19.5k if every can't-tell is exempt, 33.5k if every one is covered. (Updated 2026-10-31 after researched buildings, permits and the 8%-law unit fix; the slice-1 run read 40–73%.)
 3. **The fiscal note's 48,000 of 80,000 doesn't hold up.**
    - 80,000 is Providence's *total* housing stock (ACS: 79,423 ± 1,256), not its rental stock (≈ 45,300 including vacant-for-rent).
    - 48,000 is just 60% of that figure, from an assumed 40%-exempt-by-value. The note also pre-dates the amendments; the memo's own author reportedly called it "generously high".

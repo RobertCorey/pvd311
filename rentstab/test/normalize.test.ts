@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { mailingStreetAndCity, normalizeQuery, ownerKey, ownerKind, parseAddress, sameAddress } from '../src/normalize.ts';
+import { mailingStreetAndCity, markSuffixSensitive, streetsWithSeveralSuffixes, normalizeQuery, ownerKey, ownerKind, parseAddress, sameAddress } from '../src/normalize.ts';
 
 describe('parseAddress / sameAddress', () => {
-  it('parses ranges and drops suffixes', () => {
-    expect(parseAddress('31-33 Douglas Ave')).toEqual({ lo: 31, hi: 33, street: 'douglas' });
-    expect(parseAddress('135 Brook Street Unit 2')).toEqual({ lo: 135, hi: 135, street: 'brook' });
+  it('parses ranges and splits off the suffix', () => {
+    expect(parseAddress('31-33 Douglas Ave')).toEqual({ lo: 31, hi: 33, street: 'douglas', type: 'av' });
+    expect(parseAddress('135 Brook Street Unit 2')).toEqual({ lo: 135, hi: 135, street: 'brook', type: 'st' });
+    expect(parseAddress('1 Park Row')).toEqual({ lo: 1, hi: 1, street: 'park', type: 'row' });
     expect(parseAddress('PO BOX 40247')).toBeNull();
+  });
+  it('different suffixes are different streets where the name has several; a missing suffix matches either', () => {
+    markSuffixSensitive(streetsWithSeveralSuffixes(['Washington St', 'Washington Ave', 'Blackstone Blvd', 'Blackstone St', 'Imera Ave']));
+    expect(sameAddress(parseAddress('100 Imera Ave'), parseAddress('100 Imera St'))).toBe(true);
+    expect(sameAddress(parseAddress('245 Washington Street'), parseAddress('245 Washington Ave'))).toBe(false);
+    expect(sameAddress(parseAddress('220 Blackstone St'), parseAddress('220 Blackstone Boulevard'))).toBe(false);
+    expect(sameAddress(parseAddress('220 Blackstone Blvd'), parseAddress('220 Blackstone Boulevard'))).toBe(true);
+    expect(sameAddress(parseAddress('220 Blackstone'), parseAddress('220 Blackstone Blvd'))).toBe(true);
   });
   it('a 2-family at 13-15 matches a mailing address of 15', () => {
     expect(sameAddress(parseAddress('13-15 Payton St'), parseAddress('15 Payton Street'))).toBe(true);

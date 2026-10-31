@@ -28,6 +28,22 @@ export interface StreetAddress {
   lo: number;
   hi: number;
   street: string; // lowercased name without suffix, e.g. "douglas" for "31-33 Douglas Ave"
+  /** Normalized suffix ("av", "st", "bl"…) when the address had one. */
+  type?: string;
+}
+
+// Street names that exist under more than one suffix (Washington St / Ave, Blackstone St / Blvd: 46 in the E-911 list). Only
+// for these must two suffixes agree; elsewhere a wrong suffix is a typo ("100 Imera St" for "100 Imera Ave").
+const suffixSensitive = new Set<string>();
+export function markSuffixSensitive(streets: Iterable<string>) { for (const s of streets) suffixSensitive.add(s); }
+/** Names that appear under 2+ suffixes in a list of full street names ("Washington St", "Washington Ave"). */
+export function streetsWithSeveralSuffixes(fullNames: Iterable<string>): string[] {
+  const types = new Map<string, Set<string>>();
+  for (const n of fullNames) {
+    const a = parseAddress(`1 ${n}`);
+    if (a?.type) (types.get(a.street) ?? types.set(a.street, new Set()).get(a.street)!).add(a.type);
+  }
+  return [...types].filter(([, t]) => t.size > 1).map(([s]) => s);
 }
 
 /** "31-33 Douglas Ave" → {lo:31, hi:33, street:"douglas"}. Null when there is no leading house number. */
@@ -41,13 +57,15 @@ export function parseAddress(raw: string | null | undefined): StreetAddress | nu
   let hi = m[2] ? Number(m[2]) : lo;
   if (hi < lo || hi - lo > 40) hi = lo;
   let toks = m[3].split(' ').map((t) => DIRECTION[t] ?? ordinalToWord(t));
-  if (toks.length > 1 && SUFFIX[toks[toks.length - 1]]) toks = toks.slice(0, -1);
-  return { lo, hi, street: toks.join(' ') };
+  const type = toks.length > 1 ? SUFFIX[toks[toks.length - 1]] : undefined;
+  if (type) toks = toks.slice(0, -1);
+  return type ? { lo, hi, street: toks.join(' '), type } : { lo, hi, street: toks.join(' ') };
 }
 
 /** Same street and overlapping house-number ranges (a 2-family at 13-15 matches a mailing address of 15). */
 export function sameAddress(a: StreetAddress | null, b: StreetAddress | null, slack = 0): boolean {
   if (!a || !b || a.street !== b.street) return false;
+  if (a.type && b.type && a.type !== b.type && suffixSensitive.has(a.street)) return false;
   return a.lo - slack <= b.hi && b.lo - slack <= a.hi;
 }
 
