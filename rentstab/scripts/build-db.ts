@@ -273,6 +273,13 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       return [r['CASE NO.'], address, excelDate(r['DATE FILED']), excelDate(r.CLOSED), r.RCVR || null, excelDate(r['FINAL JUDGMENT']), money(r.AMOUNT),
         byPlatLot(r.PLAT, r.LOT) ?? match(address)];
     }));
+  // Active code-enforcement cases (owner names dropped at download). Mbl is plat-lot-unit.
+  table('code_cases_active', ['record', 'occupancy', 'submitted', 'last_activity', 'status', 'address', 'parcelId'],
+    rawIf('code_cases_active').map((r) => {
+      const mbl = String(r.Mbl ?? '').trim().toUpperCase();
+      return [r['Record #'], r['Occupancy Type'], excelDate(r['Date Submitted']) ?? isoDay(r['Date Submitted']), excelDate(r['Last Record Activity']) ?? isoDay(r['Last Record Activity']),
+        r['Record Status'], r.Address, ids.has(mbl) ? mbl : match(r.Address ?? '')];
+    }));
   // Vacant/abandoned registry: street numbers are partly redacted in the release, so join on plat/lot.
   table('vacant_registry', ['address', 'plat', 'lot', 'parcelId'],
     rawIf('vacant_registry').filter((r) => r.ADDRESS || r.PLAT).map((r) => [r.ADDRESS, r.PLAT, r.LOT, byPlatLot(String(r.PLAT ?? ''), String(r.LOT ?? '')) ?? match(r.ADDRESS ?? '')]));
@@ -291,7 +298,8 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
       (SELECT COUNT(*) FROM housing_court_cases h WHERE h.parcelId = p.id) AS housing_court_cases,
       (SELECT MAX(filed) FROM housing_court_cases h WHERE h.parcelId = p.id) AS last_housing_court_case,
       (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026,
-      (SELECT COUNT(*) FROM vacant_registry v WHERE v.parcelId = p.id) AS vacant_registry
+      (SELECT COUNT(*) FROM vacant_registry v WHERE v.parcelId = p.id) AS vacant_registry,
+      (SELECT COUNT(*) FROM code_cases_active c WHERE c.parcelId = p.id) AS code_cases_active
     FROM parcels p`);
 }
 

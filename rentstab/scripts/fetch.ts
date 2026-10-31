@@ -83,6 +83,9 @@ export const SOURCES: Source[] = [
   { name: 'vacant_registry', kind: 'records', format: 'xlsx', headerHint: 'ADDRESS', sheets: 5,
     url: 'https://providenceri.nextrequest.com/documents/43471545/download', // city APRA 25-339: one sheet per registration year (~2017–2025)
     keep: ['ADDRESS', 'PLAT', 'LOT'] },
+  { name: 'code_cases_active', kind: 'records', format: 'xlsx', headerHint: 'Record #',
+    url: 'https://providenceri.nextrequest.com/documents/64624609/download', // city APRA 26-1279 pt 1: active code cases 2023 → 2026-06
+    keep: ['Record #', 'Occupancy Type', 'Mbl', 'Address', 'Date Submitted', 'Last Record Activity', 'Record Status'] },
   { name: 'str_city_permits', kind: 'records', format: 'csv',
     url: 'https://providenceri.nextrequest.com/documents/69800665/download', // city APRA 26-2245, 2024-09 → 2026-09
     keep: ['Record #', 'Record Type', 'Date Submitted', 'Address', 'Record Status'] },
