@@ -129,6 +129,8 @@ export const SOURCES: Source[] = [
   { name: 'flood_parcels_02pct', kind: 'arcgis', service: 'Parcels1andpoint2percent', fields: 'MAP_PAR_ID' },
   // National Register historic districts (2016 layer); local historic zoning is in overlay_zoning.
   { name: 'historic_districts_nr', kind: 'arcgis', service: 'Federal_Historic_Districts_2016', geometry: true, fields: 'SITENAME1' },
+  // The assessor's valuation neighborhood per parcel (market areas used for revaluation; finer than the 25 city neighborhoods).
+  { name: 'assessor_nbhd', kind: 'arcgis', service: 'Parcels_with_NBHD_Codes', fields: 'MAP_PAR_ID,Primary_Ne', order: 'FID' },
   { name: 'basemap_streets', kind: 'arcgis', service: 'Labelled_Streets', geometry: true, fields: 'NAME,SUM_ROADCLASS,MAX_ROADTYPE', simplify: 0.00002 },
   { name: 'basemap_roads', kind: 'arcgis', service: 'City_Maintained_Roads', geometry: true, fields: 'Name,Funcitonal', simplify: 0.00001 },
   // Lot outlines (simplified) — the map shades lots with no homes on record.

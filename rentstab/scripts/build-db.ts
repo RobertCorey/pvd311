@@ -476,6 +476,13 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     table('code_liens', ['lien_id', 'nov_id', 'type', 'status', 'charged', 'discharged', 'parcelId'], rawIf('code_db_2022_liens').map((r) =>
       [r.fld_lienID, r.fld_NOVID, r.fld_lien_type || null, r.fld_lien_status || null, excelDate(r.fld_lien_charge_date ?? ''), excelDate(r.fld_lien_discharge_date ?? ''), nParcel.get(r.fld_NOVID) ?? null]));
   }
+  // Assessor valuation neighborhood per lot (2023 layer): MAP_PAR_ID "05901870000" → 059-0187-0000; "1240 - 1240" → "1240".
+  table('assessor_nbhd', ['parcelId', 'nbhd'], rawIf('assessor_nbhd').flatMap((r) => {
+    const m = String(r.MAP_PAR_ID ?? '').trim().match(/^(\d{3})(\d{4})(\w{4})$/), code = String(r.Primary_Ne ?? '').split('-')[0].trim();
+    const id = m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+    return id && ids.has(id) && code ? [[id, code]] : [];
+  }));
+
   // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
   db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
