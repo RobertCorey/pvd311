@@ -502,6 +502,21 @@ function main() {
         hcv.get(geoid) ?? null);
     }
   }
+
+  // HUD Picture of Subsidized Households 2025: one row per city tract × program. Suppressed cells (-1, -4) → NULL.
+  {
+    const cols = ['total_units', 'total_occupied', 'pct_occupied', 'people_total', 'rent_per_month', 'spending_per_month', 'hh_income',
+      'pct_lt80_median', 'pct_lt50_median', 'pct_lt30_median', 'pct_age62plus', 'pct_disabled_all', 'pct_female_head_child', 'pct_minority',
+      'pct_black_nonhsp', 'pct_hispanic', 'pct_white_nothsp', 'months_waiting', 'months_from_movein', 'pct_overhoused'];
+    db.exec(`CREATE TABLE hud_psh_tract (geoid, program, sub_program, ${cols.join(', ')}, as_of, PRIMARY KEY (geoid, program, sub_program))`);
+    const city = new Set(acsPath && existsSync(acsPath) ? (db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid) : []);
+    const ins = db.prepare(`INSERT OR REPLACE INTO hud_psh_tract VALUES (${['?', '?', '?', ...cols.map(() => '?'), '?'].join(', ')})`);
+    for (const r of rawIf('hud_psh_tract_2025')) {
+      const geoid = `14000US${r.code}`;
+      if (!city.has(geoid)) continue;
+      ins.run(geoid, r.program_label, r.sub_program, ...cols.map((c) => { const v = Number(r[c]); return r[c] === '' || r[c] === 'NA' || v < 0 ? null : v; }), r.Quarter);
+    }
+  }
   db.close();
   console.log(`parcels: ${parcels.length} → ${file}`);
 }

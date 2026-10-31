@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readCsv } from '../src/csv.ts';
 import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
-import { readXlsx, xlsxRecords } from '../src/xlsx.ts';
+import { readXlsx, streamXlsxRows, xlsxRecords } from '../src/xlsx.ts';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -20,7 +20,8 @@ type Source =
   | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
-  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number; browserUA?: boolean }
+  | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number; browserUA?: boolean;
+      /** Stream the sheet row by row and keep only rows whose `column` starts with `startsWith` (for national files). */ stream?: { column: string; startsWith: string } }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -119,6 +120,14 @@ export const SOURCES: Source[] = [
   // count, latest letter date and units, from the current and legacy (HRC-era) certificate tables.
   { name: 'lead_certificates', kind: 'leadcerts' },
   // HUD Housing Choice Voucher households per tract (current HUD extract).
+  // HUD Picture of Subsidized Households 2025 (as of 2025-12-31, 2020 tracts): per tract × program (all programs, vouchers,
+  // public housing, project-based Section 8, 202/811, mod rehab) — units, occupancy, rent paid, household income, AMI bands,
+  // household makeup. One 500 MB sheet for 30 states, so it is streamed and cut to Providence County. -1/-4 = suppressed.
+  { name: 'hud_psh_tract_2025', kind: 'records', format: 'xlsx', browserUA: true, headerHint: 'program_label',
+    url: 'https://www.huduser.gov/portal/datasets/pictures/files/TRACT_MO_WY_2025_2020census.xlsx', stream: { column: 'code', startsWith: '44007' },
+    keep: ['code', 'program_label', 'sub_program', 'total_units', 'total_occupied', 'pct_occupied', 'people_total', 'rent_per_month', 'spending_per_month',
+      'hh_income', 'pct_lt80_median', 'pct_lt50_median', 'pct_lt30_median', 'pct_age62plus', 'pct_disabled_all', 'pct_female_head_child',
+      'pct_minority', 'pct_black_nonhsp', 'pct_hispanic', 'pct_white_nothsp', 'months_waiting', 'months_from_movein', 'pct_overhoused', 'Quarter'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -217,7 +226,14 @@ async function main() {
         if (!res.ok) throw new Error(`${s.name}: HTTP ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         recs = [];
-        for (let sheet = 1; sheet <= (s.sheets ?? 1); sheet++) {
+        if (s.stream) {
+          const { column, startsWith } = s.stream;
+          let head: string[] | null = null, at = -1;
+          streamXlsxRows(buf, (r) => {
+            if (!head) { if (r.some((c) => c.trim() === (s.headerHint ?? s.keep[0]))) { head = r.map((c) => c.trim()); at = head.indexOf(column); } return; }
+            if ((r[at] ?? '').startsWith(startsWith)) recs.push(Object.fromEntries(head.map((k, i) => [k, (r[i] ?? '').trim()])));
+          });
+        } else for (let sheet = 1; sheet <= (s.sheets ?? 1); sheet++) {
           recs.push(...xlsxRecords(readXlsx(buf, sheet), s.headerHint ?? s.keep[0]).map((r) => ({ ...r, sheet: String(sheet) })));
         }
       } else {

@@ -1,5 +1,5 @@
 // Minimal .xlsx reader (first sheet → rows of strings) for the few spreadsheets public agencies release.
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8, Unzip, UnzipInflate, unzipSync } from 'fflate';
 
 const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
@@ -10,28 +10,53 @@ function colIndex(ref: string): number {
   return n - 1;
 }
 
-export function readXlsx(buf: Uint8Array, sheet = 1): string[][] {
-  const files = unzipSync(buf, { filter: (f) => f.name === 'xl/sharedStrings.xml' || f.name === `xl/worksheets/sheet${sheet}.xml` });
-  const shared: string[] = [];
-  const ss = files['xl/sharedStrings.xml'];
-  if (ss) for (const si of strFromU8(ss).match(/<si>[\s\S]*?<\/si>/g) ?? []) {
-    shared.push(decode((si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) ?? []).map((t) => t.replace(/<t[^>]*>|<\/t>/g, '')).join('')));
+function sharedStrings(buf: Uint8Array): string[] {
+  const ss = unzipSync(buf, { filter: (f) => f.name === 'xl/sharedStrings.xml' })['xl/sharedStrings.xml'];
+  return ss ? (strFromU8(ss).match(/<si>[\s\S]*?<\/si>/g) ?? []).map((si) => decode((si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) ?? []).map((t) => t.replace(/<t[^>]*>|<\/t>/g, '')).join(''))) : [];
+}
+
+function parseRow(row: string, shared: string[]): string[] {
+  const out: string[] = [];
+  for (const c of row.match(/<c [^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) ?? []) {
+    const ref = c.match(/ r="([A-Z]+\d+)"/)?.[1];
+    const type = c.match(/ t="(\w+)"/)?.[1];
+    const v = c.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? c.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? '';
+    const val = type === 's' ? shared[Number(v)] ?? '' : decode(v);
+    if (ref) out[colIndex(ref)] = val; else out.push(val);
   }
+  return Array.from(out, (x) => x ?? '');
+}
+
+/** Streams one sheet row by row, for sheets too big to hold as a string (HUD's tract file is a 500 MB sheet). */
+export function streamXlsxRows(buf: Uint8Array, onRow: (row: string[]) => void, sheet = 1): void {
+  const shared = sharedStrings(buf);
+  const decoder = new TextDecoder();
+  let pending = '';
+  const unzip = new Unzip((file) => {
+    if (file.name !== `xl/worksheets/sheet${sheet}.xml`) return;
+    file.ondata = (err, chunk, final) => {
+      if (err) throw err;
+      pending += decoder.decode(chunk, { stream: !final });
+      let end: number, start = 0;
+      while ((end = pending.indexOf('</row>', start)) >= 0) {
+        const open = pending.indexOf('<row', start);
+        onRow(parseRow(pending.slice(open, end + 6), shared));
+        start = end + 6;
+      }
+      pending = pending.slice(start);
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  for (let i = 0; i < buf.length; i += 1 << 20) unzip.push(buf.subarray(i, Math.min(i + (1 << 20), buf.length)), i + (1 << 20) >= buf.length);
+}
+
+export function readXlsx(buf: Uint8Array, sheet = 1): string[][] {
+  const files = unzipSync(buf, { filter: (f) => f.name === `xl/worksheets/sheet${sheet}.xml` });
   const xml = files[`xl/worksheets/sheet${sheet}.xml`];
   if (!xml) return [];
-  const rows: string[][] = [];
-  for (const row of strFromU8(xml).match(/<row[^>]*>[\s\S]*?<\/row>/g) ?? []) {
-    const out: string[] = [];
-    for (const c of row.match(/<c [^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) ?? []) {
-      const ref = c.match(/ r="([A-Z]+\d+)"/)?.[1];
-      const type = c.match(/ t="(\w+)"/)?.[1];
-      const v = c.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? c.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? '';
-      const val = type === 's' ? shared[Number(v)] ?? '' : decode(v);
-      if (ref) out[colIndex(ref)] = val; else out.push(val);
-    }
-    rows.push(Array.from(out, (x) => x ?? ''));
-  }
-  return rows;
+  const shared = sharedStrings(buf);
+  return (strFromU8(xml).match(/<row[^>]*>[\s\S]*?<\/row>/g) ?? []).map((row) => parseRow(row, shared));
 }
 
 /** Rows → objects keyed by the first row that contains `headerHint`. */

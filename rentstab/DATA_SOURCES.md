@@ -41,6 +41,7 @@ City requests for OpenGov exports have come back the same week with no fee.
 | Subsidized housing | HUD LIHTC, Multifamily Assisted, Public Housing Buildings; city PHA layer | Providence projects | exemptions (i)/(j) |
 | Owner-occupancy history | tax rolls FY2013–FY2026 (Socrata, one dataset per year) | `owner_occupancy_history`: one row per parcel per year, FY2013–FY2026 | owner-occupant vs. investor trend (54% → ~60% → 57%). FY2013–20 and FY2024–26 use the owner-occupied levy code. FY2021–23 had a single residential code, so owner-occupancy there is inferred from a homestead exemption of 30% or more of assessed value (`method = 'homestead'`); on FY2022 that agrees with the surrounding years about 99% of the time. FY2021 may undercount (the exemption's first year). Before FY2013 there is no owner-occupied split. |
 | HUD voucher households by tract | HUD ArcGIS `Housing_Choice_Vouchers_by_Tract` | 36 Providence tracts, 2,868 households | voucher units are covered unless the building is exempt for another reason (`tracts.hcv_households`) |
+| **HUD Picture of Subsidized Households 2025** (as of 2025-12-31) | huduser.gov `TRACT_MO_WY_2025_2020census.xlsx`, streamed and cut to Providence County (`streamXlsxRows`) | 42 city tracts × program: all HUD programs 9,899 occupied homes; project-based Section 8 4,295; tenant-based vouchers 2,377; public housing 2,468; project-based vouchers 264; 202/811 255 | `hud_psh_tract`: units, occupancy, tenant rent paid, household income, AMI bands, household makeup by program. Tenant-based voucher homes sit in private buildings, so the cap would reach them; the project-based programs are the ones exempt. Small cells are suppressed (NULL). |
 | HUD Small Area FMRs FY2027 | huduser.gov `FY27_safmrs.xlsx` | Providence ZIPs, 0–4 bedrooms (2BR: $1,730 in 02907 to $2,630 in 02903) | official rent benchmark (`safmr_fy27`) |
 | Census tracts | ACS 2020–2024 5-year via Census Reporter | 42 tracts | income overall and for renters, race/ethnicity, tenure, rent, rent burden; a tract on every parcel |
 | Eviction filings | Eviction Lab ETS CSV (data from RIHousing / the courts) | per tract per month, Jan 2020 → Oct 2026 | eviction pressure by area. Filings, not judgments; no addresses. |
@@ -55,7 +56,7 @@ City requests for OpenGov exports have come back the same week with no fee.
 | Researched big buildings | `manual/big-buildings.csv` (hand research, with sources) | 66 buildings | hotels, senior care, co-ops, new and converted buildings |
 | Ordinance text, fiscal note, veto | IQM2 ORD-2026-11 / record 52231 | final text, passed 2026-04-16 | `rules/ordinance-2026-04.yaml` |
 
-SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`, `lead_certificates`, `parcel_signals` (one row per parcel with every signal, materialized and indexed). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
+SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`, `hud_psh_tract`, `lead_certificates`, `parcel_signals` (one row per parcel with every signal, materialized and indexed). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
 
 ### Derived tables (`npm run derive`, part of `rebuild`)
 
@@ -73,10 +74,9 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 | # | Dataset | Where | Why | Notes |
 |---|---|---|---|---|
-| 1 | HUD Picture of Subsidized Households 2025 (all programs, by tract) | huduser.gov tract xlsx (70 MB, a 500 MB sheet) | program mix and household income by tract | needs a streaming xlsx parse; voucher counts alone are already pulled |
-| 2 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock. Sheet CSV export is disabled on both workbooks (tried 2026-10-31); reading them would mean reverse-engineering Tableau's session protocol. |
-| 3 | City 311 housing complaints | FixMyPVD's own `cityCases` store (production Firestore) | complaints by building | the city's public grid shows only a rolling 7-day window and FixMyPVD has stored it since 2026-10-17, so it was two weeks deep on 2026-10-31. Worth joining (full address on each case → E-911 points) once it has months of depth. |
-| 4 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
+| 1 | RIHousing evictions dashboard and rent survey | Tableau Public | judgments and awards; average rents | the rent survey comes from CoStar's large buildings, so it misses 2–4-unit stock. Sheet CSV export is disabled on both workbooks (tried 2026-10-31); reading them would mean reverse-engineering Tableau's session protocol. |
+| 2 | City 311 housing complaints | FixMyPVD's own `cityCases` store (production Firestore) | complaints by building | the city's public grid shows only a rolling 7-day window and FixMyPVD has stored it since 2026-10-17, so it was two weeks deep on 2026-10-31. Worth joining (full address on each case → E-911 points) once it has months of depth. |
+| 3 | National Housing Preservation Database | preservationdatabase.org (free sign-up) | subsidy **expiration dates** | adds the risk of affordable units losing their restriction |
 | — | Recorder of Deeds (Kofile CountyFusion) | guest search | deeds, liens, foreclosure deeds | search one record at a time; no bulk; the city denies bulk deed requests by pointing here |
 
 ## 3. By request (ranked)
