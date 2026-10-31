@@ -49,7 +49,7 @@ These are places where the ordinance text or the data leaves the answer open. Ea
 
 ## The data
 
-12. **Why do ~5,700 owners who seem to live at their property lack the owner-occupied rate?** About 3,400 of them bought before 2024. The candidate explanations are never filing, losing status at the ~2020 recertification, or address aliasing. One question to the assessor ("what share of owner-occupants are on the OO rate?") would size the bias, and would show whether the city could share certification records.
+12. **Why do ~5,700 owners who seem to live at their property lack the owner-occupied rate?** About 3,400 of them bought before 2024. The candidate explanations are never filing, losing status at the ~2020 recertification, or address aliasing. The rolls now back the recertification explanation: owners who kept their property lost the rate at 2.75% a year across FY2020→FY2024, against 1.3–1.9% in other spans. That is 530–920 extra parcels, most without a homestead exemption from FY2021 on (DATA_REPORT.md §2). One question to the assessor ("what share of owner-occupants are on the OO rate?") would size the bias, and would show whether the city could share certification records.
 
 13. **Certificate-of-occupancy dates.** The new-construction exemption runs from the CO date, which isn't in any public dataset. The Department of Inspections & Standards has them; the open-data permits file stops at 2018, and the ArcGIS "DIS_Active_Permit_VIew" layer wasn't explored. That layer is a slice-2 candidate.
 

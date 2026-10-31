@@ -105,6 +105,7 @@ function main() {
     }
   }
   insertAll(db, 'ownership_changes', ['parcelId', 'roll_year', 'seller_kind', 'buyer_kind', 'comparable'], changes);
+  db.exec('CREATE INDEX ownership_changes_parcel ON ownership_changes (parcelId)');
 
   // 4. New housing supply from permits.
   const supply = db.prepare(`SELECT substr(issued, 1, 4) AS year, kind, COUNT(*) AS permits, SUM(COALESCE(units, 0)) AS units
