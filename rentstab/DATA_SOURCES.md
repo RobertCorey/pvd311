@@ -111,7 +111,7 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 ## 3. By request (ranked)
 
-Ready-to-send text for each, with where to send it: **REQUESTS.md**.
+Ready-to-send text for each, with where to send it: **REQUESTS.md**. Filed 2026-10-31: assessor owner-occupancy records #26-3023, landlord fire-insurance declarations #26-3024, tax stabilization agreements #26-3025, certificates of occupancy #26-3026.
 
 | # | Dataset | Who holds it | How | Why it matters |
 |---|---|---|---|---|
