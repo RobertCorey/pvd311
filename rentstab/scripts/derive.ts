@@ -4,6 +4,7 @@
 //   parcel_owner_group   — landlord portfolios: owners linked by a shared mailing address or identical name
 //   ownership_changes    — owner changes between consecutive rolls FY2013–FY2026, with buyer/seller kind
 //   new_housing_by_year  — dwelling units in new-building and conversion permits, by year issued
+//   tract_summary, neighborhood_summary, tract_profile (view) — homes by result next to area measures
 // Local analysis tables: individuals' names stay in the local database only; anything published shows entities, never people.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -107,6 +108,30 @@ function main() {
   const supply = db.prepare(`SELECT substr(issued, 1, 4) AS year, kind, COUNT(*) AS permits, SUM(COALESCE(units, 0)) AS units
     FROM permits WHERE kind IN ('new_residential', 'conversion') AND issued IS NOT NULL GROUP BY 1, 2 ORDER BY 1`).all() as any[];
   insertAll(db, 'new_housing_by_year', ['year', 'kind', 'permits', 'units'], supply.map((r) => [r.year, r.kind, r.permits, r.units]));
+  // 5. Area summaries (tract and neighborhood): homes by result next to the other area measures. Data prep only.
+  for (const [table, col] of [['tract_summary', 'tract'], ['neighborhood_summary', 'neighborhood']] as const) {
+    db.exec(`DROP TABLE IF EXISTS ${table}`);
+    db.exec(`CREATE TABLE ${table} AS
+      SELECT p.${col} AS area,
+        SUM(s.homes) AS homes, SUM(s.owned) AS owned, SUM(s.controlled) AS controlled, SUM(s.market) AS market,
+        SUM(s.subsidized) AS subsidized, SUM(s.unclear) AS unclear,
+        SUM(g.str_registrations) AS str_registrations, SUM(g.housing_court_cases) AS housing_court_cases,
+        SUM(g.code_cases_active) AS code_cases_active, SUM(g.lead_cert_last_letter IS NOT NULL) AS parcels_with_lead_cert,
+        SUM(COALESCE(g.registered_rental_units, 0)) AS registered_rental_units,
+        SUM(COALESCE(nu.units, 0)) AS new_units_permitted_since_2022
+      FROM parcels p JOIN parcel_status s ON s.parcelId = p.id JOIN parcel_signals g ON g.parcelId = p.id
+      LEFT JOIN (SELECT parcelId, SUM(COALESCE(units, 0)) units FROM permits WHERE kind IN ('new_residential', 'conversion') AND issued >= '2022-01-01' GROUP BY parcelId) nu ON nu.parcelId = p.id
+      WHERE p.${col} IS NOT NULL GROUP BY p.${col}`);
+  }
+  // Tract-only measures from the Census, Eviction Lab and HUD.
+  db.exec(`DROP VIEW IF EXISTS tract_profile`);
+  db.exec(`CREATE VIEW tract_profile AS
+    SELECT t.*, s.homes, s.owned, s.controlled, s.market, s.subsidized, s.unclear, s.str_registrations, s.housing_court_cases,
+      s.code_cases_active, s.parcels_with_lead_cert, s.registered_rental_units, s.new_units_permitted_since_2022,
+      (SELECT SUM(filings) FROM evictions_tract_month e WHERE e.geoid = t.geoid
+        AND e.month > (SELECT strftime('%Y-%m', date(MAX(month) || '-01', '-12 months')) FROM evictions_tract_month)) AS eviction_filings_last_12mo
+    FROM tracts t LEFT JOIN tract_summary s ON s.area = t.geoid`);
+  console.log(`tract_summary: ${(db.prepare('SELECT COUNT(*) n FROM tract_summary').get() as any).n} tracts · neighborhood_summary: ${(db.prepare('SELECT COUNT(*) n FROM neighborhood_summary').get() as any).n} neighborhoods · tract_profile view`);
   db.close();
 }
 

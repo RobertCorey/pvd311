@@ -245,6 +245,7 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
     const ins = db.prepare(`INSERT INTO ${name} VALUES (${cols.map(() => '?').join(', ')})`);
     db.exec('BEGIN'); for (const r of rows) ins.run(...(r as any[])); db.exec('COMMIT');
     const matched = rows.filter((r) => r[cols.indexOf('parcelId')]).length;
+    db.exec(`CREATE INDEX ${name}_parcel ON ${name}(parcelId)`);
     console.log(`${name}: ${rows.length} rows, ${matched} matched to a parcel`);
   };
 
@@ -295,21 +296,24 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
   table('tax_sale_2026', ['parcelId', 'location', 'face_value', 'total', 'sold'],
     tax.map((r) => [ids.has(r['Parcel Number']) ? r['Parcel Number'] : match(r['Parcel Location'] ?? ''), r['Parcel Location'], money(r['Face Value']), money(r.Total), isoDay(r['Date Purchased'])]));
 
-  // One row per parcel with every signal it has: the map and later analysis read this instead of five joins.
-  db.exec(`CREATE VIEW parcel_signals AS
+  // One row per parcel with every signal it has (materialized from grouped joins; the map and analysis read this).
+  db.exec(`CREATE TABLE parcel_signals AS
     SELECT p.id AS parcelId,
-      (SELECT SUM(units) FROM rental_registry r WHERE r.parcelId = p.id) AS registered_rental_units,
-      (SELECT COUNT(*) FROM str_registrations s WHERE s.parcelId = p.id) AS str_registrations,
-      (SELECT COUNT(*) FROM str_city_permits s WHERE s.parcelId = p.id) AS str_city_permits,
-      (SELECT COUNT(*) FROM airbnb_listings a WHERE a.parcelId = p.id) AS airbnb_listings,
-      (SELECT COUNT(*) FROM housing_court_cases h WHERE h.parcelId = p.id) AS housing_court_cases,
-      (SELECT MAX(filed) FROM housing_court_cases h WHERE h.parcelId = p.id) AS last_housing_court_case,
-      (SELECT COUNT(*) FROM tax_sale_2026 t WHERE t.parcelId = p.id) AS tax_sale_2026,
-      (SELECT COUNT(*) FROM vacant_registry v WHERE v.parcelId = p.id) AS vacant_registry,
-      (SELECT COUNT(*) FROM code_cases_active c WHERE c.parcelId = p.id) AS code_cases_active,
-      (SELECT MAX(last_letter) FROM lead_certificates l WHERE l.parcelId = p.id) AS lead_cert_last_letter,
-      (SELECT MAX(units) FROM lead_certificates l WHERE l.parcelId = p.id) AS lead_cert_units
-    FROM parcels p`);
+      rr.units AS registered_rental_units, COALESCE(sr.n, 0) AS str_registrations, COALESCE(sp.n, 0) AS str_city_permits,
+      COALESCE(ab.n, 0) AS airbnb_listings, COALESCE(hc.n, 0) AS housing_court_cases, hc.last AS last_housing_court_case,
+      COALESCE(ts.n, 0) AS tax_sale_2026, COALESCE(vr.n, 0) AS vacant_registry, COALESCE(cc.n, 0) AS code_cases_active,
+      lc.last AS lead_cert_last_letter, lc.units AS lead_cert_units
+    FROM parcels p
+    LEFT JOIN (SELECT parcelId, SUM(units) units FROM rental_registry GROUP BY parcelId) rr ON rr.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_registrations GROUP BY parcelId) sr ON sr.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM str_city_permits GROUP BY parcelId) sp ON sp.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM airbnb_listings GROUP BY parcelId) ab ON ab.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n, MAX(filed) last FROM housing_court_cases GROUP BY parcelId) hc ON hc.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM tax_sale_2026 GROUP BY parcelId) ts ON ts.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM vacant_registry GROUP BY parcelId) vr ON vr.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, COUNT(*) n FROM code_cases_active GROUP BY parcelId) cc ON cc.parcelId = p.id
+    LEFT JOIN (SELECT parcelId, MAX(last_letter) last, MAX(units) units FROM lead_certificates GROUP BY parcelId) lc ON lc.parcelId = p.id`);
+  db.exec('CREATE UNIQUE INDEX parcel_signals_id ON parcel_signals(parcelId)');
 }
 
 /** Street address → parcel id: the roll's own addresses first, then E-911 address points located inside a lot. */
