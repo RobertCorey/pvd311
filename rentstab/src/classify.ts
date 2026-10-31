@@ -66,12 +66,17 @@ const TESTS: Record<string, Test> = {
       openedText: m.opened ? String(m.opened) : 'year unknown', conversionText: m.conversion ? 'converted from nonresidential space, ' : '',
       lookbackDate: lookback.toISOString().slice(0, 10),
     };
-    // Apartments that opened recently are new construction, whatever the label says about the market.
+    // Apartments that opened recently are new construction, whatever the label says about the market. With no researched
+    // opening year, a recent assessor year built stands in; a conversion with no date at all can't be settled.
     const nc = c.rules.rules.find((x) => x.test === 'new_construction');
-    if (m.opened && nc?.enabled !== false && (spec.status === 'likely_covered' || m.use === 'mixed_use')) {
+    const opened = m.opened ?? (c.p.yearBuilt != null && c.p.yearBuilt >= 2000 ? c.p.yearBuilt : null);
+    if (nc?.enabled !== false && (spec.status === 'likely_covered' || m.use === 'mixed_use')) {
+      const v = { ...vars, opened: String(opened ?? ''), openedText: opened ? String(opened) : 'year unknown' };
       const firstFull = lookback.getUTCMonth() === 0 && lookback.getUTCDate() === 1 ? lookback.getUTCFullYear() : lookback.getUTCFullYear() + 1;
-      if (m.opened >= firstFull) return { status: 'likely_exempt', reason: fill(r.reason_new as string, vars), note: r.note };
-      if (m.opened === lookback.getUTCFullYear()) return { status: 'cant_tell', reason: fill(r.reason_boundary as string, vars), note: r.note };
+      if (opened && opened >= firstFull) return { status: 'likely_exempt', reason: fill(r.reason_new as string, v), note: r.note };
+      if (opened && opened === lookback.getUTCFullYear()) return { status: 'cant_tell', reason: fill(r.reason_boundary as string, v), note: r.note };
+      if (!opened && m.conversion) return { status: 'cant_tell', reason: fill(r.reason_conversion_undated as string, v), note: r.note };
+      if (spec.status === 'likely_covered') return { status: spec.status, reason: fill(spec.reason, v), note: r.note };
     }
     return { status: spec.status, reason: fill(spec.reason, vars), note: r.note };
   },

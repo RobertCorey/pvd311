@@ -191,6 +191,13 @@ describe('researched building labels', () => {
     expect(run({ ...big, manual: label('apartments_market', { opened: 2024, residentialUnits: 176 }) }).status).toBe('likely_exempt');
     expect(run({ ...big, manual: label('apartments_market', { opened: 2015 }) }).status).toBe('likely_covered');
   });
+  it('with no researched opening year, a recent assessor year built still counts', () => {
+    expect(run({ ...big, yearBuilt: 2022, manual: label('apartments_market', { residentialUnits: 16 }) }).status).toBe('cant_tell');
+    expect(run({ ...big, yearBuilt: 2024, manual: label('apartments_market') }).status).toBe('likely_exempt');
+  });
+  it('an undated conversion can\'t be settled', () => {
+    expect(run({ ...big, yearBuilt: 1900, manual: label('apartments_market', { conversion: true }) }).status).toBe('cant_tell');
+  });
   it('low-confidence labels are ignored', () => {
     expect(run({ ...big, manual: label('hotel', { confidence: 'low' }) }).rule).not.toBe('researched_building');
   });

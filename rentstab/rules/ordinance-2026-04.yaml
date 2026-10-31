@@ -132,6 +132,7 @@ rules:
       student_housing_private: { status: likely_covered, reason: "{name}: {unitsText} privately owned student apartments, opened {openedText} → covered (there is no student-housing exemption)" }
     reason_new: "{name}: {unitsText} apartments {conversionText}opened {opened}, inside the 5-year look-back → exempt as new construction (Sec. 13-78(m))"
     reason_boundary: "{name}: {unitsText} apartments {conversionText}opened {opened}, the edge of the 5-year look-back → exempt only if the certificate of occupancy came on/after {lookbackDate}"
+    reason_conversion_undated: "{name}: {unitsText} apartments converted from nonresidential space, opening year unknown → exempt as new construction only if the certificate of occupancy came on/after {lookbackDate}"
     note: "Researched from public sources (listing sites, developers, news); see manual/big-buildings.csv for links."
 
   # Runs early so a lot that read as vacant land in the 2024 assessor extract but has since been built on is caught.
