@@ -109,8 +109,9 @@ function renderCity() {
   $('body').innerHTML = `
     <section class="headline">
       <span class="big">${fmt(t.sure.controlled)}</span>
-      <h2>rental homes would have been rent-stabilized</h2>
+      <h2>rental homes would likely have been rent-stabilized</h2>
       <p class="muted">That’s ${pct(t.sure.controlled, rentals(t))} of the city’s ${fmt(rentals(t))} rentals, and ${pct(t.sure.controlled, t.homes)} of all ${fmt(t.homes)} homes. ${fmt(t.sure.unclear)} more are in buildings the records can’t settle; it could reach ${fmt(upper)} if none of those, and none of the lighter homes, turn out exempt.</p>
+      <p class="note">Official estimates, all citywide with no map: the council’s fiscal note said about 60% of rentals (written before the exemptions were widened); the city finance director said under 44%; the mayor’s veto letter said about half are exempt.</p>
     </section>
     ${bar(t, 'stack')}
     ${keyRows(t)}
@@ -355,6 +356,7 @@ async function boot() {
     <div class="row"><span class="sw owned light"></span><span class="sw market light"></span>Lighter: probably (owner seems to live there)</div>`;
   $('footer').innerHTML = `<p>${esc(rules.disclaimer)}</p>
     <p>Homes are the assessor’s legal units, placed at each parcel. Owner-occupancy comes from the city’s owner-occupied tax rate (as of 12/31/2024). The Census counts ${fmt(data.acs.housingUnits)} housing units and ${fmt(data.acs.renterOccupied)} renter households (${esc(data.acs.label)}), and about 29,600 owner-occupied homes, more than the tax rate shows, which is why owners who get their tax bill at the building are counted as probably living there.</p>
+    <p>Not modeled: who actually lives in a home, unpermitted units, voucher holders (covered under the April text), short-term rentals, employee or transitional housing, an owner’s temporary absence, and the 20-year exemption for buildings built to prevailing-wage standards.</p>
     <p>Sources: Providence FY2026 tax roll, assessor building records (2024), building permits Dec 2016 – Mar 2024, HUD LIHTC / assisted / public housing lists, Providence Housing Authority sites, city GIS streets, parks and neighborhoods. Data fetched ${esc(data.fetched)}.</p>`;
 }
 
