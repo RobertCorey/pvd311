@@ -154,7 +154,11 @@ function main() {
         SUM(g.str_registrations) AS str_registrations, SUM(g.housing_court_cases) AS housing_court_cases,
         SUM(g.code_cases_active) AS code_cases_active, SUM(g.lead_cert_last_letter IS NOT NULL) AS parcels_with_lead_cert,
         SUM(COALESCE(g.registered_rental_units, 0)) AS registered_rental_units,
-        SUM(COALESCE(nu.units, 0)) AS new_units_permitted_since_2022
+        SUM(COALESCE(nu.units, 0)) AS new_units_permitted_since_2022,
+        SUM(g.city_cases_housing) AS city_cases_housing, SUM(g.code_cases_2013_2024) AS code_cases_2022_2024,
+        SUM(g.lead_service_lines > 0) AS parcels_with_lead_service_line, SUM(CASE WHEN g.flood_zone = '1%' THEN s.homes ELSE 0 END) AS homes_in_100yr_flood_area,
+        SUM(g.ridoh_suspected_rental) AS ridoh_suspected_rentals, SUM(COALESCE(g.hud_assisted_units, 0)) AS hud_assisted_units,
+        SUM(g.sale_2024_price IS NOT NULL) AS sales_2024
       FROM parcels p JOIN parcel_status s ON s.parcelId = p.id JOIN parcel_signals g ON g.parcelId = p.id
       LEFT JOIN (SELECT parcelId, SUM(COALESCE(units, 0)) units FROM permits WHERE kind IN ('new_residential', 'conversion') AND issued >= '2022-01-01' GROUP BY parcelId) nu ON nu.parcelId = p.id
       WHERE p.${col} IS NOT NULL GROUP BY p.${col}`);
@@ -164,8 +168,14 @@ function main() {
   db.exec(`CREATE VIEW tract_profile AS
     SELECT t.*, s.homes, s.owned, s.controlled, s.market, s.subsidized, s.unclear, s.str_registrations, s.housing_court_cases,
       s.code_cases_active, s.parcels_with_lead_cert, s.registered_rental_units, s.new_units_permitted_since_2022,
+      s.city_cases_housing, s.code_cases_2022_2024, s.parcels_with_lead_service_line, s.homes_in_100yr_flood_area, s.ridoh_suspected_rentals,
+      s.hud_assisted_units, s.sales_2024,
       (SELECT SUM(filings) FROM evictions_tract_month e WHERE e.geoid = t.geoid
-        AND e.month > (SELECT strftime('%Y-%m', date(MAX(month) || '-01', '-12 months')) FROM evictions_tract_month)) AS eviction_filings_last_12mo
+        AND e.month > (SELECT strftime('%Y-%m', date(MAX(month) || '-01', '-12 months')) FROM evictions_tract_month)) AS eviction_filings_last_12mo,
+      (SELECT SUM(purchases) FROM hmda_purchases_tract_year h WHERE h.geoid = t.geoid AND h.year >= 2022) AS mortgage_purchases_2022_2024,
+      (SELECT ROUND(1.0 * SUM(investor) / SUM(purchases), 3) FROM hmda_purchases_tract_year h WHERE h.geoid = t.geoid AND h.year >= 2022) AS investor_share_2022_2024,
+      (SELECT hpi FROM fhfa_hpi_tract f WHERE f.geoid = t.geoid AND hpi IS NOT NULL ORDER BY year DESC LIMIT 1) AS fhfa_hpi_latest,
+      (SELECT SUM(occupied) FROM (SELECT total_occupied occupied FROM hud_psh_tract p WHERE p.geoid = t.geoid AND p.program = 'Housing Choice Vouchers' AND p.sub_program = 'TBV, All')) AS tenant_voucher_households
     FROM tracts t LEFT JOIN tract_summary s ON s.area = t.geoid`);
   console.log(`tract_summary: ${(db.prepare('SELECT COUNT(*) n FROM tract_summary').get() as any).n} tracts · neighborhood_summary: ${(db.prepare('SELECT COUNT(*) n FROM neighborhood_summary').get() as any).n} neighborhoods · tract_profile view`);
   db.close();
