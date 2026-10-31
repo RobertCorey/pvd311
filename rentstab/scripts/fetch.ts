@@ -16,9 +16,11 @@ const RIGIS = 'https://services2.arcgis.com/S8zZg9pg23JUEexQ/arcgis/rest/service
 
 type Source =
   | { name: string; kind: 'socrata'; id: string; select?: string }
-  | { name: string; kind: 'json'; url: string }
+  /** `accumulate`: FixMyPVD's case feed only reaches back 90 days, so each fetch is merged into the stored copy by case id. */
+  | { name: string; kind: 'json'; url: string; accumulate?: boolean }
   | { name: string; kind: 'leadcerts' }
-  | { name: string; kind: 'csv'; url: string; browserUA?: boolean }
+  /** `lines`: keep the header plus lines matching this regex (national files cut to Rhode Island before they reach disk). */
+  | { name: string; kind: 'csv'; url: string; browserUA?: boolean; lines?: string }
   /** A CSV or XLSX released by an agency, reduced at download time to the listed columns (personal contact columns
    *  never reach disk). Written as JSON records. */
   | { name: string; kind: 'records'; url: string; format: 'csv' | 'xlsx'; keep: string[]; headerHint?: string; sheets?: number; browserUA?: boolean;
@@ -119,6 +121,11 @@ export const SOURCES: Source[] = [
   // Zillow Observed Rent Index (asking rents), monthly: city and ZIP files (we keep the Providence rows).
   { name: 'zori_city', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/City_zori_uc_sfrcondomfr_sm_month.csv' },
   { name: 'zori_zip', kind: 'csv', url: 'https://files.zillowstatic.com/research/public_csvs/zori/Zip_zori_uc_sfrcondomfr_sm_month.csv' },
+  // Zillow home value index (typical home, middle third), city and ZIP, Rhode Island rows only.
+  // FHFA house price index by census tract (annual, repeat sales, developmental series), Providence County rows only.
+  { name: 'fhfa_hpi_tract', kind: 'csv', lines: '^44007', browserUA: true, url: 'https://www.fhfa.gov/hpi/download/annually/hpi_at_tract.csv' },
+  { name: 'zhvi_city', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
+  { name: 'zhvi_zip', kind: 'csv', lines: ',RI,', url: 'https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv' },
   // All building permits Dec 2016 → 2026-09-15: the city's OpenGov export, released publicly in response to records
   // request 26-2355 (providenceri.nextrequest.com). Has "Type of Improvement" and "Number of Dwelling Units"; no parcel id.
   { name: 'permits_2016_2026', kind: 'csv', url: 'https://providenceri.nextrequest.com/documents/70401717/download' },
@@ -176,7 +183,7 @@ export const SOURCES: Source[] = [
   // City 311 cases from FixMyPVD's public map feed (the city's own public grid shows only 7 days; FixMyPVD has kept every case
   // since 2026-10-09). Case type, status, dates and the street address the city shows — no reporter, no description.
   // The feed's longest window is 90 days, so each rebuild sees the last 90 days only (see DATA_SOURCES.md).
-  { name: 'city_cases_fixmypvd', kind: 'json', url: 'https://api.fixmypvd.org/api/street/map?days=90' },
+  { name: 'city_cases_fixmypvd', kind: 'json', url: 'https://api.fixmypvd.org/api/street/map?days=90', accumulate: true },
   // RIHousing dashboards (Tableau Public, downloads off): the annual rent survey (CoStar-based, large buildings) and the
   // evictions tracker (court data: filings, hearings, judgments, money awards; cases per renter by ZIP).
   { name: 'rihousing_rent_survey', kind: 'tableau', workbook: 'RentSurveyDashboard', views: ['RentSurveyDashboard'] },
@@ -196,6 +203,22 @@ export const SOURCES: Source[] = [
   // 26-225; it drove the winter 2025 enforcement letters. Owner names and addresses are never downloaded.
   { name: 'ridoh_suspected_rentals', kind: 'records', format: 'xlsx', browserUA: true,
     url: 'https://healthandhumanservicesdepts-ri.nextrequest.com/documents/61611122/download', keep: ['parcel_id', 'alt_parcel_id', 'street_address', 'city', 'zip_code'] },
+  // HMDA public loan records (CFPB, anonymized: no names or addresses), originated loans in Providence County, 2018–2024:
+  // tract, purpose, occupancy (1 owner-occupant, 2 second home, 3 investor), units, loan amount, property value, income.
+  { name: 'hmda_2018', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2018&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2019', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2019&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2020', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2020&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2021', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2021&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2022', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2022&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2023', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2023&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
+  { name: 'hmda_2024', kind: 'records', format: 'csv', url: 'https://ffiec.cfpb.gov/v2/data-browser-api/view/csv?counties=44007&years=2024&actions_taken=1',
+    keep: ['activity_year', 'census_tract', 'loan_purpose', 'occupancy_type', 'total_units', 'loan_amount', 'property_value', 'income', 'derived_dwelling_category', 'business_or_commercial_purpose'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -249,6 +272,20 @@ async function fetchArcgis(s: Extract<Source, { kind: 'arcgis' }>): Promise<any[
     offset += body.features.length;
     if (!body.features.length || (!body.exceededTransferLimit && body.features.length < page)) return rows;
   }
+}
+
+/** FixMyPVD map feed → resolved cases (type and status names instead of per-response indices), merged with the stored copy
+ *  by case id; the newer fetch wins for a case seen in both. */
+function accumulateCases(feed: any, path: string): { v: 'accumulated'; at: string; firstDay: string | null; items: Record<string, unknown>[] } {
+  const resolve = (f: any) => (f?.v === 'accumulated' ? f.items : (f?.items ?? []).map((i: any[]) => ({
+    guid: i[0], caseType: f.types[i[1]]?.[0] ?? null, category: f.types[i[1]]?.[1] ?? null, status: f.statuses[i[2]] ?? null,
+    createdMin: i[3], closedMin: i[4], lat: i[5], lng: i[6], street: i[7], resolution: i[8] || null,
+  })));
+  const old = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const c of [...resolve(old), ...resolve(feed)]) byId.set(String(c.guid), c);
+  const firstDay = [old?.firstDay, feed?.firstDay].filter(Boolean).sort()[0] ?? null;
+  return { v: 'accumulated', at: new Date().toISOString(), firstDay, items: [...byId.values()] };
 }
 
 const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
@@ -331,12 +368,14 @@ async function main() {
     if (s.kind === 'csv') {
       const text = await getText(s.url, s.browserUA);
       if (!/^[^<]/.test(text) || !text.includes(',')) throw new Error(`${s.name}: expected CSV, got ${text.slice(0, 80)}`);
-      writeFileSync(join(RAW, `${s.name}.csv`), text);
-      manifest[s.name] = { rows: text.split('\n').length - 2, fetchedAt: new Date().toISOString(), url: s.url };
+      const kept = s.lines ? (() => { const all = text.split('\n'), re = new RegExp(s.lines); return [all[0], ...all.slice(1).filter((l) => re.test(l))].join('\n'); })() : text;
+      writeFileSync(join(RAW, `${s.name}.csv`), kept);
+      manifest[s.name] = { rows: kept.split('\n').length - 1, fetchedAt: new Date().toISOString(), url: s.url };
       console.log(`${s.name}: ${manifest[s.name].rows} rows`);
       continue;
     }
-    const rows = s.kind === 'socrata' ? await fetchSocrata(s) : s.kind === 'json' ? await getJson(s.url) : await fetchArcgis(s);
+    let rows = s.kind === 'socrata' ? await fetchSocrata(s) : s.kind === 'json' ? await getJson(s.url) : await fetchArcgis(s);
+    if (s.kind === 'json' && s.accumulate) rows = accumulateCases(rows, join(RAW, `${s.name}.json`));
     writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
     manifest[s.name] = {
       rows: Array.isArray(rows) ? rows.length : (rows.items?.length ?? Object.keys(rows.data ?? rows.features ?? {}).length),

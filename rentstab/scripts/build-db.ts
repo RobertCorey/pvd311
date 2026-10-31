@@ -364,13 +364,13 @@ function writeSignals(db: DatabaseSync, parcels: Parcel[]) {
   // City 311 cases (FixMyPVD's public feed of the city's case grid): matched by the street address the city shows. Cases with
   // a street but no door number stay unmatched. Times in the feed are minutes since 1970.
   {
+    // fetch.ts stores the feed accumulated and resolved (case type and status names, not indices).
     const feed = rawIf('city_cases_fixmypvd') as any;
-    const types: [string, string][] = feed?.types ?? [], statuses: string[] = feed?.statuses ?? [];
     const iso = (min: number) => (min ? new Date(min * 60_000).toISOString() : null);
     const housing = /housing|building code|no heat|vacant private|rodent/i;
     table('city_cases', ['guid', 'case_type', 'category', 'status', 'created', 'closed', 'address', 'housing', 'parcelId'],
-      (feed?.items ?? []).map((i: any[]) => [i[0], types[i[1]]?.[0] ?? null, types[i[1]]?.[1] ?? null, statuses[i[2]] ?? null, iso(i[3]), iso(i[4]), i[7],
-        housing.test(types[i[1]]?.[0] ?? '') ? 1 : 0, /^\d/.test(i[7] ?? '') ? match(i[7]) : null]));
+      (feed?.items ?? []).map((c: any) => [c.guid, c.caseType, c.category, c.status, iso(c.createdMin), iso(c.closedMin), c.street,
+        housing.test(c.caseType ?? '') ? 1 : 0, /^\d/.test(c.street ?? '') ? match(c.street) : null]));
   }
 
   // The assessor's 2024 valid sales (the revaluation's sales file), joined on PROPID.
@@ -589,17 +589,29 @@ function main() {
     }
     console.log(`eviction tract-months: ${n}`);
   }
-  // Zillow asking-rent index for Providence (city) and its ZIPs, long format.
-  db.exec('CREATE TABLE zori_month (region, region_type, month, rent, PRIMARY KEY (region, month))');
-  const zins = db.prepare('INSERT OR REPLACE INTO zori_month VALUES (?,?,?,?)');
-  for (const [file, keep] of [['zori_city', (r: Record<string, string>) => r.RegionName === 'Providence' && r.State === 'RI'],
-    ['zori_zip', (r: Record<string, string>) => r.State === 'RI' && /^029(0[3-9])$/.test(r.RegionName)]] as const) {
-    const path = join(DATA, 'raw', `${file}.csv`);
-    if (!existsSync(path)) continue;
-    for (const r of readCsv(readFileSync(path, 'utf8'))) {
-      if (!keep(r)) continue;
-      for (const [k, v] of Object.entries(r)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v) zins.run(r.RegionName, r.RegionType, k.slice(0, 7), Math.round(Number(v)));
+  // Zillow asking-rent index (ZORI) and home value index (ZHVI) for Providence (city) and its ZIPs, long format.
+  const isCity = (r: Record<string, string>) => r.RegionName === 'Providence' && r.State === 'RI';
+  const isZip = (r: Record<string, string>) => r.State === 'RI' && /^029(0[3-9])$/.test(r.RegionName);
+  for (const [table, col, files] of [['zori_month', 'rent', ['zori_city', 'zori_zip']], ['zhvi_month', 'value', ['zhvi_city', 'zhvi_zip']]] as const) {
+    db.exec(`CREATE TABLE ${table} (region, region_type, month, ${col}, PRIMARY KEY (region, month))`);
+    const zins = db.prepare(`INSERT OR REPLACE INTO ${table} VALUES (?,?,?,?)`);
+    for (const file of files) {
+      const path = join(DATA, 'raw', `${file}.csv`);
+      if (!existsSync(path)) continue;
+      for (const r of readCsv(readFileSync(path, 'utf8'))) {
+        if (!(file.endsWith('city') ? isCity(r) : isZip(r))) continue;
+        for (const [k, v] of Object.entries(r)) if (/^\d{4}-\d{2}-\d{2}$/.test(k) && v) zins.run(r.RegionName, r.RegionType, k.slice(0, 7), Math.round(Number(v)));
+      }
     }
+  }
+
+  // FHFA tract house price index (annual, 2020 tracts). FHFA suppresses tracts with too few repeat sales: 22 of the city's 42 have it.
+  db.exec('CREATE TABLE fhfa_hpi_tract (geoid, year, hpi, annual_change, hpi2000, PRIMARY KEY (geoid, year))');
+  {
+    const path = join(DATA, 'raw', 'fhfa_hpi_tract.csv');
+    const ins = db.prepare('INSERT OR REPLACE INTO fhfa_hpi_tract VALUES (?,?,?,?,?)');
+    if (existsSync(path)) for (const r of readCsv(readFileSync(path, 'utf8')))
+      ins.run(`14000US${r.tract}`, Number(r.year), Number(r.hpi) || null, r.annual_change === '' ? null : Number(r.annual_change), r.hpi2000 === '' ? null : Number(r.hpi2000));
   }
 
   // Released datasets (rental registry, short-term rentals, housing court, tax sale), each joined to a parcel.
@@ -729,6 +741,34 @@ function main() {
     db.exec('CREATE TABLE rihousing_judgments_year (year, judgment_type, cases, awards_total, PRIMARY KEY (year, judgment_type))');
     const insY = db.prepare('INSERT OR REPLACE INTO rihousing_judgments_year VALUES (?,?,?,?)');
     for (const r of rows(p2['Total Judgments and Awards'])) insY.run(r['YEAR(Hearing Date (Pending Removed))'], r['Money/Possession Judgement'] === '%all%' ? 'all' : r['Money/Possession Judgement'], r['CNTD(Case Number)'], r['SUM(Award Amount1)']);
+  }
+
+  // HMDA originated loans 2018–2024 in the city's tracts (anonymized public records), plus a tract-year summary of home
+  // purchases: how many, the investor share (occupancy 3), 2–4-unit and 5+ purchases, and the median property value.
+  {
+    const city = new Set((db.prepare('SELECT geoid FROM tracts').all() as any[]).map((r) => r.geoid));
+    db.exec('CREATE TABLE hmda_loans (year, geoid, purpose, occupancy, units, loan_amount, property_value, income, business)');
+    const ins = db.prepare('INSERT INTO hmda_loans VALUES (?,?,?,?,?,?,?,?,?)');
+    const purchases = new Map<string, { n: number; investor: number; second: number; units2to4: number; units5: number; values: number[] }>();
+    db.exec('BEGIN');
+    for (let y = 2018; y <= 2024; y++) for (const r of rawIf(`hmda_${y}`)) {
+      const geoid = `14000US${r.census_tract}`;
+      if (!city.has(geoid)) continue;
+      const units = r.total_units, value = num(r.property_value);
+      ins.run(y, geoid, num(r.loan_purpose), num(r.occupancy_type), units, num(r.loan_amount), value, num(r.income), num(r.business_or_commercial_purpose));
+      if (r.loan_purpose !== '1') continue;
+      const k = `${geoid}|${y}`, t = purchases.get(k) ?? purchases.set(k, { n: 0, investor: 0, second: 0, units2to4: 0, units5: 0, values: [] }).get(k)!;
+      t.n++; if (r.occupancy_type === '3') t.investor++; if (r.occupancy_type === '2') t.second++;
+      if (/^[234]$/.test(units)) t.units2to4++; else if (units && units !== '1') t.units5++;
+      if (value) t.values.push(value);
+    }
+    db.exec('COMMIT');
+    db.exec('CREATE TABLE hmda_purchases_tract_year (geoid, year, purchases, investor, second_home, investor_share, units_2_4, units_5_plus, median_property_value, PRIMARY KEY (geoid, year))');
+    const insP = db.prepare('INSERT INTO hmda_purchases_tract_year VALUES (?,?,?,?,?,?,?,?,?)');
+    for (const [k, t] of purchases) {
+      const [geoid, year] = k.split('|'), v = t.values.sort((a, b) => a - b);
+      insP.run(geoid, Number(year), t.n, t.investor, t.second, Math.round((1000 * t.investor) / t.n) / 1000, t.units2to4, t.units5, v.length ? v[Math.floor(v.length / 2)] : null);
+    }
   }
 
   // HUD Picture of Subsidized Households 2025: one row per city tract × program. Suppressed cells (-1, -4) → NULL.
