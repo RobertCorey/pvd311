@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readCsv } from '../src/csv.ts';
 import { COUNT, MAX, pbiGroupedRows } from '../src/powerbi.ts';
 import { readXlsx, streamXlsxRows, xlsxRecords } from '../src/xlsx.ts';
+import { tableauView } from '../src/tableau.ts';
 import { join } from 'node:path';
 
 const RAW = join(import.meta.dirname, '..', 'data', 'raw');
@@ -24,6 +25,8 @@ type Source =
       /** Stream the sheet row by row and keep only rows whose `column` starts with `startsWith`, or whose `column` value appears in
        *  column `inSource.column` of an earlier source (for national files). */
       stream?: { column: string; startsWith?: string; inSource?: { name: string; column: string } } }
+  /** Public Tableau dashboards with downloads turned off: every worksheet of each view, via the page's own session calls. */
+  | { name: string; kind: 'tableau'; workbook: string; views: string[] }
   | { name: string; kind: 'arcgis'; service: string; layer?: number; geometry?: boolean; base?: string; where?: string; fields?: string; order?: string;
       /** Douglas-Peucker tolerance in degrees (outSR 4326) — basemap layers only. */ simplify?: number; centroid?: boolean };
 
@@ -174,6 +177,10 @@ export const SOURCES: Source[] = [
   // since 2026-10-09). Case type, status, dates and the street address the city shows — no reporter, no description.
   // The feed's longest window is 90 days, so each rebuild sees the last 90 days only (see DATA_SOURCES.md).
   { name: 'city_cases_fixmypvd', kind: 'json', url: 'https://api.fixmypvd.org/api/street/map?days=90' },
+  // RIHousing dashboards (Tableau Public, downloads off): the annual rent survey (CoStar-based, large buildings) and the
+  // evictions tracker (court data: filings, hearings, judgments, money awards; cases per renter by ZIP).
+  { name: 'rihousing_rent_survey', kind: 'tableau', workbook: 'RentSurveyDashboard', views: ['RentSurveyDashboard'] },
+  { name: 'rihousing_evictions', kind: 'tableau', workbook: 'EvictionsTrackingDashboard', views: ['EvictionsDashboardpage1', 'EvictionsDashboardpage2'] },
   { name: 'hud_vouchers_tract', kind: 'arcgis', base: HUD, service: 'Housing_Choice_Vouchers_by_Tract', where: "GEOID LIKE '44007%'", fields: 'GEOID,HCV_PUBLIC,HCV_PUBLIC_PCT' },
   // HUD: LIHTC projects, project-based assisted multifamily, public housing buildings (regulated affordable).
   { name: 'hud_lihtc', kind: 'arcgis', base: HUD, service: 'LIHTC', where: "PROJ_CTY='PROVIDENCE' AND PROJ_ST='RI'",
@@ -263,6 +270,15 @@ async function main() {
       writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(rows));
       manifest[s.name] = { rows: rows.length, fetchedAt: new Date().toISOString(), url: 'RIDOH lead certificate Power BI report (public)' };
       console.log(`${s.name}: ${rows.length} address rows`);
+      continue;
+    }
+    if (s.kind === 'tableau') {
+      const out: Record<string, unknown> = {};
+      for (const v of s.views) out[v] = await tableauView(s.workbook, v);
+      writeFileSync(join(RAW, `${s.name}.json`), JSON.stringify(out));
+      const sheets = Object.values(out).flatMap((v) => Object.keys(v as object));
+      manifest[s.name] = { rows: sheets.length, fetchedAt: new Date().toISOString(), url: `https://public.tableau.com/views/${s.workbook}` };
+      console.log(`${s.name}: ${sheets.length} worksheets`);
       continue;
     }
     if (s.kind === 'records') {

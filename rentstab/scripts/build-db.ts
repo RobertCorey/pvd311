@@ -645,6 +645,55 @@ function main() {
     }
   }
 
+  // RIHousing dashboards (Tableau). Rent survey: 2-bedroom rent including utilities, 2025 dollars, CoStar (large buildings).
+  // Evictions tracker: statewide by month (court data) and cases per renter household by ZIP (about the last 12 months).
+  {
+    const money = (v: unknown) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return String(v ?? '').trim() && Number.isFinite(n) ? n : null; };
+    const month = (v: unknown) => { const d = new Date(`1 ${v}`); return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+    const rows = (sheet: Record<string, any[]> | undefined) => {
+      if (!sheet) return [] as Record<string, any>[];
+      const keys = Object.keys(sheet), n = Math.max(0, ...keys.map((k) => sheet[k].length));
+      return Array.from({ length: n }, (_, i) => Object.fromEntries(keys.map((k) => [k, sheet[k][i]])));
+    };
+    const rent = (rawIf('rihousing_rent_survey') as any)?.RentSurveyDashboard ?? {};
+    const towns = new Map<string, { y2020: number | null; y2025: number | null }>();
+    for (const r of rows(rent.Municipal)) {
+      const t = towns.get(r.Municipality1) ?? towns.set(r.Municipality1, { y2020: null, y2025: null }).get(r.Municipality1)!;
+      if (r['Measure Names'] === '2020') t.y2020 = money(r['Measure Values']); else if (r['Measure Names'] === '2025') t.y2025 = money(r['Measure Values']);
+    }
+    db.exec('CREATE TABLE rihousing_rent_town (town PRIMARY KEY, rent_2bd_2020, rent_2bd_2025)');
+    const insT = db.prepare('INSERT INTO rihousing_rent_town VALUES (?,?,?)');
+    for (const [town, t] of towns) insT.run(town, t.y2020, t.y2025);
+
+    const ev = (rawIf('rihousing_evictions') as any) ?? {};
+    const p1 = ev.EvictionsDashboardpage1 ?? {}, p2 = ev.EvictionsDashboardpage2 ?? {};
+    const byMonth = new Map<string, Record<string, number | null>>();
+    const put = (m: string | null, k: string, v: number | null) => { if (m) (byMonth.get(m) ?? byMonth.set(m, {}).get(m)!)[k] = v; };
+    for (const r of rows(p1['Number of Eviction Filings by Type'])) {
+      const t = r['Eviction Type1'] === '%all%' ? 'filings' : r['Eviction Type1'] === 'Non-Payment' ? 'filings_nonpayment' : 'filings_other';
+      put(month(r['MONTH(Filing Date1)']), t, r['CNTD(Case Number)']);
+    }
+    for (const r of rows(p1['Hearings by Month (9+20 Day) [Alt]'])) {
+      const m = month(r['MONTH(Hearing Date)']); if (!m) continue;
+      put(m, 'hearings', (byMonth.get(m)?.hearings ?? 0) + (r['CNTD(Case Number)'] ?? 0));
+    }
+    for (const r of rows(p1['Judgements by Month'])) put(month(r['MONTH(Hearing Date (Pending Removed))']), 'judgments', r['CNTD(Case Number)']);
+    for (const r of rows(p2['Median Monthly Monetary Award'])) {
+      const m = month(r['MONTH(Hearing Date (Pending Removed))']);
+      put(m, 'median_award', r['MEDIAN(Award Amount1)']); put(m, 'award_cases', r['CNTD(Case Number)']);
+    }
+    const cols = ['filings', 'filings_nonpayment', 'filings_other', 'hearings', 'judgments', 'median_award', 'award_cases'];
+    db.exec(`CREATE TABLE rihousing_evictions_month (month PRIMARY KEY, ${cols.join(', ')})`);
+    const insM = db.prepare(`INSERT INTO rihousing_evictions_month VALUES (?, ${cols.map(() => '?').join(', ')})`);
+    for (const [m, v] of [...byMonth].sort()) insM.run(m, ...cols.map((c) => v[c] ?? null));
+    db.exec('CREATE TABLE rihousing_evictions_zip (zip PRIMARY KEY, town, cases, cases_per_renter_household)');
+    const insZ = db.prepare('INSERT OR REPLACE INTO rihousing_evictions_zip VALUES (?,?,?,?)');
+    for (const r of rows(p2['Cases by Rent Pop Map'])) insZ.run(r['Zip Code'], r['Zip Code City/Town'], r['AGG(Number of Cases)'], r['AGG(Cases / Rent Pop)']);
+    db.exec('CREATE TABLE rihousing_judgments_year (year, judgment_type, cases, awards_total, PRIMARY KEY (year, judgment_type))');
+    const insY = db.prepare('INSERT OR REPLACE INTO rihousing_judgments_year VALUES (?,?,?,?)');
+    for (const r of rows(p2['Total Judgments and Awards'])) insY.run(r['YEAR(Hearing Date (Pending Removed))'], r['Money/Possession Judgement'] === '%all%' ? 'all' : r['Money/Possession Judgement'], r['CNTD(Case Number)'], r['SUM(Award Amount1)']);
+  }
+
   // HUD Picture of Subsidized Households 2025: one row per city tract × program. Suppressed cells (-1, -4) → NULL.
   {
     const cols = ['total_units', 'total_occupied', 'pct_occupied', 'people_total', 'rent_per_month', 'spending_per_month', 'hh_income',
