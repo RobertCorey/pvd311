@@ -358,9 +358,37 @@ export default function Report() {
     : outside ? t('report.block.outside')
     : null;
 
+  // Which requirement a tap on the grey Send hit (report_abandon's `blocked=`), as a stable key rather than copy.
+  const blockKey = !cat ? '' : quotaOut ? `quota_${quotaOut}` : photoRequired && !photo ? 'photo' : address.trim().length < 3 ? 'address' : outside ? 'outside' : '';
+
+  // report_abandon: a compose that ends (back to the grid, another route, tab closed) without Send or the sign-in gate —
+  // with which parts were filled, so the Usage numbers say where people stop (27 of 34 who picked a type in Oct–Nov 2026
+  // never reached Send). Counts and flags only, no text.
+  const compose = useRef<{ key: string; at: number; done: boolean; blocked: string }>({ key: '', at: 0, done: true, blocked: '' });
+  const latest = useRef({ photo: false, address: false, pin: false, desc: false, extra: 0 });
+  latest.current = { photo: !!photo, address: address.trim().length >= 3, pin: !!loc, desc: description.trim().length > 0, extra: Object.values(extra).filter((v) => v.trim()).length };
+  const endCompose = useCallback((how: string) => {
+    const c = compose.current;
+    if (c.done) return;
+    c.done = true;
+    const f = latest.current;
+    track('report_abandon', { category: c.key, how, photo: +f.photo, address: +f.address, pin: +f.pin, desc: +f.desc, extra: f.extra, blocked: c.blocked || 'none', secs: Math.round((Date.now() - c.at) / 1000) });
+  }, []);
+  useEffect(() => {
+    if (!cat) return;
+    compose.current = { key: cat.key, at: Date.now(), done: false, blocked: '' };
+    return () => endCompose('closed'); // back to the grid, another type, or another route
+  }, [cat?.key, endCompose]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const leave = () => endCompose('tab');
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, [endCompose]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || !cat) return;
+    if (!canSubmit || !cat) { if (blockKey) compose.current.blocked = blockKey; return; }
+    compose.current.done = true; // Send tapped with everything in place: the gate/submit events take it from here
     const offline = !online || !navigator.onLine;
     if (!session && !offline) {
       // Park the whole draft (photo included) so the sign-in round trip loses nothing.

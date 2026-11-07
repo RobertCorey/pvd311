@@ -20,7 +20,7 @@ const DATASET = 'fixmypvd_ui';
  * login → sent), then side events, then per-feature events (counts only; the Usage tab picks its funnel steps by name).
  */
 export const UI_EVENTS = [
-  'page_view', 'select_category', 'photo_added', 'sign_in_gate_shown', 'sign_in_link_sent', 'login', 'report_submitted', 'report_error', 'share',
+  'page_view', 'select_category', 'photo_added', 'sign_in_gate_shown', 'sign_in_link_sent', 'login', 'report_submitted', 'report_error', 'share', 'report_abandon',
   // /street map (Street.tsx, MapKey, StreetDigestCard — street_digest_* also from AccountUpdates) + home's week strip (HomeWeekStrip)
   'street_view', 'street_pin', 'street_filter', 'street_sheet', 'street_case', 'street_share', 'street_follow', 'street_key', 'street_places_view',
   'street_install_shown', 'street_install_tap', 'street_install_later', 'street_digest_on', 'street_digest_off', 'home_week_map', 'home_week_week',
@@ -50,7 +50,7 @@ export async function recordUi(request: Request, env: Env, allowedOrigin: (o: st
   const cf = (request as unknown as { cf?: { country?: string } }).cf;
   env.UI_EVENTS.writeDataPoint({
     indexes: [vid],
-    blobs: [e, p.startsWith('/') ? p : '', str(b.c, 60), str(b.m, 60), cf?.country ?? '', device(ua), str(b.u, 60).toLowerCase(), str(b.r, 80).toLowerCase(), str(b.s, 40), str(b.l, 8)],
+    blobs: [e, p.startsWith('/') ? p : '', str(b.c, 60), str(b.m, 120), cf?.country ?? '', device(ua), str(b.u, 60).toLowerCase(), str(b.r, 80).toLowerCase(), str(b.s, 40), str(b.l, 8)],
     doubles: [1],
   });
   return done;
