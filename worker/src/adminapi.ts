@@ -58,6 +58,16 @@ export function isAdmin(env: Env, auth: AuthUser | null): boolean {
   return adminEmails(env).includes(auth.email.toLowerCase());
 }
 
+/** The dev box's read-only key: `x-admin-token` = env.ADMIN_READ_TOKEN (≥ 32 chars), GET only — every change still needs Rob's Google sign-in. */
+export function adminReadTokenOk(env: Env, request: Request): boolean {
+  const want = env.ADMIN_READ_TOKEN ?? '';
+  const got = request.headers.get('x-admin-token') ?? '';
+  if (request.method !== 'GET' || want.length < 32 || got.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
 function toIso(t: unknown): string | null {
   if (!t) return null;
   if (typeof t === 'string') return t;
@@ -103,8 +113,10 @@ function userRow(u: { uid: string; email?: string | null; displayName?: string |
 }
 
 export async function handleAdmin(request: Request, url: URL, env: Env, store: Store, auth: AuthUser | null): Promise<Response> {
+  const reader = adminReadTokenOk(env, request);
+  if (reader) auth = { uid: 'admin-read-token', email: 'admin-read-token', emailVerified: false, name: 'read-only token', provider: 'token' };
   if (!auth) return json({ error: 'unauthenticated' }, 401);
-  if (!isAdmin(env, auth)) return json({ error: 'forbidden' }, 403);
+  if (!reader && !isAdmin(env, auth)) return json({ error: 'forbidden' }, 403);
   const path = url.pathname;
   const m = request.method;
 

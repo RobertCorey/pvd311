@@ -119,6 +119,19 @@ describe('admin gate', () => {
   it('/api/admin/* is 401 without a token', async () => {
     expect((await get('/api/admin/overview'))!.status).toBe(401);
   });
+  it('ADMIN_READ_TOKEN opens GETs only, and only with the exact token', async () => {
+    const tok = 'x'.repeat(40);
+    const call = (method: string, t: string | null, e: any = { ADMIN_READ_TOKEN: tok }) =>
+      handleApi(new Request('https://api.test/api/admin/engine/pause', { method, headers: t ? { 'x-admin-token': t } : {} }), e, { store: mockStore() });
+    const getWith = (t: string | null, e: any = { ADMIN_READ_TOKEN: tok }) =>
+      handleApi(new Request('https://api.test/api/admin/nope', { headers: t ? { 'x-admin-token': t } : {} }), e, { store: mockStore() });
+    expect((await getWith(tok))!.status).toBe(404);          // through the gate (unknown route)
+    expect((await getWith('y'.repeat(40)))!.status).toBe(401);
+    expect((await getWith(null))!.status).toBe(401);
+    expect((await getWith('short', { ADMIN_READ_TOKEN: 'short' }))!.status).toBe(401); // too-short secret never works
+    expect((await getWith(tok, {}))!.status).toBe(401);       // unset secret
+    expect((await call('POST', tok))!.status).toBe(401);      // no writes
+  });
 });
 
 describe('notFiledReason', () => {

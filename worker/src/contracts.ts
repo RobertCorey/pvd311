@@ -27,6 +27,7 @@ export interface Env {
   APP_BASE_URL?: string;              // var: public app origin for tracking links (default https://fixmypvd.org)
   ACCOUNT_TRUST_N?: string;           // var: per-account HITL ramp threshold (default 3)
   ADMIN_EMAILS?: string;              // var: comma-separated admin emails for /api/admin/* + in-app /admin (Google sign-in required)
+  ADMIN_READ_TOKEN?: string;          // secret: read-only key for GET /api/admin/* (x-admin-token header; the dev box holds it)
   AUTH_FROM?: string;                 // var: From for sign-in link emails (Resend)
   RECONCILE_ENABLED?: string;         // var: '1'|'true' enables the watcher's reconcile pass (adopt/stranded/missing); default off
   DRIFT_CANARY_ENABLED?: string;      // var: '1'|'true' arms the golden-controls Step-3 drift canary in runDaily; default off

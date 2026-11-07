@@ -14,7 +14,7 @@
  *   GET  /api/photos/:id  → photo bytes
  *   /api/me/*, PATCH /api/reports/:id, POST /api/reports/:id/cancel → me.ts (Firebase ID token required; see auth.ts)
  *   POST /api/reports/:id/answer → the owner's answer to the city's request for more information (cityask.ts)
- *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider)
+ *   /api/admin/*          → adminapi.ts (ID token + ADMIN_EMAILS allowlist, Google provider; or GET with x-admin-token = ADMIN_READ_TOKEN)
  *   POST /api/ui          → first-party usage event (ui.ts; no auth, always 204)
  */
 import { CATEGORIES } from '../../shared/categories.js';
@@ -25,7 +25,7 @@ import { handleMe, editReport, cancelReport, ensureUser, type Viewer } from './m
 import { handlePushKey } from './push.js';
 import { sendSignInLink } from './authmail.js';
 import { moderate } from './moderation.js';
-import { handleAdmin, isAdmin } from './adminapi.js';
+import { adminReadTokenOk, handleAdmin, isAdmin } from './adminapi.js';
 import { logEvent, markOk } from './health.js';
 import { recordUi } from './ui.js';
 import { checkQuota, type QuotaSlot } from './quota.js';
@@ -73,7 +73,7 @@ export async function handleApi(request: Request, env: Env, deps: ApiDeps): Prom
     const auth = needsAuth || isCreate || request.headers.has('authorization') ? await userFromRequest(env, request) : null;
     if (request.method === 'POST' && url.pathname === '/api/ui') resp = await recordUi(request, env, (o) => originOk(env, o));
     else if (isCreate && !auth) resp = json({ error: 'auth_required' }, 401);
-    else if (needsAuth && !auth) resp = json({ error: 'unauthenticated' }, 401);
+    else if (needsAuth && !auth && !(url.pathname.startsWith('/api/admin') && adminReadTokenOk(env, request))) resp = json({ error: 'unauthenticated' }, 401);
     else if (url.pathname.startsWith('/api/admin')) resp = await handleAdmin(request, url, env, deps.store, auth);
     else if (url.pathname.startsWith('/api/me')) resp = await handleMe(request, url, env, { store: deps.store, project: projectReport, admin: isAdmin(env, auth) }, auth!);
     else if (request.method === 'PATCH' && reportId && !reportId[2]) resp = await editReport(reportId[1], request, deps.store, auth!);
