@@ -58,6 +58,9 @@ export interface Parcel {
   newUnitsPermit: { kind: 'new_residential' | 'conversion'; issued: string; units: number | null; record: string; description: string; status: string | null } | null;
   /** Living units on the assessor's tax-year-2026 list of tax-stabilization buildings (manual/tsa-units-ty26.csv). */
   tsaUnits: number | null;
+  /** Latest owner-occupied (homestead) application for the lot since 2025-01-02, by filing date; archived ones are skipped
+   *  (manual/owner-occupied-applications-2025-26.csv, records request 26-3023). */
+  ownerOccupiedApplication: { status: 'approved' | 'denied' | 'pending'; filed: string } | null;
   razePermitDate: string | null;
   /** Sum of stated project costs on building permits issued 2019-01 … 2024-03 (renovation intensity). */
   permitCostSince2019: number;

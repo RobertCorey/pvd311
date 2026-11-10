@@ -69,6 +69,32 @@ export function sameAddress(a: StreetAddress | null, b: StreetAddress | null, sl
   return a.lo - slack <= b.hi && b.lo - slack <= a.hi;
 }
 
+/**
+ * An address cell that lists several doors → one address each: "115, 119 Adelaide Ave., 5 Price St." →
+ * ["115 Adelaide Ave", "119 Adelaide Ave", "5 Price St"]. House numbers wait for the next street name; unit numbers,
+ * notes in brackets and text without a house number ("Scattered sites") are dropped.
+ */
+export function splitAddressList(cell: string): string[] {
+  const NUM = /^\d+[a-z]?(-\d+[a-z]?)?$/i;
+  const out: string[] = [];
+  for (const line of cell.split(/;|\n|\/|\baka\b/i)) {
+    const s = line.replace(/\([^)]*\)/g, ' ').replace(/^[^:\d]*:/, ' ').replace(/\bunits?\s*#?\d+[a-z]?(\s*[-,&]\s*#?\d+[a-z]?)*/gi, ' ')
+      .replace(/(\d)\s*-\s*(\d)/g, '$1-$2').replace(/\.\s+(?=\d)/g, ', ');
+    let waiting: string[] = [];
+    for (const chunk of s.split(/,|&|\band\b/i)) {
+      const tokens = chunk.replace(/[.:]/g, ' ').trim().split(/\s+/).filter(Boolean);
+      const n = tokens.findIndex((t) => !NUM.test(t));
+      const numbers = n < 0 ? tokens : tokens.slice(0, n), street = n < 0 ? [] : tokens.slice(n);
+      if (!street.length) { waiting.push(...numbers); continue; }
+      // "10, 12, Morning Star Row": a street name on its own closes the numbers before it.
+      const doors = numbers.length ? [...waiting, ...numbers] : street.length <= 4 && street.every((t) => /^[a-z']+$/i.test(t)) ? waiting : [];
+      for (const d of doors) out.push(`${d} ${street.join(' ')}`);
+      waiting = [];
+    }
+  }
+  return out;
+}
+
 /** Tax-roll mailing lines shift when a trust name is present: find the city/state/ZIP line, the street is the line before it. */
 export function mailingStreetAndCity(lines: (string | null | undefined)[]): { street: string | null; city: string | null } {
   const clean = lines.map((l) => (l && l.trim() && l.trim().toUpperCase() !== 'NULL' ? l.trim() : null));

@@ -96,7 +96,7 @@ data:
   cooperative_owner_pattern: 'cooperative|co-op\b|housing corp'
   housing_authority_owner_pattern: 'housing authority|dept of housing'
   # Affordable-housing signals attached by build-db (see DATA_REPORT.md §5).
-  affordable_signals_strong: [8law, lihtc, hud_assisted, public_housing, housing_authority_owner, pha_site]
+  affordable_signals_strong: [8law, lihtc, hud_assisted, public_housing, housing_authority_owner, pha_site, state_lmih]
   affordable_signals_partial: [lihtc_partial, hud_assisted_partial]  # some units unrestricted
   affordable_signals_weak: [lihtc_nearby, hud_assisted_nearby, public_housing_nearby, pha_site_nearby, lihtc_partial_nearby, hud_assisted_partial_nearby]
 
@@ -110,8 +110,9 @@ rules:
     test: owner_home
     section: "Sec. 13-69 ('Rental Unit')"
     status: not_residential_rental
-    reason: "{classDesc} on the owner-occupied tax rate — the owner's own home, no rental unit on record"
+    reason: "{classDesc}, {ooBasis} — the owner's own home, no rental unit on record"
     note: "Owner-occupied status is the tax assessor's classification as of 12/31/2024."
+    note_application: "Owner-occupied status rests on the city's approval of the owner's application (filed {filed}); the tax roll still shows the non-owner rate."
 
   # Hand-researched labels for big buildings the city records can't classify (manual/big-buildings.csv, with sources).
   - id: researched_building
@@ -219,6 +220,7 @@ rules:
       public_housing: "HUD public housing building"
       housing_authority_owner: "owned by a housing authority"
       pha_site: "Providence Housing Authority site"
+      state_lmih: "on the state's 2025 list of low- and moderate-income housing (RIHousing)"
 
   - id: affordable_partial_or_nearby
     label: "Possibly subsidized"
@@ -294,19 +296,24 @@ rules:
     max_units: 4
     adu_allowance: 1        # a 5th unit is allowed only if it is an ADU — data can't tell, so 5 units → can't tell
     status: likely_exempt
-    reason: "{unitsText} · {builtText} · owner-occupied tax rate on file → likely exempt (owner-occupied {ooLimit})"
-    reason_units_missing: "{classDesc} on the owner-occupied tax rate, but the unit count is missing — exempt if it has {ooLimit}"
-    reason_adu: "{unitsText} on the owner-occupied tax rate — exempt only if one of the units is an accessory dwelling unit ({ooLimit} + 1 ADU)"
+    reason: "{unitsText} · {builtText} · {ooBasis} → likely exempt (owner-occupied {ooLimit})"
+    reason_units_missing: "{classDesc}, {ooBasis}, but the unit count is missing — exempt if it has {ooLimit}"
+    reason_adu: "{unitsText}, {ooBasis} — exempt only if one of the units is an accessory dwelling unit ({ooLimit} + 1 ADU)"
     note: "Owner-occupied status is the tax assessor's homestead classification as of 12/31/2024; the ordinance's test is principal residence (185+ days/yr)."
+    note_application: "Owner-occupied status rests on the city's approval of the owner's application (filed {filed}); the tax roll still shows the non-owner rate. The ordinance's test is principal residence (185+ days/yr)."
 
+  # Counted as owner-occupied since 2026-11-10 (STATUS.md): the records can't say who lives where, but they point one way.
+  # Every owner had to re-apply for the rate in December 2020 and the approved count fell by 2,655; when owners in this
+  # group do apply, the city approves 88% (records request 26-3023); the Census counts about 9,200 more owner-occupied
+  # homes than the tax rate shows. An approved application moves a lot to the rules above; a denied one skips this rule.
   - id: owner_may_live_here
-    label: "Owner may live there"
+    label: "Owner probably lives there"
     test: owner_mailing_is_property
     section: "Sec. 13-78(n); Sec. 13-69 ('Principal Residence')"
     max_units: 4
-    status: cant_tell
-    reason: "{unitsText}, not on the owner-occupied tax rate, but the owner's tax bill goes to this address — exempt if the owner actually lives here"
-    note: "Owner-occupied tax status is claimed by application; an owner who lives here but never applied, or bought after 12/31/2024, shows the non-owner rate."
+    status: likely_exempt
+    reason: "{unitsText}, not on the owner-occupied tax rate, but the owner's tax bill goes to this address → probably exempt, if the owner actually lives here (owner-occupied {ooLimit})"
+    note: "No owner-occupied application is on file for this lot since January 2025. The rate is claimed by application and every owner had to re-apply in December 2020; owners in this position who do apply are approved about 9 times in 10."
 
   - id: one_additional_property
     label: "Owner's one extra property"
@@ -342,6 +349,7 @@ rules:
     why_entity: "non-owner-occupied tax rate · owned by an entity ({owner})"
     note_entity_at_property: "The owning entity's mailing address is this property. Whether an LLC member living here counts as an owner-occupant is unresolved (OPEN_QUESTIONS.md)."
     why_default: "non-owner-occupied tax rate · owner mails tax bills elsewhere"
+    why_application_denied: "non-owner-occupied tax rate · the city denied the owner's owner-occupied application"
     note_single_unit: "Covered only if actually rented out; a home left vacant or used by the owner's family is not a rental unit."
     note_old_apartments: "If these apartments were created by converting a non-residential building (e.g. a mill) within 5 years before the effective date, they would be exempt as new construction; the assessor's year built is the original structure."
 
@@ -354,6 +362,11 @@ data_notes:
   assessor_units: "Unit count and year built are the assessor's records (legal units as of 2024); unpermitted units are not counted."
   rarer_exemptions: "Rarer exemptions (employee, transitional, diplomatic or fraternal housing; an owner's temporary absence; sale-to-occupant) can't be checked from public data."
   unknown_class: "unrecognized tax class {taxClass} ({classDesc})"
+  # Owner-occupied applications since 2025-01-02 (records request 26-3023); the roll lags approvals by months.
+  oo_basis_roll: "owner-occupied tax rate on file"
+  oo_basis_application: "owner-occupied application approved by the city (filed {filed}), not yet on the tax roll"
+  oo_application_denied: "The city denied an owner-occupied application for this lot (filed {filed}); the released list gives no reason."
+  oo_application_pending: "An owner-occupied application for this lot (filed {filed}) is still open with the city."
 
 not_evaluable:
   - {section: "Sec. 13-78(b)", name: sale-to-occupant, note: "occupant buying the unit under a contract of sale"}

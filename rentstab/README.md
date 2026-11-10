@@ -2,7 +2,7 @@
 
 This is slice 1, a data and rules spike. It tests whether public records can tell, parcel by parcel, whether a home would be covered by the Providence Rent Stabilization Act as the City Council passed it in April 2026. The mayor vetoed the ordinance and the veto was sustained, so **it is not law**. This is not the product.
 
-Start with **[SUMMARY.md](SUMMARY.md)**, then **[DATA_REPORT.md](DATA_REPORT.md)**.
+**Shelved 2026-11-10: [STATUS.md](STATUS.md) says where it ended.** Start with **[SUMMARY.md](SUMMARY.md)**, then **[DATA_REPORT.md](DATA_REPORT.md)**.
 
 | File | What |
 |---|---|

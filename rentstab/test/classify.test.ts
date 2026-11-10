@@ -19,6 +19,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false, ownerPortfolioUnits: 3,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
     newUnitsPermit: null, tsaUnits: null, razePermitDate: null, permitCostSince2019: 0, manual: null,
+    ownerOccupiedApplication: null,
     affordableSignals: [],
     ...over,
   };
@@ -268,17 +269,64 @@ describe('owner-occupied 1–4 units — Sec. 13-78(n) ¶1', () => {
   });
 });
 
-describe('owner may live here without the tax status', () => {
-  it('non-owner rate but the owner\'s mail goes to the property → can\'t tell', () => {
-    const r = run({ mailingIsProperty: true });
-    expect(r.status).toBe('cant_tell');
+describe('owner probably lives there without the tax status', () => {
+  it('non-owner rate but the owner\'s mail goes to the property → probably exempt, one home counted as the owner\'s', () => {
+    const p = parcel({ mailingIsProperty: true });
+    const r = classify(p, RULES);
+    expect(r.status).toBe('likely_exempt');
     expect(r.rule).toBe('owner_may_live_here');
+    expect(r.reasons[0]).toMatch(/if the owner actually lives here/);
+    expect(housingMix(p, r, RULES)).toMatchObject({ units: 3, owned: 1, market: 2, unclear: 0 });
+  });
+  it('kept as can\'t tell when the rule says so: every home unclear', () => {
+    const rules = structuredClone(RULES);
+    rules.rules.find((x) => x.id === 'owner_may_live_here')!.status = 'cant_tell';
+    const p = parcel({ mailingIsProperty: true });
+    expect(housingMix(p, classify(p, rules), rules)).toMatchObject({ owned: 0, unclear: 3 });
   });
   it('…but not for an LLC owner', () => {
     expect(run({ mailingIsProperty: true, ownerKind: 'entity', owner: '10 Test LLC' }).status).toBe('likely_covered');
   });
   it('…and not for a building over 4 units', () => {
     expect(run({ mailingIsProperty: true, units: 6 }).status).toBe('likely_covered');
+  });
+});
+
+describe('owner-occupied applications since 2025 (records request 26-3023)', () => {
+  const app = (status: 'approved' | 'denied' | 'pending') => ({ ownerOccupiedApplication: { status, filed: '2026-07-14' } });
+  it('approved, roll still on the non-owner rate → owner-occupied like the rate itself', () => {
+    const p = parcel(app('approved'));
+    const r = classify(p, RULES);
+    expect(r.rule).toBe('owner_occupied_small_building');
+    expect(r.status).toBe('likely_exempt');
+    expect(r.reasons[0]).toMatch(/application approved by the city \(filed 2026-07-14\)/);
+    expect(r.confidence_notes.join(' ')).toMatch(/tax roll still shows the non-owner rate/);
+    expect(housingMix(p, r, RULES)).toMatchObject({ owned: 1, market: 2 });
+  });
+  it('approved on a single family → the owner\'s own home', () => {
+    const r = run({ ...app('approved'), taxClass: '1', taxClassDesc: 'Single Family', levyCode: 'NO01', units: 1 });
+    expect(r.rule).toBe('owner_own_home');
+  });
+  it('approved changes nothing where the roll already has the owner-occupied rate', () => {
+    const r = classify(oo(app('approved')), RULES);
+    expect(r.reasons[0]).toMatch(/owner-occupied tax rate on file/);
+    expect(r.confidence_notes.join(' ')).not.toMatch(/application/);
+  });
+  it('denied: the mailing address no longer counts → covered, with the denial noted', () => {
+    const r = run({ ...app('denied'), mailingIsProperty: true });
+    expect(r.status).toBe('likely_covered');
+    expect(r.reasons[0]).toMatch(/city denied/);
+    expect(r.confidence_notes.join(' ')).toMatch(/denied an owner-occupied application for this lot \(filed 2026-07-14\)/);
+  });
+  it('still open: stays "owner probably lives there", with the open application noted', () => {
+    const r = run({ ...app('pending'), mailingIsProperty: true });
+    expect(r.rule).toBe('owner_may_live_here');
+    expect(r.confidence_notes.join(' ')).toMatch(/still open with the city/);
+    expect(r.confidence_notes.join(' ')).not.toMatch(/No owner-occupied application is on file/);
+  });
+  it('an approval does not turn a commercial lot into an owner-occupied one', () => {
+    const r = run({ ...app('approved'), taxClass: '6', taxClassDesc: 'Commercial II', levyCode: 'C01', ownerOccupiedTaxRate: null });
+    expect(r.rule).not.toMatch(/owner_/);
   });
 });
 

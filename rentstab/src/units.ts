@@ -1,5 +1,5 @@
 // Unit accounting shared by the citywide report and the policy tool.
-import type { Classification } from './classify.ts';
+import { type Classification, ownerOccupiedOnRecord } from './classify.ts';
 import { notBuiltYet } from './permits.ts';
 import type { Rules } from './rules.ts';
 import type { Parcel } from './types.ts';
@@ -20,7 +20,6 @@ export function dwellingUnits(p: Parcel, c: Classification, rules: Rules): numbe
 }
 
 export function housingMix(p: Parcel, c: Classification, rules: Rules): Mix {
-  const d = rules.data;
   const units = dwellingUnits(p, c, rules);
   const m: Mix = { units, owned: 0, controlled: 0, market: 0, subsidized: 0, unclear: 0 };
   if (!units) return m;
@@ -28,8 +27,8 @@ export function housingMix(p: Parcel, c: Classification, rules: Rules): Mix {
     m.units = 0; // hotel rooms and storefront "units" aren't housing
     return m;
   }
-  const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
-  const ownerHere = d.owner_occupied_levy_codes.includes(levy) ? 1 : 0;
+  // The owner's own home: on the city's records, or (owner-may-live-here, counted as exempt) probably.
+  const ownerHere = ownerOccupiedOnRecord(p, rules) === true || (c.rule === 'owner_may_live_here' && c.status === 'likely_exempt') ? 1 : 0;
   if (c.status === 'cant_tell') { m.unclear = units; return m; }
   m.owned = Math.min(ownerHere, units);
   const rest = units - m.owned;
@@ -39,13 +38,11 @@ export function housingMix(p: Parcel, c: Classification, rules: Rules): Mix {
   return m;
 }
 
-/** Rental units for the fiscal-note comparison: the owner's own unit isn't a rental; "owner may live here" gives a range. */
+/** Rental units for the fiscal-note comparison: the owner's own unit isn't a rental; "owner probably lives here" gives a range. */
 export function unitCounts(p: Parcel, c: Classification, rules: Rules): { units: number; rental: number; rentalIfOwnerAbsent: number } {
   if (c.status === 'not_residential_rental') return { units: p.units ?? 0, rental: 0, rentalIfOwnerAbsent: 0 };
   const units = dwellingUnits(p, c, rules);
-  const d = rules.data;
-  const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
-  const rental = Math.max(0, units - (d.owner_occupied_levy_codes.includes(levy) ? 1 : 0));
+  const rental = Math.max(0, units - (ownerOccupiedOnRecord(p, rules) === true ? 1 : 0));
   const maybeOwner = c.rule === 'owner_may_live_here' ? 1 : 0;
   return { units, rental: Math.max(0, rental - maybeOwner), rentalIfOwnerAbsent: rental };
 }

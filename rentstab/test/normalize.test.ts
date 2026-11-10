@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mailingStreetAndCity, markSuffixSensitive, streetsWithSeveralSuffixes, normalizeQuery, ownerKey, ownerKind, parseAddress, sameAddress } from '../src/normalize.ts';
+import { mailingStreetAndCity, markSuffixSensitive, streetsWithSeveralSuffixes, normalizeQuery, ownerKey, ownerKind, parseAddress, sameAddress, splitAddressList } from '../src/normalize.ts';
 
 describe('parseAddress / sameAddress', () => {
   it('parses ranges and splits off the suffix', () => {
@@ -20,6 +20,23 @@ describe('parseAddress / sameAddress', () => {
     expect(sameAddress(parseAddress('13-15 Payton St'), parseAddress('15 Payton Street'))).toBe(true);
     expect(sameAddress(parseAddress('13 Payton St'), parseAddress('17 Payton St'))).toBe(false);
     expect(sameAddress(parseAddress('13 Payton St'), parseAddress('13 Peyton St'))).toBe(false);
+  });
+});
+
+describe('splitAddressList', () => {
+  it('house numbers wait for the next street name', () => {
+    expect(splitAddressList('115, 119 Adelaide Ave., 5 Price St., 68 76 Laura St.')).toEqual(['115 Adelaide Ave', '119 Adelaide Ave', '5 Price St', '68 Laura St', '76 Laura St']);
+    expect(splitAddressList('29,33 &41 Portland St')).toEqual(['29 Portland St', '33 Portland St', '41 Portland St']);
+    expect(splitAddressList('72 and 78 Congress Avenue; 36, 68-70 Julian St. 74 Appleton St.')).toEqual(['72 Congress Avenue', '78 Congress Avenue', '36 Julian St', '68-70 Julian St', '74 Appleton St']);
+    expect(splitAddressList('10, 12, Morning Star Row, 47 Somerset St.')).toEqual(['10 Morning Star Row', '12 Morning Star Row', '47 Somerset St']);
+  });
+  it('drops unit numbers, notes and text without a house number', () => {
+    expect(splitAddressList('Scattered Sites: 9 Moore St. Units #1-7; 12 Meni Court Units #1, #2, #3; 48 Bridgham Street (3)')).toEqual(['9 Moore St', '12 Meni Court', '48 Bridgham Street']);
+    expect(splitAddressList('45 Appleton Street aka 1 Putnam Street')).toEqual(['45 Appleton Street', '1 Putnam Street']);
+    expect(splitAddressList('211 Carleton Court, many West End address (see mapping file)')).toEqual(['211 Carleton Court']);
+    expect(splitAddressList('2 Bosworth St., Bldgs 1-8 & 56 Curtis St.')).toEqual(['2 Bosworth St', '56 Curtis St']);
+    expect(splitAddressList('Scattered sites')).toEqual([]);
+    expect(splitAddressList('106 8th Street')).toEqual(['106 8th Street']);
   });
 });
 

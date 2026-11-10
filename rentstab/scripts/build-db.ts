@@ -2,11 +2,12 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { mailingStreetAndCity, markSuffixSensitive, ownerKey, ownerKind, parseAddress, sameAddress, streetsWithSeveralSuffixes, type StreetAddress } from '../src/normalize.ts';
+import { mailingStreetAndCity, markSuffixSensitive, ownerKey, ownerKind, parseAddress, sameAddress, splitAddressList, streetsWithSeveralSuffixes, type StreetAddress } from '../src/normalize.ts';
 import { readCsv } from '../src/csv.ts';
 import { excelDate } from '../src/xlsx.ts';
 import { inGeometry, lotIndex } from '../src/geo.ts';
 import { newUnitsByParcel, notBuiltYet, permitKind, permitUnits, type Permit } from '../src/permits.ts';
+import { loadRules } from '../src/rules.ts';
 import type { Parcel } from '../src/types.ts';
 
 const DATA = join(import.meta.dirname, '..', 'data');
@@ -85,6 +86,7 @@ export function buildParcels(): Parcel[] {
       homeParcelSameOwner: null,
       newUnitsPermit: null,
       tsaUnits: null,
+      ownerOccupiedApplication: null,
       manual: null,
       razePermitDate: null,
       permitCostSince2019: 0,
@@ -204,6 +206,35 @@ export function buildParcels(): Parcel[] {
       if (signal && !p.affordableSignals.some((s) => s.startsWith('hud_assisted') && !s.endsWith('_nearby'))) p.affordableSignals.push(signal);
     }
     console.log('hud_mf_properties matches:', JSON.stringify(matchStats.hud_mf_properties));
+
+    // RIHousing's list of low- and moderate-income homes counted for Providence in 2025 (records response, 2026-11-10):
+    // rental properties with homes counted. Addresses only, often several doors per row. A property whose affordability
+    // period ends before the assumed effective date gets a signal no rule reads. Ownership homes aren't rentals;
+    // "scattered sites" rows (vouchers, group-home beds) can't be placed.
+    const lmihPath = join(import.meta.dirname, '..', 'manual', 'rihousing-lmih-2025.csv');
+    if (existsSync(lmihPath)) {
+      const effective = loadRules(join(import.meta.dirname, '..', 'rules', 'ordinance-2026-04.yaml')).assumed_effective_date;
+      const lots = new Set<string>(), unplaced: string[] = [];
+      let rows = 0, doors = 0, found = 0;
+      for (const r of readCsv(uncommented(lmihPath))) {
+        if ((r['Tenure'] !== 'Rental' && r['Tenure'] !== 'Mixed') || !(Number(r['Total LMIH Units']) > 0)) continue;
+        rows++;
+        const signal = r['Affordability End Date'] && r['Affordability End Date'] < effective ? 'state_lmih_ended' : 'state_lmih';
+        const before = found;
+        for (const door of new Set(splitAddressList(r['Address']))) {
+          doors++;
+          const ids = matchAddr.all(door);
+          if (ids.length) found++;
+          for (const id of ids) {
+            const q = byId.get(id)!;
+            lots.add(id);
+            if (!q.affordableSignals.includes(signal)) q.affordableSignals.push(signal);
+          }
+        }
+        if (found === before) unplaced.push(`${r['Property Name']} (${r['Total LMIH Units']})`);
+      }
+      console.log(`RIHousing LMIH list: ${rows} rental rows, ${found} of ${doors} addresses matched, ${lots.size} lots; not placed: ${unplaced.join('; ')}`);
+    }
   }
   // 8%-law parcels (class 12) often carry a placeholder unit count in CAMA. HUD lists give project sizes, but scattered-site
   // projects (Barbara Jordan I: 81 lots; EPN: 54 sites citywide) already count most units lot by lot, and one project can match
@@ -305,6 +336,27 @@ export function buildParcels(): Parcel[] {
       p.units = n;
     }
     console.log(`tax-stabilization unit counts: ${applied} parcels, ${before} → ${after} units; ${waiting} lots still under construction`);
+  }
+
+  // Owner-occupied (homestead) applications since 2025 (records request 26-3023): the latest one per lot. The roll's
+  // owner-occupied rate lags approvals by months, so an approval can stand in for it. Archived applications are skipped.
+  const ooPath = join(import.meta.dirname, '..', 'manual', 'owner-occupied-applications-2025-26.csv');
+  if (existsSync(ooPath)) {
+    const STATUS: Record<string, 'approved' | 'denied' | 'pending'> = {
+      Approve: 'approved', Deny: 'denied', 'Need more information': 'pending', Submitted: 'pending', 'Updated by Applicant': 'pending',
+    };
+    const tally: Record<string, number> = {};
+    let unplaced = 0;
+    for (const r of readCsv(uncommented(ooPath))) { // rows are in entry order: a later row replaces an earlier one
+      const status = STATUS[r.status];
+      if (!status) continue;
+      const [plat, lot, unit] = String(r.parcel_id).trim().toUpperCase().split('-');
+      const p = byId.get(`${plat.padStart(3, '0')}-${(lot ?? '').padStart(4, '0')}-${(unit ?? '0000').padStart(4, '0')}`);
+      if (!p) { unplaced++; continue; }
+      p.ownerOccupiedApplication = { status, filed: r.entry_date };
+    }
+    for (const p of parcels) if (p.ownerOccupiedApplication) tally[p.ownerOccupiedApplication.status] = (tally[p.ownerOccupiedApplication.status] ?? 0) + 1;
+    console.log(`owner-occupied applications: latest per lot ${JSON.stringify(tally)}; ${unplaced} rows match no parcel`);
   }
 
   const kinds: Record<string, number> = {};
@@ -578,10 +630,10 @@ function firstDoor(address: string): string {
 }
 
 /** Street address → parcel id: the roll's own addresses first, then E-911 address points located inside a lot. */
-function addressMatcher(parcels: Parcel[]): (address: string) => string | null {
-  const byStreet = new Map<string, { a: StreetAddress; id: string }[]>();
-  const put = (street: string, v: { a: StreetAddress; id: string }) => (byStreet.get(street) ?? byStreet.set(street, []).get(street)!).push(v);
-  for (const p of parcels) { const a = parseAddress(p.address); if (a) put(a.street, { a, id: p.id }); }
+function addressMatcher(parcels: Parcel[]): ((address: string) => string | null) & { all: (address: string) => string[] } {
+  const byStreet = new Map<string, { a: StreetAddress; id: string; roll?: boolean }[]>();
+  const put = (street: string, v: { a: StreetAddress; id: string; roll?: boolean }) => (byStreet.get(street) ?? byStreet.set(street, []).get(street)!).push(v);
+  for (const p of parcels) { const a = parseAddress(p.address); if (a) put(a.street, { a, id: p.id, roll: true }); }
   const shapesPath = join(DATA, 'raw', 'parcel_shapes.json'), pointsPath = join(DATA, 'raw', 'address_points.json');
   if (existsSync(shapesPath) && existsSync(pointsPath)) {
     const shapes = new Map<string, number[][][]>();
@@ -594,11 +646,24 @@ function addressMatcher(parcels: Parcel[]): (address: string) => string | null {
       if (a && lots.length) put(a.street, { a, id: parcels[lots[0]].id });
     }
   }
-  return (address: string) => {
+  const first = (address: string) => {
     const a = parseAddress(address.split(',')[0]);
     if (!a) return null;
     return (byStreet.get(a.street) ?? []).find((x) => sameAddress(x.a, a))?.id ?? null;
   };
+  /**
+   * Every lot the address touches: the lots the tax roll lists at it, or, when the roll lists none, the lots holding its
+   * address points. A number range on one side of the street ("368-380") leaves out the lots across it.
+   */
+  const all = (address: string) => {
+    const a = parseAddress(address);
+    if (!a) return [];
+    const side = a.hi > a.lo && a.lo % 2 === a.hi % 2 ? a.lo % 2 : null;
+    const hits = (byStreet.get(a.street) ?? []).filter((x) => sameAddress(x.a, a) && (side == null || x.a.lo % 2 === side));
+    const onRoll = hits.filter((x) => x.roll);
+    return [...new Set((onRoll.length ? onRoll : hits).map((x) => x.id))];
+  };
+  return Object.assign(first, { all });
 }
 
 const uncommented = (path: string) => readFileSync(path, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n');

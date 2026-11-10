@@ -44,7 +44,7 @@ export interface Rules {
     affordable_signals_weak: string[];
   };
   rules: Rule[];
-  data_notes: Record<'units_assumed_one' | 'sold_after_roll' | 'roll_assessment_date' | 'no_cama' | 'assessor_units' | 'rarer_exemptions' | 'unknown_class', string>;
+  data_notes: Record<'units_assumed_one' | 'sold_after_roll' | 'roll_assessment_date' | 'no_cama' | 'assessor_units' | 'rarer_exemptions' | 'unknown_class' | 'oo_basis_roll' | 'oo_basis_application' | 'oo_application_denied' | 'oo_application_pending', string>;
   not_evaluable: { section: string; name: string; note?: string }[];
   disclaimer: string;
 }

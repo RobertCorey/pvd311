@@ -17,7 +17,8 @@ interface Ctx {
   p: Parcel;
   rules: Rules;
   units: number | null; // usable unit count (single-family / condo parcels default to 1)
-  oo: boolean | null; // owner-occupied tax rate
+  oo: boolean | null; // owner-occupied on the city's records (ownerOccupiedOnRecord)
+  ooByApplication: boolean; // …through an approved application the roll doesn't show yet
   vars: Record<string, string>;
   notes: string[];
 }
@@ -54,6 +55,21 @@ function effectiveDates(rules: Rules) {
 
 const CONFIDENCE = ['low', 'medium', 'high'];
 
+function rollOwnerOccupied(p: Parcel, rules: Rules): boolean | null {
+  const d = rules.data;
+  const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
+  return d.owner_occupied_levy_codes.includes(levy) ? true : d.non_owner_occupied_levy_codes.includes(levy) ? false : null;
+}
+
+/**
+ * Owner-occupied on the city's records: the tax rate on the roll, or an owner-occupied application the city has approved
+ * since (the roll lags approvals by months). Null when the tax class has no owner-occupied rate.
+ */
+export function ownerOccupiedOnRecord(p: Parcel, rules: Rules): boolean | null {
+  const roll = rollOwnerOccupied(p, rules);
+  return roll === false ? p.ownerOccupiedApplication?.status === 'approved' : roll;
+}
+
 function newUnitsVerdict(c: Ctx, r: Rule): Verdict {
   const ev = c.p.newUnitsPermit;
   if (!ev) return null;
@@ -77,6 +93,9 @@ function newUnitsVerdict(c: Ctx, r: Rule): Verdict {
   if (c.p.yearBuilt != null && c.p.yearBuilt >= permitYear - 1) return null;
   return { status: ambiguous, reason: fill(r.reason_near as string, vars), note: r.note };
 }
+
+/** The roll's owner-occupied note, or the application's when that is what the result rests on. */
+const ooNote = (c: Ctx, r: Rule) => (c.ooByApplication ? fill(r.note_application as string, c.vars) : r.note);
 
 const TESTS: Record<string, Test> = {
   manual_label(c, r) {
@@ -212,22 +231,25 @@ const TESTS: Record<string, Test> = {
 
   owner_home(c, r) {
     if (!isSmallRes(c) || c.oo !== true || c.units !== 1) return null;
-    return { status: r.status!, reason: fill(r.reason!, c.vars), note: r.note };
+    return { status: r.status!, reason: fill(r.reason!, c.vars), note: ooNote(c, r) };
   },
 
   owner_occupied_small(c, r) {
     if (!isSmallRes(c) || c.oo !== true) return null;
     const max = Number(r.max_units), adu = Number(r.adu_allowance ?? 0);
-    if (c.units == null) return { status: 'cant_tell', reason: fill(r.reason_units_missing as string, c.vars), note: r.note };
-    if (c.units <= max) return { status: r.status!, reason: fill(r.reason!, c.vars), note: r.note };
-    if (c.units <= max + adu) return { status: 'cant_tell', reason: fill(r.reason_adu as string, c.vars), note: r.note };
+    if (c.units == null) return { status: 'cant_tell', reason: fill(r.reason_units_missing as string, c.vars), note: ooNote(c, r) };
+    if (c.units <= max) return { status: r.status!, reason: fill(r.reason!, c.vars), note: ooNote(c, r) };
+    if (c.units <= max + adu) return { status: 'cant_tell', reason: fill(r.reason_adu as string, c.vars), note: ooNote(c, r) };
     return null; // owner-occupied but too big: falls through to covered
   },
 
   owner_mailing_is_property(c, r) {
     if (!isSmallRes(c) || c.oo !== false || c.p.mailingIsProperty !== true) return null;
     if (c.p.ownerKind === 'entity' || c.units == null || c.units > Number(r.max_units)) return null;
-    return { status: r.status!, reason: fill(r.reason!, c.vars), note: r.note };
+    // The city turned this owner's application down: the mailing address no longer suggests an owner-occupant.
+    const app = c.p.ownerOccupiedApplication;
+    if (app?.status === 'denied') return null;
+    return { status: r.status!, reason: fill(r.reason!, c.vars), note: app ? undefined : r.note };
   },
 
   additional_property(c, r) {
@@ -256,7 +278,8 @@ const TESTS: Record<string, Test> = {
     if (c.units == null && !isApartment(c)) return { status: 'cant_tell', reason: fill(r.reason_units_missing as string, c.vars) };
     if (c.p.yearBuilt == null) return { status: 'cant_tell', reason: fill(r.reason_year_missing as string, c.vars) };
     const why = fill(
-      (isApartment(c) ? r.why_apartment : c.oo === true ? r.why_owner_occupied_large : c.p.ownerKind === 'entity' ? r.why_entity : r.why_default) as string,
+      (isApartment(c) ? r.why_apartment : c.oo === true ? r.why_owner_occupied_large : c.p.ownerKind === 'entity' ? r.why_entity
+        : c.p.ownerOccupiedApplication?.status === 'denied' ? r.why_application_denied : r.why_default) as string,
       c.vars,
     );
     if (c.p.taxClass === d.single_family_class || c.p.taxClass === d.condo_class) c.notes.push(r.note_single_unit as string);
@@ -268,17 +291,21 @@ const TESTS: Record<string, Test> = {
 
 export function classify(p: Parcel, rules: Rules): Classification {
   const d = rules.data;
-  const levy = d.levy_code_2_classes.includes(p.taxClass) && p.levyCode2 ? p.levyCode2 : p.levyCode;
-  const oo = d.owner_occupied_levy_codes.includes(levy) ? true : d.non_owner_occupied_levy_codes.includes(levy) ? false : null;
+  const oo = ownerOccupiedOnRecord(p, rules);
+  const ooByApplication = oo === true && rollOwnerOccupied(p, rules) === false;
+  const app = p.ownerOccupiedApplication;
   const oneUnitClass = p.taxClass === d.single_family_class || p.taxClass === d.condo_class;
   const units = p.units ?? (oneUnitClass ? 1 : null);
   const notes: string[] = [];
   if (p.units == null && oneUnitClass) notes.push(d_notes(rules).units_assumed_one);
+  if (app?.status === 'denied') notes.push(fill(d_notes(rules).oo_application_denied, { filed: app.filed }));
+  if (app?.status === 'pending' && oo === false) notes.push(fill(d_notes(rules).oo_application_pending, { filed: app.filed }));
 
   const ooRule = rules.rules.find((r) => r.id === 'owner_occupied_small_building');
   const c: Ctx = {
-    p, rules, units, oo, notes,
+    p, rules, units, oo, ooByApplication, notes,
     vars: {
+      ooBasis: fill(ooByApplication ? d_notes(rules).oo_basis_application : d_notes(rules).oo_basis_roll, { filed: app?.filed ?? '' }),
       ooLimit: ooRule && ooRule.enabled !== false ? `1–${ooRule.max_units} units` : 'no buildings (switched off)',
       classDesc: p.taxClassDesc,
       owner: p.owner,

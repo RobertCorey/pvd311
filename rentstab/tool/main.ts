@@ -15,7 +15,7 @@ interface Data {
 }
 // Display rule: every home gets one category from its parcel's result (src/units.ts housingMix, then slicesFor below).
 //   owner's own unit, owner-occupied rate on file            → owned       "Not a rental"            neutral, light
-//   "owner may live here" (bill at the property, no rate)    → owned for one unit, market for the rest, both "probably"
+//   "owner probably lives there" (bill at the property, no rate) → owned for one unit, market for the rest, both "probably"
 //   rental the bill covers                                   → controlled  "Rent-stabilized"         hue
 //   rental the bill exempts (owner-occupied 2–4s' other units,
 //     new construction, institutions …)                      → market      "Open market"             hue
@@ -175,7 +175,7 @@ function renderParcel(i: number) {
   const { p, c, slices } = rows[i];
   let [cat, label] = PILL[c.status];
   if (c.rule === 'public_and_subsidized_housing') { cat = 'subsidized'; label = 'Likely exempt · rent set by a program'; }
-  if (c.rule === OWNER_MAY_LIVE) label = "Can't tell · the owner probably lives here";
+  if (c.rule === OWNER_MAY_LIVE) label = `${label} · the owner probably lives here`;
   const homes = slices.map((s) => `${s.n} ${LABEL[s.cat].toLowerCase()}${s.sure ? '' : ' (probably)'}`).join(', ');
   $('body').innerHTML = `
     <div class="card">
