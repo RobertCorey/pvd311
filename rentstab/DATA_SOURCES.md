@@ -80,6 +80,8 @@ Searched 2026-10-31 (certificate of occupancy, owner occupied, homestead, tax st
 | **Vacant/abandoned registry** | public release of city request 25-339 | 327 entries 2017–2025, 276 matched by plat/lot | vacancy |
 | **2026 tax sale** | city Collector CSV, as `manual/tax-sale-2026.csv` (name-free; the site blocks scripted downloads) | 214 parcels, 213 matched | distress and turnover |
 | Researched big buildings | `manual/big-buildings.csv` (hand research, with sources) | 66 buildings | hotels, senior care, co-ops, new and converted buildings |
+| **Tax-stabilization home counts** | city request **26-3025**, reduced to `manual/tsa-units-ty26.csv` (the units sheet carries no owner names) | 59 building rows on 45 lots, 2,390 homes, tax year 2026 | home counts for tax-stabilization (class 83) buildings, where the assessor layer often shows one or none |
+| **Permit status and certificate-of-occupancy records** | city request **26-3026**, reduced to `manual/co-export-2026-11.csv` (applicant names removed) | 3,692 records exported 2026-11-02; no certificate issue dates | current permit status (a new building whose permit is still open counts no homes yet); the city's own parcel id for each permit |
 | Ordinance text, fiscal note, veto | IQM2 ORD-2026-11 / record 52231 | final text, passed 2026-04-16 | `rules/ordinance-2026-04.yaml` |
 
 SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_month`, `rental_registry`, `str_registrations`, `str_city_permits`, `airbnb_listings`, `housing_court_cases`, `code_cases_active`, `vacant_registry`, `tax_sale_2026`, `owner_occupancy_history`, `safmr_fy27`, `hud_psh_tract`, `hud_mf_properties`, `hud_mf_contracts`, `city_cases`, `sales_2024`, `code_cases_history`, `lead_service_lines`, `flood_zone`, `rihousing_rent_town`, `rihousing_evictions_month`, `rihousing_evictions_zip`, `rihousing_judgments_year`, `sales_history`, `lead_violations_2022`, `ridoh_suspected_rentals`, `code_buildings`, `code_inspections`, `code_novs`, `code_violations`, `code_liens`, `hmda_loans`, `hmda_purchases_tract_year`, `zhvi_month`, `fhfa_hpi_tract`, `acs_tract_history`, `lihtc_projects`, `bps_units_year`, `chas_tract_burden`, `acs_tract_structure`, `acs_tract_cells`, `acs_cell_labels`, `hud_fmr_history`, `hud_income_limits`, `tax_levy_year`, `assessor_nbhd`, `lead_certificates`, `parcel_signals` (one row per parcel with every signal, materialized and indexed). Personal columns (names, emails, phones) are dropped at download time (`kind: 'records'` sources in `scripts/fetch.ts` keep an explicit column list).
@@ -111,7 +113,7 @@ SQLite tables: `parcels`, `permits`, `tracts`, `evictions_tract_month`, `zori_mo
 
 ## 3. By request (ranked)
 
-Ready-to-send text for each, with where to send it: **REQUESTS.md**. Filed 2026-10-31: assessor owner-occupancy records #26-3023, landlord fire-insurance declarations #26-3024, tax stabilization agreements #26-3025, certificates of occupancy #26-3026.
+Ready-to-send text for each, with where to send it: **REQUESTS.md**. Filed 2026-10-31: assessor owner-occupancy records #26-3023, landlord fire-insurance declarations #26-3024, tax stabilization agreements #26-3025, certificates of occupancy #26-3026. Answered and loaded: #26-3025 and #26-3026 (part 1 above). #26-3024: the city holds no such declarations. #26-3023 is open.
 
 | # | Dataset | Who holds it | How | Why it matters |
 |---|---|---|---|---|

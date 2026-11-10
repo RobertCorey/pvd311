@@ -21,7 +21,7 @@ const FONTS = { 'NotoSans-Regular': 'Noto%20Sans%20Regular', 'NotoSans-Medium': 
 export const COLS = ['id', 'address', 'neighborhood', 'lat', 'lng', 'taxClass', 'taxClassDesc', 'levyCode', 'levyCode2',
   'ownerOccupiedTaxRate', 'owner', 'ownerKind', 'mailingIsProperty', 'camaMatched', 'units', 'yearBuilt', 'bedrooms',
   'bathrooms', 'lastSaleDate', 'ownerOther', 'ownerNameAmbiguous', 'ownerPortfolioUnits', 'homeParcel',
-  'homeParcelOwnerOccupied', 'newUnitsPermit', 'razePermitDate', 'affordableSignals', 'manual'] as const;
+  'homeParcelOwnerOccupied', 'newUnitsPermit', 'razePermitDate', 'affordableSignals', 'manual', 'tsaUnits'] as const;
 
 const b = (v: boolean | null) => (v == null ? null : v ? 1 : 0);
 const r5 = (v: number | null) => (v == null ? null : Math.round(v * 1e5) / 1e5);
@@ -35,7 +35,7 @@ function row(p: Parcel): unknown[] {
     lastSaleDate: p.lastSaleDate && p.lastSaleDate >= '2024-01-01' ? p.lastSaleDate : null, ownerOther: p.ownerOtherResidential.map((o) => b(o.ownerOccupied)),
     ownerNameAmbiguous: b(p.ownerNameAmbiguous), ownerPortfolioUnits: p.ownerPortfolioUnits, homeParcel: b(p.homeParcelId != null),
     homeParcelOwnerOccupied: b(p.homeParcelOwnerOccupied), newUnitsPermit: p.newUnitsPermit, razePermitDate: p.razePermitDate,
-    affordableSignals: p.affordableSignals, manual: p.manual,
+    affordableSignals: p.affordableSignals, manual: p.manual, tsaUnits: p.tsaUnits,
   };
   return COLS.map((c) => v[c]);
 }

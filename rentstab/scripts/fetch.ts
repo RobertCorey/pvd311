@@ -107,6 +107,7 @@ export const SOURCES: Source[] = [
   { name: 'pha', kind: 'arcgis', service: 'Providence_Housing_Authority', geometry: true, order: 'ObjectId' },
   // Building permits. Socrata "2009-2018" actually holds Dec 2016 – Jan 2020; the ArcGIS map holds Jan 2019 – Mar 2024.
   // No certificate-of-occupancy records in either; new-building / conversion permits stand in for CO dates.
+  // (The city's CO export, manual/co-export-2026-11.csv, adds permit status but no CO dates either.)
   { name: 'permits_2016_2020', kind: 'socrata', id: 'ufmm-rbej',
     select: 'permitnum, permittype, permitclass, workclass, pin, originaladdress1, description, estprojectcost, issueddate, completeddate, statuscurrent, proposeduse, totalsqft' },
   { name: 'permits_2019_2024', kind: 'arcgis', service: 'Interactive_Permitting_Map_(BETA)', order: 'ObjectId',

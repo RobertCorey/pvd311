@@ -6,7 +6,7 @@ import { mailingStreetAndCity, markSuffixSensitive, ownerKey, ownerKind, parseAd
 import { readCsv } from '../src/csv.ts';
 import { excelDate } from '../src/xlsx.ts';
 import { inGeometry, lotIndex } from '../src/geo.ts';
-import { newUnitsByParcel, permitKind, permitUnits, type Permit } from '../src/permits.ts';
+import { newUnitsByParcel, notBuiltYet, permitKind, permitUnits, type Permit } from '../src/permits.ts';
 import type { Parcel } from '../src/types.ts';
 
 const DATA = join(import.meta.dirname, '..', 'data');
@@ -84,6 +84,7 @@ export function buildParcels(): Parcel[] {
       homeParcelOwnerOccupied: null,
       homeParcelSameOwner: null,
       newUnitsPermit: null,
+      tsaUnits: null,
       manual: null,
       razePermitDate: null,
       permitCostSince2019: 0,
@@ -266,6 +267,46 @@ export function buildParcels(): Parcel[] {
       if (/building permit/i.test(pm.type) && pm.issued >= '2019-01-01' && byId.has(pm.parcelId)) p.permitCostSince2019 += pm.cost ?? 0;
     }
   }
+  // A finished standalone certificate-of-occupancy record on the lot, filed after the permit, closes the permit's project
+  // even when the permit record itself was left open.
+  let closedByCo = 0;
+  for (const r of coExport()) {
+    if (r['Record Type'] !== 'Certificate of Occupancy' || r['Record Status'] !== 'Complete' || !r.Mbl) continue;
+    for (const p of targets(r.Mbl.trim().toUpperCase())) {
+      const ev = p.newUnitsPermit;
+      if (!ev || ev.status === 'Complete' || r['Date Submitted'] < ev.issued) continue;
+      p.newUnitsPermit = { ...ev, status: 'Complete' };
+      closedByCo++;
+    }
+  }
+  console.log(`new-units permits closed by a standalone certificate of occupancy: ${closedByCo} parcels`);
+
+  // Tax-stabilization buildings: the assessor's tax-year-2026 living-unit list (records request 26-3025) replaces the 2024
+  // extract's count and a researched one. One row per building on the lot; hotel buildings aren't homes. A lot whose
+  // new-building permit is still open keeps no count: the list shows what is planned there.
+  const tsaPath = join(import.meta.dirname, '..', 'manual', 'tsa-units-ty26.csv');
+  if (existsSync(tsaPath)) {
+    const perLot = new Map<string, number>(), seen = new Set<string>();
+    for (const r of readCsv(uncommented(tsaPath))) {
+      if (/hotel/i.test(r['Building Type'] ?? '')) continue;
+      const [plat, lot, unit] = String(r['Parcel ID']).trim().toUpperCase().split('-');
+      const id = `${plat.padStart(3, '0')}-${(lot ?? '').padStart(4, '0')}-${(unit ?? '').padStart(4, '0')}`;
+      if (seen.has(`${id}|${r['Building Seq']}`)) continue; // one building listed under two addresses
+      seen.add(`${id}|${r['Building Seq']}`);
+      perLot.set(id, (perLot.get(id) ?? 0) + (Number(r['Living Units']) || 0));
+    }
+    let applied = 0, waiting = 0, before = 0, after = 0;
+    for (const [id, n] of perLot) {
+      const p = byId.get(id);
+      if (!p || !n) continue;
+      p.tsaUnits = n;
+      if (notBuiltYet(p)) { waiting++; continue; }
+      before += p.units ?? 0; after += n; applied++;
+      p.units = n;
+    }
+    console.log(`tax-stabilization unit counts: ${applied} parcels, ${before} → ${after} units; ${waiting} lots still under construction`);
+  }
+
   const kinds: Record<string, number> = {};
   for (const pm of permits) kinds[pm.kind] = (kinds[pm.kind] ?? 0) + 1;
   console.log(`permits: ${permits.length} (${JSON.stringify(kinds)}); parcels with new-units evidence: ${parcels.filter((p) => p.newUnitsPermit).length}`);
@@ -560,6 +601,14 @@ function addressMatcher(parcels: Parcel[]): (address: string) => string | null {
   };
 }
 
+const uncommented = (path: string) => readFileSync(path, 'utf8').split('\n').filter((l) => !l.startsWith('#')).join('\n');
+
+/** manual/co-export-2026-11.csv: building permits that lead to a certificate of occupancy, plus standalone CO records. */
+function coExport(): Record<string, string>[] {
+  const path = join(import.meta.dirname, '..', 'manual', 'co-export-2026-11.csv');
+  return existsSync(path) ? readCsv(uncommented(path)) : [];
+}
+
 /** All permit extracts, normalized and de-duplicated on record number (the newest extract wins for a record). */
 export function loadPermits(parcelIds: Set<string>, matchAddress: (address: string) => string | null = () => null): Permit[] {
   const byRecord = new Map<string, Permit>();
@@ -598,6 +647,18 @@ export function loadPermits(parcelIds: Set<string>, matchAddress: (address: stri
       byRecord.set(base.id, { ...base, parcelId: base.parcelId ?? prior?.parcelId ?? null, cost: prior?.cost ?? null, kind, units: units ?? permitUnits(description) });
     }
   }
+  // The Nov 2026 certificate-of-occupancy export (records request 26-3026) lists the same permit records with a newer
+  // status and the city's own parcel id. The id beats our address match when it names a lot on the roll.
+  const plotOf = (id: string | null) => id?.split('-').slice(0, 2).join('-');
+  let refreshed = 0, moved = 0;
+  for (const r of coExport()) {
+    const p = byRecord.get(r['Record #']);
+    if (!p || r['Record Type'] !== 'Building Permit') continue;
+    if (r['Record Status'] && r['Record Status'] !== p.status) { p.status = r['Record Status']; refreshed++; }
+    const mbl = pid(r.Mbl);
+    if (mbl && parcelIds.has(mbl) && plotOf(mbl) !== plotOf(p.parcelId)) { p.parcelId = mbl; moved++; }
+  }
+  console.log(`permit status refreshed from the CO export: ${refreshed}; moved to the city's parcel id: ${moved}`);
   const out = [...byRecord.values()];
   const matched = out.filter((p) => p.parcelId && parcelIds.has(p.parcelId)).length;
   console.log(`permits matched to a roll parcel id: ${matched}/${out.length}`);

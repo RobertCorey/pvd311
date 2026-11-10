@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { classify } from '../src/classify.ts';
 import { loadRules, type Rules } from '../src/rules.ts';
 import type { Parcel } from '../src/types.ts';
+import { housingMix } from '../src/units.ts';
 
 const RULES = loadRules(join(import.meta.dirname, '..', 'rules', 'ordinance-2026-04.yaml'));
 
@@ -17,7 +18,7 @@ function parcel(over: Partial<Parcel> = {}): Parcel {
     bedrooms: 6, bathrooms: 3, lastSaleDate: '2015-06-01', condoBuildingUnits: null,
     ownerOtherResidentialParcels: 0, ownerOtherResidential: [], ownerNameAmbiguous: false, ownerPortfolioUnits: 3,
     homeParcelId: null, homeParcelAddress: null, homeParcelOwnerOccupied: null, homeParcelSameOwner: null,
-    newUnitsPermit: null, razePermitDate: null, permitCostSince2019: 0, manual: null,
+    newUnitsPermit: null, tsaUnits: null, razePermitDate: null, permitCostSince2019: 0, manual: null,
     affordableSignals: [],
     ...over,
   };
@@ -119,6 +120,11 @@ describe('other categorical exemptions', () => {
   it('government-owned with units → can\'t tell', () => {
     expect(run({ taxClass: '80', taxClassDesc: 'State', levyCode: 'E01', ownerOccupiedTaxRate: null, units: 12, ownerKind: 'entity', owner: 'State of Rhode Island' }).status).toBe('cant_tell');
   });
+  it('tax-stabilization parcel with a few units from the assessor\'s TSA list → homes, not storefronts', () => {
+    const tsa = { taxClass: '83', taxClassDesc: '44-3-9 Stb', levyCode: 'TSA', ownerOccupiedTaxRate: null, units: 1, bedrooms: null, bathrooms: null, ownerKind: 'entity' as const, owner: 'Mill Lofts LLC', yearBuilt: 1900 };
+    expect(run(tsa).status).toBe('not_residential_rental');
+    expect(run({ ...tsa, tsaUnits: 1 }).status).toBe('cant_tell');
+  });
   it('tax-stabilization parcel with many units → can\'t tell', () => {
     expect(run({ taxClass: '83', taxClassDesc: '44-3-9 Stb', levyCode: 'TSA', ownerOccupiedTaxRate: null, units: 200, ownerKind: 'entity', owner: 'Mill Lofts LLC', yearBuilt: 1900 }).status).toBe('cant_tell');
   });
@@ -150,8 +156,25 @@ describe('new construction — Sec. 13-78(m), assumed effective 2027-04-15 → l
 
 describe('new-building permits — Sec. 13-78(m), stand-in for CO dates', () => {
   const vacant = { taxClass: '13', taxClassDesc: 'Residential Vacant Land', levyCode: 'NO01', units: null, yearBuilt: null };
-  const permit = (issued: string, kind: 'new_residential' | 'conversion' = 'new_residential', units: number | null = 176) =>
-    ({ kind, issued, units, record: 'BLDG-23-1', description: 'Construction of a new 5 story building inclusive of 176 residential units' });
+  const permit = (issued: string, kind: 'new_residential' | 'conversion' = 'new_residential', units: number | null = 176, status: string | null = 'Complete') =>
+    ({ kind, issued, units, record: 'BLDG-23-1', description: 'Construction of a new 5 story building inclusive of 176 residential units', status });
+  const homes = (over: Partial<Parcel>) => { const p = parcel(over); return housingMix(p, classify(p, RULES), RULES).units; };
+  it('closed permit on a lot with no assessor homes → the permit\'s homes are counted', () => {
+    expect(homes({ ...vacant, newUnitsPermit: permit('2023-11-21') })).toBe(176);
+  });
+  it('permit still open or stopped → same result, no homes counted yet, and the note says so', () => {
+    for (const status of ['Active', 'Stopped']) {
+      const over = { ...vacant, newUnitsPermit: permit('2025-07-01', 'new_residential', 41, status) };
+      expect(run(over).status).toBe('likely_exempt');
+      expect(run(over).confidence_notes.join(' ')).toMatch(new RegExp(`still ${status.toLowerCase()} in the city's November 2026 export`));
+      expect(homes(over)).toBe(0);
+    }
+  });
+  it('open permit where the assessor already shows homes → the assessor\'s homes still count', () => {
+    const over = { yearBuilt: 2024, units: 6, newUnitsPermit: permit('2024-02-01', 'new_residential', 6, 'Active') };
+    expect(homes(over)).toBe(6);
+    expect(run(over).confidence_notes.join(' ')).not.toMatch(/no homes are counted/);
+  });
   it('lot that was vacant in 2024 with a 2023 new-building permit → likely exempt (CO can\'t predate the permit)', () => {
     const r = run({ ...vacant, newUnitsPermit: permit('2023-11-21') });
     expect(r.status).toBe('likely_exempt');
@@ -200,6 +223,11 @@ describe('researched building labels', () => {
   });
   it('an undated conversion can\'t be settled', () => {
     expect(run({ ...big, yearBuilt: 1900, manual: label('apartments_market', { conversion: true }) }).status).toBe('cant_tell');
+  });
+  it('the assessor\'s tax-stabilization count beats the researched one in the reason', () => {
+    const r = run({ ...big, units: 50, tsaUnits: 50, manual: label('apartments_market', { opened: 2015, residentialUnits: 61 }) });
+    expect(r.reasons[0]).toMatch(/\b50\b/);
+    expect(r.reasons[0]).not.toMatch(/\b61\b/);
   });
   it('low-confidence labels are ignored', () => {
     expect(run({ ...big, manual: label('hotel', { confidence: 'low' }) }).rule).not.toBe('researched_building');

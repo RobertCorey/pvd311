@@ -12,7 +12,7 @@
 | `assessor_nbhd` | table | 38,523 | parcelId, nbhd |
 | `bps_units_year` | table | 46 | year, units_1, units_2, units_3_4, units_5_plus, bldgs_5_plus, value_total |
 | `chas_tract_burden` | table | 2,184 | geoid, tenure, income_band, cost_burden, households |
-| `city_cases` | table | 632 | guid, case_type, category, status, created, closed, address, housing, parcelId |
+| `city_cases` | table | 806 | guid, case_type, category, status, created, closed, address, housing, parcelId |
 | `code_buildings` | table | 8,447 | building_id, address, neighborhood, ward, condemned, emergency, parcelId |
 | `code_cases_active` | table | 1,269 | record, occupancy, submitted, last_activity, status, address, parcelId |
 | `code_cases_history` | table | 999 | record, address, status, first_inspection, complaint_type, violations_found, condemnation, building_type, nov1_issued, nov2_issued, condemnation_issued, parcelId |
@@ -37,16 +37,16 @@
 | `lihtc_projects` | table | 78 | hud_id, project, address, units, li_units, year_placed_in_service, compliance_ends, extended_use_ends, parcelId |
 | `neighborhood_summary` | table | 25 | area, homes, owned, controlled, market, subsidized, unclear, str_registrations, housing_court_cases, code_cases_active, parcels_with_lead_cert, registered_rental_units, new_units_permitted_since_2022, city_cases_housing, code_cases_2022_2024, parcels_with_lead_service_line, homes_in_100yr_flood_area, ridoh_suspected_rentals, hud_assisted_units, sales_2024, code_inspections_1997_2022, code_violations_1997_2022 |
 | `new_housing_by_year` | table | 21 | year, kind, permits, units |
-| `owner_groups` | table | 10,377 | groupId, parcels, homes, controlled, market, subsidized, unclear, entity_parcels, non_entity_parcels, sample_entities |
+| `owner_groups` | table | 10,333 | groupId, parcels, homes, controlled, market, subsidized, unclear, entity_parcels, non_entity_parcels, sample_entities |
 | `owner_occupancy_history` | table | 866,444 | parcelId, roll_year, owner_occupied, method |
-| `ownership_changes` | table | 160,004 | parcelId, roll_year, seller_kind, buyer_kind, comparable |
+| `ownership_changes` | table | 159,388 | parcelId, roll_year, seller_kind, buyer_kind, comparable |
 | `parcel_overlay` | table | 8,210 | parcelId, overlay, district |
-| `parcel_owner_group` | table | 15,451 | parcelId, groupId |
+| `parcel_owner_group` | table | 15,304 | parcelId, groupId |
 | `parcel_profile` | view | 44,090 | parcelId, address, neighborhood, tract, assessor_nbhd, zone, overlays, lat, lng, tax_class, levy_code, owner_occupied_rate, owner_kind, units, year_built, last_sale_date, status, rule, reason, homes, owned, controlled, market, subsidized, unclear, owner_group, owner_group_parcels, owner_group_homes, registered_rental_units, str_registrations, str_city_permits, airbnb_listings, housing_court_cases, last_housing_court_case, tax_sale_2026, vacant_registry, code_cases_active, lead_cert_last_letter, lead_cert_units, hud_assisted_units, hud_contract_expires, city_cases, city_cases_housing, code_cases_2013_2024, lead_service_lines, sale_2024_price, sale_2024_date, flood_zone, lead_violations_2022, last_arms_length_sale, arms_length_sales_since_2000, ridoh_suspected_rental, code_inspections_1997_2022, last_code_inspection, code_violations_1997_2022, lead_violations_1997_2022 |
 | `parcel_signals` | table | 44,090 | parcelId, registered_rental_units, str_registrations, str_city_permits, airbnb_listings, housing_court_cases, last_housing_court_case, tax_sale_2026, vacant_registry, code_cases_active, lead_cert_last_letter, lead_cert_units, hud_assisted_units, hud_contract_expires, city_cases, city_cases_housing, code_cases_2013_2024, lead_service_lines, sale_2024_price, sale_2024_date, flood_zone, lead_violations_2022, last_arms_length_sale, arms_length_sales_since_2000, ridoh_suspected_rental, code_inspections_1997_2022, last_code_inspection, code_violations_1997_2022, lead_violations_1997_2022 |
 | `parcel_status` | table | 44,090 | parcelId, status, rule, reason, homes, owned, controlled, market, subsidized, unclear |
 | `parcel_zoning` | table | 44,043 | parcelId, zone, district |
-| `parcels` | table | 44,090 | id, address, neighborhood, tract, lat, lng, taxClass, taxClassDesc, levyCode, levyCode2, ownerOccupiedTaxRate, owner, ownerKind, ownerKey, mailingStreet, mailingCity, mailingIsProperty, totalAssessment, totalExempt, camaMatched, units, yearBuilt, useCode, useDesc, numBuildings, bedrooms, bathrooms, lastSaleDate, condoBuildingUnits, ownerOtherResidentialParcels, ownerOtherResidential, ownerNameAmbiguous, ownerPortfolioUnits, homeParcelId, homeParcelAddress, homeParcelOwnerOccupied, homeParcelSameOwner, newUnitsPermit, manual, razePermitDate, permitCostSince2019, affordableSignals |
+| `parcels` | table | 44,090 | id, address, neighborhood, tract, lat, lng, taxClass, taxClassDesc, levyCode, levyCode2, ownerOccupiedTaxRate, owner, ownerKind, ownerKey, mailingStreet, mailingCity, mailingIsProperty, totalAssessment, totalExempt, camaMatched, units, yearBuilt, useCode, useDesc, numBuildings, bedrooms, bathrooms, lastSaleDate, condoBuildingUnits, ownerOtherResidentialParcels, ownerOtherResidential, ownerNameAmbiguous, ownerPortfolioUnits, homeParcelId, homeParcelAddress, homeParcelOwnerOccupied, homeParcelSameOwner, newUnitsPermit, tsaUnits, manual, razePermitDate, permitCostSince2019, affordableSignals |
 | `permits` | table | 125,940 | id, source, parcelId, type, permitClass, workClass, description, cost, issued, completed, status, address, kind, units |
 | `rental_registry` | table | 3,642 | address, units, lead_status, pre1978, exempt, parcelId |
 | `ridoh_suspected_rentals` | table | 15,403 | address, zip, parcelId |
@@ -56,7 +56,7 @@
 | `rihousing_rent_town` | table | 39 | town, rent_2bd_2020, rent_2bd_2025 |
 | `safmr_fy27` | table | 10 | zip, br0, br1, br2, br3, br4 |
 | `sales_2024` | table | 1,826 | sale_date, price, units, validity, instrument, building_type, land_use, assessed, year_built, quality, condition, finished_area, address, parcelId |
-| `sales_history` | table | 80,863 | sale_date, price, sale_code, qualified, improved, address, parcelId |
+| `sales_history` | table | 101,118 | sale_date, price, sale_code, qualified, improved, address, parcelId, source |
 | `str_city_permits` | table | 252 | record, type, submitted, address, status, parcelId |
 | `str_registrations` | table | 412 | license_no, status, effective, expires, address, unit, zip, parcelId |
 | `tax_levy_year` | table | 203 | year, levy, parcels, assessed, exempt, taxes, rate_per_1000 |

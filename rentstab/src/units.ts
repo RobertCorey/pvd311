@@ -1,5 +1,6 @@
 // Unit accounting shared by the citywide report and the policy tool.
 import type { Classification } from './classify.ts';
+import { notBuiltYet } from './permits.ts';
 import type { Rules } from './rules.ts';
 import type { Parcel } from './types.ts';
 
@@ -13,8 +14,9 @@ export function dwellingUnits(p: Parcel, c: Classification, rules: Rules): numbe
   const d = rules.data;
   if (c.status === 'not_residential_rental' && c.rule !== 'owner_own_home') return p.units ?? 0;
   const oneUnitClass = p.taxClass === d.single_family_class || p.taxClass === d.condo_class;
-  // Lots built on after the 2024 assessor extract: take the unit count from the new-building permit.
-  return p.units ?? (c.rule === 'new_construction_permit' ? p.newUnitsPermit?.units ?? 0 : oneUnitClass ? 1 : 0);
+  // Lots built on after the 2024 assessor extract: take the unit count from the new-building permit, once the permit
+  // is closed. A permit that is still open (or stopped) is a building under construction, not homes.
+  return p.units ?? (c.rule === 'new_construction_permit' ? (notBuiltYet(p) ? 0 : p.newUnitsPermit?.units ?? 0) : oneUnitClass ? 1 : 0);
 }
 
 export function housingMix(p: Parcel, c: Classification, rules: Rules): Mix {

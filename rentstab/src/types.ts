@@ -53,8 +53,11 @@ export interface Parcel {
   homeParcelOwnerOccupied: boolean | null;
   /** Home parcel's owner normalizes to the same name as this parcel's owner. */
   homeParcelSameOwner: boolean | null;
-  /** Latest permit for a new residential building or a conversion of nonresidential space into dwellings (2016–Mar 2024). */
-  newUnitsPermit: { kind: 'new_residential' | 'conversion'; issued: string; units: number | null; record: string; description: string } | null;
+  /** Latest permit for a new residential building or a conversion of nonresidential space into dwellings (2016–Sep 2026).
+   *  `status` is the permit record's status in the city's Nov 2026 export: Active, Complete or Stopped. */
+  newUnitsPermit: { kind: 'new_residential' | 'conversion'; issued: string; units: number | null; record: string; description: string; status: string | null } | null;
+  /** Living units on the assessor's tax-year-2026 list of tax-stabilization buildings (manual/tsa-units-ty26.csv). */
+  tsaUnits: number | null;
   razePermitDate: string | null;
   /** Sum of stated project costs on building permits issued 2019-01 … 2024-03 (renovation intensity). */
   permitCostSince2019: number;

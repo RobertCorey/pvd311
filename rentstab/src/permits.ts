@@ -1,5 +1,6 @@
 // Building permits → per-parcel evidence of new dwelling units (new buildings, conversions of nonresidential space).
-// Stands in for certificate-of-occupancy dates, which aren't published: a CO can't predate the building permit.
+// Stands in for certificate-of-occupancy dates, which the city's permit system doesn't export (request 26-3026):
+// a CO can't predate the building permit.
 
 export type PermitKind = 'new_residential' | 'conversion' | 'dorm' | 'raze' | 'other';
 
@@ -68,6 +69,12 @@ export interface NewUnitsEvidence {
   units: number | null;
   record: string;
   description: string;
+  status: string | null; // permit record status: Active, Complete, Stopped
+}
+
+/** The assessor shows no homes on the lot and its new-building permit is still open (or stopped): not built yet. */
+export function notBuiltYet(p: { units: number | null; newUnitsPermit: Pick<NewUnitsEvidence, 'status'> | null }): boolean {
+  return p.units == null && /^(active|stopped)$/i.test(p.newUnitsPermit?.status ?? '');
 }
 
 /** Latest dated new-building or conversion permit per parcel (units = max stated across that project's permits). */
@@ -77,7 +84,7 @@ export function newUnitsByParcel(permits: Permit[]): Map<string, NewUnitsEvidenc
     if (!p.parcelId || !p.issued || (p.kind !== 'new_residential' && p.kind !== 'conversion')) continue;
     const prev = out.get(p.parcelId);
     if (!prev || p.issued > prev.issued) {
-      out.set(p.parcelId, { kind: p.kind, issued: p.issued, units: Math.max(p.units ?? 0, prev && prev.issued >= shiftYears(p.issued, -2) ? prev.units ?? 0 : 0) || null, record: p.id, description: p.description.slice(0, 200) });
+      out.set(p.parcelId, { kind: p.kind, issued: p.issued, units: Math.max(p.units ?? 0, prev && prev.issued >= shiftYears(p.issued, -2) ? prev.units ?? 0 : 0) || null, record: p.id, description: p.description.slice(0, 200), status: p.status });
     } else if (prev.issued <= shiftYears(p.issued, 2) && (p.units ?? 0) > (prev.units ?? 0)) {
       prev.units = p.units;
     }

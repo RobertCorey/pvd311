@@ -149,7 +149,8 @@ rules:
     reason_near: "new {permitUnitsText} building permitted {permitDate} — exempt only if its certificate of occupancy came on/after {lookbackDate}"
     reason_existing_building: "a new residential building was permitted on this lot {permitDate} (\"{permitDesc}\") — units in that building would be exempt as new construction; older units on the lot would not"
     reason_conversion: "permit {permitDate} to create {permitUnitsText} inside an existing building (\"{permitDesc}\") — exempt as new construction only if it converted nonresidential space and the CO came on/after {lookbackDate}"
-    note: "Building permits are public for Dec 2016 – Mar 2024 only; certificate-of-occupancy dates are not public."
+    note: "Building permits run through Sep 2026 (city records release 26-2355). The city's permit export carries no certificate-of-occupancy dates (request 26-3026)."
+    note_not_built: "This permit was still {permitStatus} in the city's November 2026 export and the assessor shows no homes on the lot, so no homes are counted here yet."
 
   - id: no_dwelling_units
     label: "No homes on the parcel"
