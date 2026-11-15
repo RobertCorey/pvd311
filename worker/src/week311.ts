@@ -171,6 +171,10 @@ const weekday = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateStri
 const monthDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ });
 const vs = (n: number, prev: number) => (prev ? ` <span style="color:#888">(last week ${prev})</span>` : '');
 
+/** "cloudy" / "rain, 0.15 in" / "showers, 0.4 in rain" — the amount's word only when the sky word doesn't already say it. */
+export const skyLine = (d: WeatherDay): string => [d.sky,
+  d.rainIn ? `${d.rainIn} in${/rain|drizzle/.test(d.sky) ? '' : ' rain'}` : '', d.snowIn ? `${d.snowIn} in${/snow/.test(d.sky) ? '' : ' snow'}` : ''].filter(Boolean).join(', ');
+
 export function week311Email(s: WeekSummary, o: { base: string; weather: WeatherDay[] | null; cases: CaseLine[]; ai: WriteUp | null }): { subject: string; html: string } {
   const base = o.base.replace(/\/+$/, '');
   const url = `${base}/week?until=${s.untilDate}`;
@@ -198,7 +202,7 @@ export function week311Email(s: WeekSummary, o: { base: string; weather: Weather
   const hoods = s.neighborhoods.slice(0, 3).map((h) => li(`${esc(h.name)} · <b>${h.n}</b>`));
   const wx = o.weather?.length
     ? h3('Weather') + `<table style="border-collapse:collapse;font-size:.92em">${o.weather.map((d) => `<tr><td style="padding:1px 10px 1px 0;color:#666">${weekday(d.date)}</td>`
-      + `<td style="padding:1px 10px 1px 0">${d.hiF ?? '–'}° / ${d.loF ?? '–'}°</td><td style="padding:1px 0">${esc([d.sky, d.rainIn ? `${d.rainIn} in rain` : '', d.snowIn ? `${d.snowIn} in snow` : ''].filter(Boolean).join(', '))}</td></tr>`).join('')}</table>`
+      + `<td style="padding:1px 10px 1px 0">${d.hiF ?? '–'}° / ${d.loF ?? '–'}°</td><td style="padding:1px 0">${esc(skyLine(d))}</td></tr>`).join('')}</table>`
     : '';
 
   const html = `<h2 style="margin:0 0 .2em">This week in 311</h2>`

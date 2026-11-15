@@ -34,7 +34,7 @@ describe('week311', () => {
     expect(m.html).toContain('Potholes &lt;led&gt;.');
     expect(m.html).toContain('Case of the week');
     expect(m.html).toContain('The city: “Removed.”');
-    expect(m.html).toContain('0.5 in rain');
+    expect(m.html).toContain('rain, 0.5 in<');
     expect(m.html).toContain('https://fixmypvd.org/week?until=2026-10-25');
   });
 
