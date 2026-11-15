@@ -112,7 +112,7 @@ You get the week's numbers, the daily weather, and every request the city receiv
 
 1. overview: 3 to 5 plain sentences on what the week looked like. Lead with what stood out (what people reported most, what jumped or dropped against last week, a busy day or neighborhood). Tie it to the weather only where the timing in the data supports it, and say it as a likely link, not a proven cause. Use the numbers you were given; do not compute new statistics beyond simple comparisons.
 
-2. caseOfWeek: the single request that is the funniest, oddest or most human, with its id from the list, a headline of at most 8 words, and a blurb of 1 or 2 sentences that says what happened using only that request's own fields. Be warm and wry, never mocking the person who reported it or city workers. If nothing stands out, pick the most interesting one anyway.
+2. caseOfWeek: the single request that is the funniest, oddest or most human, with its number n from the list, a headline of at most 8 words, and a blurb of 1 or 2 sentences that says what happened using only that request's own fields. Be warm and wry, never mocking the person who reported it or city workers. If nothing stands out, pick the most interesting one anyway.
 
 Only state facts that are in the data. Do not mention holidays, events, games or news; you have no information about them. No names of people, no license plates. No exclamation marks, no emoji.`;
 
@@ -120,7 +120,7 @@ const SCHEMA = {
   type: 'object', additionalProperties: false, required: ['overview', 'caseOfWeek'],
   properties: {
     overview: { type: 'string' },
-    caseOfWeek: { type: 'object', additionalProperties: false, required: ['id', 'headline', 'blurb'], properties: { id: { type: 'string' }, headline: { type: 'string' }, blurb: { type: 'string' } } },
+    caseOfWeek: { type: 'object', additionalProperties: false, required: ['n', 'headline', 'blurb'], properties: { n: { type: 'integer' }, headline: { type: 'string' }, blurb: { type: 'string' } } },
   },
 } as const;
 
@@ -135,11 +135,11 @@ export function writeUpInput(s: WeekSummary, weather: WeatherDay[] | null, cases
     busiestDay: s.busiestDay, closedBy: s.outcomes,
   };
   const wx = weather?.map((d) => `${d.date} ${weekday(d.date)}: ${d.hiF}°/${d.loF}°F, ${d.sky}${d.rainIn ? `, rain ${d.rainIn} in` : ''}${d.snowIn ? `, snow ${d.snowIn} in` : ''}${d.windMph ? `, wind to ${d.windMph} mph` : ''}`) ?? ['(weather unavailable)'];
-  const lines = cases.slice(-AI_CASES_MAX).map((c) => [c.id, c.day, c.type, c.street, c.hood ?? '', c.status, c.answers.join('; '), c.resolution ? `city: ${c.resolution.replace(/\s+/g, ' ')}` : ''].join(' | '));
-  return `NUMBERS\n${JSON.stringify(nums, null, 1)}\n\nWEATHER\n${wx.join('\n')}\n\nREQUESTS (id | day | type | street | neighborhood | status | details | city's closing note)\n${lines.join('\n')}`;
+  const lines = cases.slice(-AI_CASES_MAX).map((c, i) => [i + 1, c.day, c.type, c.street, c.hood ?? '', c.status, c.answers.join('; '), c.resolution ? `city: ${c.resolution.replace(/\s+/g, ' ')}` : ''].join(' | '));
+  return `NUMBERS\n${JSON.stringify(nums, null, 1)}\n\nWEATHER\n${wx.join('\n')}\n\nREQUESTS (n | day | type | street | neighborhood | status | details | city's closing note)\n${lines.join('\n')}`;
 }
 
-/** One Claude call; null when there is no key or it fails. The pick is dropped unless its id is one of `cases`. */
+/** One Claude call; null when there is no key or it fails. The pick is dropped unless its number is one of `cases`. */
 export async function writeUp(env: Pick<Env, 'ANTHROPIC_API_KEY'>, s: WeekSummary, weather: WeatherDay[] | null, cases: CaseLine[]): Promise<WriteUp | null> {
   if (!env.ANTHROPIC_API_KEY || !cases.length) return null;
   try {
@@ -151,9 +151,12 @@ export async function writeUp(env: Pick<Env, 'ANTHROPIC_API_KEY'>, s: WeekSummar
     });
     if (r.stop_reason === 'refusal') throw new Error('refused');
     const text = r.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
-    const o = JSON.parse(text) as { overview?: string; caseOfWeek?: { id?: string; headline?: string; blurb?: string } };
+    const o = JSON.parse(text) as { overview?: string; caseOfWeek?: { n?: number; headline?: string; blurb?: string } };
     const c = o.caseOfWeek;
-    const pick = c?.id && cases.some((x) => x.id === c.id) && c.headline && c.blurb ? { id: c.id, headline: c.headline, blurb: c.blurb } : null;
+    // Cases go in numbered (1-based over the same slice): a 36-character GUID is easy to copy wrong, a number is not.
+    const hit = typeof c?.n === 'number' ? cases.slice(-AI_CASES_MAX)[c.n - 1] : undefined;
+    if (c && !hit) console.error('[week311] case of the week not in the list:', c.n);
+    const pick = hit && c?.headline && c.blurb ? { id: hit.id, headline: c.headline, blurb: c.blurb } : null;
     return { overview: (o.overview ?? '').trim(), pick };
   } catch (e) {
     console.error('[week311] write-up failed:', e instanceof Error ? e.message : e);
