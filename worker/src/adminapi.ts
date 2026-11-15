@@ -43,6 +43,7 @@ import { buildAdminView } from './cityquestions.js';
 import type { ReportStatus } from '../../shared/types.js';
 import { fetchResendEmail, importCityMessages, syncFromResend, type EmailRecord } from './emaillog.js';
 import { engagement } from './engagement.js';
+import { buildWeek311 } from './week311.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -218,6 +219,13 @@ export async function handleAdmin(request: Request, url: URL, env: Env, store: S
     const items = rows.filter(hit).slice(0, limit).map(adminProjection);
     const last = rows[rows.length - 1];
     return json({ items, next: rows.length >= limit && last ? toIso(last.timestamp) : null });
+  }
+
+  if (m === 'GET' && path === '/api/admin/week311') {
+    // Preview of Rob's Monday "This week in 311" (week311.ts) — builds it (one Claude call), sends nothing.
+    const r = await buildWeek311(env, store, { until: url.searchParams.get('until') }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    if (r && 'error' in r) return json(r, 400);
+    return json(r ? { subject: r.subject, html: r.html, ai: r.ai, weather: r.weather, cases: r.cases, total: r.summary.total } : { empty: true });
   }
 
   if (m === 'GET' && path === '/api/admin/city-cases/insights') {

@@ -35,6 +35,7 @@ import { getEffectiveGolden, writeLiveGolden } from './canary-golden.js';
 import { syncCityCases, followUpCityCases, backfillCityCaseGeo } from './citycases.js';
 import { runStreetDigest } from './street.js';
 import { runWeekDigest } from './week.js';
+import { runWeek311 } from './week311.js';
 import { auditCityQuestions, questionsDigest, type QuestionsDigestState } from './cityquestions.js';
 
 // Providence bounding box (same as Node engine).
@@ -725,6 +726,8 @@ export async function runDaily(env: Env): Promise<void> {
   if (new Date().getUTCDay() === 1) {
     await runStreetDigest(env, store, mailer).catch((e) => console.error('[daily] street digest failed:', e instanceof Error ? e.message : e));
     await runWeekDigest(env, store, mailer).catch((e) => console.error('[daily] week digest failed:', e instanceof Error ? e.message : e));
+    // "This week in 311" (week311.ts): the same week written up with weather and a case of the week — Rob only for now.
+    await runWeek311(env, store, mailer);
   }
 
   // Digest: only mail when the queue snapshot differs from the last one we sent (meta/digest).
