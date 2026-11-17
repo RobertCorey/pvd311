@@ -138,14 +138,20 @@ async function intakeAllowed(store: Store, ip: string): Promise<boolean> {
 async function createReport(request: Request, env: Env, { store }: ApiDeps, auth: AuthUser): Promise<Response> {
   const ct = request.headers.get('content-type') ?? '';
   if (!ct.includes('multipart/form-data')) return json({ error: 'multipart_required' }, 400);
+  // Stage timings (2026-11-17: a phone's send timed out at 45 s with nothing in the log) — written with the
+  // report.created event, and as report.slow when a create takes over 10 s, so the next hang shows where.
+  const t0 = Date.now(); const stages: Record<string, number> = {};
+  const mark = (k: string) => { stages[k] = Date.now() - t0; };
   const form = await request.formData();
+  mark('form');
+  await logEvent(store, { level: 'info', kind: 'report.begin', msg: `Report create started (${auth.uid.slice(0, 6)})`, data: { formMs: stages.form } });
   const f = (k: string) => { const v = form.get(k); return typeof v === 'string' ? v.trim() : ''; };
   const ip = clientIp(request);
 
   // Idempotency: the client's outbox reuses the same clientId on retry — never create a second report for it.
   const clientId = f('clientId').slice(0, 64) || null;
   if (clientId) {
-    const existing = await store.findByClientId(clientId);
+    const existing = await store.findByClientId(clientId); mark('clientId');
     if (existing && existing.ownerUid === auth.uid) return json({ id: existing.id, trackingUrl: `/r/${existing.id}`, category: existing.category, createdAt: toIso(existing.timestamp), idempotent: true }, 200);
   }
 
@@ -171,6 +177,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
   if (f('intakeFlags')) { try { const a = JSON.parse(f('intakeFlags')); if (Array.isArray(a)) intakeFlags = a.map(String).slice(0, 5); } catch { /* ignore */ } }
   // Identity comes ONLY from the verified token: owner + the email the city's updates go to (unless opted out).
   const account = await ensureUser(store, auth);
+  mark('user');
   const email = account.email && account.prefs?.emailUpdates !== false ? account.email : null;
 
   const photo = form.get('photo');
@@ -184,6 +191,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     const q = await checkQuota(store, { uid: account.uid, email: account.email, ip });
     if (!q.ok) return json({ error: 'rate_limited', reason: q.reason, retryAfterSec: q.retryAfterSec, quota: q.quota }, 429, { 'retry-after': String(q.retryAfterSec) });
     quotaSlot = q.slot;
+    mark('quota');
   }
 
   const id = newId();
@@ -192,6 +200,7 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     // Spark plan: no server-side bucket writes. Photo bytes live in Firestore (photos/{id}) and are served by /api/photos/:id.
     await store.putPhoto(id, new Uint8Array(await photo.arrayBuffer()), photo.type);
     photoUrl = `${new URL(request.url).origin}/api/photos/${id}`;
+    mark('photo');
   }
   const now = new Date();
   await store.patchReport(id, {
@@ -201,7 +210,9 @@ async function createReport(request: Request, env: Env, { store }: ApiDeps, auth
     ip, clientId, appVersion: f('appVersion').slice(0, 40) || null, source: 'app',
     ownerUid: account.uid, quotaSlot,
   });
-  await logEvent(store, { level: 'info', kind: 'report.created', msg: `${cat.label} @ ${address}${intakeFlags?.length ? ` (client flags: ${intakeFlags.join(',')})` : ''}`, reportId: id, data: { category, hasPhoto, appVersion: f('appVersion').slice(0, 40) || null } });
+  mark('report');
+  await logEvent(store, { level: 'info', kind: 'report.created', msg: `${cat.label} @ ${address}${intakeFlags?.length ? ` (client flags: ${intakeFlags.join(',')})` : ''}`, reportId: id, data: { category, hasPhoto, appVersion: f('appVersion').slice(0, 40) || null, stages } });
+  if (Date.now() - t0 > 10_000) await logEvent(store, { level: 'warn', kind: 'report.slow', msg: `Report create took ${Math.round((Date.now() - t0) / 1000)} s`, reportId: id, data: { stages } });
   await markOk(store, 'api', `report ${category}`);
   return json({ id, trackingUrl: `/r/${id}`, category, createdAt: now.toISOString() }, 201);
 }
